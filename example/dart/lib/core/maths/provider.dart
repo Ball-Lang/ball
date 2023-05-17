@@ -1,21 +1,10 @@
 import 'dart:async';
 
 import 'package:ball/ball.dart';
-import 'package:pub_semver/pub_semver.dart';
 
 /// Simulates the core provider
 class MathProvider with BallFunctionDefProviderBase {
-  static const kMath = 'math';
-
-  static const kAdd2 = 'add2';
-  static const kAdd2n1 = 'n1';
-  static const kAdd2n2 = 'n2';
-  static const kAdd2Output = 'o';
-
-  // ignore: non_constant_identifier_names
-  static final add2_v1_0_0 = Version(1, 0, 0);
-
-  const MathProvider() : defProviderName = kMath;
+  const MathProvider() : defProviderName = MathConsts.name;
 
   @override
   final String defProviderName;
@@ -28,16 +17,73 @@ class MathProvider with BallFunctionDefProviderBase {
   Iterable<BallFunctionDef> createDefsSync() sync* {
     yield BallFunctionDef(
       defProviderName: defProviderName,
-      name: kAdd2,
+      name: MathAdd2Consts.name,
       desc: "Adds two numbers",
-      version: add2_v1_0_0,
+      version: MathConsts.v1_0_0,
       inputs: [
-        BallArgumentDef(name: kAdd2n1, type: SchemaTypeInfo.$num),
-        BallArgumentDef(name: kAdd2n2, type: SchemaTypeInfo.$num),
+        BallArgumentDef(name: MathAdd2Consts.left, type: SchemaTypeInfo.$num),
+        BallArgumentDef(name: MathAdd2Consts.right, type: SchemaTypeInfo.$num),
       ],
       outputs: [
-        BallArgumentDef(name: kAdd2Output, type: SchemaTypeInfo.$num),
+        BallArgumentDef(
+          name: MathAdd2Consts.output,
+          type: SchemaTypeInfo.$num,
+        ),
       ],
     );
+
+    yield BallFunctionDef(
+      defProviderName: defProviderName,
+      name: MathEqualsConsts.name,
+      desc: "Compares two objects",
+      version: MathConsts.v1_0_0,
+      inputs: [
+        BallArgumentDef(
+          name: MathEqualsConsts.left,
+          type: SchemaTypeInfo.$dynamic,
+        ),
+        BallArgumentDef(
+          name: MathEqualsConsts.right,
+          type: SchemaTypeInfo.$dynamic,
+        ),
+      ],
+      outputs: [
+        BallArgumentDef(
+          name: MathEqualsConsts.output,
+          type: SchemaTypeInfo.$bool,
+        ),
+      ],
+    );
+
+    final compareFuncs = [
+      [MathGreaterThanConsts.name, "Greater than"],
+      [MathGreaterThanOrEqualsConsts.name, "Greater than or equals"],
+      [MathLessThanConsts.name, "Less than"],
+      [MathLessThanOrEqualsConsts.name, "Less than or equals"],
+    ];
+    for (final [name, desc] in compareFuncs) {
+      yield BallFunctionDef(
+        defProviderName: defProviderName,
+        name: name,
+        desc: desc,
+        version: MathConsts.v1_0_0,
+        inputs: [
+          BallArgumentDef(
+            name: MathEqualsConsts.left,
+            type: SchemaTypeInfo.$num,
+          ),
+          BallArgumentDef(
+            name: MathEqualsConsts.right,
+            type: SchemaTypeInfo.$num,
+          ),
+        ],
+        outputs: [
+          BallArgumentDef(
+            name: MathEqualsConsts.output,
+            type: SchemaTypeInfo.$bool,
+          ),
+        ],
+      );
+    }
   }
 }

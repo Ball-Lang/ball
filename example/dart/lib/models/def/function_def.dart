@@ -16,7 +16,7 @@ class BallFunctionDef extends FunctionTypeInfo {
   /// The function definition version, follows semantic versioning.
   final Version version;
 
-  const BallFunctionDef({
+  BallFunctionDef({
     required this.name,
     required this.defProviderName,
     this.desc,

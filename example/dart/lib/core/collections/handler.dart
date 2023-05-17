@@ -50,7 +50,8 @@ class CollectionsCallHandler with BallCallHandlerBase {
   }
 
   @override
-  FutureOr<MethodCallResult> handleCall(MethodCallContext context) async {
+  FutureOr<MethodCallResult> handleCall(MethodCallContext context,
+      Map<String, BallFunctionImplementation?> implementations) async {
     final uri = context.methodUri;
     if (!uri.isScheme(kBall) || uri.host != CollectionsProvider.kCollections) {
       return MethodCallResult.notHandled();
@@ -60,34 +61,33 @@ class CollectionsCallHandler with BallCallHandlerBase {
     }
     switch (uri.pathSegments.first) {
       case CollectionsProvider.kForEach:
-        if (context.defVersionConstraint
-            .allows(CollectionsProvider.kForEachV0_1_0)) {
+        if (context.def.version.allows(CollectionsProvider.kForEachV0_1_0)) {
           //do the loop
           await loop_v0_1_0(context.values);
 
           return MethodCallResult.handled(
             result: {},
+            inferredTypeArguments: {},
+            context: context,
             handledBy: callHandlerName,
-            //what def version was this handled against
-            handlerDefVersion: CollectionsProvider.kForEachV0_1_0,
             //this was handled by a resolver, so it doesn't have version
             handlerVersion: Version.none,
           );
         }
       case CollectionsProvider.kMap:
-        if (context.defVersionConstraint
-            .allows(CollectionsProvider.kMapV0_1_0)) {
+        if (context.def.version.allows(CollectionsProvider.kMapV0_1_0)) {
           //do the loop
           final result = await map_v0_1_0(context.values);
 
           return MethodCallResult.handled(
+            context: context,
             result: {
               CollectionsProvider.kMapOutput:
                   result[CollectionsProvider.kMapInputFnOutput],
             },
+            //TODO: infer
+            inferredTypeArguments: {},
             handledBy: callHandlerName,
-            //what def version was this handled against
-            handlerDefVersion: CollectionsProvider.kMapV0_1_0,
             //this was handled by a resolver, so it doesn't have version
             handlerVersion: Version.none,
           );

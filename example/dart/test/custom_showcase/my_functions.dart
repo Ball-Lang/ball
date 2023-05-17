@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:ball/ball.dart';
+import 'package:ball/models/impl/body/loop.dart';
 import 'package:pub_semver/pub_semver.dart';
 
 /// This provider provides both Defs and Implementations
@@ -89,7 +90,7 @@ class MyFunctionsProvider
   }
 
   Iterable<BallFunctionImplementation> initImpls() sync* {
-    final coreAdd2Uri = createBallUri(MathProvider.kMath, MathProvider.kAdd2);
+    final coreAdd2Uri = createBallUri(MathConsts.name, MathAdd2Consts.name);
     //Remember that this function takes x1,x2,x3 and outputs o
     yield BallFunctionImplementation(
       functionUri: createBallUri(kMyFunctions, kAdd3),
@@ -101,27 +102,27 @@ class MyFunctionsProvider
         BallCall(
           uri: coreAdd2Uri,
           inputMapping: {
-            MathProvider.kAdd2n1: VariableInputMapping(variableName: kAdd3_x1),
-            MathProvider.kAdd2n2: VariableInputMapping(variableName: kAdd3_x2),
+            MathAdd2Consts.left: VariableInputMapping(variableName: kAdd3_x1),
+            MathAdd2Consts.right: VariableInputMapping(variableName: kAdd3_x2),
           },
           outputVariableMapping: {
-            MathProvider.kAdd2Output: 'z1',
+            MathAdd2Consts.output: 'z1',
           },
-          constraint:
-              VersionConstraint.compatibleWith(MathProvider.add2_v1_0_0),
+          defConstraint:
+              VersionConstraint.compatibleWith(MathAdd2Consts.v1_0_0),
         ),
         //then sum z1+x3 into o
         BallCall(
           uri: coreAdd2Uri,
           inputMapping: {
-            MathProvider.kAdd2n1: VariableInputMapping(variableName: 'z1'),
-            MathProvider.kAdd2n2: VariableInputMapping(variableName: kAdd3_x3),
+            MathAdd2Consts.left: VariableInputMapping(variableName: 'z1'),
+            MathAdd2Consts.right: VariableInputMapping(variableName: kAdd3_x3),
           },
           outputVariableMapping: {
-            MathProvider.kAdd2Output: 'z2',
+            MathAdd2Consts.output: 'z2',
           },
-          constraint:
-              VersionConstraint.compatibleWith(MathProvider.add2_v1_0_0),
+          defConstraint:
+              VersionConstraint.compatibleWith(MathAdd2Consts.v1_0_0),
         ),
         //Send z2 as the output
         BallReturn(
@@ -132,16 +133,40 @@ class MyFunctionsProvider
     );
 
     //sum
-
     yield BallFunctionImplementation(
-      defVersion: CollectionsProvider.kForEachV0_1_0,
+      defVersion: Version(0, 0, 1),
       name: kSum,
-      functionUri: createBallUri(
-          CollectionsProvider.kCollections, CollectionsProvider.kForEach),
+      functionUri: createBallUri(kMyFunctions, kSum),
       version: Version(0, 1, 0),
       desc: "Sums a collection",
       body: [
-        //TODO: add sum body
+        BallVar(
+          name: 'acc',
+          initialValue: 0,
+          type: SchemaTypeInfo.$num,
+        ),
+        BallLoopOver(
+          iterable: VariableInputMapping(variableName: kSumInputItems),
+          itemVariableName: 'item',
+          body: [
+            BallCall(
+              uri: MathAdd2Consts.uri,
+              defConstraint: MathAdd2Consts.v1_0_0,
+              inputMapping: {
+                MathAdd2Consts.left: VariableInputMapping(variableName: 'acc'),
+                MathAdd2Consts.right:
+                    VariableInputMapping(variableName: 'item'),
+              },
+              outputVariableMapping: {
+                MathAdd2Consts.output: 'acc',
+              },
+            )
+          ],
+        ),
+        BallReturn(
+          variableName: 'acc',
+          outputName: kSumOutputResult,
+        ),
       ],
     );
   }

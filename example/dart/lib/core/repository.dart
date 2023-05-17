@@ -151,23 +151,48 @@ class BallRepository {
   }
 
   Future<MethodCallResult> callFunctionByDef({
-    required Uri methodUri,
+    required Uri functionUri,
     VersionConstraint? versionConstraint,
     Map<String, Object?>? inputs,
     Map<String, SchemaTypeInfo>? genericArgumentAssignments,
   }) async {
+    versionConstraint ??= VersionConstraint.any;
+    //
+    final def = await resolveFunctionDefByUri(
+      functionUri: functionUri,
+      constraint: versionConstraint,
+    );
+    if (def == null) {
+      return MethodCallResult.notHandled();
+    }
+    //we get all implementations related to the host
+    final implementations = await resolveImplementation(
+      def: def,
+    );
+
     var initialContext = MethodCallContext(
       values: inputs ?? const {},
+      def: def,
       genericArgumentAssignments: genericArgumentAssignments ?? const {},
-      methodUri: methodUri,
-      defVersionConstraint: versionConstraint ?? VersionConstraint.any,
+      methodUri: functionUri,
+    );
+    final grouped = implementations.groupListsBy((element) => element.name).map(
+      (key, value) {
+        final mappedByVersion =
+            Map.fromEntries(value.map((e) => MapEntry(e.version, e)));
+        return MapEntry(
+          key,
+          mappedByVersion[
+              Version.primary(value.map((e) => e.version).toList())],
+        );
+      },
     );
     for (var r in callHandlers) {
-      final res = await r.handleCall(initialContext);
+      final res = await r.handleCall(initialContext, grouped);
       if (res.handled) {
         return res;
       }
     }
-    return MethodCallResult.notHandled();
+    return MethodCallResult.notHandled(context: initialContext);
   }
 }

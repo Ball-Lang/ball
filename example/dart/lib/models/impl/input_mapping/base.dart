@@ -1,3 +1,3 @@
-abstract class BallFunctionCallInputMappingBase {
-  const BallFunctionCallInputMappingBase();
+abstract class BallInputMappingBase {
+  const BallInputMappingBase();
 }

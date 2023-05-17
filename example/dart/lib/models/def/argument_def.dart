@@ -16,4 +16,6 @@ class BallArgumentDef {
     this.desc,
     required this.type,
   });
+
+  
 }

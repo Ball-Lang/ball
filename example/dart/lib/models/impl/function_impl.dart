@@ -1,6 +1,6 @@
 import 'package:pub_semver/pub_semver.dart';
 
-import 'body/impl_body.dart';
+import 'body/step_base.dart';
 
 /// Defins a possible implementation for the function
 class BallFunctionImplementation {
@@ -24,7 +24,7 @@ class BallFunctionImplementation {
   final VersionConstraint defVersion;
 
   /// The body of the function, can be empty.
-  final List<BallFunctionImplementationBody> body;
+  final List<BallStepBase> body;
 
   const BallFunctionImplementation({
     required this.name,

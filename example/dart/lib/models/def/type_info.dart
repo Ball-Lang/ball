@@ -1,5 +1,9 @@
+import 'package:collection/collection.dart';
+
 import 'argument_def.dart';
 import 'function_type.dart';
+
+final _eq = DeepCollectionEquality();
 
 class SchemaTypeInfo {
   static const kTKey = 'TKey';
@@ -7,6 +11,8 @@ class SchemaTypeInfo {
 
   static const SchemaTypeInfo $null = SchemaTypeInfo(root: 'null');
   static const SchemaTypeInfo $dynamic = SchemaTypeInfo(root: 'dynamic');
+  //signed num
+  static const SchemaTypeInfo $bool = SchemaTypeInfo(root: 'bool');
   //signed num
   static const SchemaTypeInfo $num = SchemaTypeInfo(root: 'num');
   //signed int
@@ -47,6 +53,20 @@ class SchemaTypeInfo {
 
   final String root;
   final List<BallArgumentDef> genericTypeArguments;
+  Map<String, SchemaTypeInfo> get genericTypeArgumentsMap => Map.fromEntries(
+        genericTypeArguments.map((e) => MapEntry(e.name, e.type)),
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is SchemaTypeInfo &&
+      other.runtimeType == runtimeType &&
+      other.root == root &&
+      _eq.equals(genericTypeArgumentsMap, other.genericTypeArgumentsMap);
+
+  @override
+  int get hashCode =>
+      Object.hash(root.hashCode, _eq.hash(genericTypeArgumentsMap));
 
   const SchemaTypeInfo({
     required this.root,

@@ -1,3 +1,4 @@
+import 'package:ball/ball.dart';
 import 'package:pub_semver/pub_semver.dart';
 
 class MethodCallResult {
@@ -14,23 +15,26 @@ class MethodCallResult {
   final String? handledBy;
 
   /// Def version
-  final Version? handlerDefVersion;
+  final MethodCallContext? callContext;
+  
   // Version of the handler
   final Version? handlerVersion;
 
   //Maps output name to its value
   final Map<String, Object?> result;
+  final Map<String, SchemaTypeInfo> inferredTypeArguments;
 
   const MethodCallResult({
+    required this.callContext,
     required this.handled,
     required this.result,
     required this.handledBy,
-    required this.handlerDefVersion,
     required this.handlerVersion,
     required this.failed,
     required this.error,
     required this.stackTrace,
     required this.message,
+    required this.inferredTypeArguments,
   });
 
   factory MethodCallResult.error({
@@ -38,48 +42,54 @@ class MethodCallResult {
     Object? error,
     StackTrace? stackTrace,
     required String handledBy,
-    required Version handlerDefVersion,
+    required MethodCallContext context,
     required Version handlerVersion,
+    Map<String, SchemaTypeInfo> inferredTypeArguments = const {}
   }) =>
       MethodCallResult(
         failed: true,
         handled: false,
         handledBy: handledBy,
         result: const {},
-        handlerDefVersion: handlerDefVersion,
+        callContext: context,
         handlerVersion: handlerVersion,
         error: error,
         message: message,
         stackTrace: stackTrace,
+        inferredTypeArguments: {},
       );
 
-  factory MethodCallResult.notHandled() => MethodCallResult(
+  factory MethodCallResult.notHandled({MethodCallContext? context}) =>
+      MethodCallResult(
         handled: false,
         handledBy: null,
         result: const {},
-        handlerDefVersion: null,
+        callContext: context,
         handlerVersion: null,
         error: null,
         stackTrace: null,
         failed: false,
         message: null,
+        inferredTypeArguments: {},
       );
 
   factory MethodCallResult.handled({
     required Map<String, Object?> result,
     required String handledBy,
-    required Version handlerDefVersion,
+    required MethodCallContext context,
     required Version handlerVersion,
+    required Map<String, SchemaTypeInfo> inferredTypeArguments,
   }) =>
       MethodCallResult(
         handled: true,
         result: result,
         handledBy: handledBy,
-        handlerDefVersion: handlerDefVersion,
         handlerVersion: handlerVersion,
         error: null,
         stackTrace: null,
         message: null,
         failed: false,
+        callContext: context,
+        inferredTypeArguments: inferredTypeArguments,
       );
 }

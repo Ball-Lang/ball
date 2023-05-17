@@ -1,6 +1,7 @@
 import 'package:ball/ball.dart';
 
-class BallDeclareVariable extends BallFunctionImplementationBody {
+/// Declare a new variable with a type and an initial variable
+class BallVar extends BallFunctionImplementationBody {
   /// the variable name
   final String name;
 
@@ -9,9 +10,9 @@ class BallDeclareVariable extends BallFunctionImplementationBody {
 
   final Object? initialValue;
 
-  const BallDeclareVariable({
+  const BallVar({
     required this.name,
-    this.type = SchemaTypeInfo.$any,
+    this.type = SchemaTypeInfo.$dynamic,
     this.initialValue,
   });
 }

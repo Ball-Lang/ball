@@ -1,6 +1,6 @@
 import 'package:pub_semver/pub_semver.dart';
 
-import 'type_info.dart';
+import 'function_type.dart';
 
 /// Defines a function
 class BallFunctionDef extends FunctionTypeInfo {
@@ -23,6 +23,6 @@ class BallFunctionDef extends FunctionTypeInfo {
     required this.version,
     super.inputs = const [],
     super.outputs = const [],
-    super.genericArguments = const [],
+    super.genericTypeArguments = const [],
   });
 }

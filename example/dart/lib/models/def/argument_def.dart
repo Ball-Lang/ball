@@ -9,7 +9,7 @@ class BallArgumentDef {
   final String? desc;
 
   /// The argument types, this is a JSON schema.
-  final TypeInfoBase type;
+  final SchemaTypeInfo type;
 
   const BallArgumentDef({
     required this.name,

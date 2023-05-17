@@ -98,7 +98,7 @@ class MyFunctionsProvider
       defVersion: VersionConstraint.compatibleWith(Version(0, 1, 0)),
       body: [
         //first sum x1+x2 into z1
-        BallFunctionCall(
+        BallCall(
           uri: coreAdd2Uri,
           inputMapping: {
             MathProvider.kAdd2n1: VariableInputMapping(variableName: kAdd3_x1),
@@ -111,7 +111,7 @@ class MyFunctionsProvider
               VersionConstraint.compatibleWith(MathProvider.add2_v1_0_0),
         ),
         //then sum z1+x3 into o
-        BallFunctionCall(
+        BallCall(
           uri: coreAdd2Uri,
           inputMapping: {
             MathProvider.kAdd2n1: VariableInputMapping(variableName: 'z1'),
@@ -124,7 +124,7 @@ class MyFunctionsProvider
               VersionConstraint.compatibleWith(MathProvider.add2_v1_0_0),
         ),
         //Send z2 as the output
-        GiveOutput(
+        BallReturn(
           variableName: 'z2',
           outputName: kAdd3Output,
         ),

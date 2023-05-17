@@ -30,6 +30,9 @@ void main() {
       expect(output.handlerDefVersion, defVersion);
       expect(output.handlerVersion, Version(0, 0, 1));
     });
-    test('Sum', () async {});
+
+    test('Sum', () async {
+      //Sum
+    });
   });
 }

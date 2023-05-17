@@ -154,7 +154,7 @@ class BallRepository {
     required Uri methodUri,
     VersionConstraint? versionConstraint,
     Map<String, Object?>? inputs,
-    Map<String, TypeInfoBase>? genericArgumentAssignments,
+    Map<String, SchemaTypeInfo>? genericArgumentAssignments,
   }) async {
     var initialContext = MethodCallContext(
       values: inputs ?? const {},

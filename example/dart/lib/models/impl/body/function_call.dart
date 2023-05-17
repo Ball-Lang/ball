@@ -2,8 +2,8 @@ import 'package:ball/ball.dart';
 import 'package:pub_semver/pub_semver.dart';
 
 /// Represents a function call
-class BallFunctionCall extends BallFunctionImplementationBody {
-  /// The local or global function name
+class BallCall extends BallFunctionImplementationBody {
+  /// The function name
   final Uri uri;
 
   /// Maps input argument names with actual values.
@@ -15,7 +15,7 @@ class BallFunctionCall extends BallFunctionImplementationBody {
 
   final VersionConstraint? constraint;
 
-  const BallFunctionCall({
+  const BallCall({
     required this.uri,
     this.inputMapping = const {},
     this.outputVariableMapping = const {},

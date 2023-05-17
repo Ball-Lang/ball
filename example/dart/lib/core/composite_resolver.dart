@@ -55,7 +55,7 @@ class CompositeCallHandler with BallCallHandlerBase {
     final outputs = <String, Object?>{};
     for (BallFunctionImplementationBody element in impl.body) {
       switch (element) {
-        case BallFunctionCall(
+        case BallCall(
             uri: final uri,
             inputMapping: final inputMapping,
             constraint: final constraint,
@@ -95,14 +95,14 @@ class CompositeCallHandler with BallCallHandlerBase {
               stackTrace: StackTrace.current,
             );
           }
-        case BallDeclareVariable(
+        case BallVar(
             name: final name,
             initialValue: final initialValue,
             type: final type,
           ):
           activeVariables[name] = initialValue;
           newVariableTypes[name] = type;
-        case GiveOutput(
+        case BallReturn(
             outputName: final outputName,
             variableName: final variableName
           ):

@@ -9,17 +9,16 @@ Uri createBallUri(
   Iterable<String>? extraPathSegments,
   int? port,
   String? userInfo,
-}) {
-  return Uri(
-    scheme: kBall,
-    host: defProviderName,
-    port: port,
-    userInfo: userInfo,
-    pathSegments: [
-      functionName,
-      ...?extraPathSegments,
-    ],
-    fragment: fragment,
-    queryParameters: queryParameters,
-  );
-}
+}) =>
+    Uri(
+      scheme: kBall,
+      host: defProviderName,
+      port: port,
+      userInfo: userInfo,
+      pathSegments: [
+        functionName,
+        ...?extraPathSegments,
+      ],
+      fragment: fragment,
+      queryParameters: queryParameters,
+    );

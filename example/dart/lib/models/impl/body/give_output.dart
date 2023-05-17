@@ -1,9 +1,9 @@
 import 'impl_body.dart';
 
-class GiveOutput extends BallFunctionImplementationBody {
+class BallReturn extends BallFunctionImplementationBody {
   final String outputName;
   final String? variableName;
-  const GiveOutput({
+  const BallReturn({
     required this.outputName,
     this.variableName,
   });

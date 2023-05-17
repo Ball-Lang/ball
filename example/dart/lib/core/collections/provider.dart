@@ -46,10 +46,10 @@ class CollectionsProvider with BallFunctionDefProviderBase {
       desc: "Loops over a collection",
       version: kForEachV0_1_0,
       //these arguments are valid types for the rest of the inputs/outputs
-      genericArguments: [
+      genericTypeArguments: [
         BallArgumentDef(
           name: SchemaTypeInfo.kTValue,
-          type: SchemaTypeInfo.$any,
+          type: SchemaTypeInfo.$dynamic,
         ),
       ],
       inputs: [
@@ -86,14 +86,14 @@ class CollectionsProvider with BallFunctionDefProviderBase {
       desc: "Maps a collection to another collection",
       version: kMapV0_1_0,
       //these arguments are valid types for the rest of the inputs/outputs
-      genericArguments: [
+      genericTypeArguments: [
         BallArgumentDef(
           name: kMapTInput,
-          type: SchemaTypeInfo.$any,
+          type: SchemaTypeInfo.$dynamic,
         ),
         BallArgumentDef(
           name: kMapTOutput,
-          type: SchemaTypeInfo.$any,
+          type: SchemaTypeInfo.$dynamic,
         ),
       ],
       inputs: [
@@ -139,14 +139,14 @@ class CollectionsProvider with BallFunctionDefProviderBase {
       desc: "Maps a collection to another collection",
       version: kMapV0_2_0,
       //these arguments are valid types for the rest of the inputs/outputs
-      genericArguments: [
+      genericTypeArguments: [
         BallArgumentDef(
           name: kMapTInput,
-          type: SchemaTypeInfo.$any,
+          type: SchemaTypeInfo.$dynamic,
         ),
         BallArgumentDef(
           name: kMapTOutput,
-          type: SchemaTypeInfo.$any,
+          type: SchemaTypeInfo.$dynamic,
         ),
       ],
       inputs: [

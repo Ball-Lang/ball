@@ -1,41 +1,12 @@
 import 'argument_def.dart';
+import 'function_type.dart';
 
-abstract class TypeInfoBase {
-  const TypeInfoBase();
-}
-
-class FunctionTypeInfoGenericTypeDeclaration {
-  final String name;
-  final String desc;
-  final List<TypeInfoBase> constraints;
-
-  const FunctionTypeInfoGenericTypeDeclaration({
-    required this.name,
-    required this.desc,
-    this.constraints = const [],
-  });
-}
-
-class FunctionTypeInfo extends TypeInfoBase {
-  final List<BallArgumentDef> genericArguments;
-  //Map<OutputName, SchemaTypeInfo>
-  final List<BallArgumentDef> outputs;
-  //Map<ArgumentName, SchemaTypeInfo>
-  final List<BallArgumentDef> inputs;
-
-  const FunctionTypeInfo({
-    this.inputs = const [],
-    this.outputs = const [],
-    this.genericArguments = const [],
-  });
-}
-
-class SchemaTypeInfo extends TypeInfoBase {
+class SchemaTypeInfo {
   static const kTKey = 'TKey';
   static const kTValue = 'TValue';
 
   static const SchemaTypeInfo $null = SchemaTypeInfo(root: 'null');
-  static const SchemaTypeInfo $any = SchemaTypeInfo(root: 'object');
+  static const SchemaTypeInfo $dynamic = SchemaTypeInfo(root: 'dynamic');
   //signed num
   static const SchemaTypeInfo $num = SchemaTypeInfo(root: 'num');
   //signed int
@@ -49,23 +20,36 @@ class SchemaTypeInfo extends TypeInfoBase {
 
   factory SchemaTypeInfo.listOf(SchemaTypeInfo sub) => SchemaTypeInfo(
         root: 'list',
-        genericTypeArguments: {kTValue: sub},
+        genericTypeArguments: [
+          BallArgumentDef(name: kTValue, type: sub),
+        ],
       );
 
   factory SchemaTypeInfo.mapOf(SchemaTypeInfo key, SchemaTypeInfo value) =>
       SchemaTypeInfo(
         root: 'map',
-        genericTypeArguments: {
-          kTKey: key,
-          kTValue: value,
-        },
+        genericTypeArguments: [
+          BallArgumentDef(name: kTKey, type: key),
+          BallArgumentDef(name: kTValue, type: value)
+        ],
+      );
+
+  factory SchemaTypeInfo.function({
+    List<BallArgumentDef> inputs = const [],
+    List<BallArgumentDef> outputs = const [],
+    List<BallArgumentDef> genericTypeArguments = const [],
+  }) =>
+      FunctionTypeInfo(
+        inputs: inputs,
+        outputs: outputs,
+        genericTypeArguments: genericTypeArguments,
       );
 
   final String root;
-  final Map<String, SchemaTypeInfo> genericTypeArguments;
+  final List<BallArgumentDef> genericTypeArguments;
 
   const SchemaTypeInfo({
     required this.root,
-    this.genericTypeArguments = const {},
+    this.genericTypeArguments = const [],
   });
 }

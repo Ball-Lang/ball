@@ -5,7 +5,7 @@ import 'package:pub_semver/pub_semver.dart';
 class MethodCallContext {
   /// Maps variable names to their values
   final Map<String, Object?> values;
-  final Map<String, TypeInfoBase> genericArgumentAssignments;
+  final Map<String, SchemaTypeInfo> genericArgumentAssignments;
 
   /// Uri of the method to be called
   final Uri methodUri;

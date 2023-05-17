@@ -1,4 +1,5 @@
-export 'maths/maths.dart';
-export '../custom_showcase/my_functions.dart';
-export '../models/spec/call_handler_base.dart';
+export 'maths/_exports.dart';
+export 'collections/_exports.dart';
+export 'composite_resolver.dart';
+export 'repository_based_resolver.dart';
 export 'repository.dart';

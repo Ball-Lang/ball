@@ -1,9 +1,9 @@
 import 'package:pub_semver/pub_semver.dart';
 
-import 'argument_def.dart';
+import 'type_info.dart';
 
 /// Defines a function
-class BallFunctionDef {
+class BallFunctionDef extends FunctionTypeInfo {
   /// Who defined this function? usually the host in the uri
   final String defProviderName;
 
@@ -16,18 +16,13 @@ class BallFunctionDef {
   /// The function definition version, follows semantic versioning.
   final Version version;
 
-  /// The input arguments, can be empty
-  final List<BallArgumentDef> inputs;
-
-  /// The output arguments, can be empty
-  final List<BallArgumentDef> outputs;
-
   const BallFunctionDef({
     required this.name,
     required this.defProviderName,
     this.desc,
     required this.version,
-    this.inputs = const [],
-    this.outputs = const [],
+    super.inputs = const [],
+    super.outputs = const [],
+    super.genericArguments = const [],
   });
 }

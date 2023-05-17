@@ -1,19 +1,19 @@
 import 'dart:async';
 
 import 'package:ball/ball.dart';
+import 'package:ball/core/collections/handler.dart';
+import 'package:ball/core/collections/provider.dart';
 import 'package:collection/collection.dart';
 import 'package:pub_semver/pub_semver.dart';
-
-import 'composite_resolver.dart';
-import 'maths/handler.dart';
-import 'repository_based_resolver.dart';
 
 class BallRepository {
   BallRepository();
   factory BallRepository.withDefaults() {
     final res = BallRepository()
       ..add(MathProvider())
-      ..add(MathCallHandler());
+      ..add(MathCallHandler())
+      ..add(CollectionsProvider())
+      ..add(CollectionsCallHandler());
     res.add(CompositeCallHandler(res));
     res.add(RepositoryBasedResolver(res));
     return res;
@@ -150,9 +150,11 @@ class BallRepository {
     required Uri methodUri,
     VersionConstraint? versionConstraint,
     Map<String, Object?>? inputs,
+    Map<String, TypeInfoBase>? genericArgumentAssignments,
   }) async {
     var initialContext = MethodCallContext(
       values: inputs ?? const {},
+      genericArgumentAssignments: genericArgumentAssignments ?? const {},
       methodUri: methodUri,
       defVersionConstraint: versionConstraint ?? VersionConstraint.any,
     );

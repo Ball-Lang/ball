@@ -1,4 +1,4 @@
-import 'type_info.dart';
+import 'package:ball/models/spec/type_info.dart';
 
 /// Defines an argument that the function takes
 class BallArgumentDef {
@@ -9,11 +9,11 @@ class BallArgumentDef {
   final String? desc;
 
   /// The argument types, this is a JSON schema.
-  final List<TypeInfo> types;
+  final TypeInfoBase type;
 
   const BallArgumentDef({
     required this.name,
     this.desc,
-    required this.types,
+    required this.type,
   });
 }

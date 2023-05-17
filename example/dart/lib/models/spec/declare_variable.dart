@@ -6,7 +6,7 @@ class BallDeclareVariable extends BallFunctionImplementationBody {
   final String name;
 
   /// The variable type
-  final List<TypeInfo> types;
+  final List<SchemaTypeInfo> types;
 
   final Object? initialValue;
   

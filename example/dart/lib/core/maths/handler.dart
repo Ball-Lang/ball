@@ -27,7 +27,7 @@ class MathCallHandler with BallCallHandlerBase {
     }
     switch (uri.pathSegments.first) {
       case MathProvider.kAdd2:
-        if (context.defVersionConstraint.allows(MathProvider.v1_0_0)) {
+        if (context.defVersionConstraint.allows(MathProvider.add2_v1_0_0)) {
           return MethodCallResult.handled(
             result: {
               MathProvider.kAdd2Output: add2_v1_0_0(
@@ -37,7 +37,7 @@ class MathCallHandler with BallCallHandlerBase {
             },
             handledBy: callHandlerName,
             //what def version was this handled against
-            handlerDefVersion: MathProvider.v1_0_0,
+            handlerDefVersion: MathProvider.add2_v1_0_0,
             //this was handled by a resolver, so it doesn't have version
             handlerVersion: Version.none,
           );

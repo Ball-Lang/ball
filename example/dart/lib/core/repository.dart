@@ -1,21 +1,25 @@
 import 'dart:async';
 
 import 'package:ball/ball.dart';
-import 'package:ball/core/collections/handler.dart';
-import 'package:ball/core/collections/provider.dart';
 import 'package:collection/collection.dart';
 import 'package:pub_semver/pub_semver.dart';
 
 class BallRepository {
-  BallRepository();
-  factory BallRepository.withDefaults() {
-    final res = BallRepository()
+  BallRepository._();
+
+  factory BallRepository() {
+    final res = BallRepository._()
       ..add(MathProvider())
       ..add(MathCallHandler())
       ..add(CollectionsProvider())
       ..add(CollectionsCallHandler());
     res.add(CompositeCallHandler(res));
     res.add(RepositoryBasedResolver(res));
+    return res;
+  }
+
+  factory BallRepository.empty() {
+    final res = BallRepository._();
     return res;
   }
   final defProviders = <BallFunctionDefProviderBase>[];

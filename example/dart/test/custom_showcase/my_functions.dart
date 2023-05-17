@@ -3,7 +3,6 @@
 import 'dart:async';
 
 import 'package:ball/ball.dart';
-import 'package:ball/core/collections/provider.dart';
 import 'package:pub_semver/pub_semver.dart';
 
 /// This provider provides both Defs and Implementations
@@ -27,8 +26,8 @@ class MyFunctionsProvider
   static const kAdd3Output = 'o';
 
   static const kSum = 'sum';
-  static const kSumInput = 'x';
-  static const kSumOutput = 'o';
+  static const kSumInputItems = 'items';
+  static const kSumOutputResult = 'result';
 
   @override
   FutureOr<List<BallFunctionDef>> provideDefs() {
@@ -75,14 +74,14 @@ class MyFunctionsProvider
       desc: 'Adds an arbitrary amount of numbers',
       inputs: [
         BallArgumentDef(
-          name: kSumInput,
+          name: kSumInputItems,
           desc: "A list of numbers",
           type: SchemaTypeInfo.listOf(SchemaTypeInfo.$num),
         ),
       ],
       outputs: [
         BallArgumentDef(
-          name: kSumOutput,
+          name: kSumOutputResult,
           type: SchemaTypeInfo.$num,
         ),
       ],
@@ -108,7 +107,8 @@ class MyFunctionsProvider
           outputVariableMapping: {
             MathProvider.kAdd2Output: 'z1',
           },
-          constraint: VersionConstraint.compatibleWith(MathProvider.add2_v1_0_0),
+          constraint:
+              VersionConstraint.compatibleWith(MathProvider.add2_v1_0_0),
         ),
         //then sum z1+x3 into o
         BallFunctionCall(
@@ -120,10 +120,11 @@ class MyFunctionsProvider
           outputVariableMapping: {
             MathProvider.kAdd2Output: 'z2',
           },
-          constraint: VersionConstraint.compatibleWith(MathProvider.add2_v1_0_0),
+          constraint:
+              VersionConstraint.compatibleWith(MathProvider.add2_v1_0_0),
         ),
         //Send z2 as the output
-        BallGiveOutput(
+        GiveOutput(
           variableName: 'z2',
           outputName: kAdd3Output,
         ),
@@ -133,14 +134,15 @@ class MyFunctionsProvider
     //sum
 
     yield BallFunctionImplementation(
-        defVersion: CollectionsProvider.kForEachV0_1_0,
-        name: kSum,
-        functionUri: createBallUri(
-            CollectionsProvider.kCollections, CollectionsProvider.kForEach),
-        version: Version(0, 1, 0),
-        desc: "Sums a collection",
-        body: [
-          //TODO: add sum body
-        ]);
+      defVersion: CollectionsProvider.kForEachV0_1_0,
+      name: kSum,
+      functionUri: createBallUri(
+          CollectionsProvider.kCollections, CollectionsProvider.kForEach),
+      version: Version(0, 1, 0),
+      desc: "Sums a collection",
+      body: [
+        //TODO: add sum body
+      ],
+    );
   }
 }

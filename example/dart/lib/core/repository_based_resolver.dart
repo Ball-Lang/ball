@@ -99,7 +99,8 @@ class RepositoryBasedResolver
           (element) =>
               element.functionUri.scheme == kBall &&
               element.functionUri.host == def.defProviderName.toLowerCase() &&
-              element.functionUri.pathSegments.firstOrNull == def.name.toLowerCase() &&
+              element.functionUri.pathSegments.firstOrNull ==
+                  def.name.toLowerCase() &&
               element.defVersion.allows(def.version),
         )
         .toList();

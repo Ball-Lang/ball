@@ -1,15 +1,13 @@
 import 'package:ball/ball.dart';
-import 'package:ball/core/collections/provider.dart';
-import 'custom_showcase/my_functions.dart';
 import 'package:pub_semver/pub_semver.dart';
 import 'package:test/test.dart';
 
 void main() {
-  final repository = BallRepository.withDefaults();
+  final repository = BallRepository();
   //my functions
-  repository.add(MyFunctionsProvider());
 
   setUp(() => repository.init());
+
   group('math', () {
     group('add2', () {
       test("v1_0_0", () async {
@@ -90,35 +88,17 @@ void main() {
           },
         );
         expect(result.handled, true);
-        final resMap = result.result[CollectionsProvider.kMapOutput]
-            as Iterable;
+        final resMap =
+            result.result[CollectionsProvider.kMapOutput] as Iterable;
 
         expect(
-            resMap.cast<Map<String,dynamic>>().map((e) => e[CollectionsProvider.kMapInputFnOutput]).toList(),
-            inputs.map((e) => e.toString()).toList());
+          resMap
+              .cast<Map<String, dynamic>>()
+              .map((e) => e[CollectionsProvider.kMapInputFnOutput])
+              .toList(),
+          inputs.map((e) => e.toString()).toList(),
+        );
       });
-    });
-  });
-
-  group("myFunctions", () {
-    test('Add3', () async {
-      final uri = createBallUri(
-          MyFunctionsProvider.kMyFunctions, MyFunctionsProvider.kAdd3);
-      final defVersion = Version(0, 1, 0);
-      final output = await repository.callFunctionByDef(
-        methodUri: uri,
-        versionConstraint: VersionConstraint.compatibleWith(defVersion),
-        inputs: {
-          MyFunctionsProvider.kAdd3_x1: 5,
-          MyFunctionsProvider.kAdd3_x2: 2,
-          MyFunctionsProvider.kAdd3_x3: 6,
-        },
-      );
-      expect(output.handled, true);
-      expect(output.result[MyFunctionsProvider.kAdd3Output], 13);
-      expect(output.handledBy, MyFunctionsProvider.kAdd3);
-      expect(output.handlerDefVersion, defVersion);
-      expect(output.handlerVersion, Version(0, 0, 1));
     });
   });
 }

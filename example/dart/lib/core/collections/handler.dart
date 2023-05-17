@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:ball/ball.dart';
-import 'package:ball/core/collections/provider.dart';
 import 'package:pub_semver/pub_semver.dart';
 
 class CollectionsCallHandler with BallCallHandlerBase {

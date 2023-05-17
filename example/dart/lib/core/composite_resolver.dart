@@ -51,7 +51,7 @@ class CompositeCallHandler with BallCallHandlerBase {
     MethodCallContext context,
   ) async {
     final activeVariables = Map.of(context.values);
-    final newVariableTypes = <String, List<SchemaTypeInfo>>{};
+    final newVariableTypes = <String, SchemaTypeInfo>{};
     final outputs = <String, Object?>{};
     for (BallFunctionImplementationBody element in impl.body) {
       switch (element) {
@@ -98,11 +98,11 @@ class CompositeCallHandler with BallCallHandlerBase {
         case BallDeclareVariable(
             name: final name,
             initialValue: final initialValue,
-            types: final types,
+            type: final type,
           ):
           activeVariables[name] = initialValue;
-          newVariableTypes[name] = types;
-        case BallGiveOutput(
+          newVariableTypes[name] = type;
+        case GiveOutput(
             outputName: final outputName,
             variableName: final variableName
           ):

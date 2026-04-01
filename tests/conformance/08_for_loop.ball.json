@@ -1,0 +1,131 @@
+{
+  "name": "08_for_loop",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] },
+        { "name": "BinaryInput", "field": [ { "name": "left", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_INT64" }, { "name": "right", "number": 2, "label": "LABEL_OPTIONAL", "type": "TYPE_INT64" } ] },
+        { "name": "UnaryInput", "field": [ { "name": "value", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "for", "isBase": true },
+        { "name": "less_than", "isBase": true },
+        { "name": "add", "isBase": true },
+        { "name": "assign", "isBase": true },
+        { "name": "to_string", "isBase": true },
+        { "name": "post_increment", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "for",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "init",
+                      "value": {
+                        "block": {
+                          "statements": [
+                            {
+                              "let": {
+                                "name": "i",
+                                "value": { "literal": { "intValue": "0" } },
+                                "metadata": { "mutability": "mutable" }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "name": "condition",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "less_than",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "BinaryInput",
+                              "fields": [
+                                { "name": "left", "value": { "reference": { "name": "i" } } },
+                                { "name": "right", "value": { "literal": { "intValue": "5" } } }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "update",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "post_increment",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                { "name": "value", "value": { "reference": { "name": "i" } } }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "body",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "print",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "PrintInput",
+                              "fields": [
+                                {
+                                  "name": "message",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "to_string",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            { "name": "value", "value": { "reference": { "name": "i" } } }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

@@ -1,0 +1,10 @@
+name: ball_dart_workspace
+environment:
+  sdk: ^3.9.0
+
+workspace:
+  - shared
+  - compiler
+  - encoder
+  - engine
+  - cli

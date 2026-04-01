@@ -1,0 +1,1340 @@
+{
+  "name": "std",
+  "types": [
+    {
+      "name": "BinaryInput",
+      "field": [
+        {
+          "name": "left",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "right",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "UnaryInput",
+      "field": [
+        {
+          "name": "value",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "PrintInput",
+      "field": [
+        {
+          "name": "message",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        }
+      ]
+    },
+    {
+      "name": "IfInput",
+      "field": [
+        {
+          "name": "condition",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "then",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "else",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "case_pattern",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        }
+      ]
+    },
+    {
+      "name": "ForInput",
+      "field": [
+        {
+          "name": "init",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "condition",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "update",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "body",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "ForInInput",
+      "field": [
+        {
+          "name": "variable",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        },
+        {
+          "name": "variable_type",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        },
+        {
+          "name": "iterable",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "body",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "WhileInput",
+      "field": [
+        {
+          "name": "condition",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "body",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "DoWhileInput",
+      "field": [
+        {
+          "name": "body",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "condition",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "SwitchInput",
+      "field": [
+        {
+          "name": "subject",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "cases",
+          "number": 2,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "SwitchCase",
+      "field": [
+        {
+          "name": "value",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "is_default",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL"
+        },
+        {
+          "name": "body",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "pattern",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        }
+      ]
+    },
+    {
+      "name": "TryInput",
+      "field": [
+        {
+          "name": "body",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "catches",
+          "number": 2,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "finally",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "CatchClause",
+      "field": [
+        {
+          "name": "type",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        },
+        {
+          "name": "variable",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        },
+        {
+          "name": "stack_trace",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        },
+        {
+          "name": "body",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "AssertInput",
+      "field": [
+        {
+          "name": "condition",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "message",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "AssignInput",
+      "field": [
+        {
+          "name": "target",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "value",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "op",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        }
+      ]
+    },
+    {
+      "name": "IndexInput",
+      "field": [
+        {
+          "name": "target",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "index",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "TypeCheckInput",
+      "field": [
+        {
+          "name": "value",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "type",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        }
+      ]
+    },
+    {
+      "name": "BreakInput",
+      "field": [
+        {
+          "name": "label",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        }
+      ]
+    },
+    {
+      "name": "ContinueInput",
+      "field": [
+        {
+          "name": "label",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        }
+      ]
+    },
+    {
+      "name": "ReturnInput",
+      "field": [
+        {
+          "name": "value",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "StringSubstringInput",
+      "field": [
+        {
+          "name": "value",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "start",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "end",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "StringReplaceInput",
+      "field": [
+        {
+          "name": "value",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "from",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "to",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "StringRepeatInput",
+      "field": [
+        {
+          "name": "value",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "count",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "StringPadInput",
+      "field": [
+        {
+          "name": "value",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "width",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "padding",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
+      "name": "MathClampInput",
+      "field": [
+        {
+          "name": "value",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "min",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        },
+        {
+          "name": "max",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "print",
+      "inputType": "PrintInput",
+      "outputType": "",
+      "description": "Print to stdout: print(message)",
+      "isBase": true
+    },
+    {
+      "name": "add",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Addition: left + right",
+      "isBase": true
+    },
+    {
+      "name": "subtract",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Subtraction: left - right",
+      "isBase": true
+    },
+    {
+      "name": "multiply",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Multiplication: left * right",
+      "isBase": true
+    },
+    {
+      "name": "divide",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Integer division: left ~/ right",
+      "isBase": true
+    },
+    {
+      "name": "divide_double",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Double division: left / right",
+      "isBase": true
+    },
+    {
+      "name": "modulo",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Modulo: left % right",
+      "isBase": true
+    },
+    {
+      "name": "negate",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Unary negation: -value",
+      "isBase": true
+    },
+    {
+      "name": "equals",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Equality: left == right",
+      "isBase": true
+    },
+    {
+      "name": "not_equals",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Inequality: left != right",
+      "isBase": true
+    },
+    {
+      "name": "less_than",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Less than: left < right",
+      "isBase": true
+    },
+    {
+      "name": "greater_than",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Greater than: left > right",
+      "isBase": true
+    },
+    {
+      "name": "lte",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Less or equal: left <= right",
+      "isBase": true
+    },
+    {
+      "name": "gte",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Greater or equal: left >= right",
+      "isBase": true
+    },
+    {
+      "name": "and",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Logical AND: left && right",
+      "isBase": true
+    },
+    {
+      "name": "or",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Logical OR: left || right",
+      "isBase": true
+    },
+    {
+      "name": "not",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Logical NOT: !value",
+      "isBase": true
+    },
+    {
+      "name": "bitwise_and",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Bitwise AND: left & right",
+      "isBase": true
+    },
+    {
+      "name": "bitwise_or",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Bitwise OR: left | right",
+      "isBase": true
+    },
+    {
+      "name": "bitwise_xor",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Bitwise XOR: left ^ right",
+      "isBase": true
+    },
+    {
+      "name": "bitwise_not",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Bitwise NOT: ~value",
+      "isBase": true
+    },
+    {
+      "name": "left_shift",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Left shift: left << right",
+      "isBase": true
+    },
+    {
+      "name": "right_shift",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Right shift: left >> right",
+      "isBase": true
+    },
+    {
+      "name": "unsigned_right_shift",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Unsigned right shift: left >>> right",
+      "isBase": true
+    },
+    {
+      "name": "pre_increment",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Prefix increment: ++value",
+      "isBase": true
+    },
+    {
+      "name": "pre_decrement",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Prefix decrement: --value",
+      "isBase": true
+    },
+    {
+      "name": "post_increment",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Postfix increment: value++",
+      "isBase": true
+    },
+    {
+      "name": "post_decrement",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Postfix decrement: value--",
+      "isBase": true
+    },
+    {
+      "name": "concat",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "String concatenation: left + right (strings)",
+      "isBase": true
+    },
+    {
+      "name": "to_string",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Convert to string: value.toString()",
+      "isBase": true
+    },
+    {
+      "name": "length",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Get length: value.length",
+      "isBase": true
+    },
+    {
+      "name": "int_to_string",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Int to string: value.toString()",
+      "isBase": true
+    },
+    {
+      "name": "double_to_string",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Double to string: value.toString()",
+      "isBase": true
+    },
+    {
+      "name": "string_to_int",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Parse int from string: int.parse(value)",
+      "isBase": true
+    },
+    {
+      "name": "string_to_double",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Parse double from string: double.parse(value)",
+      "isBase": true
+    },
+    {
+      "name": "null_coalesce",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Null coalescing: left ?? right",
+      "isBase": true
+    },
+    {
+      "name": "null_check",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Null assertion: value!",
+      "isBase": true
+    },
+    {
+      "name": "if",
+      "inputType": "IfInput",
+      "outputType": "",
+      "description": "Conditional: if (cond) { then } else { else }",
+      "isBase": true
+    },
+    {
+      "name": "for",
+      "inputType": "ForInput",
+      "outputType": "",
+      "description": "C-style for loop: for (init; cond; update) { body }",
+      "isBase": true
+    },
+    {
+      "name": "for_in",
+      "inputType": "ForInInput",
+      "outputType": "",
+      "description": "For-in loop: for (var x in iterable) { body }",
+      "isBase": true
+    },
+    {
+      "name": "while",
+      "inputType": "WhileInput",
+      "outputType": "",
+      "description": "While loop: while (cond) { body }",
+      "isBase": true
+    },
+    {
+      "name": "do_while",
+      "inputType": "DoWhileInput",
+      "outputType": "",
+      "description": "Do-while loop: do { body } while (cond)",
+      "isBase": true
+    },
+    {
+      "name": "switch",
+      "inputType": "SwitchInput",
+      "outputType": "",
+      "description": "Switch statement: switch (subj) { case ... }",
+      "isBase": true
+    },
+    {
+      "name": "try",
+      "inputType": "TryInput",
+      "outputType": "",
+      "description": "Try-catch-finally: try { } catch (e) { } finally { }",
+      "isBase": true
+    },
+    {
+      "name": "throw",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Throw exception: throw value",
+      "isBase": true
+    },
+    {
+      "name": "rethrow",
+      "inputType": "",
+      "outputType": "",
+      "description": "Rethrow current exception: rethrow",
+      "isBase": true
+    },
+    {
+      "name": "assert",
+      "inputType": "AssertInput",
+      "outputType": "",
+      "description": "Debug assertion: assert(cond, msg)",
+      "isBase": true
+    },
+    {
+      "name": "return",
+      "inputType": "ReturnInput",
+      "outputType": "",
+      "description": "Return from function: return value",
+      "isBase": true
+    },
+    {
+      "name": "break",
+      "inputType": "BreakInput",
+      "outputType": "",
+      "description": "Break from loop/switch: break [label]",
+      "isBase": true
+    },
+    {
+      "name": "continue",
+      "inputType": "ContinueInput",
+      "outputType": "",
+      "description": "Continue to next iteration: continue [label]",
+      "isBase": true
+    },
+    {
+      "name": "yield",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Yield from generator: yield value",
+      "isBase": true
+    },
+    {
+      "name": "await",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Await a future: await value",
+      "isBase": true
+    },
+    {
+      "name": "assign",
+      "inputType": "AssignInput",
+      "outputType": "",
+      "description": "Assignment (simple or compound): target = value, target += value",
+      "isBase": true
+    },
+    {
+      "name": "is",
+      "inputType": "TypeCheckInput",
+      "outputType": "",
+      "description": "Type test: value is Type",
+      "isBase": true
+    },
+    {
+      "name": "is_not",
+      "inputType": "TypeCheckInput",
+      "outputType": "",
+      "description": "Negated type test: value is! Type",
+      "isBase": true
+    },
+    {
+      "name": "as",
+      "inputType": "TypeCheckInput",
+      "outputType": "",
+      "description": "Type cast: value as Type",
+      "isBase": true
+    },
+    {
+      "name": "index",
+      "inputType": "IndexInput",
+      "outputType": "",
+      "description": "Index access: target[index]",
+      "isBase": true
+    },
+    {
+      "name": "string_length",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "String length: value.length",
+      "isBase": true
+    },
+    {
+      "name": "string_is_empty",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Is string empty: value.isEmpty",
+      "isBase": true
+    },
+    {
+      "name": "string_concat",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "String concat: left + right",
+      "isBase": true
+    },
+    {
+      "name": "string_contains",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "String contains: left.contains(right)",
+      "isBase": true
+    },
+    {
+      "name": "string_starts_with",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Starts with: left.startsWith(right)",
+      "isBase": true
+    },
+    {
+      "name": "string_ends_with",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Ends with: left.endsWith(right)",
+      "isBase": true
+    },
+    {
+      "name": "string_index_of",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Index of substring: left.indexOf(right)",
+      "isBase": true
+    },
+    {
+      "name": "string_last_index_of",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Last index of: left.lastIndexOf(right)",
+      "isBase": true
+    },
+    {
+      "name": "string_substring",
+      "inputType": "StringSubstringInput",
+      "outputType": "",
+      "description": "Substring: value.substring(start, end)",
+      "isBase": true
+    },
+    {
+      "name": "string_char_at",
+      "inputType": "IndexInput",
+      "outputType": "",
+      "description": "Character at index: target[index]",
+      "isBase": true
+    },
+    {
+      "name": "string_char_code_at",
+      "inputType": "IndexInput",
+      "outputType": "",
+      "description": "Char code at index: target.codeUnitAt(index)",
+      "isBase": true
+    },
+    {
+      "name": "string_from_char_code",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "String from char code: String.fromCharCode(value)",
+      "isBase": true
+    },
+    {
+      "name": "string_to_upper",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "To upper case: value.toUpperCase()",
+      "isBase": true
+    },
+    {
+      "name": "string_to_lower",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "To lower case: value.toLowerCase()",
+      "isBase": true
+    },
+    {
+      "name": "string_trim",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Trim whitespace: value.trim()",
+      "isBase": true
+    },
+    {
+      "name": "string_trim_start",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Trim start: value.trimLeft()",
+      "isBase": true
+    },
+    {
+      "name": "string_trim_end",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Trim end: value.trimRight()",
+      "isBase": true
+    },
+    {
+      "name": "string_replace",
+      "inputType": "StringReplaceInput",
+      "outputType": "",
+      "description": "Replace first: value.replaceFirst(from, to)",
+      "isBase": true
+    },
+    {
+      "name": "string_replace_all",
+      "inputType": "StringReplaceInput",
+      "outputType": "",
+      "description": "Replace all: value.replaceAll(from, to)",
+      "isBase": true
+    },
+    {
+      "name": "string_split",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Split string: left.split(right)",
+      "isBase": true
+    },
+    {
+      "name": "string_repeat",
+      "inputType": "StringRepeatInput",
+      "outputType": "",
+      "description": "Repeat string: value * count",
+      "isBase": true
+    },
+    {
+      "name": "string_pad_left",
+      "inputType": "StringPadInput",
+      "outputType": "",
+      "description": "Pad left: value.padLeft(width, padding)",
+      "isBase": true
+    },
+    {
+      "name": "string_pad_right",
+      "inputType": "StringPadInput",
+      "outputType": "",
+      "description": "Pad right: value.padRight(width, padding)",
+      "isBase": true
+    },
+    {
+      "name": "regex_match",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Regex match: RegExp(right).hasMatch(left)",
+      "isBase": true
+    },
+    {
+      "name": "regex_find",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Regex find first: RegExp(right).firstMatch(left)?.group(0)",
+      "isBase": true
+    },
+    {
+      "name": "regex_find_all",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Regex find all: RegExp(right).allMatches(left).map(m => m.group(0))",
+      "isBase": true
+    },
+    {
+      "name": "regex_replace",
+      "inputType": "StringReplaceInput",
+      "outputType": "",
+      "description": "Regex replace first: value.replaceFirst(RegExp(from), to)",
+      "isBase": true
+    },
+    {
+      "name": "regex_replace_all",
+      "inputType": "StringReplaceInput",
+      "outputType": "",
+      "description": "Regex replace all: value.replaceAll(RegExp(from), to)",
+      "isBase": true
+    },
+    {
+      "name": "math_abs",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Absolute value: value.abs()",
+      "isBase": true
+    },
+    {
+      "name": "math_floor",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Floor: value.floor()",
+      "isBase": true
+    },
+    {
+      "name": "math_ceil",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Ceiling: value.ceil()",
+      "isBase": true
+    },
+    {
+      "name": "math_round",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Round: value.round()",
+      "isBase": true
+    },
+    {
+      "name": "math_trunc",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Truncate: value.truncate()",
+      "isBase": true
+    },
+    {
+      "name": "math_sqrt",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Square root: sqrt(value)",
+      "isBase": true
+    },
+    {
+      "name": "math_pow",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Power: pow(left, right)",
+      "isBase": true
+    },
+    {
+      "name": "math_log",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Natural log: log(value)",
+      "isBase": true
+    },
+    {
+      "name": "math_log2",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Log base 2: log2(value)",
+      "isBase": true
+    },
+    {
+      "name": "math_log10",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Log base 10: log10(value)",
+      "isBase": true
+    },
+    {
+      "name": "math_exp",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Exponential: exp(value)",
+      "isBase": true
+    },
+    {
+      "name": "math_sin",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Sine: sin(value)",
+      "isBase": true
+    },
+    {
+      "name": "math_cos",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Cosine: cos(value)",
+      "isBase": true
+    },
+    {
+      "name": "math_tan",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Tangent: tan(value)",
+      "isBase": true
+    },
+    {
+      "name": "math_asin",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Arc sine: asin(value)",
+      "isBase": true
+    },
+    {
+      "name": "math_acos",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Arc cosine: acos(value)",
+      "isBase": true
+    },
+    {
+      "name": "math_atan",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Arc tangent: atan(value)",
+      "isBase": true
+    },
+    {
+      "name": "math_atan2",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Arc tangent 2: atan2(left, right)",
+      "isBase": true
+    },
+    {
+      "name": "math_min",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Minimum: min(left, right)",
+      "isBase": true
+    },
+    {
+      "name": "math_max",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "Maximum: max(left, right)",
+      "isBase": true
+    },
+    {
+      "name": "math_clamp",
+      "inputType": "MathClampInput",
+      "outputType": "",
+      "description": "Clamp: value.clamp(min, max)",
+      "isBase": true
+    },
+    {
+      "name": "math_pi",
+      "inputType": "",
+      "outputType": "",
+      "description": "Constant: pi",
+      "isBase": true
+    },
+    {
+      "name": "math_e",
+      "inputType": "",
+      "outputType": "",
+      "description": "Constant: e",
+      "isBase": true
+    },
+    {
+      "name": "math_infinity",
+      "inputType": "",
+      "outputType": "",
+      "description": "Constant: infinity",
+      "isBase": true
+    },
+    {
+      "name": "math_nan",
+      "inputType": "",
+      "outputType": "",
+      "description": "Constant: NaN",
+      "isBase": true
+    },
+    {
+      "name": "math_is_nan",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Is NaN: value.isNaN",
+      "isBase": true
+    },
+    {
+      "name": "math_is_finite",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Is finite: value.isFinite",
+      "isBase": true
+    },
+    {
+      "name": "math_is_infinite",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Is infinite: value.isInfinite",
+      "isBase": true
+    },
+    {
+      "name": "math_sign",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Sign: value.sign",
+      "isBase": true
+    },
+    {
+      "name": "math_gcd",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "GCD: gcd(left, right)",
+      "isBase": true
+    },
+    {
+      "name": "math_lcm",
+      "inputType": "BinaryInput",
+      "outputType": "",
+      "description": "LCM: lcm(left, right)",
+      "isBase": true
+    }
+  ],
+  "description": "Universal standard library base module. Every function here represents a language-agnostic operation that all target languages implement natively. Types use protobuf descriptors so they map to every target language."
+}

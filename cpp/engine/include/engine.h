@@ -1,0 +1,275 @@
+#pragma once
+
+// ball::Engine — interprets and executes ball programs at runtime.
+//
+// The engine walks the expression tree and evaluates it directly,
+// without generating any intermediate source code.
+//
+// Faithful C++ port of the Dart BallEngine.
+
+#include "ball_shared.h"
+#include <functional>
+#include <iostream>
+#include <stdexcept>
+#include <unordered_map>
+
+namespace ball {
+
+// ================================================================
+// Runtime error
+// ================================================================
+
+class BallRuntimeError : public std::runtime_error {
+public:
+    explicit BallRuntimeError(const std::string& msg)
+        : std::runtime_error("BallRuntimeError: " + msg) {}
+};
+
+/// Typed exception thrown by Ball `throw` expressions.
+/// Preserves the type name and original value for typed catch matching.
+class BallException : public std::runtime_error {
+public:
+    std::string typeName;
+    BallValue value;
+    BallException(const std::string& type, BallValue val)
+        : std::runtime_error(type), typeName(type), value(std::move(val)) {}
+};
+
+// ================================================================
+// Flow signal (break / continue / return)
+// ================================================================
+
+struct FlowSignal {
+    std::string kind;   // "break", "continue", "return"
+    std::string label;
+    BallValue value;
+};
+
+inline bool is_flow(const BallValue& v) {
+    return v.type() == typeid(FlowSignal);
+}
+
+inline const FlowSignal& as_flow(const BallValue& v) {
+    return std::any_cast<const FlowSignal&>(v);
+}
+
+// ================================================================
+// Scope — lexical variable binding chain
+// ================================================================
+
+class Scope : public std::enable_shared_from_this<Scope> {
+public:
+    explicit Scope(std::shared_ptr<Scope> parent = nullptr)
+        : parent_(std::move(parent)) {}
+
+    BallValue lookup(const std::string& name) const {
+        auto it = bindings_.find(name);
+        if (it != bindings_.end()) return it->second;
+        if (parent_) return parent_->lookup(name);
+        throw BallRuntimeError("Undefined variable: \"" + name + "\"");
+    }
+
+    void bind(const std::string& name, BallValue value) {
+        bindings_[name] = std::move(value);
+    }
+
+    bool has(const std::string& name) const {
+        if (bindings_.count(name)) return true;
+        return parent_ ? parent_->has(name) : false;
+    }
+
+    void set(const std::string& name, BallValue value) {
+        if (bindings_.count(name)) { bindings_[name] = std::move(value); return; }
+        if (parent_ && parent_->has(name)) { parent_->set(name, std::move(value)); return; }
+        bindings_[name] = std::move(value);
+    }
+
+    std::shared_ptr<Scope> child() {
+        return std::make_shared<Scope>(shared_from_this());
+    }
+
+    static std::shared_ptr<Scope> create() {
+        return std::make_shared<Scope>(nullptr);
+    }
+
+private:
+    std::unordered_map<std::string, BallValue> bindings_;
+    std::shared_ptr<Scope> parent_;
+};
+
+// ================================================================
+// Module handler interface
+// ================================================================
+
+class BallModuleHandler {
+public:
+    virtual ~BallModuleHandler() = default;
+    virtual bool handles(const std::string& module) const = 0;
+    virtual BallValue call(const std::string& function, BallValue input, BallCallable engine) = 0;
+    virtual void init(class Engine& /*engine*/) {}
+};
+
+// ================================================================
+// Engine
+// ================================================================
+
+class Engine {
+public:
+    explicit Engine(const ball::v1::Program& program,
+                    std::function<void(const std::string&)> stdout_fn = nullptr);
+
+    BallValue run();
+
+    BallValue call_function(const std::string& module,
+                            const std::string& function,
+                            BallValue input);
+
+    const std::vector<std::string>& get_output() const { return output_; }
+
+    std::function<void(const std::string&)> stdout_fn;
+
+    // Build the std dispatch table (called by StdModuleHandler::init)
+    std::unordered_map<std::string, std::function<BallValue(BallValue)>>
+    build_std_dispatch();
+
+private:
+    ball::v1::Program program_;
+    std::vector<std::string> output_;
+
+    // Lookup tables
+    std::unordered_map<std::string, google::protobuf::DescriptorProto> types_;
+    std::unordered_map<std::string, const ball::v1::FunctionDefinition*> functions_;
+    std::unordered_map<std::string, std::vector<std::string>> param_cache_;
+
+    std::shared_ptr<Scope> global_scope_;
+    std::string current_module_;
+
+    std::vector<std::unique_ptr<BallModuleHandler>> handlers_;
+
+    // Memory simulation
+    std::vector<uint8_t> memory_;
+    size_t heap_ptr_ = 0;
+    size_t stack_ptr_ = 262144;
+    std::vector<size_t> stack_frames_;
+
+    void build_lookup_tables();
+    void init_top_level_variables();
+    std::vector<std::string> extract_params(const google::protobuf::Struct& metadata);
+
+    BallValue call_function_internal(const std::string& module_name,
+                                     const ball::v1::FunctionDefinition& func,
+                                     BallValue input);
+    BallValue resolve_and_call(const std::string& module,
+                               const std::string& function,
+                               BallValue input);
+    BallValue call_base_function(const std::string& module,
+                                 const std::string& function,
+                                 BallValue input);
+
+    // Expression evaluation
+    BallValue eval_expr(const ball::v1::Expression& expr, std::shared_ptr<Scope> scope);
+    BallValue eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_literal(const ball::v1::Literal& lit, std::shared_ptr<Scope> scope);
+    BallValue eval_reference(const ball::v1::Reference& ref, std::shared_ptr<Scope> scope);
+    BallValue eval_field_access(const ball::v1::FieldAccess& access, std::shared_ptr<Scope> scope);
+    BallValue eval_message_creation(const ball::v1::MessageCreation& msg, std::shared_ptr<Scope> scope);
+    BallValue eval_block(const ball::v1::Block& block, std::shared_ptr<Scope> scope);
+    BallValue eval_statement(const ball::v1::Statement& stmt, std::shared_ptr<Scope> scope);
+    BallValue eval_lambda(const ball::v1::FunctionDefinition& func, std::shared_ptr<Scope> scope);
+
+    // Lazy-evaluated control flow
+    std::unordered_map<std::string, ball::v1::Expression> lazy_fields(const ball::v1::FunctionCall& call);
+    BallValue eval_lazy_if(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_lazy_for(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_lazy_for_in(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_lazy_while(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_lazy_do_while(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_lazy_switch(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_lazy_try(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_short_circuit_and(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_short_circuit_or(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_return(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_break(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_continue(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_assign(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_inc_dec(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+
+    BallValue eval_memory(const std::string& function, const BallMap& args);
+    BallValue eval_convert(const std::string& function, BallValue input);
+    BallValue eval_fs(const std::string& function, BallValue input);
+    BallValue eval_time(const std::string& function, BallValue input);
+
+    std::string json_encode_value(const BallValue& val);
+    BallValue json_decode_string(const std::string& str);
+
+    std::string string_field_val(const std::unordered_map<std::string, ball::v1::Expression>& fields,
+                                  const std::string& name);
+    BallValue apply_compound_op(const std::string& op, BallValue current, BallValue val);
+};
+
+// ================================================================
+// StdModuleHandler
+// ================================================================
+
+class StdModuleHandler : public BallModuleHandler {
+public:
+    bool handles(const std::string& module) const override {
+        return module == "std" || module == "dart_std";
+    }
+
+    void init(Engine& engine) override {
+        dispatch_ = engine.build_std_dispatch();
+    }
+
+    BallValue call(const std::string& function, BallValue input, BallCallable /*engine*/) override {
+        auto it = dispatch_.find(function);
+        if (it != dispatch_.end()) return it->second(std::move(input));
+        throw BallRuntimeError("Unknown std function: \"" + function + "\"");
+    }
+
+private:
+    std::unordered_map<std::string, std::function<BallValue(BallValue)>> dispatch_;
+};
+
+// ================================================================
+// StdCollectionsModuleHandler
+// ================================================================
+
+class StdCollectionsModuleHandler : public BallModuleHandler {
+public:
+    bool handles(const std::string& module) const override {
+        return module == "std_collections";
+    }
+
+    void init(Engine& engine) override;
+
+    BallValue call(const std::string& function, BallValue input, BallCallable engine) override {
+        auto it = dispatch_.find(function);
+        if (it != dispatch_.end()) return it->second(std::move(input), engine);
+        throw BallRuntimeError("Unknown std_collections function: \"" + function + "\"");
+    }
+
+private:
+    std::unordered_map<std::string, std::function<BallValue(BallValue, BallCallable)>> dispatch_;
+};
+
+// ================================================================
+// StdIoModuleHandler
+// ================================================================
+
+class StdIoModuleHandler : public BallModuleHandler {
+public:
+    explicit StdIoModuleHandler(std::function<void(const std::string&)>* stdout_fn)
+        : stdout_fn_(stdout_fn) {}
+
+    bool handles(const std::string& module) const override {
+        return module == "std_io";
+    }
+
+    BallValue call(const std::string& function, BallValue input, BallCallable engine) override;
+
+private:
+    std::function<void(const std::string&)>* stdout_fn_;
+};
+
+}  // namespace ball

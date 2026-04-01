@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  dart:
+    name: Dart Tests & Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.9.0'
+
+      - name: Install dependencies
+        run: cd dart && dart pub get
+
+      - name: Analyze
+        run: dart analyze dart/
+
+      - name: Run engine tests
+        run: cd dart/engine && dart test
+
+      - name: Run conformance tests
+        run: cd dart/engine && dart test test/conformance_test.dart
+
+  cpp:
+    name: C++ Build & Tests
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler libprotobuf-dev nlohmann-json3-dev
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf nlohmann-json
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          vcpkg install protobuf nlohmann-json
+          echo "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
+
+      - name: Configure CMake
+        run: |
+          cd cpp
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build cpp/build --config Release
+
+      - name: Run tests
+        # Note: C++ test framework is minimal. See docs/ROADMAP.md for test expansion plans.
+        run: |
+          cd cpp/build
+          ctest --output-on-failure -C Release
+
+  proto:
+    name: Proto Lint & Breaking Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: bufbuild/buf-setup-action@v1
+
+      - name: Lint
+        run: cd proto && buf lint
+
+      - name: Breaking change check
+        if: github.event_name == 'pull_request'
+        run: cd proto && buf breaking --against ".git#subdir=proto"

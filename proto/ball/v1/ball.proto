@@ -1,0 +1,543 @@
+// Ball Language Schema
+// A programming language represented entirely as protobuf messages.
+// Ball enables code-as-data, dynamic code generation, and cross-language compilation.
+//
+// Module: buf.build/ball-lang/ball
+// Managed by Buf — see buf.yaml for module config and buf.gen.yaml for codegen.
+
+syntax = "proto3";
+
+package ball.v1;
+
+import "google/protobuf/descriptor.proto";
+import "google/protobuf/struct.proto";
+
+// ============================================================
+// Program: Top-level container for a ball program
+// ============================================================
+
+// A complete ball program containing all modules, types, and functions.
+message Program {
+  // Human-readable program name
+  string name = 1;
+
+  // Semantic version string (e.g., "1.0.0")
+  string version = 2;
+
+  // All modules in this program (including base modules like "std")
+  repeated Module modules = 3;
+
+  // The module containing the entry point function
+  string entry_module = 4;
+
+  // The function to execute as the program's entry point
+  string entry_function = 5;
+
+  // Arbitrary metadata (author, license, etc.) — supports infinite nesting.
+  google.protobuf.Struct metadata = 6;
+}
+
+// ============================================================
+// Module: Collection of related types and functions
+// ============================================================
+
+// A module groups related type definitions and functions.
+// Modules can import other modules to use their types and functions.
+// Base modules (like "std") provide platform-specific implementations.
+message Module {
+  // Unique module name (e.g., "std", "main", "my_lib")
+  string name = 1;
+
+  // Message types defined using protobuf's own descriptor format.
+  // This ensures types are truly language-agnostic — protobuf already
+  // defines how each type maps to every target language's native types
+  // (e.g. int32 → int in Dart, int in Python, int32_t in C++, number in JS).
+  // See: https://protobuf.dev/reference/protobuf/google.protobuf/#DescriptorProto
+  repeated google.protobuf.DescriptorProto types = 2;
+
+  // Enum types defined using protobuf's own enum descriptor format.
+  repeated google.protobuf.EnumDescriptorProto enums = 7;
+
+  // Function definitions in this module
+  repeated FunctionDefinition functions = 3;
+
+  // Human-readable description
+  string description = 5;
+
+  // Arbitrary metadata — supports infinite nesting.
+  google.protobuf.Struct metadata = 6;
+
+  // Structured module imports with source resolution and integrity verification.
+  //
+  // Each ModuleImport specifies where to find the module (HTTP URL,
+  // local file, inline bytes/JSON, or git repo) and an optional
+  // content hash for integrity verification.
+  repeated ModuleImport module_imports = 4;
+
+  // First-class type definitions (replaces the _meta_ function hack).
+  // Each TypeDefinition has a name, protobuf descriptor for fields,
+  // generic type parameters, and a metadata bag for cosmetic hints
+  // (kind, superclass, interfaces, mixins, visibility, etc.).
+  repeated TypeDefinition type_defs = 8;
+
+  // Type aliases (e.g., C++ `using`, Rust `type`, TypeScript `type`).
+  repeated TypeAlias type_aliases = 11;
+
+  // Module-level constants (e.g., `const pi = 3.14159`).
+  repeated Constant module_constants = 12;
+
+  // Asset files embedded in this module (images, JSON fixtures, etc.).
+  // Any file can be stored as an asset; the path is relative to the
+  // package root.
+  repeated ModuleAsset assets = 13;
+}
+
+// An asset file embedded in a ball module.
+//
+// Assets can be any file (images, JSON fixtures, templates, etc.) and are
+// stored as raw bytes alongside the module's code.  The path is relative to
+// the package root (e.g. "test/fixtures/users.json", "assets/logo.png").
+message ModuleAsset {
+  // Relative path of the asset within the package (forward-slash separated).
+  // Example: "test/fixtures/users.json", "web/icons/favicon.ico"
+  string path = 1;
+
+  // Raw file content.
+  bytes content = 2;
+
+  // MIME type hint (e.g. "application/json", "image/png", "text/plain").
+  // Empty = infer from file extension.
+  string media_type = 3;
+
+  // Arbitrary metadata (e.g. encoding hints, generation source).
+  google.protobuf.Struct metadata = 4;
+}
+
+// ============================================================
+// Module Import System
+// ============================================================
+//
+// Ball modules can be resolved from four source types:
+//
+//   1. HTTP/HTTPS — direct download from any URL
+//   2. File       — local filesystem path (for development)
+//   3. Inline     — raw protobuf bytes or JSON embedded in the import
+//   4. Git        — a git repository at a specific ref
+//
+// Integrity verification uses content hashes (SHA-256) embedded in
+// each import. When present, the resolved module's serialized bytes
+// are verified against the hash. Mismatch causes resolution failure.
+
+// Specifies how to resolve and load a module dependency.
+message ModuleImport {
+  // Local alias used to reference this module in FunctionCall.module.
+  // Freely chosen by the importing module — does not need to match
+  // the imported module's own Module.name.
+  string name = 1;
+
+  // Content integrity hash for verification.
+  //
+  // Format: "<algorithm>:<hex-encoded-hash>"
+  // Example: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  //
+  // When present, the resolver serializes the resolved Module to
+  // canonical protobuf binary format and compares its SHA-256 hash.
+  // A mismatch causes resolution failure, protecting against
+  // supply-chain attacks and accidental corruption.
+  //
+  // When absent, no integrity check is performed.
+  string integrity = 2;
+
+  // Arbitrary metadata (e.g., reason for dependency, override notes).
+  google.protobuf.Struct metadata = 3;
+
+  // Source from which to resolve the module.
+  oneof source {
+    // Download from an HTTP/HTTPS URL.
+    HttpSource http = 4;
+
+    // Load from a local filesystem path.
+    FileSource file = 5;
+
+    // Embedded directly in the import (raw protobuf or JSON).
+    InlineSource inline = 6;
+
+    // Resolve from a git repository.
+    GitSource git = 7;
+  }
+}
+
+// An HTTP/HTTPS source for direct module download.
+//
+// The URL must point to a valid serialized ball Module in either
+// protobuf binary or JSON format.
+//
+// Example:
+//   url: "https://example.com/modules/my_lib/v1.0.0/module.ball.bin"
+//   encoding: MODULE_ENCODING_PROTO
+message HttpSource {
+  // Full URL to the module file.
+  string url = 1;
+
+  // Expected serialization format of the response body.
+  // MODULE_ENCODING_UNSPECIFIED = auto-detect from Content-Type or extension.
+  ModuleEncoding encoding = 2;
+
+  // Optional HTTP headers for authentication or custom routing.
+  // Example: {"Authorization": "Bearer ${TOKEN}"}
+  map<string, string> headers = 3;
+}
+
+// A local filesystem source for development dependencies.
+//
+// Paths can be absolute or relative to the importing module's location.
+// This source type is intended for local development — production
+// programs should use registry or HTTP sources.
+//
+// Example:
+//   path: "../my_lib/module.ball.json"
+//   encoding: MODULE_ENCODING_JSON
+message FileSource {
+  // Path to the module file.
+  // Absolute or relative to the importing program/module location.
+  string path = 1;
+
+  // Expected serialization format.
+  // MODULE_ENCODING_UNSPECIFIED = auto-detect from file extension or first few bytes of the file.
+  ModuleEncoding encoding = 2;
+}
+
+// An inline/embedded module source.
+//
+// The entire module is embedded directly in the import, either as
+// raw protobuf binary bytes or as a JSON string. Useful for:
+//   - Self-contained programs (single-file distribution)
+//   - Code generation pipelines (embed generated modules)
+//   - Testing (inline test fixtures)
+message InlineSource {
+  oneof content {
+    // Raw protobuf binary-encoded Module.
+    bytes proto_bytes = 1;
+
+    // JSON-encoded Module string (protobuf JSON mapping).
+    string json = 2;
+  }
+}
+
+// A git repository source for importing modules from version control.
+//
+// The resolver clones (or shallow-fetches) the repository at the
+// specified ref and reads the module file at the given path.
+//
+// Example:
+//   url: "https://github.com/ball-lang/std-extended.git"
+//   ref: "v1.2.0"
+//   path: "modules/std_extended/module.ball.json"
+message GitSource {
+  // Git repository URL (HTTPS or SSH).
+  // Example: "https://github.com/ball-lang/std.git"
+  //          "git@github.com:ball-lang/std.git"
+  string url = 1;
+
+  // Git ref to resolve: branch name, tag, or full commit SHA.
+  // Tags are preferred for versioned releases.
+  // Example: "v1.2.0", "main", "abc123def456..."
+  string ref = 2;
+
+  // Path within the repository to the module file.
+  // Example: "src/module.ball.json"
+  string path = 3;
+
+  // Expected serialization format of the file.
+  // MODULE_ENCODING_UNSPECIFIED = auto-detect from file extension.
+  ModuleEncoding encoding = 4;
+}
+
+// Serialization format for ball Module data.
+enum ModuleEncoding {
+  // Auto-detect from file extension, Content-Type header, or content.
+  //   .ball.bin / .ball  → PROTO
+  //   .ball.json / .json → JSON
+  //   application/x-protobuf → PROTO
+  //   application/json → JSON
+  MODULE_ENCODING_UNSPECIFIED = 0;
+
+  // Protobuf binary wire format.
+  MODULE_ENCODING_PROTO = 1;
+
+  // JSON format (protobuf canonical JSON mapping).
+  MODULE_ENCODING_JSON = 2;
+}
+
+// ============================================================
+// Type System — powered by protobuf descriptors
+// ============================================================
+//
+// Ball does NOT define its own type system. Instead, it uses protobuf's
+// own descriptor types (google.protobuf.DescriptorProto) for all type
+// definitions. This is the key design decision that makes ball truly
+// language-agnostic:
+//
+//   - protobuf already defines how int32, string, bool, bytes, etc.
+//     map to EVERY target language's native types
+//   - protobuf handles repeated fields (lists), map fields, nested
+//     messages, enums, and oneof — all cross-language
+//   - No need to reinvent type mappings for C++, Python, Dart, etc.
+//
+// Types are defined in Module.types as google.protobuf.DescriptorProto
+// messages, and Module.enums as google.protobuf.EnumDescriptorProto.
+//
+// In JSON format, a type looks like:
+//   {
+//     "name": "PrintInput",
+//     "field": [
+//       { "name": "message", "number": 1, "type": "TYPE_STRING" }
+//     ]
+//   }
+//
+// Protobuf field types: TYPE_INT32, TYPE_INT64, TYPE_DOUBLE, TYPE_FLOAT,
+// TYPE_BOOL, TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE, TYPE_ENUM, etc.
+// See: https://protobuf.dev/reference/protobuf/google.protobuf/#FieldDescriptorProto
+
+// ============================================================
+// Type Definitions (first-class, replaces _meta_ hack)
+// ============================================================
+
+// A type parameter placeholder for generic types (e.g. T, K, V).
+// Bounds, variance, and other constraints are cosmetic hints in metadata.
+message TypeParameter {
+  // Type parameter name (e.g. "T", "K", "V")
+  string name = 1;
+
+  // Cosmetic hints: bounds ("extends Comparable"), variance, covariance, etc.
+  google.protobuf.Struct metadata = 2;
+}
+
+// Defines a named type, mirroring the structure of FunctionDefinition.
+//
+// TypeDefinition replaces the `_meta_Foo` function convention with a
+// proper schema-level construct. All cosmetic hints (kind, superclass,
+// interfaces, mixins, visibility, annotations, etc.) go in metadata.
+message TypeDefinition {
+  // Type name (unique within its module)
+  string name = 1;
+
+  // Field definitions using protobuf's own descriptor format
+  google.protobuf.DescriptorProto descriptor = 2;
+
+  // Generic type parameter names (e.g. T, K, V)
+  repeated TypeParameter type_params = 3;
+
+  // Human-readable description
+  string description = 4;
+
+  // All cosmetic hints: kind ("class"|"struct"|"trait"|"interface"|...),
+  // superclass, interfaces, mixins, visibility, is_abstract, is_sealed,
+  // is_final, annotations, fields metadata, etc.
+  google.protobuf.Struct metadata = 5;
+}
+
+// A type alias (e.g., C++ `using`, Rust `type`, TypeScript `type`, Dart `typedef`).
+message TypeAlias {
+  // Alias name
+  string name = 1;
+
+  // The aliased type name
+  string target_type = 2;
+
+  // Generic type parameters
+  repeated TypeParameter type_params = 3;
+
+  // Cosmetic hints: visibility, language-specific keywords
+  google.protobuf.Struct metadata = 4;
+}
+
+// A module-level constant value.
+message Constant {
+  // Constant name
+  string name = 1;
+
+  // Type name (empty = infer from value)
+  string type = 2;
+
+  // Constant value expression
+  Expression value = 3;
+
+  // Cosmetic hints: visibility, annotations
+  google.protobuf.Struct metadata = 4;
+}
+
+// ============================================================
+// Functions
+// ============================================================
+
+// Defines a function with a single input type and single output type,
+// following the gRPC pattern. Base functions have no body — their
+// implementation is provided by each target language's compiler.
+message FunctionDefinition {
+  // Function name (must be unique within its module)
+  string name = 1;
+
+  // Input type name (empty string = no input / void)
+  string input_type = 2;
+
+  // Output type name (empty string = no output / void)
+  string output_type = 3;
+
+  // Function body expression (absent for base functions)
+  Expression body = 4;
+
+  // Human-readable description
+  string description = 5;
+
+  // If true, this function's implementation is provided by the
+  // target platform compiler, not by a ball expression body.
+  bool is_base = 6;
+
+  // Arbitrary metadata — supports infinite nesting.
+  google.protobuf.Struct metadata = 7;
+}
+
+// ============================================================
+// Expressions: The core of the ball language
+// ============================================================
+
+// An expression is the fundamental unit of computation in ball.
+// Every computation is represented as an expression tree.
+message Expression {
+  oneof expr {
+    // Call a function with an input expression
+    FunctionCall call = 1;
+
+    // A literal value (int, double, string, bool, list)
+    Literal literal = 2;
+
+    // A reference to a variable by name
+    Reference reference = 3;
+
+    // Access a field of a message expression
+    FieldAccess field_access = 4;
+
+    // Construct a new message instance
+    MessageCreation message_creation = 5;
+
+    // A block of statements with a result expression
+    Block block = 6;
+
+    // An anonymous function / closure (name is empty).
+    // Cross-language: JS arrow functions, Python lambdas, Kotlin lambdas,
+    // Swift closures, C# delegates/lambdas, Rust closures, etc.
+    // A lambda is just a FunctionDefinition with name = "".
+    FunctionDefinition lambda = 7;
+  }
+}
+
+// Calls a function with a single input expression.
+// The input expression must evaluate to the function's declared input type.
+message FunctionCall {
+  // Module name (empty string = current module)
+  string module = 1;
+
+  // Function name to call
+  string function = 2;
+
+  // Input expression (evaluates to the function's input type)
+  Expression input = 3;
+}
+
+// A literal value. Uses oneof for type-safe value representation.
+message Literal {
+  oneof value {
+    // Integer literal
+    int64 int_value = 1;
+
+    // Floating-point literal
+    double double_value = 2;
+
+    // String literal
+    string string_value = 3;
+
+    // Boolean literal
+    bool bool_value = 4;
+
+    // Raw bytes literal
+    bytes bytes_value = 5;
+
+    // List literal with element expressions
+    ListLiteral list_value = 6;
+  }
+}
+
+// A list of expressions forming a list literal.
+message ListLiteral {
+  repeated Expression elements = 1;
+}
+
+// A reference to a named variable.
+// The special name "input" refers to the current function's input parameter.
+message Reference {
+  string name = 1;
+}
+
+// Accesses a field of a message-typed expression.
+// Equivalent to `object.field` in most languages.
+message FieldAccess {
+  // The expression that evaluates to a message
+  Expression object = 1;
+
+  // The field name to access
+  string field = 2;
+}
+
+// Constructs a new message instance with field values.
+// Equivalent to a constructor call or struct literal.
+message MessageCreation {
+  // The TypeDefinition name to instantiate (empty for anonymous/inline)
+  string type_name = 1;
+
+  // Field values for the new message
+  repeated FieldValuePair fields = 2;
+}
+
+// A name-value pair for MessageCreation fields.
+message FieldValuePair {
+  // Field name
+  string name = 1;
+
+  // Expression that evaluates to the field's value
+  Expression value = 2;
+}
+
+// A block of sequential statements followed by a result expression.
+// The result expression's value is the value of the entire block.
+message Block {
+  // Statements executed in order
+  repeated Statement statements = 1;
+
+  // The final expression whose value is returned
+  Expression result = 2;
+}
+
+// A statement within a Block. Either a let-binding or a bare expression.
+message Statement {
+  oneof stmt {
+    // Bind a value to a name for use in subsequent statements/result
+    LetBinding let = 1;
+
+    // Evaluate an expression for its side effects
+    Expression expression = 2;
+  }
+}
+
+// Binds a name to the value of an expression.
+// The name is available in all subsequent statements and the block's result.
+message LetBinding {
+  // Variable name to bind
+  string name = 1;
+
+  // Expression whose value is bound to the name
+  Expression value = 2;
+
+  // Arbitrary metadata for language-specific info (var/final/const, type, etc.)
+  google.protobuf.Struct metadata = 3;
+}

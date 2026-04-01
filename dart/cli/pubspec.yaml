@@ -1,0 +1,34 @@
+name: ball_cli
+description: >-
+  CLI for the ball programming language.
+  Inspect and validate ball programs.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+
+
+executables:
+  ball:
+    ball
+
+dependencies:
+  ball_base: ^0.1.0
+  ball_compiler:
+    path: ../compiler
+  ball_encoder:
+    path: ../encoder
+  ball_engine:
+    path: ../engine
+  fixnum: ^1.1.1
+  protobuf: ^6.0.0
+
+dev_dependencies:
+  lints: ^6.1.0
+
+
+
+
+resolution: workspace
+

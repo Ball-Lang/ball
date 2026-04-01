@@ -1,0 +1,34 @@
+version: v2
+
+clean: true
+
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/ball-lang/ball/go/shared/gen
+
+plugins:
+  - remote: buf.build/protocolbuffers/dart
+    out: dart/shared/lib/gen
+    include_imports: true
+    include_wkt: true
+
+  - remote: buf.build/protocolbuffers/go
+    out: go/shared/gen
+    opt: paths=source_relative
+
+  - remote: buf.build/protocolbuffers/python
+    out: python/shared/gen
+
+  - remote: buf.build/bufbuild/es
+    out: ts/shared/gen
+
+  - remote: buf.build/protocolbuffers/java
+    out: java/shared/gen
+
+  - remote: buf.build/protocolbuffers/cpp
+    out: cpp/shared/gen
+
+  - remote: buf.build/protocolbuffers/csharp
+    out: csharp/shared/gen

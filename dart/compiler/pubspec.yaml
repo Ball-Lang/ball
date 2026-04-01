@@ -1,0 +1,14 @@
+name: ball_compiler
+environment:
+  sdk: ^3.9.0
+resolution: workspace
+
+dependencies:
+  ball_base:
+    path: ../shared
+  ball_encoder:
+    path: ../encoder
+  ball_engine:
+    path: ../engine
+  code_builder: ^4.10.0
+  dart_style: ^3.0.0

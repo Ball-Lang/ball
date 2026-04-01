@@ -1,0 +1,40 @@
+{
+  "name": "19_string_substring",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "string_substring", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "body": {
+            "call": { "module": "std", "function": "print",
+              "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                { "name": "message", "value": {
+                  "call": { "module": "std", "function": "string_substring",
+                    "input": { "messageCreation": { "typeName": "", "fields": [
+                      { "name": "value", "value": { "literal": { "stringValue": "Hello, World!" } } },
+                      { "name": "start", "value": { "literal": { "intValue": "7" } } },
+                      { "name": "end", "value": { "literal": { "intValue": "12" } } }
+                    ] } } }
+                } }
+              ] } } }
+          }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

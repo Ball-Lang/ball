@@ -1,0 +1,9 @@
+{
+  "name": "Ball - Code is Data",
+  "short_name": "Ball",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B0E17",
+  "theme_color": "#6C3CE9",
+  "description": "Ball is a programming language where every program is a Protocol Buffer message."
+}

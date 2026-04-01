@@ -1,0 +1,31 @@
+# Auto-detect text files and ensure consistent line endings
+* text=auto
+
+# Dart
+*.dart text
+
+# C/C++
+*.h text
+*.cpp text
+*.cc text
+
+# Proto
+*.proto text
+
+# Web
+*.html text
+*.css text
+*.js text
+
+# Config
+*.yaml text
+*.yml text
+*.json text
+*.md text
+
+# Binary
+*.png binary
+*.jpg binary
+*.bin binary
+*.pb binary
+*.snapshot binary

@@ -1,0 +1,8 @@
+name: ball_engine
+environment:
+  sdk: ^3.9.0
+resolution: workspace
+
+dependencies:
+  ball_base:
+    path: ../shared

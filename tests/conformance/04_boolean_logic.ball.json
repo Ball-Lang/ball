@@ -1,0 +1,112 @@
+{
+  "name": "04_boolean_logic",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] },
+        { "name": "BinaryInput", "field": [ { "name": "left", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_BOOL" }, { "name": "right", "number": 2, "label": "LABEL_OPTIONAL", "type": "TYPE_BOOL" } ] },
+        { "name": "UnaryInput", "field": [ { "name": "value", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_BOOL" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "and", "isBase": true },
+        { "name": "or", "isBase": true },
+        { "name": "not", "isBase": true },
+        { "name": "to_string", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "print",
+              "input": {
+                "messageCreation": {
+                  "typeName": "PrintInput",
+                  "fields": [
+                    {
+                      "name": "message",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "to_string",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "or",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "BinaryInput",
+                                          "fields": [
+                                            {
+                                              "name": "left",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "and",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "BinaryInput",
+                                                      "fields": [
+                                                        { "name": "left", "value": { "literal": { "boolValue": true } } },
+                                                        {
+                                                          "name": "right",
+                                                          "value": {
+                                                            "call": {
+                                                              "module": "std",
+                                                              "function": "not",
+                                                              "input": {
+                                                                "messageCreation": {
+                                                                  "typeName": "UnaryInput",
+                                                                  "fields": [
+                                                                    { "name": "value", "value": { "literal": { "boolValue": false } } }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            { "name": "right", "value": { "literal": { "boolValue": false } } }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

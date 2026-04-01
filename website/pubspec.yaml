@@ -1,0 +1,20 @@
+name: ball_lang_website
+description: The official website for Ball — the programming language where code is data.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  jaspr: ^0.22.0
+  jaspr_router: ^0.8.0
+
+dev_dependencies:
+  build_runner: ^2.6.0
+  build_web_compilers: ^4.2.0
+  jaspr_builder: ^0.22.0
+  jaspr_lints: ^0.6.0
+
+jaspr:
+  mode: static

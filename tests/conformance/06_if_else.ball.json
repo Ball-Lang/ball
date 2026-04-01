@@ -1,0 +1,94 @@
+{
+  "name": "06_if_else",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] },
+        { "name": "BinaryInput", "field": [ { "name": "left", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_INT64" }, { "name": "right", "number": 2, "label": "LABEL_OPTIONAL", "type": "TYPE_INT64" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "if", "isBase": true },
+        { "name": "greater_than", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "if",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "condition",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "greater_than",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "BinaryInput",
+                              "fields": [
+                                { "name": "left", "value": { "literal": { "intValue": "5" } } },
+                                { "name": "right", "value": { "literal": { "intValue": "3" } } }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "then",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "print",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "PrintInput",
+                              "fields": [
+                                { "name": "message", "value": { "literal": { "stringValue": "yes" } } }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "else",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "print",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "PrintInput",
+                              "fields": [
+                                { "name": "message", "value": { "literal": { "stringValue": "no" } } }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

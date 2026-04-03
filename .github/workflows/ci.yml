@@ -24,6 +24,8 @@ jobs:
           fetch-depth: 0  # needed for buf breaking against git history
 
       - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
 
       - name: Lint
         run: buf lint proto/
@@ -80,6 +82,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
 
       - name: Install nlohmann-json (Ubuntu)
         if: runner.os == 'Linux'

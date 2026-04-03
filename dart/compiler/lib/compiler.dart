@@ -1400,7 +1400,6 @@ class DartCompiler {
     _depth++;
 
     var caseIdx = 0;
-    var inSwitch = false;
 
     // Emit pre-label statements in case 0.
     // Find where first label is.
@@ -1427,7 +1426,6 @@ class DartCompiler {
       }
       _depth--;
       caseIdx++;
-      inSwitch = true;
     }
 
     // Emit each label as a case.
@@ -3072,21 +3070,6 @@ class DartCompiler {
     }
     return _e(expr);
   }
-
-  String _formatDouble(double d) {
-    final s = d.toString();
-    return (!s.contains('.') && !s.contains('e') && !s.contains('E'))
-        ? '$s.0'
-        : s;
-  }
-
-  String _escapeDartString(String s) => s
-      .replaceAll('\\', '\\\\')
-      .replaceAll("'", "\\'")
-      .replaceAll('\n', '\\n')
-      .replaceAll('\r', '\\r')
-      .replaceAll('\t', '\\t')
-      .replaceAll('\$', '\\\$');
 
   // ── Message creation & blocks & lambda ───────────────────────
 

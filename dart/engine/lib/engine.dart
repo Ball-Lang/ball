@@ -1574,7 +1574,7 @@ class BallEngine {
     // propagates up until the matching label handler catches it.
     BallValue result;
     do {
-      result = _evalExpression(body!, scope);
+      result = _evalExpression(body, scope);
       if (result is _FlowSignal &&
           result.kind == 'goto' &&
           result.label == label) {

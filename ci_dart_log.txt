@@ -1,0 +1,211 @@
+∩╗┐2026-04-03T21:33:53.5264714Z Current runner version: '2.333.1'
+2026-04-03T21:33:53.5299085Z ##[group]Runner Image Provisioner
+2026-04-03T21:33:53.5300405Z Hosted Compute Agent
+2026-04-03T21:33:53.5301379Z Version: 20260213.493
+2026-04-03T21:33:53.5302478Z Commit: 5c115507f6dd24b8de37d8bbe0bb4509d0cc0fa3
+2026-04-03T21:33:53.5304098Z Build Date: 2026-02-13T00:28:41Z
+2026-04-03T21:33:53.5305248Z Worker ID: {8ecb9bb0-4860-4766-bcf6-e718a84557a2}
+2026-04-03T21:33:53.5306350Z Azure Region: centralus
+2026-04-03T21:33:53.5307218Z ##[endgroup]
+2026-04-03T21:33:53.5309548Z ##[group]Operating System
+2026-04-03T21:33:53.5310411Z Ubuntu
+2026-04-03T21:33:53.5311100Z 24.04.4
+2026-04-03T21:33:53.5311921Z LTS
+2026-04-03T21:33:53.5312622Z ##[endgroup]
+2026-04-03T21:33:53.5313640Z ##[group]Runner Image
+2026-04-03T21:33:53.5314596Z Image: ubuntu-24.04
+2026-04-03T21:33:53.5315500Z Version: 20260329.72.1
+2026-04-03T21:33:53.5317563Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260329.72/images/ubuntu/Ubuntu2404-Readme.md
+2026-04-03T21:33:53.5320031Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260329.72
+2026-04-03T21:33:53.5321518Z ##[endgroup]
+2026-04-03T21:33:53.5323613Z ##[group]GITHUB_TOKEN Permissions
+2026-04-03T21:33:53.5326373Z Contents: read
+2026-04-03T21:33:53.5327387Z Metadata: read
+2026-04-03T21:33:53.5328199Z Packages: read
+2026-04-03T21:33:53.5328914Z ##[endgroup]
+2026-04-03T21:33:53.5332051Z Secret source: Actions
+2026-04-03T21:33:53.5334034Z Prepare workflow directory
+2026-04-03T21:33:53.5752415Z Prepare all required actions
+2026-04-03T21:33:53.5809695Z Getting action download info
+2026-04-03T21:33:53.9221808Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2026-04-03T21:33:54.1088561Z Download action repository 'dart-lang/setup-dart@v1' (SHA:e51d8e571e22473a2ddebf0ef8a2123f0ab2c02c)
+2026-04-03T21:33:54.6085374Z Complete job name: Dart
+2026-04-03T21:33:54.6793112Z ##[group]Run actions/checkout@v4
+2026-04-03T21:33:54.6793993Z with:
+2026-04-03T21:33:54.6794398Z   repository: Ball-Lang/ball
+2026-04-03T21:33:54.6795005Z   token: ***
+2026-04-03T21:33:54.6795375Z   ssh-strict: true
+2026-04-03T21:33:54.6795758Z   ssh-user: git
+2026-04-03T21:33:54.6796144Z   persist-credentials: true
+2026-04-03T21:33:54.6796574Z   clean: true
+2026-04-03T21:33:54.6796963Z   sparse-checkout-cone-mode: true
+2026-04-03T21:33:54.6797426Z   fetch-depth: 1
+2026-04-03T21:33:54.6797800Z   fetch-tags: false
+2026-04-03T21:33:54.6798184Z   show-progress: true
+2026-04-03T21:33:54.6798573Z   lfs: false
+2026-04-03T21:33:54.6798928Z   submodules: false
+2026-04-03T21:33:54.6799320Z   set-safe-directory: true
+2026-04-03T21:33:54.6800000Z ##[endgroup]
+2026-04-03T21:33:54.7870295Z Syncing repository: Ball-Lang/ball
+2026-04-03T21:33:54.7871955Z ##[group]Getting Git version info
+2026-04-03T21:33:54.7872592Z Working directory is '/home/runner/work/ball/ball'
+2026-04-03T21:33:54.7873766Z [command]/usr/bin/git version
+2026-04-03T21:33:54.7909569Z git version 2.53.0
+2026-04-03T21:33:54.7935766Z ##[endgroup]
+2026-04-03T21:33:54.7950653Z Temporarily overriding HOME='/home/runner/work/_temp/ef11eab5-8288-49fb-a28f-74aae4c7f360' before making global git config changes
+2026-04-03T21:33:54.7953077Z Adding repository directory to the temporary git global config as a safe directory
+2026-04-03T21:33:54.7956231Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/ball/ball
+2026-04-03T21:33:54.7986885Z Deleting the contents of '/home/runner/work/ball/ball'
+2026-04-03T21:33:54.7990510Z ##[group]Initializing the repository
+2026-04-03T21:33:54.7994471Z [command]/usr/bin/git init /home/runner/work/ball/ball
+2026-04-03T21:33:54.8075857Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-04-03T21:33:54.8078281Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-04-03T21:33:54.8079777Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-04-03T21:33:54.8080709Z hint: call:
+2026-04-03T21:33:54.8081397Z hint:
+2026-04-03T21:33:54.8081998Z hint: 	git config --global init.defaultBranch <name>
+2026-04-03T21:33:54.8083147Z hint:
+2026-04-03T21:33:54.8084022Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-04-03T21:33:54.8084931Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-04-03T21:33:54.8085641Z hint:
+2026-04-03T21:33:54.8086010Z hint: 	git branch -m <name>
+2026-04-03T21:33:54.8086426Z hint:
+2026-04-03T21:33:54.8087191Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-04-03T21:33:54.8088132Z Initialized empty Git repository in /home/runner/work/ball/ball/.git/
+2026-04-03T21:33:54.8090217Z [command]/usr/bin/git remote add origin https://github.com/Ball-Lang/ball
+2026-04-03T21:33:54.8118624Z ##[endgroup]
+2026-04-03T21:33:54.8119723Z ##[group]Disabling automatic garbage collection
+2026-04-03T21:33:54.8122072Z [command]/usr/bin/git config --local gc.auto 0
+2026-04-03T21:33:54.8149463Z ##[endgroup]
+2026-04-03T21:33:54.8150504Z ##[group]Setting up auth
+2026-04-03T21:33:54.8156023Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-04-03T21:33:54.8185147Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-04-03T21:33:54.8460560Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-04-03T21:33:54.8489582Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-04-03T21:33:54.8704443Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-04-03T21:33:54.8736142Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-04-03T21:33:54.8949913Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-04-03T21:33:54.8983962Z ##[endgroup]
+2026-04-03T21:33:54.8985253Z ##[group]Fetching the repository
+2026-04-03T21:33:54.8993800Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +a0df091a9dc632a94029587675eadbe9c5636f0c:refs/remotes/origin/main
+2026-04-03T21:33:55.3590682Z From https://github.com/Ball-Lang/ball
+2026-04-03T21:33:55.3593588Z  * [new ref]         a0df091a9dc632a94029587675eadbe9c5636f0c -> origin/main
+2026-04-03T21:33:55.3623575Z ##[endgroup]
+2026-04-03T21:33:55.3624947Z ##[group]Determining the checkout info
+2026-04-03T21:33:55.3626456Z ##[endgroup]
+2026-04-03T21:33:55.3632434Z [command]/usr/bin/git sparse-checkout disable
+2026-04-03T21:33:55.3671065Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-04-03T21:33:55.3698206Z ##[group]Checking out the ref
+2026-04-03T21:33:55.3703142Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-04-03T21:33:55.3981947Z Switched to a new branch 'main'
+2026-04-03T21:33:55.3983435Z branch 'main' set up to track 'origin/main'.
+2026-04-03T21:33:55.3990357Z ##[endgroup]
+2026-04-03T21:33:55.4025692Z [command]/usr/bin/git log -1 --format=%H
+2026-04-03T21:33:55.4047818Z a0df091a9dc632a94029587675eadbe9c5636f0c
+2026-04-03T21:33:55.4294175Z ##[group]Run dart-lang/setup-dart@v1
+2026-04-03T21:33:55.4295409Z with:
+2026-04-03T21:33:55.4296181Z   sdk: stable
+2026-04-03T21:33:55.4297012Z ##[endgroup]
+2026-04-03T21:33:55.6867131Z Installing the linux-x64 Dart SDK version 3.11.4 from the stable (release) channel.
+2026-04-03T21:33:55.6879560Z https://storage.googleapis.com/dart-archive/channels/stable/release/3.11.4/sdk/dartsdk-linux-x64-release.zip ...
+2026-04-03T21:33:57.4845469Z [command]/usr/bin/unzip -o -q /home/runner/work/_temp/dartsdk-linux-x64-release.zip
+2026-04-03T21:34:03.3375065Z [command]/opt/hostedtoolcache/dart/3.11.4/x64/bin/dart --version
+2026-04-03T21:34:03.3409851Z Dart SDK version: 3.11.4 (stable) (Tue Mar 24 01:02:20 2026 -0700) on "linux_x64"
+2026-04-03T21:34:03.3561573Z ##[group]Run cd dart && dart pub get
+2026-04-03T21:34:03.3561988Z [36;1mcd dart && dart pub get[0m
+2026-04-03T21:34:03.3595125Z shell: /usr/bin/bash -e {0}
+2026-04-03T21:34:03.3595419Z env:
+2026-04-03T21:34:03.3595682Z   DART_HOME: /opt/hostedtoolcache/dart/3.11.4/x64
+2026-04-03T21:34:03.3596027Z   PUB_CACHE: /home/runner/.pub-cache
+2026-04-03T21:34:03.3596330Z ##[endgroup]
+2026-04-03T21:34:03.3839406Z Resolving dependencies...
+2026-04-03T21:34:03.7986275Z Downloading packages...
+2026-04-03T21:34:05.6937337Z + _fe_analyzer_shared 98.0.0
+2026-04-03T21:34:05.6938034Z + analyzer 12.0.0
+2026-04-03T21:34:05.6938596Z + args 2.7.0
+2026-04-03T21:34:05.6939060Z + async 2.13.1
+2026-04-03T21:34:05.6939331Z + boolean_selector 2.1.2
+2026-04-03T21:34:05.6939641Z + built_collection 5.1.1
+2026-04-03T21:34:05.6939932Z + built_value 8.12.5
+2026-04-03T21:34:05.6940221Z + cli_config 0.2.0
+2026-04-03T21:34:05.6940489Z + code_builder 4.11.1
+2026-04-03T21:34:05.6940761Z + collection 1.19.1
+2026-04-03T21:34:05.6941068Z + convert 3.1.2
+2026-04-03T21:34:05.6941310Z + coverage 1.15.0
+2026-04-03T21:34:05.6941566Z + crypto 3.0.7
+2026-04-03T21:34:05.6941820Z + dart_style 3.1.8
+2026-04-03T21:34:05.6942067Z + file 7.0.1
+2026-04-03T21:34:05.6942288Z + fixnum 1.1.1
+2026-04-03T21:34:05.6942550Z + frontend_server_client 4.0.0
+2026-04-03T21:34:05.6943235Z + glob 2.1.3
+2026-04-03T21:34:05.6943486Z + http_multi_server 3.2.2
+2026-04-03T21:34:05.6943821Z + http_parser 4.1.2
+2026-04-03T21:34:05.6944071Z + io 1.0.5
+2026-04-03T21:34:05.6944296Z + lints 6.1.0
+2026-04-03T21:34:05.6944524Z + logging 1.3.0
+2026-04-03T21:34:05.6944768Z + matcher 0.12.19
+2026-04-03T21:34:05.6945007Z + meta 1.18.2
+2026-04-03T21:34:05.6945235Z + mime 2.0.0
+2026-04-03T21:34:05.6945468Z + node_preamble 2.0.2
+2026-04-03T21:34:05.6945775Z + package_config 2.2.0
+2026-04-03T21:34:05.6946038Z + path 1.9.1
+2026-04-03T21:34:05.6946532Z + pool 1.5.2
+2026-04-03T21:34:05.6946797Z + protobuf 6.0.0
+2026-04-03T21:34:05.6947054Z + pub_semver 2.2.0
+2026-04-03T21:34:05.6947308Z + shelf 1.4.2
+2026-04-03T21:34:05.6947557Z + shelf_packages_handler 3.0.2
+2026-04-03T21:34:05.6947915Z + shelf_static 1.1.3
+2026-04-03T21:34:05.6948229Z + shelf_web_socket 3.0.0
+2026-04-03T21:34:05.6948510Z + source_map_stack_trace 2.1.2
+2026-04-03T21:34:05.6948787Z + source_maps 0.10.13
+2026-04-03T21:34:05.6949036Z + source_span 1.10.2
+2026-04-03T21:34:05.6949270Z + stack_trace 1.12.1
+2026-04-03T21:34:05.6949512Z + stream_channel 2.1.4
+2026-04-03T21:34:05.6949761Z + string_scanner 1.4.1
+2026-04-03T21:34:05.6950011Z + term_glyph 1.2.2
+2026-04-03T21:34:05.6950232Z + test 1.31.0
+2026-04-03T21:34:05.6950454Z + test_api 0.7.11
+2026-04-03T21:34:05.6950687Z + test_core 0.6.17
+2026-04-03T21:34:05.6950913Z + typed_data 1.4.0
+2026-04-03T21:34:05.6951150Z + vm_service 15.0.2
+2026-04-03T21:34:05.6951381Z + watcher 1.2.1
+2026-04-03T21:34:05.6951612Z + web 1.1.1
+2026-04-03T21:34:05.6951828Z + web_socket 1.0.1
+2026-04-03T21:34:05.6952068Z + web_socket_channel 3.0.3
+2026-04-03T21:34:05.6952364Z + webkit_inspection_protocol 1.2.1
+2026-04-03T21:34:05.6952668Z + yaml 3.1.3
+2026-04-03T21:34:05.6953080Z Changed 54 dependencies!
+2026-04-03T21:34:05.7188145Z ##[group]Run dart analyze dart/
+2026-04-03T21:34:05.7188446Z [36;1mdart analyze dart/[0m
+2026-04-03T21:34:05.7216999Z shell: /usr/bin/bash -e {0}
+2026-04-03T21:34:05.7217245Z env:
+2026-04-03T21:34:05.7217469Z   DART_HOME: /opt/hostedtoolcache/dart/3.11.4/x64
+2026-04-03T21:34:05.7217775Z   PUB_CACHE: /home/runner/.pub-cache
+2026-04-03T21:34:05.7218028Z ##[endgroup]
+2026-04-03T21:34:05.7415622Z Analyzing dart...
+2026-04-03T21:34:11.4901335Z 
+2026-04-03T21:34:11.4914787Z warning - compiler/lib/compiler.dart:1403:9 - The value of the local variable 'inSwitch' isn't used. Try removing the variable or using it. - unused_local_variable
+2026-04-03T21:34:11.4916762Z warning - compiler/lib/compiler.dart:3076:10 - The declaration '_formatDouble' isn't referenced. Try removing the declaration of '_formatDouble'. - unused_element
+2026-04-03T21:34:11.4919019Z warning - compiler/lib/compiler.dart:3083:10 - The declaration '_escapeDartString' isn't referenced. Try removing the declaration of '_escapeDartString'. - unused_element
+2026-04-03T21:34:11.4920926Z warning - engine/lib/engine.dart:1577:36 - The '!' will have no effect because the receiver can't be null. Try removing the '!' operator. - unnecessary_non_null_assertion
+2026-04-03T21:34:11.4922667Z warning - shared/lib/std_fs.dart:108:29 - The declaration '_exprField' isn't referenced. Try removing the declaration of '_exprField'. - unused_element
+2026-04-03T21:34:11.4924559Z warning - shared/lib/std_time.dart:103:29 - The declaration '_exprField' isn't referenced. Try removing the declaration of '_exprField'. - unused_element
+2026-04-03T21:34:11.4925500Z 
+2026-04-03T21:34:11.4925606Z 6 issues found.
+2026-04-03T21:34:11.5261374Z ##[error]Process completed with exit code 2.
+2026-04-03T21:34:11.5445024Z Post job cleanup.
+2026-04-03T21:34:11.6489420Z [command]/usr/bin/git version
+2026-04-03T21:34:11.6533102Z git version 2.53.0
+2026-04-03T21:34:11.6580892Z Temporarily overriding HOME='/home/runner/work/_temp/24c7f5ed-4eb1-4fd2-a2d6-e26845a2dfed' before making global git config changes
+2026-04-03T21:34:11.6582335Z Adding repository directory to the temporary git global config as a safe directory
+2026-04-03T21:34:11.6587968Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/ball/ball
+2026-04-03T21:34:11.6625258Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-04-03T21:34:11.6663107Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-04-03T21:34:11.6900820Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-04-03T21:34:11.6922687Z http.https://github.com/.extraheader
+2026-04-03T21:34:11.6937042Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-04-03T21:34:11.6979104Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-04-03T21:34:11.7215923Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-04-03T21:34:11.7247348Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-04-03T21:34:11.7588041Z Cleaning up orphan processes
+2026-04-03T21:34:11.7958020Z ##[warning]Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: actions/checkout@v4, dart-lang/setup-dart@v1. Actions will be forced to run with Node.js 24 by default starting June 2nd, 2026. Node.js 20 will be removed from the runner on September 16th, 2026. Please check if updated versions of these actions are available that support Node.js 24. To opt into Node.js 24 now, set the FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true environment variable on the runner or in your workflow file. Once Node.js 24 becomes the default, you can temporarily opt out by setting ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

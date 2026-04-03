@@ -105,14 +105,6 @@ google.FieldDescriptorProto _bytesField(String name, int number) {
     ..type = google.FieldDescriptorProto_Type.TYPE_BYTES;
 }
 
-google.FieldDescriptorProto _exprField(String name, int number) {
-  return google.FieldDescriptorProto()
-    ..name = name
-    ..number = number
-    ..type = google.FieldDescriptorProto_Type.TYPE_MESSAGE
-    ..typeName = '.ball.v1.Expression';
-}
-
 FunctionDefinition _fn(
   String name,
   String inputType,

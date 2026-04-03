@@ -9,8 +9,8 @@
 *.cpp text
 *.cc text
 
-# Proto
-*.proto text
+# Proto — force LF for cross-platform buf format consistency
+*.proto text eol=lf
 
 # Web
 *.html text

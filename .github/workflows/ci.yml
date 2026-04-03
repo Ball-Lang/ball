@@ -46,7 +46,7 @@ jobs:
 
       - uses: dart-lang/setup-dart@v1
         with:
-          sdk: '3.9.0'
+          sdk: stable
 
       - name: Install dependencies
         run: cd dart && dart pub get

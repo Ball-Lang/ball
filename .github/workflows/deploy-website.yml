@@ -42,6 +42,9 @@ jobs:
       - name: Add .nojekyll
         run: touch website/build/jaspr/.nojekyll
 
+      - name: Copy CNAME
+        run: cp website/web/CNAME website/build/jaspr/CNAME
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

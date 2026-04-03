@@ -14,7 +14,6 @@ add_library(ball_cpp_compiler_lib
 target_include_directories(ball_cpp_compiler_lib PUBLIC
     include
     ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/gen
 )
 
 target_link_libraries(ball_cpp_compiler_lib PUBLIC ball_shared)

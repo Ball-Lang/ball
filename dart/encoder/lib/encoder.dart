@@ -32,20 +32,29 @@ class EncoderError implements Exception {
   final String? source;
 
   @override
-  String toString() => 'EncoderError: $message${source != null ? ' at $source' : ''}';
+  String toString() =>
+      'EncoderError: $message${source != null ? ' at $source' : ''}';
 }
 
 /// Functions that belong to the Dart-specific `dart_std` module rather than
 /// the universal `std` module.
 const _dartStdFunctions = {
-  'null_aware_access', 'null_aware_call',
-  'cascade', 'spread', 'null_spread',
+  'null_aware_access',
+  'null_aware_call',
+  'cascade',
+  'spread',
+  'null_spread',
   'invoke',
-  'map_create', 'set_create', 'record',
-  'collection_if', 'collection_for',
+  'map_create',
+  'set_create',
+  'record',
+  'collection_if',
+  'collection_for',
   'switch_expr',
-  'symbol', 'type_literal',
-  'labeled', 'yield_each',
+  'symbol',
+  'type_literal',
+  'labeled',
+  'yield_each',
   'typed_list',
 };
 
@@ -148,10 +157,7 @@ class DartEncoder {
   ///
   /// Returns the encoded [Module] plus any external-import stub modules that
   /// were not covered by [uriToModuleOverrides].
-  ({
-    Module module,
-    List<Module> importStubs,
-  }) encodeModule(
+  ({Module module, List<Module> importStubs}) encodeModule(
     String source, {
     required String moduleName,
     Map<String, String> uriToModuleOverrides = const {},
@@ -168,10 +174,7 @@ class DartEncoder {
   ///
   /// Use this when you have already parsed the source (e.g. to inspect
   /// `part of` directives) and want to avoid parsing it a second time.
-  ({
-    Module module,
-    List<Module> importStubs,
-  }) encodeModuleFromUnit(
+  ({Module module, List<Module> importStubs}) encodeModuleFromUnit(
     ast.CompilationUnit unit, {
     required String moduleName,
     Map<String, String> uriToModuleOverrides = const {},
@@ -264,7 +267,10 @@ class DartEncoder {
         //     if (dart.library.js_interop) 'web.dart';
         if (directive.configurations.isNotEmpty) {
           detail['configurations'] = directive.configurations.map((c) {
-            final m = <String, Object>{'name': c.name.toSource(), 'uri': c.uri.stringValue ?? ''};
+            final m = <String, Object>{
+              'name': c.name.toSource(),
+              'uri': c.uri.stringValue ?? '',
+            };
             if (c.value != null) m['value'] = c.value!.stringValue ?? '';
             return m;
           }).toList();
@@ -290,7 +296,10 @@ class DartEncoder {
         if (hide.isNotEmpty) detail['hide'] = hide;
         if (directive.configurations.isNotEmpty) {
           detail['configurations'] = directive.configurations.map((c) {
-            final m = <String, Object>{'name': c.name.toSource(), 'uri': c.uri.stringValue ?? ''};
+            final m = <String, Object>{
+              'name': c.name.toSource(),
+              'uri': c.uri.stringValue ?? '',
+            };
             if (c.value != null) m['value'] = c.value!.stringValue ?? '';
             return m;
           }).toList();
@@ -329,12 +338,7 @@ class DartEncoder {
       ..version = version
       ..entryModule = 'main'
       ..entryFunction = 'main'
-      ..modules.addAll([
-        stdModule,
-        ?dartStdModule,
-        ...importStubs,
-        module,
-      ]);
+      ..modules.addAll([stdModule, ?dartStdModule, ...importStubs, module]);
   }
 
   /// Builds a single ball [Module] from a parsed compilation unit.
@@ -344,10 +348,7 @@ class DartEncoder {
   /// Base-function names used during encoding are **accumulated** into
   /// [_usedBaseFunctions] — call [_buildStdModule] / [_buildDartStdModule]
   /// afterwards to materialise them.
-  ({
-    Module module,
-    List<Module> importStubs,
-  }) _buildModule(
+  ({Module module, List<Module> importStubs}) _buildModule(
     ast.CompilationUnit unit, {
     required String moduleName,
   }) {
@@ -360,17 +361,34 @@ class DartEncoder {
     for (final decl in unit.declarations) {
       if (decl is ast.ClassDeclaration) {
         _encodeClassDeclaration(
-            decl, moduleTypes, moduleFunctions, moduleTypeDefs);
+          decl,
+          moduleTypes,
+          moduleFunctions,
+          moduleTypeDefs,
+        );
       } else if (decl is ast.MixinDeclaration) {
         _encodeMixinDeclaration(
-            decl, moduleTypes, moduleFunctions, moduleTypeDefs);
+          decl,
+          moduleTypes,
+          moduleFunctions,
+          moduleTypeDefs,
+        );
       } else if (decl is ast.EnumDeclaration) {
-        _encodeEnumDeclaration(decl, moduleEnums, moduleFunctions, moduleTypeDefs);
+        _encodeEnumDeclaration(
+          decl,
+          moduleEnums,
+          moduleFunctions,
+          moduleTypeDefs,
+        );
       } else if (decl is ast.ExtensionDeclaration) {
         _encodeExtensionDeclaration(decl, moduleFunctions, moduleTypeDefs);
       } else if (decl is ast.ExtensionTypeDeclaration) {
         _encodeExtensionTypeDeclaration(
-            decl, moduleTypes, moduleFunctions, moduleTypeDefs);
+          decl,
+          moduleTypes,
+          moduleFunctions,
+          moduleTypeDefs,
+        );
       } else if (decl is ast.FunctionDeclaration) {
         moduleFunctions.add(_encodeFunctionDeclaration(decl));
       } else if (decl is ast.TopLevelVariableDeclaration) {
@@ -385,8 +403,7 @@ class DartEncoder {
     final knownModuleNames = {'std', 'dart_std', moduleName};
     List<String>? libraryAnnotations;
     for (final directive in unit.directives) {
-      if (directive is ast.LibraryDirective &&
-          directive.metadata.isNotEmpty) {
+      if (directive is ast.LibraryDirective && directive.metadata.isNotEmpty) {
         libraryAnnotations = _encodeAnnotations(directive.metadata);
       } else if (directive is ast.ImportDirective) {
         final uri = directive.uri.stringValue ?? '';
@@ -397,9 +414,11 @@ class DartEncoder {
         // we rely on the caller — PackageEncoder — to deduplicate them).
         if (!knownModuleNames.contains(imName)) {
           knownModuleNames.add(imName);
-          importStubs.add(Module()
-            ..name = imName
-            ..description = 'Imported from $uri');
+          importStubs.add(
+            Module()
+              ..name = imName
+              ..description = 'Imported from $uri',
+          );
         }
       }
     }
@@ -412,17 +431,17 @@ class DartEncoder {
 
     final module = Module()
       ..name = moduleName
-      ..moduleImports.addAll(
-        importNames.map((n) => ModuleImport()..name = n),
-      )
+      ..moduleImports.addAll(importNames.map((n) => ModuleImport()..name = n))
       ..types.addAll(moduleTypes)
       ..enums.addAll(moduleEnums)
       ..functions.addAll(moduleFunctions)
       ..typeDefs.addAll(moduleTypeDefs)
       ..typeAliases.addAll(moduleTypeAliases);
 
-    if (_importDetails.isNotEmpty || _exportDetails.isNotEmpty ||
-        _partDetails.isNotEmpty || _partOfUri != null ||
+    if (_importDetails.isNotEmpty ||
+        _exportDetails.isNotEmpty ||
+        _partDetails.isNotEmpty ||
+        _partOfUri != null ||
         libraryAnnotations != null) {
       final meta = <String, Object>{};
       if (_importDetails.isNotEmpty) meta['dart_imports'] = _importDetails;
@@ -451,25 +470,44 @@ class DartEncoder {
     final functions = <FunctionDefinition>[];
 
     // Only include functions that belong to the universal std module.
-    final stdFunctions = _usedBaseFunctions
-        .where((f) => !_dartStdFunctions.contains(f));
+    final stdFunctions = _usedBaseFunctions.where(
+      (f) => !_dartStdFunctions.contains(f),
+    );
 
     if (stdFunctions.contains('print')) {
       types['PrintInput'] = google.DescriptorProto()
         ..name = 'PrintInput'
-        ..field.add(google.FieldDescriptorProto()
-          ..name = 'message'
-          ..number = 1
-          ..type = google.FieldDescriptorProto_Type.TYPE_STRING
-          ..label = google.FieldDescriptorProto_Label.LABEL_OPTIONAL);
+        ..field.add(
+          google.FieldDescriptorProto()
+            ..name = 'message'
+            ..number = 1
+            ..type = google.FieldDescriptorProto_Type.TYPE_STRING
+            ..label = google.FieldDescriptorProto_Label.LABEL_OPTIONAL,
+        );
     }
 
     const binaryFunctions = {
-      'add', 'subtract', 'multiply', 'divide', 'divide_double', 'modulo',
-      'equals', 'not_equals', 'less_than', 'greater_than', 'lte', 'gte',
-      'and', 'or', 'concat',
-      'bitwise_and', 'bitwise_or', 'bitwise_xor',
-      'left_shift', 'right_shift', 'unsigned_right_shift',
+      'add',
+      'subtract',
+      'multiply',
+      'divide',
+      'divide_double',
+      'modulo',
+      'equals',
+      'not_equals',
+      'less_than',
+      'greater_than',
+      'lte',
+      'gte',
+      'and',
+      'or',
+      'concat',
+      'bitwise_and',
+      'bitwise_or',
+      'bitwise_xor',
+      'left_shift',
+      'right_shift',
+      'unsigned_right_shift',
       'null_coalesce',
     };
     if (stdFunctions.any(binaryFunctions.contains)) {
@@ -490,27 +528,42 @@ class DartEncoder {
     }
 
     const unaryFunctions = {
-      'not', 'negate', 'bitwise_not',
-      'int_to_string', 'double_to_string',
-      'string_to_int', 'string_to_double', 'to_string', 'length',
-      'throw', 'await', 'null_check',
-      'pre_increment', 'pre_decrement', 'post_increment', 'post_decrement',
+      'not',
+      'negate',
+      'bitwise_not',
+      'int_to_string',
+      'double_to_string',
+      'string_to_int',
+      'string_to_double',
+      'to_string',
+      'length',
+      'throw',
+      'await',
+      'null_check',
+      'pre_increment',
+      'pre_decrement',
+      'post_increment',
+      'post_decrement',
       'yield',
     };
     if (stdFunctions.any(unaryFunctions.contains)) {
       types['UnaryInput'] = google.DescriptorProto()
         ..name = 'UnaryInput'
-        ..field.add(google.FieldDescriptorProto()
-          ..name = 'value'
-          ..number = 1
-          ..type = google.FieldDescriptorProto_Type.TYPE_STRING
-          ..label = google.FieldDescriptorProto_Label.LABEL_OPTIONAL);
+        ..field.add(
+          google.FieldDescriptorProto()
+            ..name = 'value'
+            ..number = 1
+            ..type = google.FieldDescriptorProto_Type.TYPE_STRING
+            ..label = google.FieldDescriptorProto_Label.LABEL_OPTIONAL,
+        );
     }
 
     for (final name in stdFunctions) {
-      functions.add(FunctionDefinition()
-        ..name = name
-        ..isBase = true);
+      functions.add(
+        FunctionDefinition()
+          ..name = name
+          ..isBase = true,
+      );
     }
 
     return Module()
@@ -530,9 +583,11 @@ class DartEncoder {
 
     final functions = <FunctionDefinition>[];
     for (final name in dartFunctions) {
-      functions.add(FunctionDefinition()
-        ..name = name
-        ..isBase = true);
+      functions.add(
+        FunctionDefinition()
+          ..name = name
+          ..isBase = true,
+      );
     }
 
     return Module()
@@ -566,11 +621,13 @@ class DartEncoder {
         }
         final type = member.fields.type;
         for (final variable in member.fields.variables) {
-          descriptor.field.add(google.FieldDescriptorProto()
-            ..name = variable.name.lexeme
-            ..number = fieldNumber++
-            ..type = _dartTypeToProtoType(type?.toSource() ?? 'dynamic')
-            ..label = google.FieldDescriptorProto_Label.LABEL_OPTIONAL);
+          descriptor.field.add(
+            google.FieldDescriptorProto()
+              ..name = variable.name.lexeme
+              ..number = fieldNumber++
+              ..type = _dartTypeToProtoType(type?.toSource() ?? 'dynamic')
+              ..label = google.FieldDescriptorProto_Label.LABEL_OPTIONAL,
+          );
         }
       }
     }
@@ -601,8 +658,9 @@ class DartEncoder {
     if (ext != null) classMeta['superclass'] = ext.superclass.toSource();
     final impl = decl.implementsClause;
     if (impl != null) {
-      classMeta['interfaces'] =
-          impl.interfaces.map((t) => t.toSource()).toList();
+      classMeta['interfaces'] = impl.interfaces
+          .map((t) => t.toSource())
+          .toList();
     }
     final with_ = decl.withClause;
     if (with_ != null) {
@@ -640,18 +698,21 @@ class DartEncoder {
       for (final tp in classTypeParams.typeParameters) {
         typeParams.add(TypeParameter(name: tp.toSource()));
       }
-      classMeta['type_params'] =
-          classTypeParams.typeParameters.map((t) => t.toSource()).toList();
+      classMeta['type_params'] = classTypeParams.typeParameters
+          .map((t) => t.toSource())
+          .toList();
     }
 
     // Emit first-class TypeDefinition with ball-qualified name.
-    typeDefs.add(TypeDefinition(
-      name: ballName,
-      descriptor: descriptor,
-      typeParams: typeParams,
-      description: 'Class metadata for $ballName',
-      metadata: _toStruct(classMeta),
-    ));
+    typeDefs.add(
+      TypeDefinition(
+        name: ballName,
+        descriptor: descriptor,
+        typeParams: typeParams,
+        description: 'Class metadata for $ballName',
+        metadata: _toStruct(classMeta),
+      ),
+    );
   }
 
   /// Encode a static field declaration as a standalone function with metadata.
@@ -686,8 +747,7 @@ class DartEncoder {
     ast.MethodDeclaration member,
   ) {
     final methodName = member.name.lexeme;
-    final def = FunctionDefinition()
-      ..name = '$className.$methodName';
+    final def = FunctionDefinition()..name = '$className.$methodName';
 
     final returnType = member.returnType?.toSource();
     if (returnType != null) {
@@ -839,11 +899,13 @@ class DartEncoder {
       if (member is ast.FieldDeclaration) {
         final type = member.fields.type;
         for (final variable in member.fields.variables) {
-          descriptor.field.add(google.FieldDescriptorProto()
-            ..name = variable.name.lexeme
-            ..number = fieldNumber++
-            ..type = _dartTypeToProtoType(type?.toSource() ?? 'dynamic')
-            ..label = google.FieldDescriptorProto_Label.LABEL_OPTIONAL);
+          descriptor.field.add(
+            google.FieldDescriptorProto()
+              ..name = variable.name.lexeme
+              ..number = fieldNumber++
+              ..type = _dartTypeToProtoType(type?.toSource() ?? 'dynamic')
+              ..label = google.FieldDescriptorProto_Label.LABEL_OPTIONAL,
+          );
         }
       }
     }
@@ -859,8 +921,9 @@ class DartEncoder {
     final mixinAnnots = _encodeAnnotations(decl.metadata);
     if (mixinAnnots != null) meta['annotations'] = mixinAnnots;
     if (decl.onClause != null) {
-      meta['on'] =
-          decl.onClause!.superclassConstraints.map((t) => t.toSource()).toList();
+      meta['on'] = decl.onClause!.superclassConstraints
+          .map((t) => t.toSource())
+          .toList();
     }
     if (decl.implementsClause != null) {
       meta['interfaces'] = decl.implementsClause!.interfaces
@@ -872,20 +935,23 @@ class DartEncoder {
       for (final tp in decl.typeParameters!.typeParameters) {
         typeParams.add(TypeParameter(name: tp.toSource()));
       }
-      meta['type_params'] =
-          decl.typeParameters!.typeParameters.map((t) => t.toSource()).toList();
+      meta['type_params'] = decl.typeParameters!.typeParameters
+          .map((t) => t.toSource())
+          .toList();
     }
     if (decl.baseKeyword != null) meta['is_base'] = true;
     if (decl.documentationComment != null) {
       meta['doc'] = decl.documentationComment!.toSource();
     }
-    typeDefs.add(TypeDefinition(
-      name: ballName,
-      descriptor: descriptor,
-      typeParams: typeParams,
-      description: 'Mixin metadata for $ballName',
-      metadata: _toStruct(meta),
-    ));
+    typeDefs.add(
+      TypeDefinition(
+        name: ballName,
+        descriptor: descriptor,
+        typeParams: typeParams,
+        description: 'Mixin metadata for $ballName',
+        metadata: _toStruct(meta),
+      ),
+    );
   }
 
   void _encodeEnumDeclaration(
@@ -900,9 +966,11 @@ class DartEncoder {
 
     var valueNumber = 0;
     for (final constant in decl.body.constants) {
-      descriptor.value.add(google.EnumValueDescriptorProto()
-        ..name = constant.name.lexeme
-        ..number = valueNumber++);
+      descriptor.value.add(
+        google.EnumValueDescriptorProto()
+          ..name = constant.name.lexeme
+          ..number = valueNumber++,
+      );
     }
     enums.add(descriptor);
 
@@ -939,8 +1007,9 @@ class DartEncoder {
           .toList();
     }
     if (decl.withClause != null) {
-      meta['mixins'] =
-          decl.withClause!.mixinTypes.map((t) => t.toSource()).toList();
+      meta['mixins'] = decl.withClause!.mixinTypes
+          .map((t) => t.toSource())
+          .toList();
     }
     // Enum value constructor arguments.
     final values = <Map<String, Object>>[];
@@ -957,17 +1026,20 @@ class DartEncoder {
     if (values.isNotEmpty) meta['values'] = values;
     final enumTypeParams = decl.namePart.typeParameters;
     if (enumTypeParams != null) {
-      meta['type_params'] =
-          enumTypeParams.typeParameters.map((t) => t.toSource()).toList();
+      meta['type_params'] = enumTypeParams.typeParameters
+          .map((t) => t.toSource())
+          .toList();
     }
     if (decl.documentationComment != null) {
       meta['doc'] = decl.documentationComment!.toSource();
     }
-    typeDefs.add(TypeDefinition(
-      name: ballName,
-      description: 'Enum metadata for $ballName',
-      metadata: _toStruct(meta),
-    ));
+    typeDefs.add(
+      TypeDefinition(
+        name: ballName,
+        description: 'Enum metadata for $ballName',
+        metadata: _toStruct(meta),
+      ),
+    );
   }
 
   void _encodeExtensionDeclaration(
@@ -996,18 +1068,21 @@ class DartEncoder {
       for (final tp in decl.typeParameters!.typeParameters) {
         typeParams.add(TypeParameter(name: tp.toSource()));
       }
-      meta['type_params'] =
-          decl.typeParameters!.typeParameters.map((t) => t.toSource()).toList();
+      meta['type_params'] = decl.typeParameters!.typeParameters
+          .map((t) => t.toSource())
+          .toList();
     }
     if (decl.documentationComment != null) {
       meta['doc'] = decl.documentationComment!.toSource();
     }
-    typeDefs.add(TypeDefinition(
-      name: ballName,
-      typeParams: typeParams,
-      description: 'Extension metadata for $ballName',
-      metadata: _toStruct(meta),
-    ));
+    typeDefs.add(
+      TypeDefinition(
+        name: ballName,
+        typeParams: typeParams,
+        description: 'Extension metadata for $ballName',
+        metadata: _toStruct(meta),
+      ),
+    );
   }
 
   /// Encode a `extension type Foo(Type field) implements Bar { ... }` declaration.
@@ -1028,11 +1103,13 @@ class DartEncoder {
       if (member is ast.FieldDeclaration && !member.isStatic) {
         final type = member.fields.type;
         for (final variable in member.fields.variables) {
-          descriptor.field.add(google.FieldDescriptorProto()
-            ..name = variable.name.lexeme
-            ..number = fieldNumber++
-            ..type = _dartTypeToProtoType(type?.toSource() ?? 'dynamic')
-            ..label = google.FieldDescriptorProto_Label.LABEL_OPTIONAL);
+          descriptor.field.add(
+            google.FieldDescriptorProto()
+              ..name = variable.name.lexeme
+              ..number = fieldNumber++
+              ..type = _dartTypeToProtoType(type?.toSource() ?? 'dynamic')
+              ..label = google.FieldDescriptorProto_Label.LABEL_OPTIONAL,
+          );
         }
       }
     }
@@ -1063,8 +1140,8 @@ class DartEncoder {
       meta['rep_type'] = repParam.isNamed
           ? repParam.toSource()
           : (repParam is ast.SimpleFormalParameter
-              ? (repParam.type?.toSource() ?? 'dynamic')
-              : repParam.toSource());
+                ? (repParam.type?.toSource() ?? 'dynamic')
+                : repParam.toSource());
       if (repParam is ast.SimpleFormalParameter) {
         meta['rep_field'] = repParam.name?.lexeme ?? '';
       }
@@ -1077,8 +1154,7 @@ class DartEncoder {
 
     final impl = decl.implementsClause;
     if (impl != null) {
-      meta['interfaces'] =
-          impl.interfaces.map((t) => t.toSource()).toList();
+      meta['interfaces'] = impl.interfaces.map((t) => t.toSource()).toList();
     }
 
     if (decl.documentationComment != null) {
@@ -1112,17 +1188,20 @@ class DartEncoder {
       for (final tp in pc.typeParameters!.typeParameters) {
         typeParams.add(TypeParameter(name: tp.toSource()));
       }
-      meta['type_params'] =
-          pc.typeParameters!.typeParameters.map((t) => t.toSource()).toList();
+      meta['type_params'] = pc.typeParameters!.typeParameters
+          .map((t) => t.toSource())
+          .toList();
     }
 
-    typeDefs.add(TypeDefinition(
-      name: ballName,
-      descriptor: descriptor,
-      typeParams: typeParams,
-      description: 'Extension type metadata for $ballName',
-      metadata: _toStruct(meta),
-    ));
+    typeDefs.add(
+      TypeDefinition(
+        name: ballName,
+        descriptor: descriptor,
+        typeParams: typeParams,
+        description: 'Extension type metadata for $ballName',
+        metadata: _toStruct(meta),
+      ),
+    );
   }
 
   void _encodeTopLevelVariable(
@@ -1168,19 +1247,22 @@ class DartEncoder {
       for (final tp in decl.typeParameters!.typeParameters) {
         typeParams.add(TypeParameter(name: tp.toSource()));
       }
-      meta['type_params'] =
-          decl.typeParameters!.typeParameters.map((t) => t.toSource()).toList();
+      meta['type_params'] = decl.typeParameters!.typeParameters
+          .map((t) => t.toSource())
+          .toList();
     }
     if (decl.documentationComment != null) {
       meta['doc'] = decl.documentationComment!.toSource();
     }
     // Emit first-class TypeAlias.
-    typeAliases.add(TypeAlias(
-      name: aliasName,
-      targetType: decl.type.toSource(),
-      typeParams: typeParams,
-      metadata: _toStruct(meta),
-    ));
+    typeAliases.add(
+      TypeAlias(
+        name: aliasName,
+        targetType: decl.type.toSource(),
+        typeParams: typeParams,
+        metadata: _toStruct(meta),
+      ),
+    );
   }
 
   // ============================================================
@@ -1224,7 +1306,9 @@ class DartEncoder {
     if (body.isAsynchronous && body.star != null) meta['is_async_star'] = true;
     _encodeParamsMeta(params, meta);
     if (decl.functionExpression.typeParameters != null) {
-      meta['type_params'] = decl.functionExpression.typeParameters!
+      meta['type_params'] = decl
+          .functionExpression
+          .typeParameters!
           .typeParameters
           .map((t) => t.toSource())
           .toList();
@@ -1360,8 +1444,7 @@ class DartEncoder {
             FieldValuePair()
               ..name = 'label'
               ..value = (Expression()
-                ..literal =
-                    (Literal()..stringValue = stmt.label!.name)),
+                ..literal = (Literal()..stringValue = stmt.label!.name)),
         ]);
     }
     if (stmt is ast.ContinueStatement) {
@@ -1372,8 +1455,7 @@ class DartEncoder {
             FieldValuePair()
               ..name = 'label'
               ..value = (Expression()
-                ..literal =
-                    (Literal()..stringValue = stmt.label!.name)),
+                ..literal = (Literal()..stringValue = stmt.label!.name)),
         ]);
     }
     if (stmt is ast.AssertStatement) {
@@ -1406,8 +1488,8 @@ class DartEncoder {
           FieldValuePair()
             ..name = 'label'
             ..value = (Expression()
-              ..literal =
-                  (Literal()..stringValue = stmt.labels.first.label.name)),
+              ..literal = (Literal()
+                ..stringValue = stmt.labels.first.label.name)),
           FieldValuePair()
             ..name = 'body'
             ..value = (Expression()
@@ -1445,7 +1527,8 @@ class DartEncoder {
       if (body is ast.ExpressionFunctionBody) meta['expression_body'] = true;
       if (body.isAsynchronous) meta['is_async'] = true;
       if (body.isSynchronous && body.star != null) meta['is_sync_star'] = true;
-      if (body.isAsynchronous && body.star != null) meta['is_async_star'] = true;
+      if (body.isAsynchronous && body.star != null)
+        meta['is_async_star'] = true;
       _encodeParamsMeta(params, meta);
       lambdaDef.metadata = _toStruct(meta);
 
@@ -1476,7 +1559,9 @@ class DartEncoder {
   /// Encode a single [variable] from a [VariableDeclarationStatement].
   /// Used for multi-variable declarations like `var a = 1, b = 2;`.
   Statement _encodeVarDeclEntry(
-      ast.VariableDeclarationStatement stmt, ast.VariableDeclaration variable) {
+    ast.VariableDeclarationStatement stmt,
+    ast.VariableDeclaration variable,
+  ) {
     final name = variable.name.lexeme;
     final init = variable.initializer;
 
@@ -1523,35 +1608,56 @@ class DartEncoder {
 
     final thenStmt = stmt.thenStatement;
     if (thenStmt is ast.Block) {
-      fields.add(FieldValuePair()
-        ..name = 'then'
-        ..value = _encodeBlock(thenStmt.statements, hasReturn: hasReturn));
+      fields.add(
+        FieldValuePair()
+          ..name = 'then'
+          ..value = _encodeBlock(thenStmt.statements, hasReturn: hasReturn),
+      );
     } else {
-      fields.add(FieldValuePair()
-        ..name = 'then'
-        ..value = _encodeSingleStatement(thenStmt, hasReturn: hasReturn));
+      fields.add(
+        FieldValuePair()
+          ..name = 'then'
+          ..value = _encodeSingleStatement(thenStmt, hasReturn: hasReturn),
+      );
     }
 
     final elseStmt = stmt.elseStatement;
     if (elseStmt != null) {
       if (elseStmt is ast.Block) {
-        fields.add(FieldValuePair()
-          ..name = 'else'
-          ..value = _encodeBlock(elseStmt.statements, hasReturn: hasReturn));
+        fields.add(
+          FieldValuePair()
+            ..name = 'else'
+            ..value = _encodeBlock(elseStmt.statements, hasReturn: hasReturn),
+        );
       } else {
-        fields.add(FieldValuePair()
-          ..name = 'else'
-          ..value = _encodeSingleStatement(elseStmt, hasReturn: hasReturn));
+        fields.add(
+          FieldValuePair()
+            ..name = 'else'
+            ..value = _encodeSingleStatement(elseStmt, hasReturn: hasReturn),
+        );
       }
     }
 
     // If-case pattern support: store in metadata.
     if (stmt.caseClause != null) {
-      fields.add(FieldValuePair()
-        ..name = 'case_pattern'
-        ..value = (Expression()
-          ..literal = (Literal()
-            ..stringValue = stmt.caseClause!.guardedPattern.toSource())));
+      fields.add(
+        FieldValuePair()
+          ..name = 'case_pattern'
+          ..value = (Expression()
+            ..literal = (Literal()
+              ..stringValue = stmt.caseClause!.guardedPattern.toSource())),
+      );
+      // Structured pattern encoding (9.6) for engine interpretation
+      final structuredPat = _encodePattern(
+        stmt.caseClause!.guardedPattern.pattern,
+      );
+      if (structuredPat != null) {
+        fields.add(
+          FieldValuePair()
+            ..name = 'case_pattern_expr'
+            ..value = structuredPat,
+        );
+      }
     }
 
     return _buildStdCall('if', fields);
@@ -1563,121 +1669,159 @@ class DartEncoder {
     final fields = <FieldValuePair>[];
 
     if (loopParts is ast.ForPartsWithDeclarations) {
-      fields.add(FieldValuePair()
-        ..name = 'init'
-        ..value = (Expression()
-          ..literal = (Literal()
-            ..stringValue = loopParts.variables.toSource())));
+      fields.add(
+        FieldValuePair()
+          ..name = 'init'
+          ..value = (Expression()
+            ..literal = (Literal()
+              ..stringValue = loopParts.variables.toSource())),
+      );
       if (loopParts.condition != null) {
-        fields.add(FieldValuePair()
-          ..name = 'condition'
-          ..value = _encodeExpr(loopParts.condition!));
+        fields.add(
+          FieldValuePair()
+            ..name = 'condition'
+            ..value = _encodeExpr(loopParts.condition!),
+        );
       }
       if (loopParts.updaters.isNotEmpty) {
         final updates = loopParts.updaters.map(_encodeExpr).toList();
         if (updates.length == 1) {
-          fields.add(FieldValuePair()
-            ..name = 'update'
-            ..value = updates.first);
+          fields.add(
+            FieldValuePair()
+              ..name = 'update'
+              ..value = updates.first,
+          );
         } else {
-          fields.add(FieldValuePair()
-            ..name = 'update'
-            ..value = (Expression()
-              ..literal = (Literal()
-                ..listValue = (ListLiteral()..elements.addAll(updates)))));
+          fields.add(
+            FieldValuePair()
+              ..name = 'update'
+              ..value = (Expression()
+                ..literal = (Literal()
+                  ..listValue = (ListLiteral()..elements.addAll(updates)))),
+          );
         }
       }
     } else if (loopParts is ast.ForPartsWithExpression) {
       if (loopParts.initialization != null) {
-        fields.add(FieldValuePair()
-          ..name = 'init'
-          ..value = _encodeExpr(loopParts.initialization!));
+        fields.add(
+          FieldValuePair()
+            ..name = 'init'
+            ..value = _encodeExpr(loopParts.initialization!),
+        );
       }
       if (loopParts.condition != null) {
-        fields.add(FieldValuePair()
-          ..name = 'condition'
-          ..value = _encodeExpr(loopParts.condition!));
+        fields.add(
+          FieldValuePair()
+            ..name = 'condition'
+            ..value = _encodeExpr(loopParts.condition!),
+        );
       }
       if (loopParts.updaters.isNotEmpty) {
-        fields.add(FieldValuePair()
-          ..name = 'update'
-          ..value = _encodeExpr(loopParts.updaters.first));
+        fields.add(
+          FieldValuePair()
+            ..name = 'update'
+            ..value = _encodeExpr(loopParts.updaters.first),
+        );
       }
     } else if (loopParts is ast.ForEachPartsWithDeclaration) {
       _usedBaseFunctions.add('for_in');
       // Preserve `await for` loops.
       if (stmt.awaitKeyword != null) {
-        fields.add(FieldValuePair()
-          ..name = 'is_await'
-          ..value = (Expression()
-            ..literal = (Literal()..boolValue = true)));
+        fields.add(
+          FieldValuePair()
+            ..name = 'is_await'
+            ..value = (Expression()..literal = (Literal()..boolValue = true)),
+        );
       }
-      fields.add(FieldValuePair()
-        ..name = 'variable'
-        ..value = (Expression()
-          ..literal =
-              (Literal()..stringValue = loopParts.loopVariable.name.lexeme)));
-      if (loopParts.loopVariable.type != null) {
-        fields.add(FieldValuePair()
-          ..name = 'variable_type'
+      fields.add(
+        FieldValuePair()
+          ..name = 'variable'
           ..value = (Expression()
             ..literal = (Literal()
-              ..stringValue = loopParts.loopVariable.type!.toSource())));
+              ..stringValue = loopParts.loopVariable.name.lexeme)),
+      );
+      if (loopParts.loopVariable.type != null) {
+        fields.add(
+          FieldValuePair()
+            ..name = 'variable_type'
+            ..value = (Expression()
+              ..literal = (Literal()
+                ..stringValue = loopParts.loopVariable.type!.toSource())),
+        );
       }
-      fields.add(FieldValuePair()
-        ..name = 'iterable'
-        ..value = _encodeExpr(loopParts.iterable));
+      fields.add(
+        FieldValuePair()
+          ..name = 'iterable'
+          ..value = _encodeExpr(loopParts.iterable),
+      );
 
       final body = stmt.body;
       if (body is ast.Block) {
-        fields.add(FieldValuePair()
-          ..name = 'body'
-          ..value = _encodeBlock(body.statements, hasReturn: false));
+        fields.add(
+          FieldValuePair()
+            ..name = 'body'
+            ..value = _encodeBlock(body.statements, hasReturn: false),
+        );
       } else {
-        fields.add(FieldValuePair()
-          ..name = 'body'
-          ..value = _encodeSingleStatement(body, hasReturn: false));
+        fields.add(
+          FieldValuePair()
+            ..name = 'body'
+            ..value = _encodeSingleStatement(body, hasReturn: false),
+        );
       }
       return _buildStdCall('for_in', fields);
     } else if (loopParts is ast.ForEachPartsWithIdentifier) {
       _usedBaseFunctions.add('for_in');
       // Preserve `await for` loops.
       if (stmt.awaitKeyword != null) {
-        fields.add(FieldValuePair()
-          ..name = 'is_await'
-          ..value = (Expression()
-            ..literal = (Literal()..boolValue = true)));
+        fields.add(
+          FieldValuePair()
+            ..name = 'is_await'
+            ..value = (Expression()..literal = (Literal()..boolValue = true)),
+        );
       }
-      fields.add(FieldValuePair()
-        ..name = 'variable'
-        ..value = (Expression()
-          ..literal = (Literal()..stringValue = loopParts.identifier.name)));
-      fields.add(FieldValuePair()
-        ..name = 'iterable'
-        ..value = _encodeExpr(loopParts.iterable));
+      fields.add(
+        FieldValuePair()
+          ..name = 'variable'
+          ..value = (Expression()
+            ..literal = (Literal()..stringValue = loopParts.identifier.name)),
+      );
+      fields.add(
+        FieldValuePair()
+          ..name = 'iterable'
+          ..value = _encodeExpr(loopParts.iterable),
+      );
 
       final body = stmt.body;
       if (body is ast.Block) {
-        fields.add(FieldValuePair()
-          ..name = 'body'
-          ..value = _encodeBlock(body.statements, hasReturn: false));
+        fields.add(
+          FieldValuePair()
+            ..name = 'body'
+            ..value = _encodeBlock(body.statements, hasReturn: false),
+        );
       } else {
-        fields.add(FieldValuePair()
-          ..name = 'body'
-          ..value = _encodeSingleStatement(body, hasReturn: false));
+        fields.add(
+          FieldValuePair()
+            ..name = 'body'
+            ..value = _encodeSingleStatement(body, hasReturn: false),
+        );
       }
       return _buildStdCall('for_in', fields);
     }
 
     final body = stmt.body;
     if (body is ast.Block) {
-      fields.add(FieldValuePair()
-        ..name = 'body'
-        ..value = _encodeBlock(body.statements, hasReturn: false));
+      fields.add(
+        FieldValuePair()
+          ..name = 'body'
+          ..value = _encodeBlock(body.statements, hasReturn: false),
+      );
     } else {
-      fields.add(FieldValuePair()
-        ..name = 'body'
-        ..value = _encodeSingleStatement(body, hasReturn: false));
+      fields.add(
+        FieldValuePair()
+          ..name = 'body'
+          ..value = _encodeSingleStatement(body, hasReturn: false),
+      );
     }
 
     return _buildStdCall('for', fields);
@@ -1743,9 +1887,10 @@ class DartEncoder {
             ..name = 'body'
             ..value = _encodeBlock(stmts, hasReturn: false),
         ];
-        cases.add(Expression()
-          ..messageCreation =
-              (MessageCreation()..fields.addAll(caseFlds)));
+        cases.add(
+          Expression()
+            ..messageCreation = (MessageCreation()..fields.addAll(caseFlds)),
+        );
       } else if (member is ast.SwitchPatternCase) {
         // Dart 3 pattern case: e.g. `case MyEnum.value: ...`
         // Store the pattern as a raw string under 'pattern' so the compiler
@@ -1756,37 +1901,49 @@ class DartEncoder {
           FieldValuePair()
             ..name = 'pattern'
             ..value = (Expression()
-              ..literal =
-                  (Literal()..stringValue = member.guardedPattern.pattern.toSource())),
+              ..literal = (Literal()
+                ..stringValue = member.guardedPattern.pattern.toSource())),
           FieldValuePair()
             ..name = 'body'
             ..value = _encodeBlock(stmts, hasReturn: false),
         ];
-        cases.add(Expression()
-          ..messageCreation =
-              (MessageCreation()..fields.addAll(caseFlds)));
+        // Structured pattern encoding (9.6)
+        final structuredPat = _encodePattern(member.guardedPattern.pattern);
+        if (structuredPat != null) {
+          caseFlds.add(
+            FieldValuePair()
+              ..name = 'pattern_expr'
+              ..value = structuredPat,
+          );
+        }
+        cases.add(
+          Expression()
+            ..messageCreation = (MessageCreation()..fields.addAll(caseFlds)),
+        );
       } else if (member is ast.SwitchDefault) {
         final stmts = _flattenCaseStatements(member.statements);
         final caseFlds = <FieldValuePair>[
           FieldValuePair()
             ..name = 'is_default'
-            ..value =
-                (Expression()..literal = (Literal()..boolValue = true)),
+            ..value = (Expression()..literal = (Literal()..boolValue = true)),
           FieldValuePair()
             ..name = 'body'
             ..value = _encodeBlock(stmts, hasReturn: false),
         ];
-        cases.add(Expression()
-          ..messageCreation =
-              (MessageCreation()..fields.addAll(caseFlds)));
+        cases.add(
+          Expression()
+            ..messageCreation = (MessageCreation()..fields.addAll(caseFlds)),
+        );
       }
     }
 
-    fields.add(FieldValuePair()
-      ..name = 'cases'
-      ..value = (Expression()
-        ..literal = (Literal()
-          ..listValue = (ListLiteral()..elements.addAll(cases)))));
+    fields.add(
+      FieldValuePair()
+        ..name = 'cases'
+        ..value = (Expression()
+          ..literal = (Literal()
+            ..listValue = (ListLiteral()..elements.addAll(cases)))),
+    );
 
     return _buildStdCall('switch', fields);
   }
@@ -1813,47 +1970,60 @@ class DartEncoder {
       for (final clause in stmt.catchClauses) {
         final catchFields = <FieldValuePair>[];
         if (clause.exceptionType != null) {
-          catchFields.add(FieldValuePair()
-            ..name = 'type'
-            ..value = (Expression()
-              ..literal = (Literal()
-                ..stringValue = clause.exceptionType!.toSource())));
+          catchFields.add(
+            FieldValuePair()
+              ..name = 'type'
+              ..value = (Expression()
+                ..literal = (Literal()
+                  ..stringValue = clause.exceptionType!.toSource())),
+          );
         }
         if (clause.exceptionParameter != null) {
-          catchFields.add(FieldValuePair()
-            ..name = 'variable'
-            ..value = (Expression()
-              ..literal = (Literal()
-                ..stringValue = clause.exceptionParameter!.name.lexeme)));
+          catchFields.add(
+            FieldValuePair()
+              ..name = 'variable'
+              ..value = (Expression()
+                ..literal = (Literal()
+                  ..stringValue = clause.exceptionParameter!.name.lexeme)),
+          );
         }
         if (clause.stackTraceParameter != null) {
-          catchFields.add(FieldValuePair()
-            ..name = 'stack_trace'
-            ..value = (Expression()
-              ..literal = (Literal()
-                ..stringValue =
-                    clause.stackTraceParameter!.name.lexeme)));
+          catchFields.add(
+            FieldValuePair()
+              ..name = 'stack_trace'
+              ..value = (Expression()
+                ..literal = (Literal()
+                  ..stringValue = clause.stackTraceParameter!.name.lexeme)),
+          );
         }
-        catchFields.add(FieldValuePair()
-          ..name = 'body'
-          ..value =
-              _encodeBlock(clause.body.statements, hasReturn: false));
-        catches.add(Expression()
-          ..messageCreation =
-              (MessageCreation()..fields.addAll(catchFields)));
+        catchFields.add(
+          FieldValuePair()
+            ..name = 'body'
+            ..value = _encodeBlock(clause.body.statements, hasReturn: false),
+        );
+        catches.add(
+          Expression()
+            ..messageCreation = (MessageCreation()..fields.addAll(catchFields)),
+        );
       }
-      fields.add(FieldValuePair()
-        ..name = 'catches'
-        ..value = (Expression()
-          ..literal = (Literal()
-            ..listValue = (ListLiteral()..elements.addAll(catches)))));
+      fields.add(
+        FieldValuePair()
+          ..name = 'catches'
+          ..value = (Expression()
+            ..literal = (Literal()
+              ..listValue = (ListLiteral()..elements.addAll(catches)))),
+      );
     }
 
     if (stmt.finallyBlock != null) {
-      fields.add(FieldValuePair()
-        ..name = 'finally'
-        ..value = _encodeBlock(
-            stmt.finallyBlock!.statements, hasReturn: false));
+      fields.add(
+        FieldValuePair()
+          ..name = 'finally'
+          ..value = _encodeBlock(
+            stmt.finallyBlock!.statements,
+            hasReturn: false,
+          ),
+      );
     }
 
     return _buildStdCall('try', fields);
@@ -1877,12 +2047,10 @@ class DartEncoder {
         ..literal = (Literal()..intValue = Int64(expr.value ?? 0));
     }
     if (expr is ast.DoubleLiteral) {
-      return Expression()
-        ..literal = (Literal()..doubleValue = expr.value);
+      return Expression()..literal = (Literal()..doubleValue = expr.value);
     }
     if (expr is ast.SimpleStringLiteral) {
-      return Expression()
-        ..literal = (Literal()..stringValue = expr.value);
+      return Expression()..literal = (Literal()..stringValue = expr.value);
     }
     if (expr is ast.AdjacentStrings) {
       final parts = expr.strings.map(_encodeExpr).toList();
@@ -1892,8 +2060,7 @@ class DartEncoder {
       return _encodeStringInterpolation(expr);
     }
     if (expr is ast.BooleanLiteral) {
-      return Expression()
-        ..literal = (Literal()..boolValue = expr.value);
+      return Expression()..literal = (Literal()..boolValue = expr.value);
     }
     if (expr is ast.NullLiteral) {
       return Expression()..literal = Literal();
@@ -1922,8 +2089,8 @@ class DartEncoder {
       }
       return Expression()
         ..fieldAccess = (FieldAccess()
-          ..object =
-              (Expression()..reference = (Reference()..name = prefixName))
+          ..object = (Expression()
+            ..reference = (Reference()..name = prefixName))
           ..field_2 = member);
     }
 
@@ -1933,8 +2100,9 @@ class DartEncoder {
       final field = expr.propertyName.name;
 
       // Null target inside a cascade section: `..field` or `..field?.sub`
-      final targetExpr =
-          target == null ? _cascadeSelfExpr : _encodeExpr(target);
+      final targetExpr = target == null
+          ? _cascadeSelfExpr
+          : _encodeExpr(target);
 
       if (expr.operator.lexeme == '?.') {
         _usedBaseFunctions.add('null_aware_access');
@@ -2020,8 +2188,7 @@ class DartEncoder {
         FieldValuePair()
           ..name = 'type'
           ..value = (Expression()
-            ..literal =
-                (Literal()..stringValue = expr.type.toSource())),
+            ..literal = (Literal()..stringValue = expr.type.toSource())),
       ]);
     }
     if (expr is ast.AsExpression) {
@@ -2033,8 +2200,7 @@ class DartEncoder {
         FieldValuePair()
           ..name = 'type'
           ..value = (Expression()
-            ..literal =
-                (Literal()..stringValue = expr.type.toSource())),
+            ..literal = (Literal()..stringValue = expr.type.toSource())),
       ]);
     }
 
@@ -2053,8 +2219,9 @@ class DartEncoder {
       final isNullAware = expr.isNullAware;
       final funcName = isNullAware ? 'null_aware_index' : 'index';
       _usedBaseFunctions.add(funcName);
-      final idxTarget =
-          expr.target == null ? _cascadeSelfExpr : _encodeExpr(expr.target!);
+      final idxTarget = expr.target == null
+          ? _cascadeSelfExpr
+          : _encodeExpr(expr.target!);
       return _buildStdCall(funcName, [
         FieldValuePair()
           ..name = 'target'
@@ -2155,8 +2322,7 @@ class DartEncoder {
         FieldValuePair()
           ..name = 'type'
           ..value = (Expression()
-            ..literal =
-                (Literal()..stringValue = expr.type.toSource())),
+            ..literal = (Literal()..stringValue = expr.type.toSource())),
       ]);
     }
 
@@ -2165,8 +2331,7 @@ class DartEncoder {
     if (expr is ast.FunctionReference || expr is ast.ConstructorReference) {
       // Store as a reference so the compiler emits the source code verbatim
       // (without string-literal quoting).
-      return Expression()
-        ..reference = (Reference()..name = expr.toSource());
+      return Expression()..reference = (Reference()..name = expr.toSource());
     }
 
     // ---- Fallback: store source code for round-tripping ----
@@ -2204,7 +2369,7 @@ class DartEncoder {
       '~' => 'bitwise_not',
       '++' => 'pre_increment',
       '--' => 'pre_decrement',
-      _ => null
+      _ => null,
     };
     if (ballFn != null) {
       _usedBaseFunctions.add(ballFn);
@@ -2268,9 +2433,11 @@ class DartEncoder {
         _usedBaseFunctions.add('print');
         final fields = <FieldValuePair>[];
         if (args.isNotEmpty) {
-          fields.add(FieldValuePair()
-            ..name = 'message'
-            ..value = args.first.value);
+          fields.add(
+            FieldValuePair()
+              ..name = 'message'
+              ..value = args.first.value,
+          );
         }
         return Expression()
           ..call = (FunctionCall()
@@ -2295,11 +2462,12 @@ class DartEncoder {
         // Preserve type arguments (e.g. `CancelableCompleter<void>()`).
         if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
           msg.fields.insert(
-              0,
-              FieldValuePair()
-                ..name = '__type_args__'
-                ..value = (Expression()
-                  ..literal = (Literal()..stringValue = typeArgSrc)));
+            0,
+            FieldValuePair()
+              ..name = '__type_args__'
+              ..value = (Expression()
+                ..literal = (Literal()..stringValue = typeArgSrc)),
+          );
         }
         return Expression()..messageCreation = msg;
       }
@@ -2307,10 +2475,13 @@ class DartEncoder {
       final call = FunctionCall()..function = methodName;
       // Preserve type arguments (e.g. `binarySearchBy<E, E>(...)`).
       if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-        args.insert(0, FieldValuePair()
-          ..name = '__type_args__'
-          ..value = (Expression()
-            ..literal = (Literal()..stringValue = typeArgSrc)));
+        args.insert(
+          0,
+          FieldValuePair()
+            ..name = '__type_args__'
+            ..value = (Expression()
+              ..literal = (Literal()..stringValue = typeArgSrc)),
+        );
       }
       _setCallInput(call, args);
       return Expression()..call = call;
@@ -2325,10 +2496,13 @@ class DartEncoder {
         ..function = methodName;
       // Preserve type arguments on prefixed calls.
       if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-        args.insert(0, FieldValuePair()
-          ..name = '__type_args__'
-          ..value = (Expression()
-            ..literal = (Literal()..stringValue = typeArgSrc)));
+        args.insert(
+          0,
+          FieldValuePair()
+            ..name = '__type_args__'
+            ..value = (Expression()
+              ..literal = (Literal()..stringValue = typeArgSrc)),
+        );
       }
       _setCallInput(call, args);
       return Expression()..call = call;
@@ -2371,10 +2545,12 @@ class DartEncoder {
             ..literal = (Literal()..stringValue = methodName)),
       ];
       if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-        naFields.add(FieldValuePair()
-          ..name = '__type_args__'
-          ..value = (Expression()
-            ..literal = (Literal()..stringValue = typeArgSrc)));
+        naFields.add(
+          FieldValuePair()
+            ..name = '__type_args__'
+            ..value = (Expression()
+              ..literal = (Literal()..stringValue = typeArgSrc)),
+        );
       }
       naFields.addAll(args);
       return _buildStdCall('null_aware_call', naFields);
@@ -2390,10 +2566,13 @@ class DartEncoder {
         ...args,
       ];
       if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-        methodArgs.insert(1, FieldValuePair()
-          ..name = '__type_args__'
-          ..value = (Expression()
-            ..literal = (Literal()..stringValue = typeArgSrc)));
+        methodArgs.insert(
+          1,
+          FieldValuePair()
+            ..name = '__type_args__'
+            ..value = (Expression()
+              ..literal = (Literal()..stringValue = typeArgSrc)),
+        );
       }
       call.input = Expression()
         ..messageCreation = (MessageCreation()..fields.addAll(methodArgs));
@@ -2403,10 +2582,13 @@ class DartEncoder {
     final call = FunctionCall()..function = methodName;
     // Preserve type arguments (e.g. `binarySearchBy<E, E>(...)`).
     if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-      args.insert(0, FieldValuePair()
-        ..name = '__type_args__'
-        ..value = (Expression()
-          ..literal = (Literal()..stringValue = typeArgSrc)));
+      args.insert(
+        0,
+        FieldValuePair()
+          ..name = '__type_args__'
+          ..value = (Expression()
+            ..literal = (Literal()..stringValue = typeArgSrc)),
+      );
     }
     _setCallInput(call, args);
     return Expression()..call = call;
@@ -2427,7 +2609,8 @@ class DartEncoder {
     // import prefix of "SpanStatus" and type name "internalError".
     // Detect this: if the "prefix" is not a known import AND starts with
     // an uppercase letter, it's actually `ClassName.namedCtor`.
-    final bool isPrefixMisparse = importPrefix != null &&
+    final bool isPrefixMisparse =
+        importPrefix != null &&
         !_prefixToModule.containsKey(importPrefix) &&
         importPrefix.isNotEmpty &&
         importPrefix[0] == importPrefix[0].toUpperCase() &&
@@ -2455,27 +2638,29 @@ class DartEncoder {
     // Preserve type arguments (e.g. `Map<String,String>.from(...)`)
     // stored as a synthetic `__type_args__` field.
     final typeArgSrc = namedType.typeArguments?.toSource();
-    final fullTypeName =
-        ctorName != null ? '$ballTypeName.$ctorName' : ballTypeName;
+    final fullTypeName = ctorName != null
+        ? '$ballTypeName.$ctorName'
+        : ballTypeName;
     final msg = MessageCreation()
       ..typeName = fullTypeName
       ..fields.addAll(args);
     if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
       msg.fields.insert(
-          0,
-          FieldValuePair()
-            ..name = '__type_args__'
-            ..value = (Expression()
-              ..literal = (Literal()..stringValue = typeArgSrc)));
+        0,
+        FieldValuePair()
+          ..name = '__type_args__'
+          ..value = (Expression()
+            ..literal = (Literal()..stringValue = typeArgSrc)),
+      );
     }
     // Preserve const keyword for const constructor calls.
     if (expr.keyword?.lexeme == 'const') {
       msg.fields.insert(
-          0,
-          FieldValuePair()
-            ..name = '__const__'
-            ..value = (Expression()
-              ..literal = (Literal()..boolValue = true)));
+        0,
+        FieldValuePair()
+          ..name = '__const__'
+          ..value = (Expression()..literal = (Literal()..boolValue = true)),
+      );
     }
 
     return Expression()..messageCreation = msg;
@@ -2504,8 +2689,7 @@ class DartEncoder {
         ..value = _encodeExpr(expr.leftHandSide),
       FieldValuePair()
         ..name = 'op'
-        ..value = (Expression()
-          ..literal = (Literal()..stringValue = op)),
+        ..value = (Expression()..literal = (Literal()..stringValue = op)),
       FieldValuePair()
         ..name = 'value'
         ..value = _encodeExpr(expr.rightHandSide),
@@ -2538,9 +2722,11 @@ class DartEncoder {
     }
     // Use the isNullAware flag from the cascade expression (Dart 3 AST).
     if (expr.isNullAware) {
-      fields.add(FieldValuePair()
-        ..name = 'null_aware'
-        ..value = (Expression()..literal = (Literal()..boolValue = true)));
+      fields.add(
+        FieldValuePair()
+          ..name = 'null_aware'
+          ..value = (Expression()..literal = (Literal()..boolValue = true)),
+      );
     }
     return _buildStdCall('cascade', fields);
   }
@@ -2556,8 +2742,9 @@ class DartEncoder {
     // expression.
     final bool hasReturn;
     if (body is ast.BlockFunctionBody) {
-      hasReturn = body.block.statements.any((s) =>
-          s is ast.ReturnStatement && s.expression != null);
+      hasReturn = body.block.statements.any(
+        (s) => s is ast.ReturnStatement && s.expression != null,
+      );
     } else {
       hasReturn = true; // expression bodies always "return"
     }
@@ -2571,7 +2758,8 @@ class DartEncoder {
     }
 
     final lambdaDef = FunctionDefinition()
-      ..name = '' // anonymous
+      ..name =
+          '' // anonymous
       ..body = bodyExpr;
 
     // Store full parameter info in metadata for round-tripping.
@@ -2596,8 +2784,9 @@ class DartEncoder {
     for (final element in expr.elements) {
       if (element is ast.InterpolationString) {
         if (element.value.isNotEmpty) {
-          parts.add(Expression()
-            ..literal = (Literal()..stringValue = element.value));
+          parts.add(
+            Expression()..literal = (Literal()..stringValue = element.value),
+          );
         }
       } else if (element is ast.InterpolationExpression) {
         final encoded = _encodeExpr(element.expression);
@@ -2654,8 +2843,8 @@ class DartEncoder {
     //   2. Non-empty and first element is MapLiteralEntry → map
     //   3. Otherwise → set
     final hasDoubleTypeArgs = (expr.typeArguments?.arguments.length ?? 0) == 2;
-    final hasMapEntry = expr.elements.isNotEmpty &&
-        expr.elements.first is ast.MapLiteralEntry;
+    final hasMapEntry =
+        expr.elements.isNotEmpty && expr.elements.first is ast.MapLiteralEntry;
     final isMap = hasDoubleTypeArgs || hasMapEntry;
 
     if (isMap) {
@@ -2663,32 +2852,38 @@ class DartEncoder {
       final entries = <FieldValuePair>[];
       // Preserve explicit type args e.g. <String, dynamic>{}.
       if (expr.typeArguments != null) {
-        entries.add(FieldValuePair()
-          ..name = 'type_args'
-          ..value = (Expression()
-            ..literal = (Literal()
-              ..stringValue = expr.typeArguments!.arguments
-                  .map((a) => a.toSource())
-                  .join(', '))));
+        entries.add(
+          FieldValuePair()
+            ..name = 'type_args'
+            ..value = (Expression()
+              ..literal = (Literal()
+                ..stringValue = expr.typeArguments!.arguments
+                    .map((a) => a.toSource())
+                    .join(', '))),
+        );
       }
       for (final e in expr.elements) {
         if (e is ast.MapLiteralEntry) {
-          entries.add(FieldValuePair()
-            ..name = 'entry'
-            ..value = (Expression()
-              ..messageCreation = (MessageCreation()
-                ..fields.addAll([
-                  FieldValuePair()
-                    ..name = 'key'
-                    ..value = _encodeExpr(e.key),
-                  FieldValuePair()
-                    ..name = 'value'
-                    ..value = _encodeExpr(e.value),
-                ]))));
+          entries.add(
+            FieldValuePair()
+              ..name = 'entry'
+              ..value = (Expression()
+                ..messageCreation = (MessageCreation()
+                  ..fields.addAll([
+                    FieldValuePair()
+                      ..name = 'key'
+                      ..value = _encodeExpr(e.key),
+                    FieldValuePair()
+                      ..name = 'value'
+                      ..value = _encodeExpr(e.value),
+                  ]))),
+          );
         } else {
-          entries.add(FieldValuePair()
-            ..name = 'element'
-            ..value = _encodeCollectionElement(e));
+          entries.add(
+            FieldValuePair()
+              ..name = 'element'
+              ..value = _encodeCollectionElement(e),
+          );
         }
       }
       return _buildStdCall('map_create', entries);
@@ -2702,17 +2897,21 @@ class DartEncoder {
       // Preserve explicit type arguments for typed set literals, e.g. <T>{}.
       final typeArgs = expr.typeArguments?.arguments;
       if (typeArgs != null && typeArgs.isNotEmpty) {
-        setFields.add(FieldValuePair()
-          ..name = 'type_args'
+        setFields.add(
+          FieldValuePair()
+            ..name = 'type_args'
+            ..value = (Expression()
+              ..literal = (Literal()
+                ..stringValue = typeArgs.map((t) => t.toSource()).join(', '))),
+        );
+      }
+      setFields.add(
+        FieldValuePair()
+          ..name = 'elements'
           ..value = (Expression()
             ..literal = (Literal()
-              ..stringValue = typeArgs.map((t) => t.toSource()).join(', '))));
-      }
-      setFields.add(FieldValuePair()
-        ..name = 'elements'
-        ..value = (Expression()
-          ..literal = (Literal()
-            ..listValue = (ListLiteral()..elements.addAll(elements)))));
+              ..listValue = (ListLiteral()..elements.addAll(elements)))),
+      );
       return _buildStdCall('set_create', setFields);
     }
   }
@@ -2723,13 +2922,17 @@ class DartEncoder {
     var positionalIndex = 0;
     for (final field in expr.fields) {
       if (field is ast.NamedExpression) {
-        fields.add(FieldValuePair()
-          ..name = field.name.label.name
-          ..value = _encodeExpr(field.expression));
+        fields.add(
+          FieldValuePair()
+            ..name = field.name.label.name
+            ..value = _encodeExpr(field.expression),
+        );
       } else {
-        fields.add(FieldValuePair()
-          ..name = '\$$positionalIndex'
-          ..value = _encodeExpr(field));
+        fields.add(
+          FieldValuePair()
+            ..name = '\$$positionalIndex'
+            ..value = _encodeExpr(field),
+        );
         positionalIndex++;
       }
     }
@@ -2757,8 +2960,7 @@ class DartEncoder {
       if (element.caseClause != null) {
         final condSrc =
             '${element.expression.toSource()} case ${element.caseClause!.guardedPattern.toSource()}';
-        conditionExpr =
-            Expression()..reference = (Reference()..name = condSrc);
+        conditionExpr = Expression()..reference = (Reference()..name = condSrc);
       } else {
         conditionExpr = _encodeExpr(element.expression);
       }
@@ -2771,9 +2973,11 @@ class DartEncoder {
           ..value = _encodeCollectionElement(element.thenElement),
       ];
       if (element.elseElement != null) {
-        fields.add(FieldValuePair()
-          ..name = 'else'
-          ..value = _encodeCollectionElement(element.elseElement!));
+        fields.add(
+          FieldValuePair()
+            ..name = 'else'
+            ..value = _encodeCollectionElement(element.elseElement!),
+        );
       }
       return _buildStdCall('collection_if', fields);
     }
@@ -2782,26 +2986,36 @@ class DartEncoder {
       final fields = <FieldValuePair>[];
       final parts = element.forLoopParts;
       if (parts is ast.ForEachPartsWithDeclaration) {
-        fields.add(FieldValuePair()
-          ..name = 'variable'
-          ..value = (Expression()
-            ..literal =
-                (Literal()..stringValue = parts.loopVariable.name.lexeme)));
-        fields.add(FieldValuePair()
-          ..name = 'iterable'
-          ..value = _encodeExpr(parts.iterable));
+        fields.add(
+          FieldValuePair()
+            ..name = 'variable'
+            ..value = (Expression()
+              ..literal = (Literal()
+                ..stringValue = parts.loopVariable.name.lexeme)),
+        );
+        fields.add(
+          FieldValuePair()
+            ..name = 'iterable'
+            ..value = _encodeExpr(parts.iterable),
+        );
       } else if (parts is ast.ForEachPartsWithIdentifier) {
-        fields.add(FieldValuePair()
-          ..name = 'variable'
-          ..value = (Expression()
-            ..literal = (Literal()..stringValue = parts.identifier.name)));
-        fields.add(FieldValuePair()
-          ..name = 'iterable'
-          ..value = _encodeExpr(parts.iterable));
+        fields.add(
+          FieldValuePair()
+            ..name = 'variable'
+            ..value = (Expression()
+              ..literal = (Literal()..stringValue = parts.identifier.name)),
+        );
+        fields.add(
+          FieldValuePair()
+            ..name = 'iterable'
+            ..value = _encodeExpr(parts.iterable),
+        );
       }
-      fields.add(FieldValuePair()
-        ..name = 'body'
-        ..value = _encodeCollectionElement(element.body));
+      fields.add(
+        FieldValuePair()
+          ..name = 'body'
+          ..value = _encodeCollectionElement(element.body),
+      );
       return _buildStdCall('collection_for', fields);
     }
     if (element is ast.MapLiteralEntry) {
@@ -2836,8 +3050,19 @@ class DartEncoder {
           ..name = 'body'
           ..value = _encodeExpr(case_.expression),
       ];
-      cases.add(Expression()
-        ..messageCreation = (MessageCreation()..fields.addAll(caseFields)));
+      // Structured pattern encoding (9.6)
+      final structuredPat = _encodePattern(case_.guardedPattern.pattern);
+      if (structuredPat != null) {
+        caseFields.add(
+          FieldValuePair()
+            ..name = 'pattern_expr'
+            ..value = structuredPat,
+        );
+      }
+      cases.add(
+        Expression()
+          ..messageCreation = (MessageCreation()..fields.addAll(caseFields)),
+      );
     }
     return _buildStdCall('switch_expr', [
       FieldValuePair()
@@ -2849,6 +3074,293 @@ class DartEncoder {
           ..literal = (Literal()
             ..listValue = (ListLiteral()..elements.addAll(cases)))),
     ]);
+  }
+
+  // ============================================================
+  // Pattern Encoding (Tier 9.6)
+  // ============================================================
+
+  /// Encode a Dart pattern as a structured Ball expression.
+  ///
+  /// The result is a MessageCreation with typeName set to the pattern kind
+  /// (e.g. `TypeTestPattern`, `VarPattern`, `ListPattern`, etc.) and fields
+  /// matching the destructured parts.
+  ///
+  /// Returns null if the pattern can't be structurally encoded.
+  Expression? _encodePattern(ast.DartPattern pattern) {
+    if (pattern is ast.DeclaredVariablePattern) {
+      // `int x` or `var x`
+      final fields = <FieldValuePair>[
+        FieldValuePair()
+          ..name = 'name'
+          ..value = (Expression()
+            ..literal = (Literal()..stringValue = pattern.name.lexeme)),
+      ];
+      if (pattern.type != null) {
+        fields.add(
+          FieldValuePair()
+            ..name = 'type'
+            ..value = (Expression()
+              ..literal = (Literal()..stringValue = pattern.type!.toSource())),
+        );
+      }
+      return Expression()
+        ..messageCreation = (MessageCreation()
+          ..typeName = 'VarPattern'
+          ..fields.addAll(fields));
+    }
+    if (pattern is ast.WildcardPattern) {
+      // `_` wildcard
+      final fields = <FieldValuePair>[];
+      if (pattern.type != null) {
+        fields.add(
+          FieldValuePair()
+            ..name = 'type'
+            ..value = (Expression()
+              ..literal = (Literal()..stringValue = pattern.type!.toSource())),
+        );
+      }
+      return Expression()
+        ..messageCreation = (MessageCreation()
+          ..typeName = 'WildcardPattern'
+          ..fields.addAll(fields));
+    }
+    if (pattern is ast.ConstantPattern) {
+      return Expression()
+        ..messageCreation = (MessageCreation()
+          ..typeName = 'ConstPattern'
+          ..fields.add(
+            FieldValuePair()
+              ..name = 'value'
+              ..value = _encodeExpr(pattern.expression),
+          ));
+    }
+    if (pattern is ast.ListPattern) {
+      final elements = <Expression>[];
+      for (final elem in pattern.elements) {
+        if (elem is ast.DartPattern) {
+          final encoded = _encodePattern(elem);
+          if (encoded != null) elements.add(encoded);
+        } else if (elem is ast.RestPatternElement) {
+          final sub = elem.pattern != null
+              ? _encodePattern(elem.pattern!)
+              : null;
+          elements.add(
+            Expression()
+              ..messageCreation = (MessageCreation()
+                ..typeName = 'RestPattern'
+                ..fields.addAll([
+                  if (sub != null)
+                    FieldValuePair()
+                      ..name = 'subpattern'
+                      ..value = sub,
+                ])),
+          );
+        }
+      }
+      return Expression()
+        ..messageCreation = (MessageCreation()
+          ..typeName = 'ListPattern'
+          ..fields.add(
+            FieldValuePair()
+              ..name = 'elements'
+              ..value = (Expression()
+                ..literal = (Literal()
+                  ..listValue = (ListLiteral()..elements.addAll(elements)))),
+          ));
+    }
+    if (pattern is ast.MapPattern) {
+      final entries = <Expression>[];
+      for (final entry in pattern.elements) {
+        if (entry is ast.MapPatternEntry) {
+          final valuePat = _encodePattern(entry.value);
+          entries.add(
+            Expression()
+              ..messageCreation = (MessageCreation()
+                ..fields.addAll([
+                  FieldValuePair()
+                    ..name = 'key'
+                    ..value = _encodeExpr(entry.key),
+                  if (valuePat != null)
+                    FieldValuePair()
+                      ..name = 'value'
+                      ..value = valuePat,
+                ])),
+          );
+        }
+      }
+      return Expression()
+        ..messageCreation = (MessageCreation()
+          ..typeName = 'MapPattern'
+          ..fields.add(
+            FieldValuePair()
+              ..name = 'entries'
+              ..value = (Expression()
+                ..literal = (Literal()
+                  ..listValue = (ListLiteral()..elements.addAll(entries)))),
+          ));
+    }
+    if (pattern is ast.RecordPattern) {
+      final patFields = <Expression>[];
+      for (final field in pattern.fields) {
+        final sub = _encodePattern(field.pattern);
+        if (sub != null) {
+          patFields.add(
+            Expression()
+              ..messageCreation = (MessageCreation()
+                ..fields.addAll([
+                  if (field.name != null)
+                    FieldValuePair()
+                      ..name = 'name'
+                      ..value = (Expression()
+                        ..literal = (Literal()
+                          ..stringValue = field.name!.name?.lexeme ?? '')),
+                  FieldValuePair()
+                    ..name = 'pattern'
+                    ..value = sub,
+                ])),
+          );
+        }
+      }
+      return Expression()
+        ..messageCreation = (MessageCreation()
+          ..typeName = 'RecordPattern'
+          ..fields.add(
+            FieldValuePair()
+              ..name = 'fields'
+              ..value = (Expression()
+                ..literal = (Literal()
+                  ..listValue = (ListLiteral()..elements.addAll(patFields)))),
+          ));
+    }
+    if (pattern is ast.ObjectPattern) {
+      final objFields = <Expression>[];
+      for (final field in pattern.fields) {
+        final sub = _encodePattern(field.pattern);
+        if (sub != null) {
+          objFields.add(
+            Expression()
+              ..messageCreation = (MessageCreation()
+                ..fields.addAll([
+                  FieldValuePair()
+                    ..name = 'name'
+                    ..value = (Expression()
+                      ..literal = (Literal()
+                        ..stringValue = field.name?.name?.lexeme ?? '')),
+                  FieldValuePair()
+                    ..name = 'pattern'
+                    ..value = sub,
+                ])),
+          );
+        }
+      }
+      return Expression()
+        ..messageCreation = (MessageCreation()
+          ..typeName = 'ObjectPattern'
+          ..fields.addAll([
+            FieldValuePair()
+              ..name = 'type'
+              ..value = (Expression()
+                ..literal = (Literal()..stringValue = pattern.type.toSource())),
+            FieldValuePair()
+              ..name = 'fields'
+              ..value = (Expression()
+                ..literal = (Literal()
+                  ..listValue = (ListLiteral()..elements.addAll(objFields)))),
+          ]));
+    }
+    if (pattern is ast.LogicalAndPattern) {
+      final left = _encodePattern(pattern.leftOperand);
+      final right = _encodePattern(pattern.rightOperand);
+      if (left != null && right != null) {
+        return Expression()
+          ..messageCreation = (MessageCreation()
+            ..typeName = 'LogicalAndPattern'
+            ..fields.addAll([
+              FieldValuePair()
+                ..name = 'left'
+                ..value = left,
+              FieldValuePair()
+                ..name = 'right'
+                ..value = right,
+            ]));
+      }
+    }
+    if (pattern is ast.LogicalOrPattern) {
+      final left = _encodePattern(pattern.leftOperand);
+      final right = _encodePattern(pattern.rightOperand);
+      if (left != null && right != null) {
+        return Expression()
+          ..messageCreation = (MessageCreation()
+            ..typeName = 'LogicalOrPattern'
+            ..fields.addAll([
+              FieldValuePair()
+                ..name = 'left'
+                ..value = left,
+              FieldValuePair()
+                ..name = 'right'
+                ..value = right,
+            ]));
+      }
+    }
+    if (pattern is ast.CastPattern) {
+      final sub = _encodePattern(pattern.pattern);
+      return Expression()
+        ..messageCreation = (MessageCreation()
+          ..typeName = 'CastPattern'
+          ..fields.addAll([
+            if (sub != null)
+              FieldValuePair()
+                ..name = 'pattern'
+                ..value = sub,
+            FieldValuePair()
+              ..name = 'type'
+              ..value = (Expression()
+                ..literal = (Literal()..stringValue = pattern.type.toSource())),
+          ]));
+    }
+    if (pattern is ast.NullCheckPattern) {
+      final sub = _encodePattern(pattern.pattern);
+      if (sub != null) {
+        return Expression()
+          ..messageCreation = (MessageCreation()
+            ..typeName = 'NullCheckPattern'
+            ..fields.add(
+              FieldValuePair()
+                ..name = 'pattern'
+                ..value = sub,
+            ));
+      }
+    }
+    if (pattern is ast.NullAssertPattern) {
+      final sub = _encodePattern(pattern.pattern);
+      if (sub != null) {
+        return Expression()
+          ..messageCreation = (MessageCreation()
+            ..typeName = 'NullAssertPattern'
+            ..fields.add(
+              FieldValuePair()
+                ..name = 'pattern'
+                ..value = sub,
+            ));
+      }
+    }
+    if (pattern is ast.RelationalPattern) {
+      return Expression()
+        ..messageCreation = (MessageCreation()
+          ..typeName = 'RelationalPattern'
+          ..fields.addAll([
+            FieldValuePair()
+              ..name = 'operator'
+              ..value = (Expression()
+                ..literal = (Literal()..stringValue = pattern.operator.lexeme)),
+            FieldValuePair()
+              ..name = 'operand'
+              ..value = _encodeExpr(pattern.operand),
+          ]));
+    }
+    // Unsupported pattern: return null so caller can fall back to string form
+    return null;
   }
 
   // ============================================================
@@ -2876,9 +3388,11 @@ class DartEncoder {
         ..input = (Expression()
           ..messageCreation = (MessageCreation()
             ..typeName = ''
-            ..fields.add(FieldValuePair()
-              ..name = 'value'
-              ..value = value))));
+            ..fields.add(
+              FieldValuePair()
+                ..name = 'value'
+                ..value = value,
+            ))));
   }
 
   Expression _buildConcatChain(List<Expression> parts) {
@@ -2903,13 +3417,17 @@ class DartEncoder {
     var positionalIndex = 0;
     for (final arg in argList.arguments) {
       if (arg is ast.NamedExpression) {
-        result.add(FieldValuePair()
-          ..name = arg.name.label.name
-          ..value = _encodeExpr(arg.expression));
+        result.add(
+          FieldValuePair()
+            ..name = arg.name.label.name
+            ..value = _encodeExpr(arg.expression),
+        );
       } else {
-        result.add(FieldValuePair()
-          ..name = 'arg$positionalIndex'
-          ..value = _encodeExpr(arg));
+        result.add(
+          FieldValuePair()
+            ..name = 'arg$positionalIndex'
+            ..value = _encodeExpr(arg),
+        );
         positionalIndex++;
       }
     }

@@ -4,7 +4,7 @@ When working in the C++ codebase:
 
 ## Critical Context
 
-- **ZERO TESTS exist** — always add tests when modifying code
+- 37 tests exist across engine + compiler (see `cpp/test/`)
 - Several features are BROKEN or STUBBED (see below)
 - This is prototype-quality code, not production-ready
 
@@ -13,6 +13,15 @@ When working in the C++ codebase:
 ```bash
 cd cpp/build && cmake .. && cmake --build .
 ```
+
+## Buf CLI Integration
+
+- `cpp/cmake/BufGenerate.cmake` — CMake module for buf CLI operations
+- `cpp/buf.gen.cpp.yaml` — C++-only buf generation template
+- When buf is available, CMake regenerates C++ protos from ball.proto on change
+- Fallback: checked-in `cpp/shared/gen/` files used when buf is not installed
+- Extra targets: `buf_lint`, `buf_breaking`, `buf_format`, `buf_check`
+- NEVER edit `cpp/shared/gen/` manually — regenerate via `buf generate`
 
 ## Known Broken/Stubbed Features
 

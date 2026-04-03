@@ -103,8 +103,13 @@ is semantically identical to the original.
 |-----|------|-------------|
 | `dart_imports` | `[{uri, prefix?, show?, hide?, deferred?}]` | Dart import details. |
 | `dart_exports` | `[{uri, show?, hide?}]` | Dart export details. |
+| `dart_parts` | `[{uri}]` | `part` directive URIs for round-trip fidelity. |
+| `dart_part_of` | `string` | `part of` URI — this file is a part of another library. |
 | `csharp_usings` | `[string]` | C# using directives. |
 | `cpp_includes` | `[string]` | C++ include directives. |
+| `cpp_defines` | `[{name, value?, params?}]` | C++ `#define` directives. `name`: macro name. `value`: replacement text (absent for flag macros). `params`: list of parameter names for function-like macros. Cosmetic only — macros are already expanded by Clang before encoding. |
+| `cpp_ifdefs` | `[{condition, body}]` | C++ conditional compilation blocks (`#ifdef`/`#ifndef`). `condition`: macro symbol name. `body`: raw source of the conditional block. Cosmetic only. |
+| `cpp_pragmas` | `[string]` | C++ `#pragma` directives (e.g. `"once"`, `"pack(1)"`). Cosmetic only. |
 | `rust_use` | `[string]` | Rust use declarations. |
 | `java_imports` | `[string]` | Java import declarations. |
 | `python_imports` | `[{module, names?, alias?}]` | Python import details. |
@@ -149,3 +154,42 @@ All metadata is cosmetic. The semantic content of a Ball program is:
 
 Everything else (visibility, mutability, annotations, syntax sugar) is metadata.
 A Ball program with all metadata stripped still computes the same result.
+
+---
+
+## Function Overloading Convention
+
+Ball has no native overloading: every function name in a module must be unique.
+Languages with overloading (C++, Java, Dart via optional parameters) are encoded
+by **mangling** the function name with a numeric or type-based suffix.
+
+### Encoding
+
+1. The **first** overload keeps the original name: `foo`.
+2. Subsequent overloads are named `foo_2`, `foo_3`, … (sequential numeric suffix).
+3. The original (un-mangled) name is stored in `metadata.original_name`.
+4. The full mangled signature (for C++ ABI fidelity) is stored in `metadata.signature` as a string, e.g. `"void foo(int, double)"`.
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `original_name` | `string` | Un-mangled function name (e.g. `"foo"`). |
+| `signature` | `string` | Full language-level signature string for round-trip fidelity. |
+| `overload_index` | `int` | 1-based overload index within functions sharing the same `original_name`. |
+
+### Compiler output
+
+Compilers that target languages with overloading (C++) should use `original_name`
+to emit the correct function name and ignore the Ball mangled suffix:
+
+```cpp
+// Ball: foo, foo_2, foo_3
+// C++ output:
+void foo(int x) { ... }           // original_name = "foo", overload_index = 1
+void foo(int x, double y) { ... } // original_name = "foo", overload_index = 2
+void foo(std::string s) { ... }   // original_name = "foo", overload_index = 3
+```
+
+Compilers targeting languages without overloading (Dart, Python) MAY either:
+
+- Emit the mangled name as-is (`foo_2`), or
+- Emit a comment and disambiguate using the `signature` metadata.

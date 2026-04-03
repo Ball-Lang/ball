@@ -46,6 +46,17 @@ using BallFunction = std::function<BallValue(BallValue)>;
 using BallCallable = std::function<BallValue(
     const std::string&, const std::string&, BallValue)>;
 
+// BallFuture — wraps a completed value (synchronous simulation of async)
+struct BallFuture {
+    BallValue value;
+    bool completed = true;
+};
+
+// BallGenerator — accumulates yielded values (synchronous simulation of sync*)
+struct BallGenerator {
+    BallList values;
+};
+
 // ================================================================
 // Value extraction helpers
 // ================================================================
@@ -78,6 +89,8 @@ inline std::string to_string(const BallValue& v) {
     if (v.type() == typeid(double)) return std::to_string(std::any_cast<double>(v));
     if (v.type() == typeid(bool)) return std::any_cast<bool>(v) ? "true" : "false";
     if (!v.has_value()) return "null";
+    if (v.type() == typeid(BallFuture)) return "<future>";
+    if (v.type() == typeid(BallGenerator)) return "<generator>";
     return "<object>";
 }
 
@@ -95,6 +108,8 @@ inline bool is_null(const BallValue& v) { return !v.has_value(); }
 inline bool is_list(const BallValue& v) { return v.type() == typeid(BallList); }
 inline bool is_map(const BallValue& v) { return v.type() == typeid(BallMap); }
 inline bool is_function(const BallValue& v) { return v.type() == typeid(BallFunction); }
+inline bool is_future(const BallValue& v) { return v.type() == typeid(BallFuture); }
+inline bool is_generator(const BallValue& v) { return v.type() == typeid(BallGenerator); }
 
 // Type-aware value equality: compares by type first, then by value.
 inline bool values_equal(const BallValue& a, const BallValue& b) {

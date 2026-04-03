@@ -36,19 +36,13 @@ Module buildStdMemoryModule() {
     // Allocation / deallocation
     _type('AllocInput', [_intField('size', 1)]),
     _type('FreeInput', [_intField('address', 1)]),
-    _type('ReallocInput', [
-      _intField('address', 1),
-      _intField('new_size', 2),
-    ]),
+    _type('ReallocInput', [_intField('address', 1), _intField('new_size', 2)]),
 
     // Typed read (address → value)
     _type('MemReadInput', [_intField('address', 1)]),
 
     // Typed write (address, value → void)
-    _type('MemWriteInput', [
-      _intField('address', 1),
-      _exprField('value', 2),
-    ]),
+    _type('MemWriteInput', [_intField('address', 1), _exprField('value', 2)]),
 
     // Bulk memory operations
     _type('MemCopyInput', [
@@ -91,100 +85,227 @@ Module buildStdMemoryModule() {
 
   module.functions.addAll([
     // --- Heap allocation ---
-    _fn('memory_alloc', 'AllocInput', '',
-        'Allocate size bytes on the heap. Returns base address (int).'),
-    _fn('memory_free', 'FreeInput', '',
-        'Free a previously allocated block at address.'),
-    _fn('memory_realloc', 'ReallocInput', '',
-        'Resize a previously allocated block. Returns new base address.'),
+    _fn(
+      'memory_alloc',
+      'AllocInput',
+      '',
+      'Allocate size bytes on the heap. Returns base address (int).',
+    ),
+    _fn(
+      'memory_free',
+      'FreeInput',
+      '',
+      'Free a previously allocated block at address.',
+    ),
+    _fn(
+      'memory_realloc',
+      'ReallocInput',
+      '',
+      'Resize a previously allocated block. Returns new base address.',
+    ),
 
     // --- Typed reads (little-endian) ---
-    _fn('memory_read_i8', 'MemReadInput', '',
-        'Read signed 8-bit integer at address.'),
-    _fn('memory_read_u8', 'MemReadInput', '',
-        'Read unsigned 8-bit integer at address.'),
-    _fn('memory_read_i16', 'MemReadInput', '',
-        'Read signed 16-bit integer at address.'),
-    _fn('memory_read_u16', 'MemReadInput', '',
-        'Read unsigned 16-bit integer at address.'),
-    _fn('memory_read_i32', 'MemReadInput', '',
-        'Read signed 32-bit integer at address.'),
-    _fn('memory_read_u32', 'MemReadInput', '',
-        'Read unsigned 32-bit integer at address.'),
-    _fn('memory_read_i64', 'MemReadInput', '',
-        'Read signed 64-bit integer at address.'),
-    _fn('memory_read_u64', 'MemReadInput', '',
-        'Read unsigned 64-bit integer at address.'),
-    _fn('memory_read_f32', 'MemReadInput', '',
-        'Read 32-bit float at address.'),
-    _fn('memory_read_f64', 'MemReadInput', '',
-        'Read 64-bit float (double) at address.'),
+    _fn(
+      'memory_read_i8',
+      'MemReadInput',
+      '',
+      'Read signed 8-bit integer at address.',
+    ),
+    _fn(
+      'memory_read_u8',
+      'MemReadInput',
+      '',
+      'Read unsigned 8-bit integer at address.',
+    ),
+    _fn(
+      'memory_read_i16',
+      'MemReadInput',
+      '',
+      'Read signed 16-bit integer at address.',
+    ),
+    _fn(
+      'memory_read_u16',
+      'MemReadInput',
+      '',
+      'Read unsigned 16-bit integer at address.',
+    ),
+    _fn(
+      'memory_read_i32',
+      'MemReadInput',
+      '',
+      'Read signed 32-bit integer at address.',
+    ),
+    _fn(
+      'memory_read_u32',
+      'MemReadInput',
+      '',
+      'Read unsigned 32-bit integer at address.',
+    ),
+    _fn(
+      'memory_read_i64',
+      'MemReadInput',
+      '',
+      'Read signed 64-bit integer at address.',
+    ),
+    _fn(
+      'memory_read_u64',
+      'MemReadInput',
+      '',
+      'Read unsigned 64-bit integer at address.',
+    ),
+    _fn('memory_read_f32', 'MemReadInput', '', 'Read 32-bit float at address.'),
+    _fn(
+      'memory_read_f64',
+      'MemReadInput',
+      '',
+      'Read 64-bit float (double) at address.',
+    ),
 
     // --- Typed writes (little-endian) ---
-    _fn('memory_write_i8', 'MemWriteInput', '',
-        'Write signed 8-bit integer at address.'),
-    _fn('memory_write_u8', 'MemWriteInput', '',
-        'Write unsigned 8-bit integer at address.'),
-    _fn('memory_write_i16', 'MemWriteInput', '',
-        'Write signed 16-bit integer at address.'),
-    _fn('memory_write_u16', 'MemWriteInput', '',
-        'Write unsigned 16-bit integer at address.'),
-    _fn('memory_write_i32', 'MemWriteInput', '',
-        'Write signed 32-bit integer at address.'),
-    _fn('memory_write_u32', 'MemWriteInput', '',
-        'Write unsigned 32-bit integer at address.'),
-    _fn('memory_write_i64', 'MemWriteInput', '',
-        'Write signed 64-bit integer at address.'),
-    _fn('memory_write_u64', 'MemWriteInput', '',
-        'Write unsigned 64-bit integer at address.'),
-    _fn('memory_write_f32', 'MemWriteInput', '',
-        'Write 32-bit float at address.'),
-    _fn('memory_write_f64', 'MemWriteInput', '',
-        'Write 64-bit float (double) at address.'),
+    _fn(
+      'memory_write_i8',
+      'MemWriteInput',
+      '',
+      'Write signed 8-bit integer at address.',
+    ),
+    _fn(
+      'memory_write_u8',
+      'MemWriteInput',
+      '',
+      'Write unsigned 8-bit integer at address.',
+    ),
+    _fn(
+      'memory_write_i16',
+      'MemWriteInput',
+      '',
+      'Write signed 16-bit integer at address.',
+    ),
+    _fn(
+      'memory_write_u16',
+      'MemWriteInput',
+      '',
+      'Write unsigned 16-bit integer at address.',
+    ),
+    _fn(
+      'memory_write_i32',
+      'MemWriteInput',
+      '',
+      'Write signed 32-bit integer at address.',
+    ),
+    _fn(
+      'memory_write_u32',
+      'MemWriteInput',
+      '',
+      'Write unsigned 32-bit integer at address.',
+    ),
+    _fn(
+      'memory_write_i64',
+      'MemWriteInput',
+      '',
+      'Write signed 64-bit integer at address.',
+    ),
+    _fn(
+      'memory_write_u64',
+      'MemWriteInput',
+      '',
+      'Write unsigned 64-bit integer at address.',
+    ),
+    _fn(
+      'memory_write_f32',
+      'MemWriteInput',
+      '',
+      'Write 32-bit float at address.',
+    ),
+    _fn(
+      'memory_write_f64',
+      'MemWriteInput',
+      '',
+      'Write 64-bit float (double) at address.',
+    ),
 
     // --- Bulk operations ---
-    _fn('memory_copy', 'MemCopyInput', '',
-        'Copy size bytes from src to dest (memmove-safe).'),
-    _fn('memory_set', 'MemSetInput', '',
-        'Fill size bytes at address with value (memset).'),
-    _fn('memory_compare', 'MemCompareInput', '',
-        'Compare size bytes at a and b. Returns <0, 0, or >0 (memcmp).'),
+    _fn(
+      'memory_copy',
+      'MemCopyInput',
+      '',
+      'Copy size bytes from src to dest (memmove-safe).',
+    ),
+    _fn(
+      'memory_set',
+      'MemSetInput',
+      '',
+      'Fill size bytes at address with value (memset).',
+    ),
+    _fn(
+      'memory_compare',
+      'MemCompareInput',
+      '',
+      'Compare size bytes at a and b. Returns <0, 0, or >0 (memcmp).',
+    ),
 
     // --- Pointer arithmetic ---
-    _fn('ptr_add', 'PtrArithInput', '',
-        'Pointer add: address + offset * element_size.'),
-    _fn('ptr_sub', 'PtrArithInput', '',
-        'Pointer subtract: address - offset * element_size.'),
-    _fn('ptr_diff', 'PtrArithInput', '',
-        'Pointer difference: (a - b) / element_size.'),
+    _fn(
+      'ptr_add',
+      'PtrArithInput',
+      '',
+      'Pointer add: address + offset * element_size.',
+    ),
+    _fn(
+      'ptr_sub',
+      'PtrArithInput',
+      '',
+      'Pointer subtract: address - offset * element_size.',
+    ),
+    _fn(
+      'ptr_diff',
+      'PtrArithInput',
+      '',
+      'Pointer difference: (a - b) / element_size.',
+    ),
 
     // --- Stack frame ---
-    _fn('stack_alloc', 'StackAllocInput', '',
-        'Allocate size bytes on the stack frame. Returns base address.'),
-    _fn('stack_push_frame', '', '',
-        'Push a new stack frame (function entry).'),
-    _fn('stack_pop_frame', '', '',
-        'Pop the current stack frame (function exit). Frees all stack_alloc in this frame.'),
+    _fn(
+      'stack_alloc',
+      'StackAllocInput',
+      '',
+      'Allocate size bytes on the stack frame. Returns base address.',
+    ),
+    _fn('stack_push_frame', '', '', 'Push a new stack frame (function entry).'),
+    _fn(
+      'stack_pop_frame',
+      '',
+      '',
+      'Pop the current stack frame (function exit). Frees all stack_alloc in this frame.',
+    ),
 
     // --- Sizeof ---
-    _fn('memory_sizeof', 'SizeofInput', '',
-        'Return the byte size of a named type (e.g. "int32" → 4).'),
+    _fn(
+      'memory_sizeof',
+      'SizeofInput',
+      '',
+      'Return the byte size of a named type (e.g. "int32" → 4).',
+    ),
 
     // --- Address-of / dereference (pre-normalization) ---
-    _fn('address_of', 'AddressOfInput', '',
-        'Take the address of a value. Pre-normalization placeholder.'),
-    _fn('deref', 'DerefInput', '',
-        'Dereference a pointer. Pre-normalization placeholder.'),
+    _fn(
+      'address_of',
+      'AddressOfInput',
+      '',
+      'Take the address of a value. Pre-normalization placeholder.',
+    ),
+    _fn(
+      'deref',
+      'DerefInput',
+      '',
+      'Dereference a pointer. Pre-normalization placeholder.',
+    ),
 
     // --- Null pointer ---
-    _fn('nullptr', '', '',
-        'Null pointer constant (address 0).'),
+    _fn('nullptr', '', '', 'Null pointer constant (address 0).'),
 
     // --- Memory info ---
-    _fn('memory_heap_size', '', '',
-        'Current total heap size in bytes.'),
-    _fn('memory_stack_size', '', '',
-        'Current stack usage in bytes.'),
+    _fn('memory_heap_size', '', '', 'Current total heap size in bytes.'),
+    _fn('memory_stack_size', '', '', 'Current stack usage in bytes.'),
   ]);
 
   return module;

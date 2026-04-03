@@ -6,3 +6,6 @@ resolution: workspace
 dependencies:
   ball_base:
     path: ../shared
+
+dev_dependencies:
+  test: ^1.25.0

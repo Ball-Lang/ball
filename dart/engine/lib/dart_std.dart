@@ -42,15 +42,9 @@ Module buildDartStdModule() {
       _exprField('target', 1),
       _exprListField('sections', 2),
     ]),
-    _type('MapCreateInput', [
-      _fieldValuePairListField('entries', 1),
-    ]),
-    _type('SetCreateInput', [
-      _exprListField('elements', 1),
-    ]),
-    _type('RecordInput', [
-      _fieldValuePairListField('fields', 1),
-    ]),
+    _type('MapCreateInput', [_fieldValuePairListField('entries', 1)]),
+    _type('SetCreateInput', [_exprListField('elements', 1)]),
+    _type('RecordInput', [_fieldValuePairListField('fields', 1)]),
     _type('CollectionIfInput', [
       _exprField('condition', 1),
       _exprField('then', 2),
@@ -69,16 +63,9 @@ Module buildDartStdModule() {
       _stringField('pattern', 1),
       _exprField('body', 2),
     ]),
-    _type('SymbolInput', [
-      _stringField('value', 1),
-    ]),
-    _type('TypeLiteralInput', [
-      _stringField('type', 1),
-    ]),
-    _type('LabeledInput', [
-      _stringField('label', 1),
-      _exprField('body', 2),
-    ]),
+    _type('SymbolInput', [_stringField('value', 1)]),
+    _type('TypeLiteralInput', [_stringField('type', 1)]),
+    _type('LabeledInput', [_stringField('label', 1), _exprField('body', 2)]),
   ]);
 
   // ============================================================
@@ -87,53 +74,103 @@ Module buildDartStdModule() {
 
   module.functions.addAll([
     // --- Null-aware ---
-    _fn('null_aware_access', 'NullAwareAccessInput', '',
-        'Null-aware access. Dart: target?.field'),
-    _fn('null_aware_call', 'NullAwareCallInput', '',
-        'Null-aware call. Dart: target?.method(args)'),
+    _fn(
+      'null_aware_access',
+      'NullAwareAccessInput',
+      '',
+      'Null-aware access. Dart: target?.field',
+    ),
+    _fn(
+      'null_aware_call',
+      'NullAwareCallInput',
+      '',
+      'Null-aware call. Dart: target?.method(args)',
+    ),
 
     // --- Cascade ---
-    _fn('cascade', 'CascadeInput', '',
-        'Cascade operator. Dart: target..a()..b()'),
+    _fn(
+      'cascade',
+      'CascadeInput',
+      '',
+      'Cascade operator. Dart: target..a()..b()',
+    ),
 
     // --- Spread ---
     _fn('spread', 'UnaryInput', '', 'Spread element. Dart: ...value'),
-    _fn('null_spread', 'UnaryInput', '',
-        'Null-aware spread. Dart: ...?value'),
+    _fn('null_spread', 'UnaryInput', '', 'Null-aware spread. Dart: ...?value'),
 
     // --- Invocation ---
-    _fn('invoke', 'InvokeInput', '',
-        'Invoke a callable expression. Dart: callee(args)'),
+    _fn(
+      'invoke',
+      'InvokeInput',
+      '',
+      'Invoke a callable expression. Dart: callee(args)',
+    ),
 
     // --- Collection construction ---
-    _fn('map_create', 'MapCreateInput', '',
-        'Create map literal. Dart: {key: value, ...}'),
-    _fn('set_create', 'SetCreateInput', '',
-        'Create set literal. Dart: {element, ...}'),
-    _fn('record', 'RecordInput', '',
-        'Create record. Dart: (positional, named: value)'),
-    _fn('collection_if', 'CollectionIfInput', '',
-        'Collection if. Dart: [if (cond) then else else]'),
-    _fn('collection_for', 'CollectionForInput', '',
-        'Collection for. Dart: [for (var x in iter) body]'),
+    _fn(
+      'map_create',
+      'MapCreateInput',
+      '',
+      'Create map literal. Dart: {key: value, ...}',
+    ),
+    _fn(
+      'set_create',
+      'SetCreateInput',
+      '',
+      'Create set literal. Dart: {element, ...}',
+    ),
+    _fn(
+      'record',
+      'RecordInput',
+      '',
+      'Create record. Dart: (positional, named: value)',
+    ),
+    _fn(
+      'collection_if',
+      'CollectionIfInput',
+      '',
+      'Collection if. Dart: [if (cond) then else else]',
+    ),
+    _fn(
+      'collection_for',
+      'CollectionForInput',
+      '',
+      'Collection for. Dart: [for (var x in iter) body]',
+    ),
 
     // --- Switch expression ---
-    _fn('switch_expr', 'SwitchExprInput', '',
-        'Switch expression (Dart 3+). Dart: subj switch { pattern => expr }'),
+    _fn(
+      'switch_expr',
+      'SwitchExprInput',
+      '',
+      'Switch expression (Dart 3+). Dart: subj switch { pattern => expr }',
+    ),
 
     // --- Literals ---
-    _fn('symbol', 'SymbolInput', '',
-        'Symbol literal. Dart: #symbolName'),
-    _fn('type_literal', 'TypeLiteralInput', '',
-        'Type literal expression. Dart: int, String as expressions'),
+    _fn('symbol', 'SymbolInput', '', 'Symbol literal. Dart: #symbolName'),
+    _fn(
+      'type_literal',
+      'TypeLiteralInput',
+      '',
+      'Type literal expression. Dart: int, String as expressions',
+    ),
 
     // --- Labels ---
-    _fn('labeled', 'LabeledInput', '',
-        'Labeled statement. Dart: label: statement'),
+    _fn(
+      'labeled',
+      'LabeledInput',
+      '',
+      'Labeled statement. Dart: label: statement',
+    ),
 
     // --- Generators ---
-    _fn('yield_each', 'UnaryInput', '',
-        'Yield all from iterable. Dart: yield* value'),
+    _fn(
+      'yield_each',
+      'UnaryInput',
+      '',
+      'Yield all from iterable. Dart: yield* value',
+    ),
   ]);
 
   return module;
@@ -149,10 +186,9 @@ const _fieldValuePairTypeName = '.ball.v1.FieldValuePair';
 google.DescriptorProto _type(
   String name,
   List<google.FieldDescriptorProto> fields,
-) =>
-    google.DescriptorProto()
-      ..name = name
-      ..field.addAll(fields);
+) => google.DescriptorProto()
+  ..name = name
+  ..field.addAll(fields);
 
 google.FieldDescriptorProto _exprField(String name, int number) =>
     google.FieldDescriptorProto()
@@ -177,10 +213,7 @@ google.FieldDescriptorProto _stringField(String name, int number) =>
       ..type = google.FieldDescriptorProto_Type.TYPE_STRING
       ..label = google.FieldDescriptorProto_Label.LABEL_OPTIONAL;
 
-google.FieldDescriptorProto _fieldValuePairListField(
-  String name,
-  int number,
-) =>
+google.FieldDescriptorProto _fieldValuePairListField(String name, int number) =>
     google.FieldDescriptorProto()
       ..name = name
       ..number = number
@@ -193,10 +226,9 @@ FunctionDefinition _fn(
   String inputType,
   String outputType,
   String description,
-) =>
-    FunctionDefinition()
-      ..name = name
-      ..inputType = inputType
-      ..outputType = outputType
-      ..isBase = true
-      ..description = description;
+) => FunctionDefinition()
+  ..name = name
+  ..inputType = inputType
+  ..outputType = outputType
+  ..isBase = true
+  ..description = description;

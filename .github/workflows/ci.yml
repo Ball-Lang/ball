@@ -6,9 +6,40 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel in-progress runs for the same branch/PR
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # ──────────────────────────────────────────────────
+  # Proto — lint, format, breaking change check
+  # ──────────────────────────────────────────────────
+  proto:
+    name: Proto Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed for buf breaking against git history
+
+      - uses: bufbuild/buf-setup-action@v1
+
+      - name: Lint
+        run: buf lint proto/
+
+      - name: Format check
+        run: buf format proto/ --diff --exit-code
+
+      - name: Breaking change check
+        if: github.event_name == 'pull_request'
+        run: buf breaking proto/ --against ".git#subdir=proto"
+
+  # ──────────────────────────────────────────────────
+  # Dart — analyze, format, all test suites
+  # ──────────────────────────────────────────────────
   dart:
-    name: Dart Tests & Analysis
+    name: Dart
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,62 +54,54 @@ jobs:
       - name: Analyze
         run: dart analyze dart/
 
-      - name: Run engine tests
+      - name: Format check
+        run: dart format --set-exit-if-changed dart/
+
+      - name: Engine tests (242 tests + conformance)
         run: cd dart/engine && dart test
 
-      - name: Run conformance tests
-        run: cd dart/engine && dart test test/conformance_test.dart
+      - name: Encoder tests
+        run: cd dart/encoder && dart test
 
+  # ──────────────────────────────────────────────────
+  # C++ — build + test on all platforms
+  # ──────────────────────────────────────────────────
+  # NOTE: System protobuf is NOT installed. FetchContent pulls the
+  # exact version (BALL_PROTOBUF_TAG) that matches buf.gen.cpp.yaml.
+  # This avoids version mismatch between generated code and runtime.
   cpp:
-    name: C++ Build & Tests
+    name: C++ (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies (Ubuntu)
+      - uses: bufbuild/buf-setup-action@v1
+
+      - name: Install nlohmann-json (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler libprotobuf-dev nlohmann-json3-dev
+        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
 
-      - name: Install dependencies (macOS)
+      - name: Install nlohmann-json (macOS)
         if: runner.os == 'macOS'
-        run: brew install protobuf nlohmann-json
+        run: brew install nlohmann-json
 
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          vcpkg install protobuf nlohmann-json
-          echo "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
+      # Windows: nlohmann-json is fetched by CMake FetchContent (no vcpkg needed)
 
       - name: Configure CMake
-        run: |
-          cd cpp
-          cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build
+      - name: Buf lint (via CMake)
+        run: cmake --build cpp/build --target buf_lint --config Release
+
+      - name: Buf format check (via CMake)
+        run: cmake --build cpp/build --target buf_format --config Release
+
+      - name: Build all targets
         run: cmake --build cpp/build --config Release
 
       - name: Run tests
-        # Note: C++ test framework is minimal. See docs/ROADMAP.md for test expansion plans.
-        run: |
-          cd cpp/build
-          ctest --output-on-failure -C Release
-
-  proto:
-    name: Proto Lint & Breaking Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: bufbuild/buf-setup-action@v1
-
-      - name: Lint
-        run: cd proto && buf lint
-
-      - name: Breaking change check
-        if: github.event_name == 'pull_request'
-        run: cd proto && buf breaking --against ".git#subdir=proto"
+        run: ctest --test-dir cpp/build --output-on-failure -C Release

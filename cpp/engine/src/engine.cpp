@@ -192,8 +192,24 @@ BallValue Engine::call_function_internal(const std::string& module_name,
     auto result = eval_expr(func.body(), scope);
     current_module_ = prev_module;
     if (is_flow(result) && as_flow(result).kind == "return") {
-        return as_flow(result).value;
+        result = as_flow(result).value;
     }
+
+    // Check for async/generator metadata
+    bool is_async_fn = false;
+    bool is_generator_fn = false;
+    if (func.has_metadata()) {
+        auto ait = func.metadata().fields().find("is_async");
+        if (ait != func.metadata().fields().end()) is_async_fn = ait->second.bool_value();
+        auto git = func.metadata().fields().find("is_generator");
+        if (git != func.metadata().fields().end()) is_generator_fn = git->second.bool_value();
+    }
+
+    // Wrap async returns in BallFuture
+    if (is_async_fn && !is_future(result)) {
+        return BallFuture{result, true};
+    }
+
     return result;
 }
 
@@ -299,10 +315,18 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
         if (fn == "break") return eval_break(call, scope);
         if (fn == "continue") return eval_continue(call, scope);
         if (fn == "assign") return eval_assign(call, scope);
+        if (fn == "labeled") return eval_labeled(call, scope);
+        if (fn == "goto") return eval_goto(call, scope);
+        if (fn == "label") return eval_label(call, scope);
         if (fn == "pre_increment" || fn == "post_increment" ||
             fn == "pre_decrement" || fn == "post_decrement") {
             return eval_inc_dec(call, scope);
         }
+    }
+
+    // cpp_scope_exit: register cleanup lazily without evaluating the expression.
+    if (mod == "cpp_std" && fn == "cpp_scope_exit") {
+        return eval_cpp_scope_exit(call, scope);
     }
 
     // Check if function name refers to a local variable holding a lambda/closure
@@ -489,13 +513,63 @@ BallValue Engine::eval_message_creation(const ball::v1::MessageCreation& msg, st
 
 BallValue Engine::eval_block(const ball::v1::Block& block, std::shared_ptr<Scope> scope) {
     auto block_scope = std::make_shared<Scope>(scope);
+    BallList yields;
+    bool has_yields = false;
     for (const auto& stmt : block.statements()) {
         auto result = eval_statement(stmt, block_scope);
-        if (is_flow(result)) return result;
+        if (is_flow(result)) {
+            const auto& sig = as_flow(result);
+            if (sig.kind == "yield") {
+                has_yields = true;
+                yields.push_back(sig.value);
+                continue;
+            }
+            if (sig.kind == "yield_each") {
+                has_yields = true;
+                if (is_list(sig.value)) {
+                    const auto& lst = std::any_cast<const BallList&>(sig.value);
+                    yields.insert(yields.end(), lst.begin(), lst.end());
+                } else {
+                    yields.push_back(sig.value);
+                }
+                continue;
+            }
+            // Run scope-exits in LIFO order before propagating the signal.
+            run_scope_exits(block_scope);
+            return result;
+        }
     }
-    if (block.has_result())
-        return eval_expr(block.result(), block_scope);
-    return {};
+    BallValue result_val;
+    if (block.has_result()) {
+        result_val = eval_expr(block.result(), block_scope);
+        if (has_yields && is_flow(result_val) && as_flow(result_val).kind == "yield") {
+            yields.push_back(as_flow(result_val).value);
+            run_scope_exits(block_scope);
+            return BallGenerator{std::move(yields)};
+        }
+        if (has_yields) {
+            run_scope_exits(block_scope);
+            return BallGenerator{std::move(yields)};
+        }
+    }
+    if (has_yields) {
+        run_scope_exits(block_scope);
+        return BallGenerator{std::move(yields)};
+    }
+    run_scope_exits(block_scope);
+    return result_val;
+}
+
+void Engine::run_scope_exits(std::shared_ptr<Scope> block_scope) {
+    if (!block_scope->has_scope_exits()) return;
+    auto cleanups = block_scope->take_scope_exits();
+    for (auto& [expr, eval_scope] : cleanups) {
+        try {
+            eval_expr(expr, eval_scope);
+        } catch (...) {
+            // Scope-exit cleanup errors are swallowed (RAII destructor semantics).
+        }
+    }
 }
 
 BallValue Engine::eval_statement(const ball::v1::Statement& stmt, std::shared_ptr<Scope> scope) {
@@ -715,6 +789,29 @@ BallValue Engine::eval_lazy_switch(const ball::v1::FunctionCall& call, std::shar
             di->second->literal().bool_value()) {
             auto bi = cf.find("body"); if (bi != cf.end()) def = bi->second; continue;
         }
+        // Pattern matching: check for 'pattern' field
+        auto pi = cf.find("pattern");
+        if (pi != cf.end()) {
+            auto pattern_val = eval_expr(*pi->second, scope);
+            BallMap bindings;
+            if (match_pattern(sub_val, pattern_val, bindings)) {
+                // Check guard
+                auto gi = cf.find("guard");
+                if (gi != cf.end()) {
+                    auto guard_scope = std::make_shared<Scope>(scope);
+                    for (auto& [k, v] : bindings) guard_scope->bind(k, v);
+                    if (!to_bool(eval_expr(*gi->second, guard_scope))) continue;
+                }
+                auto bi = cf.find("body");
+                if (bi != cf.end()) {
+                    auto body_scope = std::make_shared<Scope>(scope);
+                    for (auto& [k, v] : bindings) body_scope->bind(k, v);
+                    return eval_expr(*bi->second, body_scope);
+                }
+            }
+            continue;
+        }
+        // Value matching
         auto vi = cf.find("value");
         if (vi != cf.end() && values_equal(eval_expr(*vi->second, scope), sub_val)) {
             auto bi = cf.find("body"); if (bi != cf.end()) return eval_expr(*bi->second, scope);
@@ -730,35 +827,220 @@ BallValue Engine::eval_lazy_try(const ball::v1::FunctionCall& call, std::shared_
     auto catches_it = fields.find("catches");
     auto finally_it = fields.find("finally");
     BallValue result;
-    try {
-        if (body_it != fields.end()) result = eval_expr(body_it->second, scope);
-    } catch (const std::exception& e) {
-        result = {};
-        if (catches_it != fields.end()) {
-            const auto& ce = catches_it->second;
-            if (ce.expr_case() == ball::v1::Expression::kLiteral &&
-                ce.literal().value_case() == ball::v1::Literal::kListValue) {
-                for (const auto& cx : ce.literal().list_value().elements()) {
-                    if (cx.expr_case() != ball::v1::Expression::kMessageCreation) continue;
-                    std::unordered_map<std::string, const ball::v1::Expression*> cf;
-                    for (const auto& f : cx.message_creation().fields()) cf[f.name()] = &f.value();
-                    std::string var = "e";
-                    auto vit = cf.find("variable");
-                    if (vit != cf.end() && vit->second->expr_case() == ball::v1::Expression::kLiteral)
-                        var = vit->second->literal().string_value();
-                    auto bit = cf.find("body");
-                    if (bit != cf.end()) {
-                        auto cs = std::make_shared<Scope>(scope);
-                        cs->bind(var, std::string(e.what()));
-                        result = eval_expr(*bit->second, cs);
-                        break;
-                    }
-                }
+
+    auto run_catches = [&](const std::string& exception_type, BallValue exception_value) -> bool {
+        if (catches_it == fields.end()) return false;
+        const auto& ce = catches_it->second;
+        if (ce.expr_case() != ball::v1::Expression::kLiteral ||
+            ce.literal().value_case() != ball::v1::Literal::kListValue) return false;
+        for (const auto& cx : ce.literal().list_value().elements()) {
+            if (cx.expr_case() != ball::v1::Expression::kMessageCreation) continue;
+            std::unordered_map<std::string, const ball::v1::Expression*> cf;
+            for (const auto& f : cx.message_creation().fields()) cf[f.name()] = &f.value();
+            // Check type match
+            auto tit = cf.find("type");
+            if (tit != cf.end() && tit->second->expr_case() == ball::v1::Expression::kLiteral) {
+                const auto& catch_type = tit->second->literal().string_value();
+                if (!catch_type.empty() && catch_type != exception_type) continue;
+            }
+            std::string var = "e";
+            auto vit = cf.find("variable");
+            if (vit != cf.end() && vit->second->expr_case() == ball::v1::Expression::kLiteral)
+                var = vit->second->literal().string_value();
+            auto bit = cf.find("body");
+            if (bit != cf.end()) {
+                auto cs = std::make_shared<Scope>(scope);
+                cs->bind(var, exception_value);
+                result = eval_expr(*bit->second, cs);
+                return true;
             }
         }
+        return false;
+    };
+
+    try {
+        if (body_it != fields.end()) result = eval_expr(body_it->second, scope);
+    } catch (const BallException& e) {
+        result = {};
+        if (!run_catches(e.typeName, e.value)) {
+            // No matching catch — try with "Exception" as fallback
+            run_catches("Exception", e.value);
+        }
+    } catch (const std::exception& e) {
+        result = {};
+        run_catches("Exception", std::string(e.what()));
     }
     if (finally_it != fields.end()) eval_expr(finally_it->second, scope);
     return result;
+}
+
+// ================================================================
+// Pattern Matching
+// ================================================================
+
+bool Engine::matches_type_pattern(const BallValue& value, const std::string& type_name) {
+    if (type_name == "int" || type_name == "Int" || type_name == "num") return is_int(value);
+    if (type_name == "double" || type_name == "Double") return is_double(value);
+    if (type_name == "String" || type_name == "string") return is_string(value);
+    if (type_name == "bool" || type_name == "Bool") return is_bool(value);
+    if (type_name == "List" || type_name == "list") return is_list(value);
+    if (type_name == "Map" || type_name == "map") return is_map(value);
+    if (type_name == "Function") return is_function(value);
+    if (type_name == "Null" || type_name == "null") return is_null(value);
+    // Check __type__ on map objects
+    if (is_map(value)) {
+        const auto& m = std::any_cast<const BallMap&>(value);
+        auto it = m.find("__type__");
+        if (it != m.end() && is_string(it->second)) {
+            auto obj_type = std::any_cast<std::string>(it->second);
+            if (obj_type == type_name) return true;
+            // Walk __super__ chain
+            auto sit = m.find("__super__");
+            BallValue cur = sit != m.end() ? sit->second : BallValue{};
+            while (is_map(cur)) {
+                const auto& sm = std::any_cast<const BallMap&>(cur);
+                auto st = sm.find("__type__");
+                if (st != sm.end() && is_string(st->second) &&
+                    std::any_cast<std::string>(st->second) == type_name) return true;
+                auto nxt = sm.find("__super__");
+                if (nxt == sm.end()) break;
+                cur = nxt->second;
+            }
+        }
+    }
+    return false;
+}
+
+bool Engine::match_string_pattern(const BallValue& value, const std::string& pattern, BallMap& bindings) {
+    if (pattern == "_") return true;
+    if (pattern == "null") return is_null(value);
+    if (pattern == "true") return value.type() == typeid(bool) && std::any_cast<bool>(value);
+    if (pattern == "false") return value.type() == typeid(bool) && !std::any_cast<bool>(value);
+
+    // Type test with binding: 'int x', 'String name'
+    auto space = pattern.find(' ');
+    if (space != std::string::npos) {
+        auto type_name = pattern.substr(0, space);
+        auto var_name = pattern.substr(space + 1);
+        // Trim
+        while (!var_name.empty() && var_name.front() == ' ') var_name.erase(var_name.begin());
+        if (!var_name.empty() && matches_type_pattern(value, type_name)) {
+            bindings[var_name] = value;
+            return true;
+        }
+    }
+
+    // Relational pattern: '> 5', '< 10', '>= 0', '<= 100', '== 42'
+    if (!pattern.empty() && (pattern[0] == '>' || pattern[0] == '<' || pattern[0] == '=' || pattern[0] == '!')) {
+        std::string op, rhs_str;
+        size_t pos = 0;
+        if (pattern.size() >= 2 && (pattern[1] == '=' || (pattern[0] == '!' && pattern[1] == '='))) {
+            op = pattern.substr(0, 2);
+            pos = 2;
+        } else {
+            op = pattern.substr(0, 1);
+            pos = 1;
+        }
+        rhs_str = pattern.substr(pos);
+        while (!rhs_str.empty() && rhs_str.front() == ' ') rhs_str.erase(rhs_str.begin());
+        if ((is_int(value) || is_double(value)) && !rhs_str.empty()) {
+            double lhs = to_num(value);
+            double rhs = std::stod(rhs_str);
+            if (op == "==") return lhs == rhs;
+            if (op == "!=") return lhs != rhs;
+            if (op == ">") return lhs > rhs;
+            if (op == "<") return lhs < rhs;
+            if (op == ">=") return lhs >= rhs;
+            if (op == "<=") return lhs <= rhs;
+        }
+    }
+
+    // Simple type pattern: 'int', 'String', etc.
+    if (matches_type_pattern(value, pattern)) return true;
+
+    // Direct value equality
+    return pattern == ball::to_string(value);
+}
+
+bool Engine::match_structured_pattern(const BallValue& value, const BallMap& pattern, BallMap& bindings) {
+    auto kind_it = pattern.find("__pattern_kind__");
+    if (kind_it == pattern.end() || !is_string(kind_it->second)) return false;
+    auto kind = std::any_cast<std::string>(kind_it->second);
+
+    if (kind == "type_test") {
+        auto type_it = pattern.find("type");
+        auto name_it = pattern.find("name");
+        if (type_it != pattern.end() && is_string(type_it->second)) {
+            auto type_name = std::any_cast<std::string>(type_it->second);
+            if (matches_type_pattern(value, type_name)) {
+                if (name_it != pattern.end() && is_string(name_it->second))
+                    bindings[std::any_cast<std::string>(name_it->second)] = value;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (kind == "list") {
+        if (!is_list(value)) return false;
+        const auto& lst = std::any_cast<const BallList&>(value);
+        auto elem_it = pattern.find("elements");
+        auto rest_it = pattern.find("rest");
+        BallList elements;
+        if (elem_it != pattern.end() && is_list(elem_it->second))
+            elements = std::any_cast<const BallList&>(elem_it->second);
+        std::string rest;
+        if (rest_it != pattern.end() && is_string(rest_it->second))
+            rest = std::any_cast<std::string>(rest_it->second);
+        if (rest.empty() && lst.size() != elements.size()) return false;
+        if (!rest.empty() && lst.size() < elements.size()) return false;
+        for (size_t i = 0; i < elements.size(); i++) {
+            if (!match_pattern(lst[i], elements[i], bindings)) return false;
+        }
+        if (!rest.empty()) {
+            BallList remaining(lst.begin() + elements.size(), lst.end());
+            bindings[rest] = remaining;
+        }
+        return true;
+    }
+
+    if (kind == "object" || kind == "record") {
+        if (!is_map(value)) return false;
+        const auto& val_map = std::any_cast<const BallMap&>(value);
+        auto type_it = pattern.find("type");
+        if (type_it != pattern.end() && is_string(type_it->second)) {
+            auto want_type = std::any_cast<std::string>(type_it->second);
+            auto obj_type_it = val_map.find("__type__");
+            if (obj_type_it == val_map.end() || !is_string(obj_type_it->second) ||
+                std::any_cast<std::string>(obj_type_it->second) != want_type) return false;
+        }
+        auto fields_it = pattern.find("fields");
+        if (fields_it != pattern.end() && is_map(fields_it->second)) {
+            const auto& field_patterns = std::any_cast<const BallMap&>(fields_it->second);
+            for (const auto& [fname, fpat] : field_patterns) {
+                auto fv_it = val_map.find(fname);
+                BallValue fv = fv_it != val_map.end() ? fv_it->second : BallValue{};
+                if (!match_pattern(fv, fpat, bindings)) return false;
+            }
+        }
+        return true;
+    }
+
+    return false;
+}
+
+bool Engine::match_pattern(const BallValue& value, const BallValue& pattern, BallMap& bindings) {
+    if (is_null(pattern)) return true; // wildcard
+    if (is_string(pattern)) {
+        auto pat_str = std::any_cast<std::string>(pattern);
+        if (pat_str == "_") return true;
+        return match_string_pattern(value, pat_str, bindings);
+    }
+    if (is_map(pattern)) {
+        return match_structured_pattern(value, std::any_cast<const BallMap&>(pattern), bindings);
+    }
+    // Direct value equality
+    return values_equal(value, pattern);
 }
 
 BallValue Engine::eval_short_circuit_and(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope) {
@@ -792,6 +1074,43 @@ BallValue Engine::eval_break(const ball::v1::FunctionCall& call, std::shared_ptr
 BallValue Engine::eval_continue(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope) {
     auto fields = lazy_fields(call);
     return FlowSignal{"continue", string_field_val(fields, "label"), {}};
+}
+
+BallValue Engine::eval_labeled(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope) {
+    auto fields = lazy_fields(call);
+    auto label = string_field_val(fields, "label");
+    auto bi = fields.find("body");
+    if (bi == fields.end()) return {};
+    auto result = eval_expr(bi->second, scope);
+    if (is_flow(result)) {
+        auto& sig = std::any_cast<FlowSignal&>(result);
+        if ((sig.kind == "break" || sig.kind == "continue") && sig.label == label) {
+            return {}; // consumed
+        }
+    }
+    return result;
+}
+
+BallValue Engine::eval_goto(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope) {
+    auto fields = lazy_fields(call);
+    return FlowSignal{"goto", string_field_val(fields, "label"), {}};
+}
+
+BallValue Engine::eval_label(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope) {
+    auto fields = lazy_fields(call);
+    auto label = string_field_val(fields, "name");
+    auto bi = fields.find("body");
+    if (bi == fields.end()) return {};
+    while (true) {
+        auto result = eval_expr(bi->second, scope);
+        if (is_flow(result)) {
+            auto& sig = std::any_cast<FlowSignal&>(result);
+            if (sig.kind == "goto" && sig.label == label) {
+                continue; // re-execute body (backward goto)
+            }
+        }
+        return result;
+    }
 }
 
 BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope) {
@@ -975,9 +1294,23 @@ Engine::build_std_dispatch() {
             if(!to_bool(extract_field(i,"condition"))) throw BallRuntimeError("Assertion failed: "+ball::to_string(extract_field(i,"message")));
             return {};
         }},
-        {"await", [](BallValue i) -> BallValue { return extract_unary(i); }},
-        {"yield", [](BallValue i) -> BallValue { return extract_unary(i); }},
-        {"yield_each", [](BallValue i) -> BallValue { return extract_unary(i); }},
+        {"await", [](BallValue i) -> BallValue {
+            auto val = extract_unary(i);
+            if (is_future(val)) return std::any_cast<const BallFuture&>(val).value;
+            return val;
+        }},
+        {"yield", [](BallValue i) -> BallValue {
+            FlowSignal sig;
+            sig.kind = "yield";
+            sig.value = extract_unary(i);
+            return sig;
+        }},
+        {"yield_each", [](BallValue i) -> BallValue {
+            FlowSignal sig;
+            sig.kind = "yield_each";
+            sig.value = extract_unary(i);
+            return sig;
+        }},
         {"string_length", [](BallValue i) -> BallValue { return static_cast<int64_t>(ball::to_string(extract_unary(i)).size()); }},
         {"string_is_empty", [](BallValue i) -> BallValue { return ball::to_string(extract_unary(i)).empty(); }},
         {"string_concat", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return ball::to_string(l)+ball::to_string(r); }},
@@ -1981,6 +2314,22 @@ BallValue Engine::eval_time(const std::string& function, BallValue input) {
         return static_cast<int64_t>(tm_buf.tm_sec);
     }
     throw BallRuntimeError("Unknown std_time function: \"" + function + "\"");
+}
+
+BallValue Engine::eval_cpp_scope_exit(const ball::v1::FunctionCall& call,
+                                       std::shared_ptr<Scope> scope) {
+    if (!call.has_input()) return {};
+    const auto& input_expr = call.input();
+    if (input_expr.expr_case() != ball::v1::Expression::kMessageCreation) return {};
+
+    // Find the `cleanup` field expression without evaluating it.
+    for (const auto& field : input_expr.message_creation().fields()) {
+        if (field.name() == "cleanup") {
+            scope->register_scope_exit(field.value(), scope);
+            return {};
+        }
+    }
+    return {};
 }
 
 }  // namespace ball

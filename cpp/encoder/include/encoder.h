@@ -52,6 +52,8 @@ private:
                                  const std::string& class_name);
     void encode_destructor_decl(const nlohmann::json& node,
                                 const std::string& class_name);
+    void encode_conversion_decl(const nlohmann::json& node,
+                                const std::string& class_name);
     void encode_enum_decl(const nlohmann::json& node);
     void encode_type_alias(const nlohmann::json& node);
     void encode_namespace_decl(nlohmann::json node);

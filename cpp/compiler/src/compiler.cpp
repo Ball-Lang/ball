@@ -74,6 +74,8 @@ std::map<std::string, std::string> CppCompiler::read_meta(const ball::v1::Functi
     for (const auto& [k, v] : func.metadata().fields()) {
         if (v.kind_case() == google::protobuf::Value::kStringValue) {
             result[k] = v.string_value();
+        } else if (v.kind_case() == google::protobuf::Value::kBoolValue) {
+            result[k] = v.bool_value() ? "true" : "false";
         }
     }
     return result;
@@ -349,17 +351,28 @@ std::string CppCompiler::get_message_field(const ball::v1::FunctionCall& call,
     return expr ? compile_expr(*expr) : "";
 }
 
+std::string CppCompiler::get_string_field(const ball::v1::FunctionCall& call,
+                                           const std::string& field_name) {
+    auto* expr = get_message_field_expr(call, field_name);
+    if (expr && expr->expr_case() == ball::v1::Expression::kLiteral &&
+        expr->literal().value_case() == ball::v1::Literal::kStringValue) {
+        return expr->literal().string_value();
+    }
+    // Fall back to compiling the expression
+    return expr ? compile_expr(*expr) : "";
+}
+
 std::string CppCompiler::compile_binary_op(const std::string& op,
                                             const ball::v1::FunctionCall& call) {
-    auto left = get_message_field(call, "left");
-    auto right = get_message_field(call, "right");
-    return "(" + left + " " + op + " " + right + ")";
+    auto left = field_expr(call, "left");
+    auto right = field_expr(call, "right");
+    return "(" + left.str() + " " + op + " " + right.str() + ")";
 }
 
 std::string CppCompiler::compile_unary_op(const std::string& op,
                                            const ball::v1::FunctionCall& call) {
-    auto val = get_message_field(call, "value");
-    return "(" + op + val + ")";
+    auto val = field_expr(call, "value");
+    return CppExpr("(" + op + val.str() + ")").str();
 }
 
 std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
@@ -395,6 +408,32 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
     // std_io → iostream/stdlib operations
     if (mod == "std_io") {
         return compile_io_call(fn, call);
+    }
+
+    // cpp_std → C++ specific operations
+    if (mod == "cpp_std") {
+        return compile_cpp_std_call(fn, call);
+    }
+
+    // std_convert → serialization
+    if (mod == "std_convert") {
+        return compile_convert_call(fn, call);
+    }
+
+    // std_fs → file I/O
+    if (mod == "std_fs") {
+        return compile_fs_call(fn, call);
+    }
+
+    // std_time → date/time
+    if (mod == "std_time") {
+        return compile_time_call(fn, call);
+    }
+
+    // User-defined function call
+    // std_concurrency → std::thread / std::mutex / std::atomic
+    if (mod == "std_concurrency") {
+        return compile_concurrency_call(fn, call);
     }
 
     // User-defined function call
@@ -609,6 +648,15 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     }
     if (fn == "break") return "break";
     if (fn == "continue") return "continue";
+    if (fn == "goto") {
+        auto label = get_string_field(call, "label");
+        return "goto " + label;
+    }
+    if (fn == "label") {
+        auto name = get_string_field(call, "name");
+        auto body = get_message_field(call, "body");
+        return name + ": " + body;
+    }
 
     // ── Index ──
     if (fn == "index") {
@@ -994,9 +1042,70 @@ void CppCompiler::emit_includes() {
     emit_newline();
 }
 
+// Helper: extract a metadata list field as vector<string>
+std::vector<std::string> CppCompiler::read_meta_list(
+    const google::protobuf::Struct& meta, const std::string& key) {
+    std::vector<std::string> result;
+    auto it = meta.fields().find(key);
+    if (it != meta.fields().end() &&
+        it->second.kind_case() == google::protobuf::Value::kListValue) {
+        for (const auto& v : it->second.list_value().values()) {
+            if (v.kind_case() == google::protobuf::Value::kStringValue)
+                result.push_back(v.string_value());
+        }
+    }
+    return result;
+}
+
+// Helper: read metadata from TypeDefinition
+std::map<std::string, std::string> CppCompiler::read_type_meta(
+    const ball::v1::TypeDefinition& td) {
+    std::map<std::string, std::string> result;
+    if (!td.has_metadata()) return result;
+    for (const auto& [k, v] : td.metadata().fields()) {
+        if (v.kind_case() == google::protobuf::Value::kStringValue)
+            result[k] = v.string_value();
+        else if (v.kind_case() == google::protobuf::Value::kBoolValue)
+            result[k] = v.bool_value() ? "true" : "false";
+    }
+    return result;
+}
+
+// Helper: emit template<typename T, ...> prefix from type_params
+void CppCompiler::emit_template_prefix(const ball::v1::TypeDefinition& td) {
+    if (td.type_params_size() == 0) return;
+    emit_indent();
+    out_ << "template<";
+    for (int i = 0; i < td.type_params_size(); i++) {
+        if (i > 0) out_ << ", ";
+        out_ << "typename " << td.type_params(i).name();
+    }
+    out_ << ">\n";
+}
+
+// Helper: emit template prefix from metadata type_params list
+void CppCompiler::emit_template_prefix_from_meta(
+    const google::protobuf::Struct& meta) {
+    auto params = read_meta_list(meta, "type_params");
+    if (params.empty()) return;
+    emit_indent();
+    out_ << "template<";
+    for (size_t i = 0; i < params.size(); i++) {
+        if (i > 0) out_ << ", ";
+        // "T extends Foo" → "typename T"
+        auto space = params[i].find(' ');
+        std::string param_name = (space != std::string::npos)
+            ? params[i].substr(0, space) : params[i];
+        out_ << "typename " << param_name;
+    }
+    out_ << ">\n";
+}
+
 void CppCompiler::emit_forward_decls(const ball::v1::Module& module) {
     for (const auto& td : module.type_defs()) {
         if (!td.has_descriptor_()) continue;
+        // Forward decls also need template prefix
+        emit_template_prefix(td);
         emit_line("struct " + sanitize_name(td.name()) + ";");
     }
     emit_newline();
@@ -1016,7 +1125,36 @@ void CppCompiler::emit_enum(const google::protobuf::EnumDescriptorProto& ed) {
 void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                                 const std::vector<const ball::v1::FunctionDefinition*>& methods) {
     std::string name = sanitize_name(td.name());
-    emit_line("struct " + name + " {");
+    auto tmeta = read_type_meta(td);
+
+    // Template prefix from type_params
+    emit_template_prefix(td);
+
+    // Determine kind (struct vs class)
+    std::string kind_kw = "struct";
+    if (tmeta.count("kind") && tmeta["kind"] == "class") kind_kw = "class";
+
+    // Build inheritance list
+    std::string bases;
+    if (tmeta.count("superclass") && !tmeta["superclass"].empty()) {
+        bases = " : public " + sanitize_name(tmeta["superclass"]);
+    }
+    // Additional base classes from interfaces[]
+    if (td.has_metadata()) {
+        auto ifaces = read_meta_list(td.metadata(), "interfaces");
+        for (const auto& iface : ifaces) {
+            bases += bases.empty() ? " : " : ", ";
+            bases += "public " + sanitize_name(iface);
+        }
+        // Virtual bases
+        auto vbases = read_meta_list(td.metadata(), "virtual_bases");
+        for (const auto& vb : vbases) {
+            bases += bases.empty() ? " : " : ", ";
+            bases += "virtual public " + sanitize_name(vb);
+        }
+    }
+
+    emit_line(kind_kw + " " + name + bases + " {");
     indent_++;
 
     // Fields from descriptor
@@ -1078,10 +1216,35 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         // Regular method
         auto dot = func->name().rfind('.');
         std::string method_name = dot != std::string::npos ? func->name().substr(dot + 1) : func->name();
+
+        // Template prefix for generic methods
+        if (func->has_metadata())
+            emit_template_prefix_from_meta(func->metadata());
+
         emit_indent();
         bool is_static = meta.count("is_static") && meta["is_static"] == "true";
+        bool is_operator = meta.count("is_operator") && meta["is_operator"] == "true";
+        bool is_conv = meta.count("is_conversion_operator") &&
+                       meta["is_conversion_operator"] == "true";
         if (is_static) out_ << "static ";
-        out_ << map_return_type(*func) << " " << sanitize_name(method_name) << "(";
+
+        if (is_conv) {
+            std::string conv_type = map_return_type(*func);
+            if (meta.count("conversion_type") && !meta["conversion_type"].empty()) {
+                conv_type = map_type(meta["conversion_type"]);
+            }
+            out_ << "operator " << conv_type << "(";
+        } else if (is_operator) {
+            // Operator overloading: method_name should be like "operator+"
+            std::string op_name = method_name;
+            // If the name doesn't already start with "operator", prepend it
+            if (op_name.find("operator") != 0) {
+                op_name = "operator" + op_name;
+            }
+            out_ << map_return_type(*func) << " " << op_name << "(";
+        } else {
+            out_ << map_return_type(*func) << " " << sanitize_name(method_name) << "(";
+        }
         auto params = func->has_metadata() ? extract_params(func->metadata()) : std::vector<std::string>{};
         for (size_t i = 0; i < params.size(); i++) {
             if (i > 0) out_ << ", ";
@@ -1113,9 +1276,35 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     auto return_type = map_return_type(func);
     auto name = sanitize_name(func.name());
     auto params = func.has_metadata() ? extract_params(func.metadata()) : std::vector<std::string>{};
+    auto meta = read_meta(func);
+
+    // Overloaded functions: use original_name for emission
+    if (meta.count("original_name")) {
+        name = sanitize_name(meta["original_name"]);
+    }
+
+    // Template prefix for generic functions
+    if (func.has_metadata())
+        emit_template_prefix_from_meta(func.metadata());
 
     emit_indent();
-    out_ << return_type << " " << name << "(";
+    bool is_operator = meta.count("is_operator") && meta["is_operator"] == "true";
+    bool is_conv = meta.count("is_conversion_operator") &&
+                   meta["is_conversion_operator"] == "true";
+    if (is_conv) {
+        std::string conv_type = return_type;
+        if (meta.count("conversion_type") && !meta["conversion_type"].empty()) {
+            conv_type = map_type(meta["conversion_type"]);
+        }
+        out_ << "operator " << conv_type << "(";
+    } else if (is_operator) {
+        std::string op_name = name;
+        if (op_name.find("operator") != 0)
+            op_name = "operator" + op_name;
+        out_ << return_type << " " << op_name << "(";
+    } else {
+        out_ << return_type << " " << name << "(";
+    }
     for (size_t i = 0; i < params.size(); i++) {
         if (i > 0) out_ << ", ";
         out_ << "auto " << sanitize_name(params[i]);
@@ -1236,7 +1425,7 @@ std::string CppCompiler::compile() {
         auto meta = read_meta(func);
         auto kind = meta.count("kind") ? meta["kind"] : "function";
 
-        if (kind == "method" || kind == "constructor" || kind == "static_field") {
+        if (kind == "method" || kind == "constructor" || kind == "static_field" || kind == "operator") {
             auto colon = func.name().find(':');
             std::string after = colon != std::string::npos ? func.name().substr(colon + 1) : func.name();
             auto dot = after.find('.');
@@ -1710,6 +1899,331 @@ std::string CppCompiler::compile_io_call(const std::string& fn,
     }
 
     return "/* std_io." + fn + " */ 0";
+}
+
+std::string CppCompiler::compile_cpp_std_call(const std::string& fn,
+                                               const ball::v1::FunctionCall& call) {
+    // Pointer operations
+    if (fn == "deref") {
+        auto ptr = get_message_field(call, "pointer");
+        return "(*" + ptr + ")";
+    }
+    if (fn == "address_of") {
+        auto val = get_message_field(call, "value");
+        return "(&" + val + ")";
+    }
+    if (fn == "arrow") {
+        auto ptr = get_message_field(call, "pointer");
+        auto member = get_string_field(call, "member");
+        return ptr + "->" + member;
+    }
+    if (fn == "ptr_cast") {
+        auto val = get_message_field(call, "value");
+        auto target = get_string_field(call, "target_type");
+        auto kind = get_string_field(call, "cast_kind");
+        if (kind == "static") return "static_cast<" + target + ">(" + val + ")";
+        if (kind == "dynamic") return "dynamic_cast<" + target + ">(" + val + ")";
+        if (kind == "reinterpret") return "reinterpret_cast<" + target + ">(" + val + ")";
+        if (kind == "const") return "const_cast<" + target + ">(" + val + ")";
+        return "(" + target + ")(" + val + ")";
+    }
+    // new / delete
+    if (fn == "cpp_new") {
+        auto type = get_string_field(call, "type");
+        return "new " + type + "()";
+    }
+    if (fn == "cpp_delete") {
+        auto ptr = get_message_field(call, "pointer");
+        return "(delete " + ptr + ", (void)0)";
+    }
+    // sizeof / alignof
+    if (fn == "cpp_sizeof") {
+        auto t = get_string_field(call, "type_or_expr");
+        return "sizeof(" + t + ")";
+    }
+    if (fn == "cpp_alignof") {
+        auto t = get_string_field(call, "type");
+        return "alignof(" + t + ")";
+    }
+    // Move / forward
+    if (fn == "cpp_move") {
+        auto val = get_message_field(call, "pointer");
+        return "std::move(" + val + ")";
+    }
+    if (fn == "cpp_forward") {
+        auto val = get_message_field(call, "pointer");
+        return "std::forward<decltype(" + val + ")>(" + val + ")";
+    }
+    // Smart pointers
+    if (fn == "cpp_make_unique") {
+        auto type = get_string_field(call, "type");
+        return "std::make_unique<" + type + ">()";
+    }
+    if (fn == "cpp_make_shared") {
+        auto type = get_string_field(call, "type");
+        return "std::make_shared<" + type + ">()";
+    }
+    if (fn == "cpp_unique_ptr_get") {
+        auto ptr = get_message_field(call, "pointer");
+        return ptr + ".get()";
+    }
+    if (fn == "cpp_shared_ptr_get") {
+        auto ptr = get_message_field(call, "pointer");
+        return ptr + ".get()";
+    }
+    if (fn == "cpp_shared_ptr_use_count") {
+        auto ptr = get_message_field(call, "pointer");
+        return ptr + ".use_count()";
+    }
+    // Type deduction
+    if (fn == "cpp_decltype") {
+        auto val = get_message_field(call, "pointer");
+        return "decltype(" + val + ")";
+    }
+    if (fn == "cpp_auto") {
+        return "auto";
+    }
+    // Initializer list
+    if (fn == "init_list") {
+        // Extract elements and emit {a, b, c}
+        std::string result = "{";
+        if (call.has_input() &&
+            call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+            bool first = true;
+            for (const auto& f : call.input().message_creation().fields()) {
+                if (!first) result += ", ";
+                result += compile_expr(f.value());
+                first = false;
+            }
+        }
+        result += "}";
+        return result;
+    }
+    // static_assert
+    if (fn == "static_assert") {
+        auto cond = get_message_field(call, "condition");
+        auto msg = get_string_field(call, "message");
+        return "static_assert(" + cond + ", \"" + msg + "\")";
+    }
+    // Namespace
+    if (fn == "namespace") {
+        auto name = get_string_field(call, "name");
+        auto body = get_message_field(call, "body");
+        return "namespace " + name + " { " + body + " }";
+    }
+    // nullptr
+    if (fn == "nullptr") {
+        return "nullptr";
+    }
+    // Preprocessor directives
+    if (fn == "cpp_ifdef") {
+        auto symbol = get_string_field(call, "symbol");
+        auto thenBody = get_message_field(call, "then_body");
+        auto elseBody = get_message_field(call, "else_body");
+        std::string result = "\n#ifdef " + symbol + "\n" + thenBody;
+        if (!elseBody.empty()) result += "\n#else\n" + elseBody;
+        result += "\n#endif\n";
+        return result;
+    }
+    if (fn == "cpp_defined") {
+        auto val = get_message_field(call, "pointer");
+        return "defined(" + val + ")";
+    }
+    // RAII / scope exit
+    if (fn == "cpp_scope_exit") {
+        auto cleanup = get_message_field(call, "cleanup");
+        return "struct _ScopeExit { ~_ScopeExit() { " + cleanup + "; } } _scopeExit";
+    }
+    if (fn == "cpp_destructor") {
+        auto className = get_string_field(call, "class_name");
+        auto body = get_message_field(call, "body");
+        return "~" + className + "() { " + body + " }";
+    }
+
+    return "/* cpp_std." + fn + " */";
+}
+
+std::string CppCompiler::compile_convert_call(const std::string& fn,
+                                               const ball::v1::FunctionCall& call) {
+    if (fn == "json_encode") {
+        auto val = field_expr(call, "value");
+        return CppExpr::static_call("nlohmann::json", {val}).call("dump").str();
+    }
+    if (fn == "json_decode") {
+        auto src = field_expr(call, "source");
+        return CppExpr::ref("nlohmann::json").scope("parse")
+            .call(std::vector<CppExpr>{src}).str();
+    }
+    if (fn == "utf8_encode") {
+        auto src = field_expr(call, "source");
+        return CppExpr::template_call("std::vector", "uint8_t",
+            {src.dot("begin").call(), src.dot("end").call()}).str();
+    }
+    if (fn == "utf8_decode") {
+        auto bytes = field_expr(call, "bytes");
+        return CppExpr::static_call("std::string",
+            {bytes.dot("begin").call(), bytes.dot("end").call()}).str();
+    }
+    if (fn == "base64_encode" || fn == "base64_decode") {
+        return "/* " + fn + " not yet implemented */";
+    }
+    return "/* std_convert." + fn + " */";
+}
+
+std::string CppCompiler::compile_fs_call(const std::string& fn,
+                                          const ball::v1::FunctionCall& call) {
+    if (fn == "file_read") {
+        auto path = field_expr(call, "path");
+        return CppExpr::iife("", "const std::string& p",
+            "std::ifstream f(p);return std::string((std::istreambuf_iterator<char>(f)),"
+            "std::istreambuf_iterator<char>());", {path}).str();
+    }
+    if (fn == "file_write") {
+        auto path = field_expr(call, "path");
+        auto content = field_expr(call, "content");
+        return CppExpr::iife("", "const std::string& p, const std::string& c",
+            "std::ofstream f(p);f<<c;", {path, content}).paren().str();
+    }
+    if (fn == "file_exists") {
+        auto path = field_expr(call, "path");
+        return CppExpr::ref("std::filesystem").scope("exists")
+            .call(std::vector<CppExpr>{path}).str();
+    }
+    if (fn == "file_delete") {
+        auto path = field_expr(call, "path");
+        return CppExpr::ref("std::filesystem").scope("remove")
+            .call(std::vector<CppExpr>{path}).str();
+    }
+    if (fn == "dir_list") {
+        auto path = field_expr(call, "path");
+        return CppExpr::iife("", "const std::string& p",
+            "std::vector<std::any> r;for(auto& e:std::filesystem::directory_iterator(p))"
+            "r.push_back(e.path().string());return r;", {path}).str();
+    }
+    if (fn == "dir_create") {
+        auto path = field_expr(call, "path");
+        return CppExpr::ref("std::filesystem").scope("create_directories")
+            .call(std::vector<CppExpr>{path}).str();
+    }
+    if (fn == "dir_exists") {
+        auto path = field_expr(call, "path");
+        return CppExpr::ref("std::filesystem").scope("is_directory")
+            .call(std::vector<CppExpr>{path}).str();
+    }
+    return "/* std_fs." + fn + " */";
+}
+
+std::string CppCompiler::compile_time_call(const std::string& fn,
+                                            const ball::v1::FunctionCall& call) {
+    if (fn == "now" || fn == "timestamp_ms") {
+        return CppExpr::template_call("static_cast", "int64_t", {
+            CppExpr::ref("std::chrono")
+                .scope("duration_cast<std::chrono::milliseconds>")
+                .call(std::vector<CppExpr>{CppExpr::ref("std::chrono::system_clock").scope("now").call()
+                    .dot("time_since_epoch").call()})
+                .dot("count").call()
+        }).str();
+    }
+    if (fn == "now_micros") {
+        return CppExpr::template_call("static_cast", "int64_t", {
+            CppExpr::ref("std::chrono")
+                .scope("duration_cast<std::chrono::microseconds>")
+                .call(std::vector<CppExpr>{CppExpr::ref("std::chrono::system_clock").scope("now").call()
+                    .dot("time_since_epoch").call()})
+                .dot("count").call()
+        }).str();
+    }
+    if (fn == "duration_add") {
+        return (field_expr(call, "left") + field_expr(call, "right")).str();
+    }
+    if (fn == "duration_subtract") {
+        return (field_expr(call, "left") - field_expr(call, "right")).str();
+    }
+    return "/* std_time." + fn + " */";
+}
+
+std::string CppCompiler::compile_concurrency_call(const std::string& fn,
+                                                    const ball::v1::FunctionCall& call) {
+    // ── Thread ─────────────────────────────────────────────────────
+    if (fn == "thread_spawn") {
+        auto body = get_message_field(call, "body");
+        if (body.empty()) body = "nullptr";
+        auto name = get_string_field(call, "name");
+        std::string tvar = name.empty() ? "_thread" : "t_" + sanitize_name(name);
+        return "std::thread " + tvar + "(" + body + ")";
+    }
+    if (fn == "thread_join") {
+        auto handle = get_message_field(call, "handle");
+        if (handle.empty()) handle = "t";
+        return handle + ".join()";
+    }
+    if (fn == "thread_detach") {
+        auto handle = get_message_field(call, "handle");
+        if (handle.empty()) handle = "t";
+        return handle + ".detach()";
+    }
+
+    // ── Mutex ──────────────────────────────────────────────────────
+    if (fn == "mutex_create") {
+        auto name = get_string_field(call, "name");
+        std::string mvar = name.empty() ? "_mtx" : sanitize_name(name);
+        return "std::mutex " + mvar;
+    }
+    if (fn == "mutex_lock") {
+        auto mtx = get_message_field(call, "mutex");
+        if (mtx.empty()) mtx = "mtx";
+        return mtx + ".lock()";
+    }
+    if (fn == "mutex_unlock") {
+        auto mtx = get_message_field(call, "mutex");
+        if (mtx.empty()) mtx = "mtx";
+        return mtx + ".unlock()";
+    }
+    if (fn == "scoped_lock") {
+        auto mtx = get_message_field(call, "mutex");
+        if (mtx.empty()) mtx = "mtx";
+        auto body = get_message_field(call, "body");
+        return "{ std::lock_guard<std::mutex> _lg(" + mtx + "); " + body + "; }";
+    }
+    if (fn == "unique_lock") {
+        auto mtx = get_message_field(call, "mutex");
+        if (mtx.empty()) mtx = "mtx";
+        auto name = get_string_field(call, "name");
+        std::string lvar = name.empty() ? "_lk" : sanitize_name(name);
+        return "std::unique_lock<std::mutex> " + lvar + "(" + mtx + ")";
+    }
+
+    // ── Atomic ─────────────────────────────────────────────────────
+    if (fn == "atomic_load") {
+        auto val = get_message_field(call, "value");
+        if (val.empty()) val = "x";
+        return val + ".load()";
+    }
+    if (fn == "atomic_store") {
+        auto val = get_message_field(call, "value");
+        auto newval = get_message_field(call, "new_value");
+        if (val.empty()) val = "x";
+        if (newval.empty()) newval = "v";
+        return val + ".store(" + newval + ")";
+    }
+    if (fn == "atomic_compare_exchange") {
+        auto val = get_message_field(call, "value");
+        auto expected = get_message_field(call, "expected");
+        auto desired = get_message_field(call, "desired");
+        if (val.empty()) val = "x";
+        if (expected.empty()) expected = "e";
+        if (desired.empty()) desired = "d";
+        return val + ".compare_exchange_strong(" + expected + ", " + desired + ")";
+    }
+    if (fn == "atomic_fetch_add") {
+        auto val = get_message_field(call, "value");
+        auto delta = get_message_field(call, "delta");
+        if (val.empty()) val = "x";
+        if (delta.empty()) delta = "1";
+        return val + ".fetch_add(" + delta + ")";
+    }
+
+    return "/* std_concurrency." + fn + " */";
 }
 
 }  // namespace ball

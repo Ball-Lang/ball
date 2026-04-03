@@ -186,29 +186,33 @@ class PackageCompiler {
   /// cover deps listed in the resource pubspec, those overrides are mirrored
   /// (with paths adjusted for the sub-directory depth).
   Uint8List _fixResourcePubspec(
-      String relPath, Uint8List bytes, Directory outputDir) {
+    String relPath,
+    Uint8List bytes,
+    Directory outputDir,
+  ) {
     try {
       var content = utf8.decode(bytes);
       final depth = relPath.split('/').length - 1; // segments before filename
 
       // 1. Rewrite path: values that climb out of the package root.
-      content = content.replaceAllMapped(
-        RegExp(r'(path:\s*)([^\n]+)'),
-        (m) {
-          final prefix = m.group(1)!;
-          final value =
-              m.group(2)!.trim().replaceAll("'", '').replaceAll('"', '');
-          final ups = '../'.allMatches(value).length;
-          if (ups == 0) return m.group(0)!;
-          if (ups >= depth) return '$prefix../';
-          return m.group(0)!;
-        },
-      );
+      content = content.replaceAllMapped(RegExp(r'(path:\s*)([^\n]+)'), (m) {
+        final prefix = m.group(1)!;
+        final value = m
+            .group(2)!
+            .trim()
+            .replaceAll("'", '')
+            .replaceAll('"', '');
+        final ups = '../'.allMatches(value).length;
+        if (ups == 0) return m.group(0)!;
+        if (ups >= depth) return '$prefix../';
+        return m.group(0)!;
+      });
 
       // 2. Propagate dependency_overrides from the parent package's pubspec
       //    so that path-overridden deps resolve correctly in the sub-project.
       final parentPubspec = File(
-          '${outputDir.path}${Platform.pathSeparator}pubspec.yaml');
+        '${outputDir.path}${Platform.pathSeparator}pubspec.yaml',
+      );
       if (parentPubspec.existsSync()) {
         final parentContent = parentPubspec.readAsStringSync();
         final overrides = _extractDependencyOverrides(parentContent);
@@ -252,8 +256,9 @@ class PackageCompiler {
       // the `dependency_overrides:` line.
       final idx = pubspec.indexOf('dependency_overrides:');
       if (idx < 0) return result;
-      final after = pubspec.substring(
-          idx + 'dependency_overrides:'.length).trimLeft();
+      final after = pubspec
+          .substring(idx + 'dependency_overrides:'.length)
+          .trimLeft();
       return _parseDependencyBlock(after);
     }
     return _parseDependencyBlock(block);

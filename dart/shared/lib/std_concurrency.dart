@@ -1,30 +1,34 @@
-/// `std_convert` base module builder for the ball programming language.
+/// `std_concurrency` base module builder for the ball programming language.
 ///
-/// Provides JSON, UTF-8, and base64 encoding/decoding.
-/// Every target language has built-in or standard library support for these.
+/// Provides threading, mutex, and atomic primitives.
+/// Engines can choose single-threaded simulation or real threading.
 library;
 
 import 'gen/google/protobuf/descriptor.pb.dart' as google;
 import 'gen/ball/v1/ball.pb.dart';
 
-/// Builds the std_convert base module.
-Module buildStdConvertModule() {
+/// Builds the std_concurrency base module.
+Module buildStdConcurrencyModule() {
   final module = Module()
-    ..name = 'std_convert'
+    ..name = 'std_concurrency'
     ..description =
-        'Standard conversion module. JSON, UTF-8, base64 encoding/decoding.';
+        'Concurrency primitives: threads, mutexes, atomics. '
+        'Engines may simulate single-threaded or use real threads.';
 
   // ============================================================
   // Types
   // ============================================================
 
   module.types.addAll([
-    _type('JsonEncodeInput', [_exprField('value', 1)]),
-    _type('JsonDecodeInput', [_stringField('value', 1)]),
-    _type('Utf8EncodeInput', [_stringField('value', 1)]),
-    _type('Utf8DecodeInput', [_bytesField('value', 1)]),
-    _type('Base64EncodeInput', [_bytesField('value', 1)]),
-    _type('Base64DecodeInput', [_stringField('value', 1)]),
+    _type('ThreadInput', [_exprField('body', 1)]),
+    _type('MutexInput', []),
+    _type('LockInput', [_exprField('mutex', 1), _exprField('body', 2)]),
+    _type('AtomicInput', [_exprField('value', 1)]),
+    _type('AtomicOpInput', [
+      _exprField('atomic', 1),
+      _stringField('op', 2),
+      _exprField('value', 3),
+    ]),
   ]);
 
   // ============================================================
@@ -32,46 +36,34 @@ Module buildStdConvertModule() {
   // ============================================================
 
   module.functions.addAll([
-    // JSON
+    // Threading
     _fn(
-      'json_encode',
-      'JsonEncodeInput',
-      'string',
-      'Encode value to JSON string',
+      'thread_spawn',
+      'ThreadInput',
+      'int',
+      'Spawn a new thread, return thread handle',
     ),
+    _fn('thread_join', 'UnaryInput', 'void', 'Wait for thread to complete'),
+
+    // Mutex
+    _fn('mutex_create', 'MutexInput', 'int', 'Create a mutex, return handle'),
+    _fn('mutex_lock', 'UnaryInput', 'void', 'Acquire mutex'),
+    _fn('mutex_unlock', 'UnaryInput', 'void', 'Release mutex'),
     _fn(
-      'json_decode',
-      'JsonDecodeInput',
+      'scoped_lock',
+      'LockInput',
       '',
-      'Decode JSON string to value (map/list/scalar)',
+      'Acquire mutex, run body, release on exit',
     ),
 
-    // UTF-8
+    // Atomics
+    _fn('atomic_load', 'UnaryInput', '', 'Atomic read of value'),
+    _fn('atomic_store', 'AtomicOpInput', 'void', 'Atomic write of value'),
     _fn(
-      'utf8_encode',
-      'Utf8EncodeInput',
-      'bytes',
-      'Encode string to UTF-8 bytes',
-    ),
-    _fn(
-      'utf8_decode',
-      'Utf8DecodeInput',
-      'string',
-      'Decode UTF-8 bytes to string',
-    ),
-
-    // Base64
-    _fn(
-      'base64_encode',
-      'Base64EncodeInput',
-      'string',
-      'Encode bytes to base64 string',
-    ),
-    _fn(
-      'base64_decode',
-      'Base64DecodeInput',
-      'bytes',
-      'Decode base64 string to bytes',
+      'atomic_compare_exchange',
+      'AtomicOpInput',
+      'bool',
+      'Atomic compare-and-swap',
     ),
   ]);
 
@@ -96,13 +88,6 @@ google.FieldDescriptorProto _stringField(String name, int number) {
     ..name = name
     ..number = number
     ..type = google.FieldDescriptorProto_Type.TYPE_STRING;
-}
-
-google.FieldDescriptorProto _bytesField(String name, int number) {
-  return google.FieldDescriptorProto()
-    ..name = name
-    ..number = number
-    ..type = google.FieldDescriptorProto_Type.TYPE_BYTES;
 }
 
 google.FieldDescriptorProto _exprField(String name, int number) {

@@ -10,7 +10,9 @@ class PubspecParser {
 
   /// Parse the `pubspec.yaml` in [dir] and return a [PackageManifest].
   static PackageManifest fromDirectory(Directory dir) {
-    final pubspecFile = File('${dir.path}${Platform.pathSeparator}pubspec.yaml');
+    final pubspecFile = File(
+      '${dir.path}${Platform.pathSeparator}pubspec.yaml',
+    );
     if (!pubspecFile.existsSync()) {
       return const PackageManifest(name: 'unknown');
     }

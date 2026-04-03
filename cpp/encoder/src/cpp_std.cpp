@@ -151,6 +151,16 @@ ball::v1::Module build_cpp_std_module() {
         {"underlying_type", 2, STRING, "", OPT},
     }));
     add_type(make_type("ConstexprInput", {{"value", 1, EXPR, EXPR_TYPE, OPT}}));
+    add_type(make_type("IfdefInput", {
+        {"symbol", 1, STRING, "", OPT},
+        {"then_body", 2, EXPR, EXPR_TYPE, OPT},
+        {"else_body", 3, EXPR, EXPR_TYPE, OPT},
+    }));
+    add_type(make_type("ScopeExitInput", {{"cleanup", 1, EXPR, EXPR_TYPE, OPT}}));
+    add_type(make_type("DestructorInput", {
+        {"class_name", 1, STRING, "", OPT},
+        {"body", 2, EXPR, EXPR_TYPE, OPT},
+    }));
 
     // Functions
     auto add_fn = [&](const std::string& n, const std::string& it,
@@ -205,12 +215,31 @@ ball::v1::Module build_cpp_std_module() {
     add_fn("cpp_move", "DerefInput", "", "std::move");
     add_fn("cpp_forward", "DerefInput", "", "std::forward");
 
+    // Smart pointers
+    add_fn("cpp_make_unique", "NewInput", "", "std::make_unique<T>(args...)");
+    add_fn("cpp_make_shared", "NewInput", "", "std::make_shared<T>(args...)");
+    add_fn("cpp_unique_ptr_get", "DerefInput", "", "unique_ptr::get()");
+    add_fn("cpp_shared_ptr_get", "DerefInput", "", "shared_ptr::get()");
+    add_fn("cpp_shared_ptr_use_count", "DerefInput", "", "shared_ptr::use_count()");
+
+    // Type deduction
+    add_fn("cpp_decltype", "DerefInput", "", "decltype(expr) — metadata-only, compiler emits type");
+    add_fn("cpp_auto", "DerefInput", "", "auto x = expr — metadata-only, compiler emits auto");
+
     // Special members
     add_fn("destructor", "", "", "Destructor");
     add_fn("copy_constructor", "", "", "Copy constructor marker");
     add_fn("move_constructor", "", "", "Move constructor marker");
     add_fn("copy_assign", "", "", "Copy assignment marker");
     add_fn("move_assign", "", "", "Move assignment marker");
+
+    // Preprocessor directives
+    add_fn("cpp_ifdef", "IfdefInput", "", "#ifdef SYMBOL ... #else ... #endif");
+    add_fn("cpp_defined", "DerefInput", "bool", "defined(MACRO_NAME)");
+
+    // RAII / scope exit
+    add_fn("cpp_scope_exit", "ScopeExitInput", "", "Register cleanup on scope exit");
+    add_fn("cpp_destructor", "DestructorInput", "", "Define a destructor function");
 
     return mod;
 }

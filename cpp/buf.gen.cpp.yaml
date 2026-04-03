@@ -1,0 +1,21 @@
+# buf.gen.cpp.yaml — C++-only code generation template for CMake integration.
+#
+# Used by BufGenerate.cmake to regenerate C++ protobuf bindings
+# from ball.proto during the CMake build.  The 'out' is '.' because
+# CMake's custom command sets WORKING_DIRECTORY to the output dir.
+#
+# IMPORTANT: The plugin version MUST match the protobuf runtime version
+# fetched in cpp/shared/CMakeLists.txt (BALL_PROTOBUF_TAG).
+# Currently both are pinned to v34.1.
+#
+# Usage (via CMake):
+#   buf generate --template cpp/buf.gen.cpp.yaml proto/
+#
+# Usage (manual, from repo root):
+#   buf generate --template cpp/buf.gen.cpp.yaml -o cpp/shared/gen proto/
+
+version: v2
+
+plugins:
+  - remote: buf.build/protocolbuffers/cpp:v34.1
+    out: .

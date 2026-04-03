@@ -90,7 +90,6 @@ Every Ball computation is one of:
 ## Known Issues
 
 - C++ string operations (split, replace) emit empty comments — BROKEN
-- C++ has ZERO tests — always add tests when modifying C++ code
 - C++ collections/IO modules are stubs — not implemented in engine
 - Dart encoder silently swallows malformed metadata
 - Both engines pass through async/await as no-ops
@@ -114,6 +113,7 @@ buf generate
 
 ## Testing
 
-- Dart engine: 193 tests in `dart/engine/test/engine_test.dart`
-- C++: NO tests (this is a critical gap)
+- Dart engine: 242 tests in `dart/engine/test/engine_test.dart`
+- Dart encoder: 20 tests in `dart/encoder/test/encoder_test.dart`
+- C++: 37 tests in `cpp/test/test_engine.cpp` + `cpp/test/test_compiler.cpp`
 - FFmpeg stress test: 965 files compiled successfully through both Dart and C++ compilers

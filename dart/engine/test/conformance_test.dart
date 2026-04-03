@@ -17,18 +17,20 @@ void main() {
     return;
   }
 
-  final testFiles = conformanceDir
-      .listSync()
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.ball.json'))
-      .toList()
-    ..sort((a, b) => a.path.compareTo(b.path));
+  final testFiles =
+      conformanceDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.ball.json'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
 
   group('conformance', () {
     for (final testFile in testFiles) {
       final name = testFile.uri.pathSegments.last.replaceAll('.ball.json', '');
       final expectedFile = File(
-          testFile.path.replaceAll('.ball.json', '.expected_output.txt'));
+        testFile.path.replaceAll('.ball.json', '.expected_output.txt'),
+      );
 
       if (!expectedFile.existsSync()) continue;
 
@@ -42,7 +44,8 @@ void main() {
         final engine = BallEngine(program, stdout: lines.add);
         engine.run();
         final output = lines.join('\n').trimRight();
-        final expected = expectedFile.readAsStringSync()
+        final expected = expectedFile
+            .readAsStringSync()
             .replaceAll('\r\n', '\n')
             .trimRight();
 

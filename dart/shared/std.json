@@ -399,6 +399,35 @@
       ]
     },
     {
+      "name": "GotoInput",
+      "field": [
+        {
+          "name": "label",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        }
+      ]
+    },
+    {
+      "name": "LabelInput",
+      "field": [
+        {
+          "name": "name",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING"
+        },
+        {
+          "name": "body",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".ball.v1.Expression"
+        }
+      ]
+    },
+    {
       "name": "StringSubstringInput",
       "field": [
         {
@@ -871,6 +900,20 @@
       "inputType": "ContinueInput",
       "outputType": "",
       "description": "Continue to next iteration: continue [label]",
+      "isBase": true
+    },
+    {
+      "name": "goto",
+      "inputType": "GotoInput",
+      "outputType": "",
+      "description": "Jump to label: goto label_name",
+      "isBase": true
+    },
+    {
+      "name": "label",
+      "inputType": "LabelInput",
+      "outputType": "",
+      "description": "Define a label point: label_name: { body }",
       "isBase": true
     },
     {

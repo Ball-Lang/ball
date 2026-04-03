@@ -16,7 +16,6 @@ add_library(ball_cpp_encoder_lib
 target_include_directories(ball_cpp_encoder_lib PUBLIC
     include
     ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/gen
 )
 
 target_link_libraries(ball_cpp_encoder_lib PUBLIC ball_shared)
@@ -41,7 +40,7 @@ target_link_libraries(ball_cpp_encode ball_cpp_encoder_lib)
 if(MSVC)
     target_link_options(ball_cpp_encode PRIVATE /STACK:268435456)
 elseif(APPLE)
-    target_link_options(ball_cpp_compile PRIVATE -Wl,-stack_size,0x10000000)
+    target_link_options(ball_cpp_encode PRIVATE -Wl,-stack_size,0x10000000)
 else()
     target_link_options(ball_cpp_encode PRIVATE -Wl,-z,stacksize=268435456)
 endif()

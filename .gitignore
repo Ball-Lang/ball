@@ -46,6 +46,13 @@ website/lib/main.client.options.dart
 # ----------------------------------
 examples/compiled_out.txt
 examples/orig_out.txt
+examples/strings_math.dart
+
+# ----------------------------------
+# Temporary project files
+# ----------------------------------
+dart_test_out.txt
+IMPLEMENTATION_PLAN.md
 
 # ----------------------------------
 # Python

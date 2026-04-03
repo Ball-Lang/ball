@@ -74,10 +74,8 @@ class PackageEncoder {
   /// `relPath → moduleName` for every discovered `.dart` file.
   late final Map<String, String> _fileToModule;
 
-  PackageEncoder(
-    this.packageDir, {
-    this.includeTests = false,
-  })  : manifest = PubspecParser.fromDirectory(packageDir) {
+  PackageEncoder(this.packageDir, {this.includeTests = false})
+    : manifest = PubspecParser.fromDirectory(packageDir) {
     _fileToModule = _buildFileMap();
   }
 
@@ -94,10 +92,7 @@ class PackageEncoder {
   /// [scanDirs] overrides the set of top-level directories that are scanned for
   /// `.dart` files.  Defaults to `['lib', 'bin']` (plus `['test']` when
   /// [includeTests] is true).
-  Program encode({
-    String? entryFile,
-    String entryFunction = 'main',
-  }) {
+  Program encode({String? entryFile, String entryFunction = 'main'}) {
     final String resolvedEntry =
         entryFile ?? _detectEntryFile() ?? 'bin/main.dart';
     final String entryModuleName =
@@ -118,16 +113,22 @@ class PackageEncoder {
 
     for (final MapEntry(key: relPath, value: moduleName)
         in _fileToModule.entries) {
-      final file = File('${packageDir.path}${Platform.pathSeparator}'
-          '${relPath.replaceAll('/', Platform.pathSeparator)}');
+      final file = File(
+        '${packageDir.path}${Platform.pathSeparator}'
+        '${relPath.replaceAll('/', Platform.pathSeparator)}',
+      );
       if (!file.existsSync()) continue;
 
       final source = file.readAsStringSync();
       // Parse once: reused for both URI-override resolution and encoding.
-      final parseResult =
-          parseString(content: source, throwIfDiagnostics: false);
-      final uriOverrides =
-          _computeUriOverridesFromUnit(relPath, parseResult.unit);
+      final parseResult = parseString(
+        content: source,
+        throwIfDiagnostics: false,
+      );
+      final uriOverrides = _computeUriOverridesFromUnit(
+        relPath,
+        parseResult.unit,
+      );
 
       final (:module, :importStubs) = encoder.encodeModuleFromUnit(
         parseResult.unit,
@@ -183,7 +184,8 @@ class PackageEncoder {
     final dirs = ['lib', 'bin', if (includeTests) 'test'];
     for (final dirName in dirs) {
       final dir = Directory(
-          '${packageDir.path}${Platform.pathSeparator}$dirName');
+        '${packageDir.path}${Platform.pathSeparator}$dirName',
+      );
       if (!dir.existsSync()) continue;
       for (final entity in dir.listSync(recursive: true)) {
         if (entity is! File) continue;
@@ -261,13 +263,13 @@ class PackageEncoder {
     // Prefer bin/main.dart.
     if (_fileToModule.containsKey('bin/main.dart')) return 'bin/main.dart';
     // Find first bin/ file containing `void main` or `Future<void> main`.
-    final binFiles = _fileToModule.keys
-        .where((p) => p.startsWith('bin/'))
-        .toList()
-      ..sort();
+    final binFiles =
+        _fileToModule.keys.where((p) => p.startsWith('bin/')).toList()..sort();
     for (final path in binFiles) {
-      final file = File('${packageDir.path}${Platform.pathSeparator}'
-          '${path.replaceAll('/', Platform.pathSeparator)}');
+      final file = File(
+        '${packageDir.path}${Platform.pathSeparator}'
+        '${path.replaceAll('/', Platform.pathSeparator)}',
+      );
       if (!file.existsSync()) continue;
       final content = file.readAsStringSync();
       if (_hasMainFunction(content)) return path;
@@ -318,15 +320,19 @@ class PackageEncoder {
       final bytes = file.readAsBytesSync();
       totalBytes += bytes.length;
       if (totalBytes > _maxResourceBytes) return;
-      assets.add(ModuleAsset()
-        ..path = relPath.replaceAll('\\', '/')
-        ..content = bytes);
+      assets.add(
+        ModuleAsset()
+          ..path = relPath.replaceAll('\\', '/')
+          ..content = bytes,
+      );
     }
 
     // Discover resource directories at the package root.
     for (final entity in packageDir.listSync()) {
-      final name = entity.uri.pathSegments
-          .lastWhere((s) => s.isNotEmpty, orElse: () => '');
+      final name = entity.uri.pathSegments.lastWhere(
+        (s) => s.isNotEmpty,
+        orElse: () => '',
+      );
       if (name.isEmpty || name.startsWith('.')) continue;
       if (_ignoredDirs.contains(name)) continue;
 
@@ -357,7 +363,8 @@ class PackageEncoder {
     // Also collect non-Dart files inside test/ (e.g. test/test_resources/).
     if (includeTests) {
       final testDir = Directory(
-          '${packageDir.path}${Platform.pathSeparator}test');
+        '${packageDir.path}${Platform.pathSeparator}test',
+      );
       if (testDir.existsSync()) {
         for (final child in testDir.listSync(recursive: true)) {
           if (child is! File) continue;
@@ -411,6 +418,5 @@ class PackageEncoder {
   /// All discovered source files and their ball module names.
   ///
   /// Keys are package-relative paths; values are ball module names.
-  Map<String, String> get fileToModuleMap =>
-      Map.unmodifiable(_fileToModule);
+  Map<String, String> get fileToModuleMap => Map.unmodifiable(_fileToModule);
 }

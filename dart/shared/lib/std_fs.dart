@@ -41,28 +41,38 @@ Module buildStdFsModule() {
 
   module.functions.addAll([
     // File operations
-    _fn('file_read', 'FilePathInput', 'string',
-        'Read file contents as string'),
-    _fn('file_read_bytes', 'FilePathInput', 'bytes',
-        'Read file contents as bytes'),
-    _fn('file_write', 'FileWriteInput', '',
-        'Write string to file (creates or overwrites)'),
-    _fn('file_write_bytes', 'FileWriteBytesInput', '',
-        'Write bytes to file (creates or overwrites)'),
-    _fn('file_append', 'FileAppendInput', '',
-        'Append string to file'),
-    _fn('file_exists', 'FilePathInput', 'bool',
-        'Check if file exists'),
-    _fn('file_delete', 'FilePathInput', '',
-        'Delete file'),
+    _fn('file_read', 'FilePathInput', 'string', 'Read file contents as string'),
+    _fn(
+      'file_read_bytes',
+      'FilePathInput',
+      'bytes',
+      'Read file contents as bytes',
+    ),
+    _fn(
+      'file_write',
+      'FileWriteInput',
+      '',
+      'Write string to file (creates or overwrites)',
+    ),
+    _fn(
+      'file_write_bytes',
+      'FileWriteBytesInput',
+      '',
+      'Write bytes to file (creates or overwrites)',
+    ),
+    _fn('file_append', 'FileAppendInput', '', 'Append string to file'),
+    _fn('file_exists', 'FilePathInput', 'bool', 'Check if file exists'),
+    _fn('file_delete', 'FilePathInput', '', 'Delete file'),
 
     // Directory operations
-    _fn('dir_list', 'FilePathInput', '',
-        'List directory contents (returns list of strings)'),
-    _fn('dir_create', 'FilePathInput', '',
-        'Create directory (recursive)'),
-    _fn('dir_exists', 'FilePathInput', 'bool',
-        'Check if directory exists'),
+    _fn(
+      'dir_list',
+      'FilePathInput',
+      '',
+      'List directory contents (returns list of strings)',
+    ),
+    _fn('dir_create', 'FilePathInput', '', 'Create directory (recursive)'),
+    _fn('dir_exists', 'FilePathInput', 'bool', 'Check if directory exists'),
   ]);
 
   return module;
@@ -72,7 +82,10 @@ Module buildStdFsModule() {
 // Helpers
 // ================================================================
 
-google.DescriptorProto _type(String name, List<google.FieldDescriptorProto> fields) {
+google.DescriptorProto _type(
+  String name,
+  List<google.FieldDescriptorProto> fields,
+) {
   return google.DescriptorProto()
     ..name = name
     ..field.addAll(fields);
@@ -100,7 +113,12 @@ google.FieldDescriptorProto _exprField(String name, int number) {
     ..typeName = '.ball.v1.Expression';
 }
 
-FunctionDefinition _fn(String name, String inputType, String returnType, String description) {
+FunctionDefinition _fn(
+  String name,
+  String inputType,
+  String returnType,
+  String description,
+) {
   return FunctionDefinition()
     ..name = name
     ..inputType = inputType

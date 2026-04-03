@@ -32,8 +32,8 @@ typedef BallValue = Object?;
 /// Exposed as [BallEngine.callFunction] and passed to
 /// [BallModuleHandler.call] so handlers can compose other modules
 /// without holding a direct [BallEngine] reference.
-typedef BallCallable = BallValue Function(
-    String module, String function, BallValue input);
+typedef BallCallable =
+    BallValue Function(String module, String function, BallValue input);
 
 /// Sentinel for break/continue/return flow control.
 class _FlowSignal {
@@ -47,6 +47,11 @@ class _FlowSignal {
 class _Scope {
   final Map<String, BallValue> _bindings = {};
   final _Scope? _parent;
+
+  /// Registered scope-exit cleanups added by `cpp_std.cpp_scope_exit`.
+  /// Each entry is an (expression, evalScope) pair executed in LIFO order
+  /// when the scope that owns this list is torn down.
+  final List<(Expression, _Scope)> _scopeExits = [];
 
   _Scope([this._parent]);
 
@@ -75,6 +80,12 @@ class _Scope {
       return;
     }
     _bindings[name] = value;
+  }
+
+  /// Register a cleanup expression + its evaluation scope.
+  /// Executed in LIFO order when the owning block exits.
+  void registerScopeExit(Expression cleanup, _Scope evalScope) {
+    _scopeExits.add((cleanup, evalScope));
   }
 
   _Scope child() => _Scope(this);
@@ -252,7 +263,7 @@ class StdModuleHandler extends BallModuleHandler {
   /// Composition-aware dispatch table for closures that need [BallCallable].
   /// Checked before [_dispatch] so [registerComposer] can override built-ins.
   final Map<String, BallValue Function(BallValue, BallCallable)>
-      _composedDispatch = {};
+  _composedDispatch = {};
 
   /// Optional allow-list for [StdModuleHandler.subset]; `null` = all.
   final Set<String>? _allowlist;
@@ -269,21 +280,22 @@ class StdModuleHandler extends BallModuleHandler {
   /// Any function not in the set will throw [BallRuntimeError] at runtime,
   /// which is useful for sandboxing or building a minimal runtime.
   StdModuleHandler.subset(Iterable<String> functions)
-      : _allowlist = functions.toSet();
+    : _allowlist = functions.toSet();
 
   @override
   bool handles(String module) => switch (module) {
-        'std' ||
-        'dart_std' ||
-        'std_collections' ||
-        'std_io' ||
-        'std_memory' ||
-        'std_convert' ||
-        'std_fs' ||
-        'std_time' =>
-          true,
-        _ => false,
-      };
+    'std' ||
+    'dart_std' ||
+    'std_collections' ||
+    'std_io' ||
+    'std_memory' ||
+    'std_convert' ||
+    'std_fs' ||
+    'std_time' ||
+    'std_concurrency' ||
+    'cpp_std' => true,
+    _ => false,
+  };
 
   @override
   void init(BallEngine engine) {
@@ -296,7 +308,8 @@ class StdModuleHandler extends BallModuleHandler {
     //   • functions pre-removed via unregister() (_tombstones) are skipped.
     for (final entry in full.entries) {
       if (_tombstones.contains(entry.key)) continue;
-      if (_composedDispatch.containsKey(entry.key)) continue; // already overridden
+      if (_composedDispatch.containsKey(entry.key))
+        continue; // already overridden
       if (allowlist != null && !allowlist.contains(entry.key)) continue;
       _dispatch.putIfAbsent(entry.key, () => entry.value);
     }
@@ -414,6 +427,9 @@ class BallEngine {
   /// Command-line arguments passed to the program.
   List<String> _args;
 
+  /// Counter for simulated mutex handles (single-threaded mode).
+  int _nextMutexId = 0;
+
   BallEngine(
     this.program, {
     void Function(String)? stdout,
@@ -423,12 +439,11 @@ class BallEngine {
     List<String>? args,
     bool enableProfiling = false,
     List<BallModuleHandler>? moduleHandlers,
-  })  : stdout = stdout ?? print,
-        stderr = stderr ?? ((s) => io.stderr.writeln(s)),
-        _envGet = envGet ??
-            ((name) => io.Platform.environment[name] ?? ''),
-        _args = args ?? [],
-        moduleHandlers = moduleHandlers ?? [StdModuleHandler()] {
+  }) : stdout = stdout ?? print,
+       stderr = stderr ?? ((s) => io.stderr.writeln(s)),
+       _envGet = envGet ?? ((name) => io.Platform.environment[name] ?? ''),
+       _args = args ?? [],
+       moduleHandlers = moduleHandlers ?? [StdModuleHandler()] {
     if (enableProfiling) _callCounts = {};
     for (final handler in this.moduleHandlers) {
       handler.init(this);
@@ -715,12 +730,24 @@ class BallEngine {
           return _evalAssign(call, scope);
         case 'labeled':
           return _evalLabeled(call, scope);
+        case 'goto':
+          return _evalGoto(call, scope);
+        case 'label':
+          return _evalLabel(call, scope);
         case 'post_increment':
         case 'pre_increment':
         case 'post_decrement':
         case 'pre_decrement':
           return _evalIncDec(call, scope);
+        case 'dart_await_for':
+          return _evalAwaitFor(call, scope);
       }
+    }
+
+    // cpp_scope_exit must be lazy: register the cleanup expression without
+    // evaluating it, then execute in LIFO order when the enclosing block exits.
+    if (moduleName == 'cpp_std' && call.function == 'cpp_scope_exit') {
+      return _evalCppScopeExit(call, scope);
     }
 
     // Eager evaluation for all other calls
@@ -779,7 +806,10 @@ class BallEngine {
 
   /// Evaluates collection_if: if (condition) value [else elseValue]
   void _evalCollectionIf(
-      FunctionCall call, _Scope scope, List<Object?> result) {
+    FunctionCall call,
+    _Scope scope,
+    List<Object?> result,
+  ) {
     final fields = _lazyFields(call);
     final condExpr = fields['condition'];
     if (condExpr == null) return;
@@ -799,7 +829,10 @@ class BallEngine {
 
   /// Evaluates collection_for: for (var in iterable) body
   void _evalCollectionFor(
-      FunctionCall call, _Scope scope, List<Object?> result) {
+    FunctionCall call,
+    _Scope scope,
+    List<Object?> result,
+  ) {
     final fields = _lazyFields(call);
     final variable = _stringFieldVal(fields, 'variable');
     final iterableExpr = fields['iterable'];
@@ -816,7 +849,10 @@ class BallEngine {
 
   /// Adds a collection element, recursively handling nested collection_if/for.
   void _addCollectionElement(
-      Expression expr, _Scope scope, List<Object?> result) {
+    Expression expr,
+    _Scope scope,
+    List<Object?> result,
+  ) {
     if (expr.hasCall()) {
       final call = expr.call;
       final fn = call.function;
@@ -962,6 +998,13 @@ class BallEngine {
     if (msg.typeName.isNotEmpty) {
       fields['__type__'] = msg.typeName;
 
+      // Extract type arguments if generic (e.g., Box<int>).
+      final genMatch = RegExp(r'^(\w+)<(.+)>$').firstMatch(msg.typeName);
+      if (genMatch != null) {
+        fields['__type__'] = genMatch.group(1)!;
+        fields['__type_args__'] = _splitTypeArgs(genMatch.group(2)!);
+      }
+
       // Check if this type has a superclass (inheritance support).
       // Resolve from TypeDefinition metadata or DescriptorProto.
       final typeDef = _findTypeDef(msg.typeName);
@@ -986,8 +1029,9 @@ class BallEngine {
   }
 
   /// Find a TypeDefinition by name across all modules.
-  ({String? superclass, Map<String, FunctionDefinition> methods})?
-      _findTypeDef(String typeName) {
+  ({String? superclass, Map<String, FunctionDefinition> methods})? _findTypeDef(
+    String typeName,
+  ) {
     for (final module in program.modules) {
       for (final td in module.typeDefs) {
         if (td.name == typeName || td.name.endsWith(':$typeName')) {
@@ -998,7 +1042,10 @@ class BallEngine {
               superclass = sc.stringValue;
             }
           }
-          return (superclass: superclass, methods: <String, FunctionDefinition>{});
+          return (
+            superclass: superclass,
+            methods: <String, FunctionDefinition>{},
+          );
         }
       }
     }
@@ -1039,14 +1086,35 @@ class BallEngine {
 
   BallValue _evalBlock(Block block, _Scope scope) {
     final blockScope = scope.child();
+    BallValue flowResult;
     for (final stmt in block.statements) {
       final result = _evalStatement(stmt, blockScope);
-      if (result is _FlowSignal) return result;
+      if (result is _FlowSignal) {
+        // Run scope-exits in LIFO order before propagating the signal.
+        _runScopeExits(blockScope);
+        return result;
+      }
     }
     if (block.hasResult()) {
-      return _evalExpression(block.result, blockScope);
+      flowResult = _evalExpression(block.result, blockScope);
+    } else {
+      flowResult = null;
     }
-    return null;
+    // Run scope-exits in LIFO order (normal exit).
+    _runScopeExits(blockScope);
+    return flowResult;
+  }
+
+  /// Execute all registered scope-exit cleanups in LIFO order.
+  void _runScopeExits(_Scope blockScope) {
+    if (blockScope._scopeExits.isEmpty) return;
+    for (final (expr, evalScope) in blockScope._scopeExits.reversed) {
+      try {
+        _evalExpression(expr, evalScope);
+      } catch (_) {
+        // Scope-exit cleanup errors are swallowed (RAII destructor semantics).
+      }
+    }
   }
 
   BallValue _evalStatement(Statement stmt, _Scope scope) {
@@ -1490,6 +1558,64 @@ class BallEngine {
     return result;
   }
 
+  BallValue _evalGoto(FunctionCall call, _Scope scope) {
+    final fields = _lazyFields(call);
+    final label = _stringFieldVal(fields, 'label');
+    throw _FlowSignal('goto', label: label);
+  }
+
+  BallValue _evalLabel(FunctionCall call, _Scope scope) {
+    final fields = _lazyFields(call);
+    final label = _stringFieldVal(fields, 'name');
+    final body = fields['body'];
+    if (body == null) return null;
+    // Execute the body; if a goto signal targeting THIS label arrives,
+    // re-execute the body (backward goto). For forward gotos, the signal
+    // propagates up until the matching label handler catches it.
+    BallValue result;
+    do {
+      result = _evalExpression(body!, scope);
+      if (result is _FlowSignal &&
+          result.kind == 'goto' &&
+          result.label == label) {
+        continue; // re-execute body (backward goto)
+      }
+      break;
+    } while (true);
+    return result;
+  }
+
+  /// `dart_await_for` — in a single-threaded engine this is just `for_in`
+  /// over a list (streams aren't real).
+  BallValue _evalAwaitFor(FunctionCall call, _Scope scope) {
+    // Reuse for_in logic — single-threaded simulation.
+    return _evalLazyForIn(call, scope);
+  }
+
+  /// `cpp_std.cpp_scope_exit` — register a cleanup expression to run when
+  /// the nearest enclosing block scope exits (LIFO / RAII semantics).
+  ///
+  /// The cleanup expression is stored *unevaluated* alongside the current
+  /// scope so that it can close over variables in its lexical context, even
+  /// if those variables change before the scope exits.
+  BallValue _evalCppScopeExit(FunctionCall call, _Scope scope) {
+    if (!call.hasInput()) return null;
+    final input = call.input;
+    if (input.whichExpr() != Expression_Expr.messageCreation) return null;
+
+    // Find the `cleanup` field expression without evaluating it.
+    final cleanupEntry = input.messageCreation.fields
+        .where((f) => f.name == 'cleanup')
+        .firstOrNull;
+    if (cleanupEntry == null) return null;
+
+    // Walk up the scope chain to find the nearest block scope (the one
+    // created by _evalBlock for the enclosing block).  We register on the
+    // *caller* scope, which is the child scope created by the enclosing block.
+    scope.registerScopeExit(cleanupEntry.value, scope);
+    return null;
+  }
+
   // ============================================================
   // Base Functions (std + dart_std modules)
   // ============================================================
@@ -1597,9 +1723,27 @@ class BallEngine {
 
       // Cascade / spread / invoke
       'cascade': _stdCascade,
+      'null_aware_cascade': _stdNullAwareCascade,
       'spread': _extractUnaryArg,
       'null_spread': _extractUnaryArg,
       'invoke': _stdInvoke,
+      'tear_off': (i) {
+        // Return the lambda/function stored in the input.
+        if (i is Map<String, Object?>) return i['callback'] ?? i['method'];
+        return i;
+      },
+      'dart_list_generate': (i) {
+        final m = i as Map<String, Object?>;
+        final count = _toInt(m['count']);
+        final gen = m['generator'] as Function;
+        return List.generate(count, (idx) => gen(idx));
+      },
+      'dart_list_filled': (i) {
+        final m = i as Map<String, Object?>;
+        final count = _toInt(m['count']);
+        final value = m['value'];
+        return List.filled(count, value);
+      },
 
       // Collections
       'map_create': _stdMapCreate,
@@ -1609,21 +1753,67 @@ class BallEngine {
       'collection_for': (_) => null,
 
       // std_collections — list operations
-      'list_push': (i) { final m = i as Map<String, Object?>; final list = (m['list'] as List).toList(); list.add(m['value']); return list; },
-      'list_pop': (i) { final list = ((i as Map<String, Object?>)['list'] as List).toList(); if (list.isEmpty) throw BallRuntimeError('pop on empty list'); final last = list.removeLast(); return last; },
-      'list_insert': (i) { final m = i as Map<String, Object?>; final list = (m['list'] as List).toList(); list.insert(_toInt(m['index']), m['value']); return list; },
-      'list_remove_at': (i) { final m = i as Map<String, Object?>; final list = (m['list'] as List).toList(); return list.removeAt(_toInt(m['index'])); },
-      'list_get': (i) { final m = i as Map<String, Object?>; return (m['list'] as List)[_toInt(m['index'])]; },
-      'list_set': (i) { final m = i as Map<String, Object?>; final list = (m['list'] as List).toList(); list[_toInt(m['index'])] = m['value']; return list; },
-      'list_length': (i) => ((i as Map<String, Object?>)['list'] as List).length,
-      'list_is_empty': (i) => ((i as Map<String, Object?>)['list'] as List).isEmpty,
+      'list_push': (i) {
+        final m = i as Map<String, Object?>;
+        final list = (m['list'] as List).toList();
+        list.add(m['value']);
+        return list;
+      },
+      'list_pop': (i) {
+        final list = ((i as Map<String, Object?>)['list'] as List).toList();
+        if (list.isEmpty) throw BallRuntimeError('pop on empty list');
+        final last = list.removeLast();
+        return last;
+      },
+      'list_insert': (i) {
+        final m = i as Map<String, Object?>;
+        final list = (m['list'] as List).toList();
+        list.insert(_toInt(m['index']), m['value']);
+        return list;
+      },
+      'list_remove_at': (i) {
+        final m = i as Map<String, Object?>;
+        final list = (m['list'] as List).toList();
+        return list.removeAt(_toInt(m['index']));
+      },
+      'list_get': (i) {
+        final m = i as Map<String, Object?>;
+        return (m['list'] as List)[_toInt(m['index'])];
+      },
+      'list_set': (i) {
+        final m = i as Map<String, Object?>;
+        final list = (m['list'] as List).toList();
+        list[_toInt(m['index'])] = m['value'];
+        return list;
+      },
+      'list_length': (i) =>
+          ((i as Map<String, Object?>)['list'] as List).length,
+      'list_is_empty': (i) =>
+          ((i as Map<String, Object?>)['list'] as List).isEmpty,
       'list_first': (i) => ((i as Map<String, Object?>)['list'] as List).first,
       'list_last': (i) => ((i as Map<String, Object?>)['list'] as List).last,
-      'list_single': (i) => ((i as Map<String, Object?>)['list'] as List).single,
-      'list_contains': (i) { final m = i as Map<String, Object?>; return (m['list'] as List).contains(m['value']); },
-      'list_index_of': (i) { final m = i as Map<String, Object?>; return (m['list'] as List).indexOf(m['value']); },
-      'list_map': (i) { final m = i as Map<String, Object?>; final list = m['list'] as List; final cb = m['callback'] as Function; return list.map((e) => cb(e)).toList(); },
-      'list_filter': (i) { final m = i as Map<String, Object?>; final list = m['list'] as List; final cb = m['callback'] as Function; return list.where((e) => cb(e) == true).toList(); },
+      'list_single': (i) =>
+          ((i as Map<String, Object?>)['list'] as List).single,
+      'list_contains': (i) {
+        final m = i as Map<String, Object?>;
+        return (m['list'] as List).contains(m['value']);
+      },
+      'list_index_of': (i) {
+        final m = i as Map<String, Object?>;
+        return (m['list'] as List).indexOf(m['value']);
+      },
+      'list_map': (i) {
+        final m = i as Map<String, Object?>;
+        final list = m['list'] as List;
+        final cb = m['callback'] as Function;
+        return list.map((e) => cb(e)).toList();
+      },
+      'list_filter': (i) {
+        final m = i as Map<String, Object?>;
+        final list = m['list'] as List;
+        final cb = m['callback'] as Function;
+        return list.where((e) => cb(e) == true).toList();
+      },
       'list_reduce': (i) {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
@@ -1634,10 +1824,30 @@ class BallEngine {
         }
         return acc;
       },
-      'list_find': (i) { final m = i as Map<String, Object?>; final list = m['list'] as List; final cb = m['callback'] as Function; return list.firstWhere((e) => cb(e) == true); },
-      'list_any': (i) { final m = i as Map<String, Object?>; final list = m['list'] as List; final cb = m['callback'] as Function; return list.any((e) => cb(e) == true); },
-      'list_all': (i) { final m = i as Map<String, Object?>; final list = m['list'] as List; final cb = m['callback'] as Function; return list.every((e) => cb(e) == true); },
-      'list_none': (i) { final m = i as Map<String, Object?>; final list = m['list'] as List; final cb = m['callback'] as Function; return !list.any((e) => cb(e) == true); },
+      'list_find': (i) {
+        final m = i as Map<String, Object?>;
+        final list = m['list'] as List;
+        final cb = m['callback'] as Function;
+        return list.firstWhere((e) => cb(e) == true);
+      },
+      'list_any': (i) {
+        final m = i as Map<String, Object?>;
+        final list = m['list'] as List;
+        final cb = m['callback'] as Function;
+        return list.any((e) => cb(e) == true);
+      },
+      'list_all': (i) {
+        final m = i as Map<String, Object?>;
+        final list = m['list'] as List;
+        final cb = m['callback'] as Function;
+        return list.every((e) => cb(e) == true);
+      },
+      'list_none': (i) {
+        final m = i as Map<String, Object?>;
+        final list = m['list'] as List;
+        final cb = m['callback'] as Function;
+        return !list.any((e) => cb(e) == true);
+      },
       'list_sort': (i) {
         final m = i as Map<String, Object?>;
         final sorted = (m['list'] as List).toList();
@@ -1659,7 +1869,8 @@ class BallEngine {
         });
         return sorted;
       },
-      'list_reverse': (i) => ((i as Map<String, Object?>)['list'] as List).reversed.toList(),
+      'list_reverse': (i) =>
+          ((i as Map<String, Object?>)['list'] as List).reversed.toList(),
       'list_slice': (i) {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
@@ -1667,7 +1878,15 @@ class BallEngine {
         final end = m['end'] != null ? _toInt(m['end']) : list.length;
         return list.sublist(start, end);
       },
-      'list_flat_map': (i) { final m = i as Map<String, Object?>; final list = m['list'] as List; final cb = m['callback'] as Function; return list.expand((e) { final r = cb(e); return r is List ? r : [r]; }).toList(); },
+      'list_flat_map': (i) {
+        final m = i as Map<String, Object?>;
+        final list = m['list'] as List;
+        final cb = m['callback'] as Function;
+        return list.expand((e) {
+          final r = cb(e);
+          return r is List ? r : [r];
+        }).toList();
+      },
       'list_zip': (i) {
         final m = i as Map<String, Object?>;
         final a = m['list'] as List;
@@ -1675,29 +1894,79 @@ class BallEngine {
         final len = a.length < b.length ? a.length : b.length;
         return List.generate(len, (j) => [a[j], b[j]]);
       },
-      'list_take': (i) { final m = i as Map<String, Object?>; return (m['list'] as List).take(_toInt(m['value'] ?? m['index'])).toList(); },
-      'list_drop': (i) { final m = i as Map<String, Object?>; return (m['list'] as List).skip(_toInt(m['value'] ?? m['index'])).toList(); },
-      'list_concat': (i) { final m = i as Map<String, Object?>; return [...(m['list'] as List), ...(m['value'] as List)]; },
+      'list_take': (i) {
+        final m = i as Map<String, Object?>;
+        return (m['list'] as List)
+            .take(_toInt(m['value'] ?? m['index']))
+            .toList();
+      },
+      'list_drop': (i) {
+        final m = i as Map<String, Object?>;
+        return (m['list'] as List)
+            .skip(_toInt(m['value'] ?? m['index']))
+            .toList();
+      },
+      'list_concat': (i) {
+        final m = i as Map<String, Object?>;
+        return [...(m['list'] as List), ...(m['value'] as List)];
+      },
 
       // std_collections — map operations
-      'map_get': (i) { final m = i as Map<String, Object?>; return (m['map'] as Map)[m['key']]; },
-      'map_set': (i) { final m = i as Map<String, Object?>; final map = Map<String, Object?>.from(m['map'] as Map); map[m['key'] as String] = m['value']; return map; },
-      'map_delete': (i) { final m = i as Map<String, Object?>; final map = Map<String, Object?>.from(m['map'] as Map); map.remove(m['key']); return map; },
-      'map_contains_key': (i) { final m = i as Map<String, Object?>; return (m['map'] as Map).containsKey(m['key']); },
-      'map_keys': (i) => ((i as Map<String, Object?>)['map'] as Map).keys.toList(),
-      'map_values': (i) => ((i as Map<String, Object?>)['map'] as Map).values.toList(),
-      'map_entries': (i) => ((i as Map<String, Object?>)['map'] as Map).entries.map((e) => <String, Object?>{'key': e.key, 'value': e.value}).toList(),
-      'map_from_entries': (i) { final list = (i as Map<String, Object?>)['list'] as List; return Map.fromEntries(list.map((e) => MapEntry((e as Map)['key'] as String, e['value']))); },
-      'map_merge': (i) { final m = i as Map<String, Object?>; return <String, Object?>{...(m['map'] as Map).cast<String, Object?>(), ...(m['value'] as Map).cast<String, Object?>()}; },
+      'map_get': (i) {
+        final m = i as Map<String, Object?>;
+        return (m['map'] as Map)[m['key']];
+      },
+      'map_set': (i) {
+        final m = i as Map<String, Object?>;
+        final map = Map<String, Object?>.from(m['map'] as Map);
+        map[m['key'] as String] = m['value'];
+        return map;
+      },
+      'map_delete': (i) {
+        final m = i as Map<String, Object?>;
+        final map = Map<String, Object?>.from(m['map'] as Map);
+        map.remove(m['key']);
+        return map;
+      },
+      'map_contains_key': (i) {
+        final m = i as Map<String, Object?>;
+        return (m['map'] as Map).containsKey(m['key']);
+      },
+      'map_keys': (i) =>
+          ((i as Map<String, Object?>)['map'] as Map).keys.toList(),
+      'map_values': (i) =>
+          ((i as Map<String, Object?>)['map'] as Map).values.toList(),
+      'map_entries': (i) => ((i as Map<String, Object?>)['map'] as Map).entries
+          .map((e) => <String, Object?>{'key': e.key, 'value': e.value})
+          .toList(),
+      'map_from_entries': (i) {
+        final list = (i as Map<String, Object?>)['list'] as List;
+        return Map.fromEntries(
+          list.map((e) => MapEntry((e as Map)['key'] as String, e['value'])),
+        );
+      },
+      'map_merge': (i) {
+        final m = i as Map<String, Object?>;
+        return <String, Object?>{
+          ...(m['map'] as Map).cast<String, Object?>(),
+          ...(m['value'] as Map).cast<String, Object?>(),
+        };
+      },
       'map_map': (i) {
         final m = i as Map<String, Object?>;
         final map = m['map'] as Map;
         final cb = m['callback'];
         final result = <String, Object?>{};
         for (final entry in map.entries) {
-          final r = (cb as Function)(<String, Object?>{'key': entry.key, 'value': entry.value});
-          if (r is Map<String, Object?>) { result[r['key'] as String] = r['value']; }
-          else { result[entry.key as String] = r; }
+          final r = (cb as Function)(<String, Object?>{
+            'key': entry.key,
+            'value': entry.value,
+          });
+          if (r is Map<String, Object?>) {
+            result[r['key'] as String] = r['value'];
+          } else {
+            result[entry.key as String] = r;
+          }
         }
         return result;
       },
@@ -1707,28 +1976,62 @@ class BallEngine {
         final cb = m['callback'];
         final result = <String, Object?>{};
         for (final entry in map.entries) {
-          if ((cb as Function)(<String, Object?>{'key': entry.key, 'value': entry.value}) == true) {
+          if ((cb as Function)(<String, Object?>{
+                'key': entry.key,
+                'value': entry.value,
+              }) ==
+              true) {
             result[entry.key as String] = entry.value;
           }
         }
         return result;
       },
-      'map_is_empty': (i) => ((i as Map<String, Object?>)['map'] as Map).isEmpty,
+      'map_is_empty': (i) =>
+          ((i as Map<String, Object?>)['map'] as Map).isEmpty,
       'map_length': (i) => ((i as Map<String, Object?>)['map'] as Map).length,
 
       // std_collections — string join
-      'string_join': (i) { final m = i as Map<String, Object?>; return (m['list'] as List).map((e) => '$e').join(m['separator'] as String? ?? ''); },
+      'string_join': (i) {
+        final m = i as Map<String, Object?>;
+        return (m['list'] as List)
+            .map((e) => '$e')
+            .join(m['separator'] as String? ?? '');
+      },
 
       // std_collections — set operations
-      'set_add': (i) { final m = i as Map<String, Object?>; final s = (m['set'] as Set).toSet(); s.add(m['value']); return s; },
-      'set_remove': (i) { final m = i as Map<String, Object?>; final s = (m['set'] as Set).toSet(); s.remove(m['value']); return s; },
-      'set_contains': (i) { final m = i as Map<String, Object?>; return (m['set'] as Set).contains(m['value']); },
-      'set_union': (i) { final m = i as Map<String, Object?>; return (m['left'] as Set).union(m['right'] as Set); },
-      'set_intersection': (i) { final m = i as Map<String, Object?>; return (m['left'] as Set).intersection(m['right'] as Set); },
-      'set_difference': (i) { final m = i as Map<String, Object?>; return (m['left'] as Set).difference(m['right'] as Set); },
+      'set_add': (i) {
+        final m = i as Map<String, Object?>;
+        final s = (m['set'] as Set).toSet();
+        s.add(m['value']);
+        return s;
+      },
+      'set_remove': (i) {
+        final m = i as Map<String, Object?>;
+        final s = (m['set'] as Set).toSet();
+        s.remove(m['value']);
+        return s;
+      },
+      'set_contains': (i) {
+        final m = i as Map<String, Object?>;
+        return (m['set'] as Set).contains(m['value']);
+      },
+      'set_union': (i) {
+        final m = i as Map<String, Object?>;
+        return (m['left'] as Set).union(m['right'] as Set);
+      },
+      'set_intersection': (i) {
+        final m = i as Map<String, Object?>;
+        return (m['left'] as Set).intersection(m['right'] as Set);
+      },
+      'set_difference': (i) {
+        final m = i as Map<String, Object?>;
+        return (m['left'] as Set).difference(m['right'] as Set);
+      },
       'set_length': (i) => ((i as Map<String, Object?>)['set'] as Set).length,
-      'set_is_empty': (i) => ((i as Map<String, Object?>)['set'] as Set).isEmpty,
-      'set_to_list': (i) => ((i as Map<String, Object?>)['set'] as Set).toList(),
+      'set_is_empty': (i) =>
+          ((i as Map<String, Object?>)['set'] as Set).isEmpty,
+      'set_to_list': (i) =>
+          ((i as Map<String, Object?>)['set'] as Set).toList(),
 
       // Switch expression
       'switch_expr': _stdSwitchExpr,
@@ -1812,11 +2115,16 @@ class BallEngine {
       // ── Regex ────────────────────────────────────────────────────
       'regex_match': (i) =>
           _stdBinaryAny(i, (a, b) => RegExp(b as String).hasMatch(a as String)),
-      'regex_find': (i) =>
-          _stdBinaryAny(i, (a, b) => RegExp(b as String).firstMatch(a as String)?.group(0)),
-      'regex_find_all': (i) =>
-          _stdBinaryAny(i, (a, b) =>
-              RegExp(b as String).allMatches(a as String).map((m) => m.group(0)!).toList()),
+      'regex_find': (i) => _stdBinaryAny(
+        i,
+        (a, b) => RegExp(b as String).firstMatch(a as String)?.group(0),
+      ),
+      'regex_find_all': (i) => _stdBinaryAny(
+        i,
+        (a, b) => RegExp(
+          b as String,
+        ).allMatches(a as String).map((m) => m.group(0)!).toList(),
+      ),
       'regex_replace': (i) => _stdRegexReplace(i, false),
       'regex_replace_all': (i) => _stdRegexReplace(i, true),
 
@@ -1851,25 +2159,25 @@ class BallEngine {
       'math_is_infinite': (i) => _stdConvert(i, (v) => (v as num).isInfinite),
       'math_sign': (i) => _stdConvert(i, (v) => (v as num).sign),
       'math_gcd': (i) => _stdBinaryInt(i, (a, b) => a.gcd(b)),
-      'math_lcm': (i) =>
-          _stdBinaryInt(i, (a, b) => (a * b).abs() ~/ a.gcd(b)),
+      'math_lcm': (i) => _stdBinaryInt(i, (a, b) => (a * b).abs() ~/ a.gcd(b)),
 
       // ── std_io ─────────────────────────────────────────────────
       'print_error': (i) {
-        final msg =
-            i is Map<String, Object?> ? i['message']?.toString() ?? '' : '$i';
+        final msg = i is Map<String, Object?>
+            ? i['message']?.toString() ?? ''
+            : '$i';
         stderr(msg);
         return null;
       },
       'read_line': (_) => stdinReader?.call() ?? '',
       'exit': (i) {
-        final code =
-            i is Map<String, Object?> ? (i['code'] as int?) ?? 0 : 0;
+        final code = i is Map<String, Object?> ? (i['code'] as int?) ?? 0 : 0;
         throw _ExitSignal(code);
       },
       'panic': (i) {
-        final msg =
-            i is Map<String, Object?> ? i['message']?.toString() ?? '' : '$i';
+        final msg = i is Map<String, Object?>
+            ? i['message']?.toString() ?? ''
+            : '$i';
         stderr(msg);
         throw _ExitSignal(1);
       },
@@ -1877,8 +2185,7 @@ class BallEngine {
         // No-op in synchronous interpreter
         return null;
       },
-      'timestamp_ms': (_) =>
-          DateTime.now().millisecondsSinceEpoch,
+      'timestamp_ms': (_) => DateTime.now().millisecondsSinceEpoch,
       'random_int': (i) {
         final m = i as Map<String, Object?>;
         final min = (m['min'] as num?)?.toInt() ?? 0;
@@ -1887,41 +2194,46 @@ class BallEngine {
       },
       'random_double': (_) => _random.nextDouble(),
       'env_get': (i) {
-        final name =
-            i is Map<String, Object?> ? i['name'] as String? ?? '' : '$i';
+        final name = i is Map<String, Object?>
+            ? i['name'] as String? ?? ''
+            : '$i';
         return _envGet(name);
       },
       'args_get': (_) => _args,
 
       // ── std_convert ────────────────────────────────────────────
       'json_encode': (i) {
-        final val =
-            i is Map<String, Object?> ? i['value'] : i;
+        final val = i is Map<String, Object?> ? i['value'] : i;
         return _jsonEncode(val);
       },
       'json_decode': (i) {
-        final str =
-            i is Map<String, Object?> ? i['value'] as String? ?? '' : '$i';
+        final str = i is Map<String, Object?>
+            ? i['value'] as String? ?? ''
+            : '$i';
         return _jsonDecode(str);
       },
       'utf8_encode': (i) {
-        final str =
-            i is Map<String, Object?> ? i['value'] as String? ?? '' : '$i';
+        final str = i is Map<String, Object?>
+            ? i['value'] as String? ?? ''
+            : '$i';
         return _utf8Encode(str);
       },
       'utf8_decode': (i) {
-        final bytes =
-            i is Map<String, Object?> ? i['value'] as List<int>? ?? [] : <int>[];
+        final bytes = i is Map<String, Object?>
+            ? i['value'] as List<int>? ?? []
+            : <int>[];
         return _utf8Decode(bytes);
       },
       'base64_encode': (i) {
-        final bytes =
-            i is Map<String, Object?> ? i['value'] as List<int>? ?? [] : <int>[];
+        final bytes = i is Map<String, Object?>
+            ? i['value'] as List<int>? ?? []
+            : <int>[];
         return _base64Encode(bytes);
       },
       'base64_decode': (i) {
-        final str =
-            i is Map<String, Object?> ? i['value'] as String? ?? '' : '$i';
+        final str = i is Map<String, Object?>
+            ? i['value'] as String? ?? ''
+            : '$i';
         return _base64Decode(str);
       },
 
@@ -1959,6 +2271,104 @@ class BallEngine {
       'dir_list': _stdDirList,
       'dir_create': _stdDirCreate,
       'dir_exists': _stdDirExists,
+
+      // ── std_concurrency (single-threaded simulation) ──────────
+      'thread_spawn': (i) {
+        // Single-threaded: execute body synchronously, return 0 as handle.
+        final m = i as Map<String, Object?>;
+        final body = m['body'];
+        if (body is Function) body(null);
+        return 0;
+      },
+      'thread_join': (_) => null, // no-op in single-threaded mode
+      'mutex_create': (_) => _nextMutexId++,
+      'mutex_lock': (_) => null, // no-op
+      'mutex_unlock': (_) => null, // no-op
+      'scoped_lock': (i) {
+        // Execute body directly (no actual locking).
+        final m = i as Map<String, Object?>;
+        final body = m['body'];
+        if (body is Function) return body(null);
+        return null;
+      },
+      'atomic_load': (i) {
+        final m = i as Map<String, Object?>;
+        return m['value'];
+      },
+      'atomic_store': (i) => null,
+      'atomic_compare_exchange': (i) => true,
+
+      // ── cpp_std (no-op / passthrough in Dart engine) ──────────
+      // cpp_scope_exit is handled lazily in _evalCall; this entry handles
+      // the rare case of it reaching the dispatch table (already registered).
+      'cpp_scope_exit': (_) => null,
+      'cpp_destructor': (_) => null,
+      'cpp_move': (i) {
+        if (i is Map<String, Object?>) return i['value'];
+        return i;
+      },
+      'cpp_forward': (i) {
+        if (i is Map<String, Object?>) return i['value'];
+        return i;
+      },
+      'cpp_make_unique': (i) => i,
+      'cpp_make_shared': (i) => i,
+      'cpp_unique_ptr_get': (i) {
+        if (i is Map<String, Object?>) return i['value'];
+        return i;
+      },
+      'cpp_shared_ptr_get': (i) {
+        if (i is Map<String, Object?>) return i['value'];
+        return i;
+      },
+      'cpp_shared_ptr_use_count': (_) => 1,
+      'cpp_static_assert': (_) => null,
+      'cpp_decltype': (i) => i,
+      'cpp_auto': (i) => i,
+      'cpp_structured_binding': (i) => i,
+      'cpp_template_instantiate': (i) => i,
+      'cpp_new': (i) => i,
+      'cpp_delete': (_) => null,
+      'cpp_sizeof': (_) => 8,
+      'cpp_alignof': (_) => 8,
+      'ptr_cast': (i) {
+        if (i is Map<String, Object?>) return i['value'];
+        return i;
+      },
+      'arrow': (i) {
+        if (i is Map<String, Object?>) {
+          final target = i['target'];
+          final field = i['field'];
+          if (target is Map<String, Object?> && field is String) {
+            return target[field];
+          }
+        }
+        return null;
+      },
+      'deref': (i) {
+        if (i is Map<String, Object?>) return i['value'];
+        return i;
+      },
+      'address_of': (i) => i,
+      'init_list': (i) => i,
+      'nullptr': (_) => null,
+      'cpp_ifdef': (i) {
+        // Runtime: just evaluate 'then' side (no compile-time symbols in engine)
+        if (i is Map<String, Object?>) return i['then_body'];
+        return null;
+      },
+      'cpp_defined': (_) => false,
+      'goto': (i) {
+        if (i is Map<String, Object?>) {
+          final label = i['label'] as String? ?? '';
+          throw _FlowSignal('goto', label: label);
+        }
+        return null;
+      },
+      'label': (i) {
+        if (i is Map<String, Object?>) return i['body'];
+        return null;
+      },
     };
   }
 
@@ -2000,6 +2410,13 @@ class BallEngine {
   BallValue _stdCascade(BallValue input) {
     if (input is! Map<String, Object?>) return input;
     return input['target'];
+  }
+
+  BallValue _stdNullAwareCascade(BallValue input) {
+    if (input is! Map<String, Object?>) return input;
+    final target = input['target'];
+    if (target == null) return null;
+    return target;
   }
 
   BallValue _stdInvoke(BallValue input) {
@@ -2047,6 +2464,53 @@ class BallEngine {
     final value = input['value'];
     final type = input['type'] as String?;
     if (type == null) return false;
+    return _typeMatches(value, type);
+  }
+
+  bool _typeMatches(Object? value, String type) {
+    // Handle generic types: List<int>, Map<String, int>, etc.
+    final genericMatch = RegExp(r'^(\w+)<(.+)>$').firstMatch(type);
+    if (genericMatch != null) {
+      final baseType = genericMatch.group(1)!;
+      final typeArgsStr = genericMatch.group(2)!;
+      final typeArgs = _splitTypeArgs(typeArgsStr);
+
+      if (baseType == 'List' && value is List) {
+        if (typeArgs.length == 1) {
+          return value.every((e) => _typeMatches(e, typeArgs[0]));
+        }
+        return true;
+      }
+      if (baseType == 'Map' && value is Map) {
+        if (typeArgs.length == 2) {
+          return value.entries.every(
+            (e) =>
+                _typeMatches(e.key, typeArgs[0]) &&
+                _typeMatches(e.value, typeArgs[1]),
+          );
+        }
+        return true;
+      }
+      if (baseType == 'Set' && value is Set) {
+        if (typeArgs.length == 1) {
+          return value.every((e) => _typeMatches(e, typeArgs[0]));
+        }
+        return true;
+      }
+      // Check BallObject __type__ with __type_args__
+      if (value is Map<String, Object?> && value['__type__'] == baseType) {
+        final objArgs = value['__type_args__'];
+        if (objArgs is List && objArgs.length == typeArgs.length) {
+          for (var i = 0; i < typeArgs.length; i++) {
+            if (objArgs[i] != typeArgs[i]) return false;
+          }
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // Simple types
     return switch (type) {
       'int' => value is int,
       'double' => value is double,
@@ -2055,9 +2519,41 @@ class BallEngine {
       'bool' => value is bool,
       'List' => value is List,
       'Map' => value is Map,
-      'Null' => value == null,
-      _ => value is Map<String, Object?> && value['__type__'] == type,
+      'Set' => value is Set,
+      'Null' || 'void' => value == null,
+      'Object' || 'dynamic' => true,
+      'Function' => value is Function,
+      _ => _objectTypeMatches(value, type),
     };
+  }
+
+  bool _objectTypeMatches(Object? value, String type) {
+    if (value is! Map<String, Object?>) return false;
+    if (value['__type__'] == type) return true;
+    // Walk __super__ chain
+    var superObj = value['__super__'];
+    while (superObj is Map<String, Object?>) {
+      if (superObj['__type__'] == type) return true;
+      superObj = superObj['__super__'];
+    }
+    return false;
+  }
+
+  /// Split generic type arguments, respecting nested angle brackets.
+  List<String> _splitTypeArgs(String str) {
+    final args = <String>[];
+    var depth = 0;
+    var start = 0;
+    for (var i = 0; i < str.length; i++) {
+      if (str[i] == '<') depth++;
+      if (str[i] == '>') depth--;
+      if (str[i] == ',' && depth == 0) {
+        args.add(str.substring(start, i).trim());
+        start = i + 1;
+      }
+    }
+    args.add(str.substring(start).trim());
+    return args;
   }
 
   BallValue _stdMapCreate(BallValue input) {
@@ -2163,8 +2659,7 @@ class BallEngine {
     if (trimmed == 'false') return value == false;
 
     // Relational pattern: '> 5', '< 10', '>= 0', '<= 100', '== 42'
-    final relMatch =
-        RegExp(r'^(==|!=|>=|<=|>|<)\s*(.+)$').firstMatch(trimmed);
+    final relMatch = RegExp(r'^(==|!=|>=|<=|>|<)\s*(.+)$').firstMatch(trimmed);
     if (relMatch != null && value is num) {
       final op = relMatch.group(1)!;
       final rhsStr = relMatch.group(2)!.trim();
@@ -2496,7 +2991,9 @@ class BallEngine {
     final from = input['from'] as String;
     final to = input['to'] as String;
     final pattern = RegExp(from);
-    return all ? value.replaceAll(pattern, to) : value.replaceFirst(pattern, to);
+    return all
+        ? value.replaceAll(pattern, to)
+        : value.replaceFirst(pattern, to);
   }
 
   BallValue _stdStringRepeat(BallValue input) {
@@ -2578,14 +3075,16 @@ class BallEngine {
   // ---- std_fs helpers ----
 
   BallValue _stdFileRead(BallValue input) {
-    final path =
-        input is Map<String, Object?> ? input['path'] as String? ?? '' : '$input';
+    final path = input is Map<String, Object?>
+        ? input['path'] as String? ?? ''
+        : '$input';
     return io.File(path).readAsStringSync();
   }
 
   BallValue _stdFileReadBytes(BallValue input) {
-    final path =
-        input is Map<String, Object?> ? input['path'] as String? ?? '' : '$input';
+    final path = input is Map<String, Object?>
+        ? input['path'] as String? ?? ''
+        : '$input';
     return io.File(path).readAsBytesSync().toList();
   }
 
@@ -2603,43 +3102,46 @@ class BallEngine {
 
   BallValue _stdFileAppend(BallValue input) {
     final m = input as Map<String, Object?>;
-    io.File(m['path'] as String)
-        .writeAsStringSync(m['content'] as String, mode: io.FileMode.append);
+    io.File(
+      m['path'] as String,
+    ).writeAsStringSync(m['content'] as String, mode: io.FileMode.append);
     return null;
   }
 
   BallValue _stdFileExists(BallValue input) {
-    final path =
-        input is Map<String, Object?> ? input['path'] as String? ?? '' : '$input';
+    final path = input is Map<String, Object?>
+        ? input['path'] as String? ?? ''
+        : '$input';
     return io.File(path).existsSync();
   }
 
   BallValue _stdFileDelete(BallValue input) {
-    final path =
-        input is Map<String, Object?> ? input['path'] as String? ?? '' : '$input';
+    final path = input is Map<String, Object?>
+        ? input['path'] as String? ?? ''
+        : '$input';
     io.File(path).deleteSync();
     return null;
   }
 
   BallValue _stdDirList(BallValue input) {
-    final path =
-        input is Map<String, Object?> ? input['path'] as String? ?? '' : '$input';
-    return io.Directory(path)
-        .listSync()
-        .map((e) => e.path)
-        .toList();
+    final path = input is Map<String, Object?>
+        ? input['path'] as String? ?? ''
+        : '$input';
+    return io.Directory(path).listSync().map((e) => e.path).toList();
   }
 
   BallValue _stdDirCreate(BallValue input) {
-    final path =
-        input is Map<String, Object?> ? input['path'] as String? ?? '' : '$input';
+    final path = input is Map<String, Object?>
+        ? input['path'] as String? ?? ''
+        : '$input';
     io.Directory(path).createSync(recursive: true);
     return null;
   }
 
   BallValue _stdDirExists(BallValue input) {
-    final path =
-        input is Map<String, Object?> ? input['path'] as String? ?? '' : '$input';
+    final path = input is Map<String, Object?>
+        ? input['path'] as String? ?? ''
+        : '$input';
     return io.Directory(path).existsSync();
   }
 }

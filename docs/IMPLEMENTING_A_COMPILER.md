@@ -347,3 +347,57 @@ Environment: `env_get`, `args_get`
    code even if all metadata is stripped. Use metadata to improve output
    quality (proper type annotations, visibility, etc.) but don't depend
    on it for correctness.
+
+---
+
+## Typed Exceptions
+
+Ball's `std.try` function supports typed catch clauses. The input message has:
+- `body` — the try block expression
+- `catches` — a list of catch clauses, each with:
+  - `type` — exception type name (e.g., `"FormatException"`, `"StateError"`)
+  - `variable` — the variable name to bind the caught exception
+  - `body` — the catch block expression
+- `finally` — optional cleanup expression (executed unconditionally)
+
+### Compilation Rules
+
+1. **Type matching:** If a catch clause has a `type` field, emit a typed
+   catch. In Dart: `on FormatException catch (e)`. In C++: emit a 
+   `catch (const FormatException& e)` or use `catch (const std::exception& e)`
+   with a runtime type check when custom exception types aren't available.
+
+2. **Untyped catch:** If a catch clause has no `type`, it catches everything.
+   In Dart: `catch (e)`. In C++: `catch (...)`.
+
+3. **Multiple catch blocks:** Emit them in order — the first matching type wins.
+
+4. **Finally:** C++ has no `finally`. Emit the finally body as unconditional
+   code after the try-catch block. Other languages emit a proper `finally`.
+
+### Engine Rules (interpreters)
+
+1. When `throw` is called, wrap the value with its type information.
+2. When evaluating catch clauses, compare the thrown value's type against
+   each clause's `type` field. Use the first match.
+3. If no catch clause matches, re-throw to the next enclosing try-catch.
+4. Always execute the `finally` expression regardless of whether an
+   exception was thrown, caught, or propagated.
+
+### New Modules
+
+The following additional modules are available for compilers to support:
+
+#### std_convert
+`json_encode`, `json_decode`, `utf8_encode`, `utf8_decode`,
+`base64_encode`, `base64_decode`
+
+#### std_fs
+`file_read`, `file_read_bytes`, `file_write`, `file_write_bytes`,
+`file_append`, `file_exists`, `file_delete`,
+`dir_list`, `dir_create`, `dir_exists`
+
+#### std_time
+`now`, `now_micros`, `format_timestamp`, `parse_timestamp`,
+`duration_add`, `duration_subtract`,
+`year`, `month`, `day`, `hour`, `minute`, `second`

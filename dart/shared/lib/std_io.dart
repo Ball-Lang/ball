@@ -36,34 +36,41 @@ Module buildStdIoModule() {
 
   module.functions.addAll([
     // Console
-    _fn('print_error', 'PrintErrorInput', '',
-        'Write to stderr: stderr.writeln(message)'),
+    _fn(
+      'print_error',
+      'PrintErrorInput',
+      '',
+      'Write to stderr: stderr.writeln(message)',
+    ),
 
     // Standard input
     _fn('read_line', '', '', 'Read one line from stdin'),
 
     // Process control
     _fn('exit', 'ExitInput', '', 'Terminate with exit code'),
-    _fn('panic', 'PanicInput', '',
-        'Hard abort with message (Rust panic!, C++ terminate, Java RuntimeException)'),
+    _fn(
+      'panic',
+      'PanicInput',
+      '',
+      'Hard abort with message (Rust panic!, C++ terminate, Java RuntimeException)',
+    ),
 
     // Time
-    _fn('sleep_ms', 'SleepInput', '',
-        'Pause execution N milliseconds'),
-    _fn('timestamp_ms', '', '',
-        'Wall clock milliseconds since epoch'),
+    _fn('sleep_ms', 'SleepInput', '', 'Pause execution N milliseconds'),
+    _fn('timestamp_ms', '', '', 'Wall clock milliseconds since epoch'),
 
     // Randomness
-    _fn('random_int', 'RandomIntInput', '',
-        'Random integer in range [min, max]'),
-    _fn('random_double', '', '',
-        'Random double in [0.0, 1.0)'),
+    _fn(
+      'random_int',
+      'RandomIntInput',
+      '',
+      'Random integer in range [min, max]',
+    ),
+    _fn('random_double', '', '', 'Random double in [0.0, 1.0)'),
 
     // Environment
-    _fn('env_get', 'EnvGetInput', '',
-        'Read environment variable by name'),
-    _fn('args_get', '', '',
-        'Command-line arguments as list of strings'),
+    _fn('env_get', 'EnvGetInput', '', 'Read environment variable by name'),
+    _fn('args_get', '', '', 'Command-line arguments as list of strings'),
   ]);
 
   return module;

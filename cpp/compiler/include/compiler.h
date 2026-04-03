@@ -11,6 +11,7 @@
 // C++ standard library calls.
 
 #include "ball_shared.h"
+#include "code_builder.h"
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -45,6 +46,11 @@ private:
     void build_lookup_tables();
     std::vector<std::string> extract_params(const google::protobuf::Struct& metadata);
     std::map<std::string, std::string> read_meta(const ball::v1::FunctionDefinition& func);
+    std::vector<std::string> read_meta_list(const google::protobuf::Struct& meta,
+                                             const std::string& key);
+    std::map<std::string, std::string> read_type_meta(const ball::v1::TypeDefinition& td);
+    void emit_template_prefix(const ball::v1::TypeDefinition& td);
+    void emit_template_prefix_from_meta(const google::protobuf::Struct& meta);
 
     // Code generation
     void emit(const std::string& code);
@@ -64,6 +70,8 @@ private:
 
     // Expression compilation — returns C++ expression string
     std::string compile_expr(const ball::v1::Expression& expr);
+    // Bridge: compile expression to CppExpr for method chaining
+    CppExpr expr(const ball::v1::Expression& e) { return CppExpr(compile_expr(e)); }
     std::string compile_call(const ball::v1::FunctionCall& call);
     std::string compile_literal(const ball::v1::Literal& lit);
     std::string compile_reference(const ball::v1::Reference& ref);
@@ -82,6 +90,16 @@ private:
                                           const ball::v1::FunctionCall& call);
     std::string compile_io_call(const std::string& function,
                                  const ball::v1::FunctionCall& call);
+    std::string compile_cpp_std_call(const std::string& function,
+                                      const ball::v1::FunctionCall& call);
+    std::string compile_convert_call(const std::string& function,
+                                      const ball::v1::FunctionCall& call);
+    std::string compile_fs_call(const std::string& function,
+                                 const ball::v1::FunctionCall& call);
+    std::string compile_time_call(const std::string& function,
+                                   const ball::v1::FunctionCall& call);
+    std::string compile_concurrency_call(const std::string& function,
+                                          const ball::v1::FunctionCall& call);
     std::string compile_binary_op(const std::string& op,
                                    const ball::v1::FunctionCall& call);
     std::string compile_unary_op(const std::string& op,
@@ -94,8 +112,16 @@ private:
     // Helpers
     std::string get_message_field(const ball::v1::FunctionCall& call,
                                    const std::string& field_name);
+    std::string get_string_field(const ball::v1::FunctionCall& call,
+                                  const std::string& field_name);
     const ball::v1::Expression* get_message_field_expr(
         const ball::v1::FunctionCall& call, const std::string& field_name);
+    // Bridge: get a message field compiled to CppExpr
+    CppExpr field_expr(const ball::v1::FunctionCall& call,
+                       const std::string& field_name) {
+        auto* e = get_message_field_expr(call, field_name);
+        return e ? CppExpr(compile_expr(*e)) : CppExpr("/* missing " + field_name + " */");
+    }
     std::string sanitize_name(const std::string& name);
     std::string indent_str();
 };

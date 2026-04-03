@@ -26,10 +26,7 @@ Module buildStdTimeModule() {
       _stringField('value', 1),
       _stringField('format', 2),
     ]),
-    _type('DurationInput', [
-      _intField('left', 1),
-      _intField('right', 2),
-    ]),
+    _type('DurationInput', [_intField('left', 1), _intField('right', 2)]),
   ]);
 
   // ============================================================
@@ -38,22 +35,31 @@ Module buildStdTimeModule() {
 
   module.functions.addAll([
     // Current time
-    _fn('now', '', 'int',
-        'Current time in milliseconds since epoch'),
-    _fn('now_micros', '', 'int',
-        'Current time in microseconds since epoch'),
+    _fn('now', '', 'int', 'Current time in milliseconds since epoch'),
+    _fn('now_micros', '', 'int', 'Current time in microseconds since epoch'),
 
     // Formatting / parsing
-    _fn('format_timestamp', 'FormatTimestampInput', 'string',
-        'Format ms-since-epoch to ISO 8601 or custom format string'),
-    _fn('parse_timestamp', 'ParseTimestampInput', 'int',
-        'Parse timestamp string to ms-since-epoch'),
+    _fn(
+      'format_timestamp',
+      'FormatTimestampInput',
+      'string',
+      'Format ms-since-epoch to ISO 8601 or custom format string',
+    ),
+    _fn(
+      'parse_timestamp',
+      'ParseTimestampInput',
+      'int',
+      'Parse timestamp string to ms-since-epoch',
+    ),
 
     // Duration arithmetic
-    _fn('duration_add', 'DurationInput', 'int',
-        'Add two durations (ms + ms)'),
-    _fn('duration_subtract', 'DurationInput', 'int',
-        'Subtract two durations (ms - ms)'),
+    _fn('duration_add', 'DurationInput', 'int', 'Add two durations (ms + ms)'),
+    _fn(
+      'duration_subtract',
+      'DurationInput',
+      'int',
+      'Subtract two durations (ms - ms)',
+    ),
 
     // Components
     _fn('year', '', 'int', 'Year component of current UTC time'),
@@ -71,7 +77,10 @@ Module buildStdTimeModule() {
 // Helpers
 // ================================================================
 
-google.DescriptorProto _type(String name, List<google.FieldDescriptorProto> fields) {
+google.DescriptorProto _type(
+  String name,
+  List<google.FieldDescriptorProto> fields,
+) {
   return google.DescriptorProto()
     ..name = name
     ..field.addAll(fields);
@@ -99,7 +108,12 @@ google.FieldDescriptorProto _exprField(String name, int number) {
     ..typeName = '.ball.v1.Expression';
 }
 
-FunctionDefinition _fn(String name, String inputType, String returnType, String description) {
+FunctionDefinition _fn(
+  String name,
+  String inputType,
+  String returnType,
+  String description,
+) {
   return FunctionDefinition()
     ..name = name
     ..inputType = inputType

@@ -9,7 +9,6 @@ add_executable(test_engine test_engine.cpp)
 target_include_directories(test_engine PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../engine/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/gen
 )
 target_link_libraries(test_engine ball_cpp_engine ball_shared)
 
@@ -18,7 +17,6 @@ add_executable(test_compiler test_compiler.cpp)
 target_include_directories(test_compiler PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../compiler/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/gen
 )
 target_link_libraries(test_compiler ball_cpp_compiler_lib ball_shared)
 

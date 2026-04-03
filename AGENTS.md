@@ -19,10 +19,18 @@ cd dart/engine && dart test
 # Dart — compile an example
 cd dart/compiler && dart run bin/compile.dart ../../examples/hello_world.ball.json
 
-# C++ — build all
+# C++ — build all (buf generate runs automatically if buf is on PATH)
 cd cpp/build && cmake .. && cmake --build .
 
-# Proto — lint and generate
+# C++ — buf targets (lint, format, breaking check)
+cmake --build cpp/build --target buf_lint
+cmake --build cpp/build --target buf_format
+cmake --build cpp/build --target buf_check    # lint + format combined
+
+# C++ — manual proto regeneration (without CMake)
+buf generate --template cpp/buf.gen.cpp.yaml -o cpp/shared/gen proto/
+
+# Proto — lint and generate (all languages)
 buf lint
 buf generate
 ```
@@ -38,7 +46,6 @@ buf generate
 ## Critical Known Issues
 
 - C++ `string_split`/`string_replace`/`string_replace_all` emit empty comments (BROKEN)
-- C++ has ZERO tests
 - C++ `std_collections` and `std_io` modules are stubs (declared, not implemented)
 - Dart encoder silently swallows malformed metadata
 

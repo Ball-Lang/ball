@@ -54,7 +54,7 @@ Ball is a protobuf-based programming language where code is data. The project ha
 | **std_collections module** | Stubs only | `list_map`, `list_filter`, `list_reduce` etc. declared but not implemented in engine |
 | **std_io module** | Stubs only | `print_error`, `read_line`, `exit`, `sleep_ms` etc. declared but stubbed |
 | **Regex support** | Missing | No `<regex>` integration |
-| **Test suite** | **None** | Zero test files in cpp/ |
+| **Test suite** | 37 tests | Engine tests + compiler tests in `cpp/test/` |
 
 ### 1.4 Cross-Language Gaps
 
@@ -98,10 +98,10 @@ Ball is a protobuf-based programming language where code is data. The project ha
 
 | # | Issue | Notes |
 |---|-------|-------|
-| 12 | **C++ build not validated on Windows** | CMakeLists.txt has POSIX stack options; MSVC untested |
+| 12 | **C++ build validated on Windows, Linux, macOS** | CI runs on all three platforms via GitHub Actions |
 | 13 | **FFmpeg AST parse rate only 40.8%** | 1,990 files fail Clang AST parse — platform-specific headers |
 | 14 | **Dart compile format rate** | 964/965 files fail `dart_style` formatting (compile succeeds, format fails) |
-| 15 | **No CI/CD pipeline** | No automated builds, tests, or releases |
+| 15 | **CI/CD pipeline** | GitHub Actions runs Dart tests, C++ build+tests, proto lint on all PRs |
 
 ---
 

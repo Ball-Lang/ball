@@ -163,8 +163,8 @@ flowchart LR
 
 | Language | Compiler | Encoder | Engine | Tests |
 |----------|----------|---------|--------|-------|
-| **Dart** | ✅ Full | ✅ Full | ✅ Full | 193 engine tests |
-| **C++** | ✅ Prototype | ✅ Prototype | ✅ Prototype | Conformance only |
+| **Dart** | ✅ Full | ✅ Full | ✅ Full | 242 engine tests |
+| **C++** | ✅ Prototype | ✅ Prototype | ✅ Prototype | 37 compiler + engine tests |
 | Go | Proto bindings | — | — | — |
 | Python | Proto bindings | — | — | — |
 | TypeScript | Proto bindings | — | — | — |
@@ -207,6 +207,11 @@ cd cpp
 mkdir build && cd build
 cmake ..
 cmake --build .
+
+# Proto linting/formatting via buf (requires buf CLI)
+cmake --build . --target buf_lint
+cmake --build . --target buf_format
+cmake --build . --target buf_check   # lint + format
 ```
 
 ## Project Structure
@@ -218,7 +223,7 @@ ball/
 │   ├── shared/                        # Protobuf types, std module definitions
 │   ├── compiler/                      # Ball → Dart code generator
 │   ├── encoder/                       # Dart → Ball encoder
-│   ├── engine/                        # Ball runtime interpreter (193 tests)
+│   ├── engine/                        # Ball runtime interpreter (242 tests)
 │   └── cli/                           # Command-line interface
 ├── cpp/                               # C++ implementation (prototype)
 │   ├── shared/                        # Protobuf types
@@ -311,10 +316,9 @@ cd cpp/build && cmake .. && cmake --build .
 
 Contributions are welcome! The biggest impact areas:
 
-1. **Add tests to C++** — the C++ implementation has zero unit tests
-2. **Implement a new target language** — pick one from Go, Python, TypeScript, Java, C#, Rust
-3. **Improve std library coverage** — see [docs/STD_COMPLETENESS.md](docs/STD_COMPLETENESS.md)
-4. **Fix known issues** — see [docs/ROADMAP.md](docs/ROADMAP.md)
+1. **Implement a new target language** — pick one from Go, Python, TypeScript, Java, C#, Rust
+2. **Improve std library coverage** — see [docs/STD_COMPLETENESS.md](docs/STD_COMPLETENESS.md)
+3. **Fix known issues** — see [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ## License
 

@@ -670,6 +670,54 @@ TEST(compile_negate) {
 }
 
 // ================================================================
+// Tests — Gap closures (concurrency + conversion operators)
+// ================================================================
+
+TEST(compile_std_concurrency_mutex_lock) {
+    auto prog = build_program(
+        call("std_concurrency", "mutex_lock", make_msg("LockInput", {
+            {"mutex", ref("mtx")}
+        }))
+    );
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, ".lock()");
+}
+
+TEST(compile_conversion_operator_method) {
+    ball::v1::Program program;
+    auto* mod = program.add_modules();
+    mod->set_name("main");
+
+    // Type definition: class NumBox {}
+    auto* td = mod->add_type_defs();
+    td->set_name("NumBox");
+    td->mutable_descriptor_()->set_name("NumBox");
+    (*td->mutable_metadata()->mutable_fields())["kind"].set_string_value("class");
+
+    // Conversion operator: operator int()
+    auto* conv = mod->add_functions();
+    conv->set_name("NumBox.operator_int");
+    conv->set_output_type("int");
+    conv->set_is_base(false);
+    (*conv->mutable_metadata()->mutable_fields())["kind"].set_string_value("operator");
+    (*conv->mutable_metadata()->mutable_fields())["is_operator"].set_bool_value(true);
+    (*conv->mutable_metadata()->mutable_fields())["is_conversion_operator"].set_bool_value(true);
+    (*conv->mutable_metadata()->mutable_fields())["conversion_type"].set_string_value("int");
+    *conv->mutable_body() = lit_int(7);
+
+    // Entry function.
+    auto* main_fn = mod->add_functions();
+    main_fn->set_name("main");
+    *main_fn->mutable_body() = lit_int(0);
+
+    program.set_entry_module("main");
+    program.set_entry_function("main");
+
+    auto out = compile_program(program);
+    ASSERT_CONTAINS(out, "operator int64_t(");
+}
+
+// ================================================================
 // Main
 // ================================================================
 

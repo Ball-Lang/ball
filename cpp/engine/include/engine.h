@@ -8,6 +8,7 @@
 // Faithful C++ port of the Dart BallEngine.
 
 #include "ball_shared.h"
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <stdexcept>
@@ -84,6 +85,22 @@ public:
         bindings_[name] = std::move(value);
     }
 
+    /// Register a cleanup expression + its evaluation scope for LIFO execution
+    /// when this scope exits (RAII / cpp_scope_exit semantics).
+    void register_scope_exit(ball::v1::Expression cleanup, std::shared_ptr<Scope> eval_scope) {
+        scope_exits_.emplace_back(std::move(cleanup), std::move(eval_scope));
+    }
+
+    /// Return true if any scope-exit cleanups are registered.
+    bool has_scope_exits() const { return !scope_exits_.empty(); }
+
+    /// Drain and return scope-exit entries in LIFO order.
+    std::vector<std::pair<ball::v1::Expression, std::shared_ptr<Scope>>> take_scope_exits() {
+        auto result = std::move(scope_exits_);
+        std::reverse(result.begin(), result.end()); // LIFO
+        return result;
+    }
+
     std::shared_ptr<Scope> child() {
         return std::make_shared<Scope>(shared_from_this());
     }
@@ -95,6 +112,8 @@ public:
 private:
     std::unordered_map<std::string, BallValue> bindings_;
     std::shared_ptr<Scope> parent_;
+    /// Scope-exit cleanup entries: (cleanup_expr, eval_scope).
+    std::vector<std::pair<ball::v1::Expression, std::shared_ptr<Scope>>> scope_exits_;
 };
 
 // ================================================================
@@ -191,6 +210,9 @@ private:
     BallValue eval_return(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_break(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_continue(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_labeled(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_goto(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_label(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_assign(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_inc_dec(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
 
@@ -198,6 +220,19 @@ private:
     BallValue eval_convert(const std::string& function, BallValue input);
     BallValue eval_fs(const std::string& function, BallValue input);
     BallValue eval_time(const std::string& function, BallValue input);
+
+    /// Lazy handler for cpp_std.cpp_scope_exit — registers cleanup without
+    /// evaluating it, so it runs in LIFO order when the enclosing block exits.
+    BallValue eval_cpp_scope_exit(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+
+    /// Execute all registered scope-exit cleanups in LIFO order.
+    void run_scope_exits(std::shared_ptr<Scope> block_scope);
+
+    // Pattern matching
+    bool match_pattern(const BallValue& value, const BallValue& pattern, BallMap& bindings);
+    bool match_string_pattern(const BallValue& value, const std::string& pattern, BallMap& bindings);
+    bool match_structured_pattern(const BallValue& value, const BallMap& pattern, BallMap& bindings);
+    bool matches_type_pattern(const BallValue& value, const std::string& type_name);
 
     std::string json_encode_value(const BallValue& val);
     BallValue json_decode_string(const std::string& str);

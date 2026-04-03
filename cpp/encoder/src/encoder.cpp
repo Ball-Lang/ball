@@ -97,8 +97,40 @@ void CppEncoder::encode_function_decl(const json& node) {
     auto params = extract_params(node);
     auto* body = find_child(node, "CompoundStmt");
 
+    // Detect overloads: if a function with this name already exists,
+    // mangle by appending param types (e.g. add$int_double)
+    std::string unique_name = name;
+    bool is_overload = false;
+    for (int i = 0; i < main_module_.functions_size(); ++i) {
+        if (main_module_.functions(i).name() == name ||
+            main_module_.functions(i).name().substr(
+                0, main_module_.functions(i).name().find('$')) == name) {
+            // Build mangled name from param types
+            std::string suffix;
+            for (const auto& p : params) {
+                if (!suffix.empty()) suffix += "_";
+                // Use simple type name (strip const, &, *)
+                std::string t = p.second;
+                for (auto c : {'&', '*'}) {
+                    auto pos = t.find(c);
+                    if (pos != std::string::npos) t.erase(pos);
+                }
+                if (t.substr(0, 6) == "const ") t = t.substr(6);
+                // Replace spaces and :: with _
+                std::replace(t.begin(), t.end(), ' ', '_');
+                size_t pos;
+                while ((pos = t.find("::")) != std::string::npos)
+                    t.replace(pos, 2, "_");
+                suffix += t;
+            }
+            unique_name = name + "$" + suffix;
+            is_overload = true;
+            break;
+        }
+    }
+
     auto* func = main_module_.add_functions();
-    func->set_name(name);
+    func->set_name(unique_name);
     func->set_output_type(return_type);
     func->set_input_type("");
     func->set_is_base(false);
@@ -107,6 +139,11 @@ void CppEncoder::encode_function_decl(const json& node) {
     (*meta->mutable_fields())["kind"].set_string_value("function");
     *(*meta->mutable_fields())["params"].mutable_list_value() =
         encode_params_meta(params).list_value();
+
+    if (is_overload) {
+        (*meta->mutable_fields())["original_name"].set_string_value(name);
+        (*meta->mutable_fields())["is_overload"].set_bool_value(true);
+    }
 
     if (has_qualifier(node, "static"))
         (*meta->mutable_fields())["is_static"].set_bool_value(true);
@@ -195,6 +232,8 @@ void CppEncoder::encode_class_decl(const json& node) {
             encode_constructor_decl(child, name);
         } else if (ck == "CXXDestructorDecl") {
             encode_destructor_decl(child, name);
+        } else if (ck == "CXXConversionDecl") {
+            encode_conversion_decl(child, name);
         }
     }
 }
@@ -271,6 +310,30 @@ void CppEncoder::encode_destructor_decl(const json& node,
 
     if (has_qualifier(node, "virtual"))
         annots.add_values()->set_string_value("virtual");
+
+    if (body)
+        *func->mutable_body() = encode_compound_stmt(*body);
+}
+
+void CppEncoder::encode_conversion_decl(const json& node,
+                                         const std::string& class_name) {
+    auto method_name = node.value("name", "operator");
+    auto return_type = extract_return_type(node);
+    auto params = extract_params(node);
+    auto* body = find_child(node, "CompoundStmt");
+
+    auto* func = main_module_.add_functions();
+    func->set_name(class_name + "." + method_name);
+    func->set_output_type(return_type);
+    func->set_is_base(false);
+
+    auto* meta = func->mutable_metadata();
+    (*meta->mutable_fields())["kind"].set_string_value("operator");
+    (*meta->mutable_fields())["is_operator"].set_bool_value(true);
+    (*meta->mutable_fields())["is_conversion_operator"].set_bool_value(true);
+    (*meta->mutable_fields())["conversion_type"].set_string_value(return_type);
+    *(*meta->mutable_fields())["params"].mutable_list_value() =
+        encode_params_meta(params).list_value();
 
     if (body)
         *func->mutable_body() = encode_compound_stmt(*body);
@@ -353,10 +416,62 @@ void CppEncoder::encode_using_decl(const json& /*node*/) {
 
 void CppEncoder::encode_class_template_decl(const json& node) {
     auto inner = node.value("inner", json::array());
+
+    // Extract template type parameters first
+    std::vector<std::string> type_params;
+    for (const auto& child : inner) {
+        if (!child.is_object()) continue;
+        auto ck = child.value("kind", "");
+        if (ck == "TemplateTypeParmDecl") {
+            type_params.push_back(child.value("name", "T"));
+        } else if (ck == "NonTypeTemplateParmDecl") {
+            // Non-type template param, e.g. int N
+            std::string ptype = "int";
+            if (child.contains("type") && child["type"].contains("qualType"))
+                ptype = child["type"]["qualType"].get<std::string>();
+            type_params.push_back(ptype + " " + child.value("name", "N"));
+        }
+    }
+
     for (const auto& child : inner) {
         if (!child.is_object()) continue;
         if (child.value("kind", "") == "CXXRecordDecl") {
             encode_class_decl(child);
+            // Attach template params to the most recently added type_def
+            if (main_module_.type_defs_size() > 0 && !type_params.empty()) {
+                auto* td = main_module_.mutable_type_defs(
+                    main_module_.type_defs_size() - 1);
+                for (const auto& tp : type_params) {
+                    auto* param = td->add_type_params();
+                    param->set_name(tp);
+                }
+                // Also store in metadata for compilers that read metadata
+                auto& tp_list = *(*td->mutable_metadata()->mutable_fields())
+                    ["type_params"].mutable_list_value();
+                for (const auto& tp : type_params)
+                    tp_list.add_values()->set_string_value(tp);
+            }
+            // Capture explicit/partial specializations as metadata strings.
+            if (main_module_.type_defs_size() > 0) {
+                auto* td = main_module_.mutable_type_defs(
+                    main_module_.type_defs_size() - 1);
+                auto& specs = *(*td->mutable_metadata()->mutable_fields())
+                    ["specializations"].mutable_list_value();
+                for (const auto& spec : inner) {
+                    if (!spec.is_object()) continue;
+                    auto sk = spec.value("kind", "");
+                    if (sk == "ClassTemplateSpecializationDecl" ||
+                        sk == "ClassTemplatePartialSpecializationDecl") {
+                        auto* sv = specs.add_values()->mutable_struct_value();
+                        if (spec.contains("type") && spec["type"].contains("qualType")) {
+                            (*sv->mutable_fields())["type_args"]
+                                .set_string_value(spec["type"]["qualType"].get<std::string>());
+                        } else {
+                            (*sv->mutable_fields())["type_args"].set_string_value("<unknown>");
+                        }
+                    }
+                }
+            }
             break;
         }
     }
@@ -364,10 +479,65 @@ void CppEncoder::encode_class_template_decl(const json& node) {
 
 void CppEncoder::encode_function_template_decl(const json& node) {
     auto inner = node.value("inner", json::array());
+
+    // Extract template type parameters
+    std::vector<std::string> type_params;
+    for (const auto& child : inner) {
+        if (!child.is_object()) continue;
+        auto ck = child.value("kind", "");
+        if (ck == "TemplateTypeParmDecl") {
+            type_params.push_back(child.value("name", "T"));
+        } else if (ck == "NonTypeTemplateParmDecl") {
+            std::string ptype = "int";
+            if (child.contains("type") && child["type"].contains("qualType"))
+                ptype = child["type"]["qualType"].get<std::string>();
+            type_params.push_back(ptype + " " + child.value("name", "N"));
+        }
+    }
+
     for (const auto& child : inner) {
         if (!child.is_object()) continue;
         if (child.value("kind", "") == "FunctionDecl") {
             encode_function_decl(child);
+            // Attach template params to the most recently added function
+            if (main_module_.functions_size() > 0 && !type_params.empty()) {
+                auto* func = main_module_.mutable_functions(
+                    main_module_.functions_size() - 1);
+                auto& tp_list = *(*func->mutable_metadata()->mutable_fields())
+                    ["type_params"].mutable_list_value();
+                for (const auto& tp : type_params)
+                    tp_list.add_values()->set_string_value(tp);
+
+                // Capture specialization metadata (best-effort from AST).
+                auto& specs = *(*func->mutable_metadata()->mutable_fields())
+                    ["specializations"].mutable_list_value();
+                for (const auto& spec : inner) {
+                    if (!spec.is_object()) continue;
+                    auto sk = spec.value("kind", "");
+                    if (sk.find("Specialization") != std::string::npos) {
+                        auto* sv = specs.add_values()->mutable_struct_value();
+                        if (spec.contains("type") && spec["type"].contains("qualType")) {
+                            (*sv->mutable_fields())["type_args"]
+                                .set_string_value(spec["type"]["qualType"].get<std::string>());
+                        } else {
+                            (*sv->mutable_fields())["type_args"].set_string_value("<unknown>");
+                        }
+                    }
+                }
+
+                // Capture enable_if/SFINAE hints from function type strings.
+                std::string qtype;
+                if (child.contains("type") && child["type"].contains("qualType")) {
+                    qtype = child["type"]["qualType"].get<std::string>();
+                }
+                if (!qtype.empty() && qtype.find("enable_if") != std::string::npos) {
+                    auto& annots = *(*func->mutable_metadata()->mutable_fields())
+                        ["annotations"].mutable_list_value();
+                    auto* a = annots.add_values()->mutable_struct_value();
+                    (*a->mutable_fields())["name"].set_string_value("enable_if");
+                    (*a->mutable_fields())["expr"].set_string_value(qtype);
+                }
+            }
             break;
         }
     }

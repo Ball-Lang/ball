@@ -18,7 +18,7 @@ class Navbar extends StatelessComponent {
           Link(to: '/docs', child: span([Component.text('Docs')])),
           Link(to: '/examples', child: span([Component.text('Examples')])),
           a(
-            href: 'https://github.com/AhmedNF/ball',
+            href: 'https://github.com/Ball-Lang/ball',
             attributes: {'target': '_blank', 'rel': 'noopener noreferrer'},
             classes: 'nav-github',
             [

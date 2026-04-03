@@ -27,7 +27,7 @@ class Footer extends StatelessComponent {
               li([a(href: '/examples', [Component.text('Examples')])]),
               li([
                 a(
-                  href: 'https://github.com/AhmedNF/ball',
+                  href: 'https://github.com/Ball-Lang/ball',
                   attributes: {
                     'target': '_blank',
                     'rel': 'noopener noreferrer',

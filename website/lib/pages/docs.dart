@@ -278,13 +278,13 @@ class DocsPage extends StatelessComponent {
             const CodeBlock(
               language: 'bash',
               code: '# Clone Ball\n'
-                  'git clone https://github.com/AhmedNF/ball.git\n'
+                  'git clone https://github.com/Ball-Lang/ball.git\n'
                   'cd ball\n'
                   '\n'
                   '# Install Dart dependencies\n'
                   'cd dart && dart pub get\n'
                   '\n'
-                  '# Run the engine tests (193 tests)\n'
+                  '# Run the engine tests (242 tests)\n'
                   'cd engine && dart test\n'
                   '\n'
                   '# Compile an example to Dart\n'

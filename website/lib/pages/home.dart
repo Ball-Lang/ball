@@ -61,7 +61,7 @@ class HomePage extends StatelessComponent {
             [Component.text('See Examples')],
           ),
           a(
-            href: 'https://github.com/AhmedNF/ball',
+            href: 'https://github.com/Ball-Lang/ball',
             classes: 'btn btn-ghost',
             attributes: {'target': '_blank', 'rel': 'noopener noreferrer'},
             [Component.text('View on GitHub \u2197')],
@@ -337,7 +337,7 @@ class HomePage extends StatelessComponent {
         ]),
         div(classes: 'lang-grid', [
           _buildLangCard('Dart', 'Mature', 'dart',
-              'Full compiler, encoder, engine. 193 engine tests. Reference implementation.'),
+              'Full compiler, encoder, engine. 242 engine tests. Reference implementation.'),
           _buildLangCard('C++', 'Prototype', 'cpp',
               'Full compiler, encoder (Clang AST), engine. Actively developed.'),
           _buildLangCard('Go', 'Bindings', 'go',
@@ -436,7 +436,7 @@ class HomePage extends StatelessComponent {
             [Component.text('Read the Docs')],
           ),
           a(
-            href: 'https://github.com/AhmedNF/ball',
+            href: 'https://github.com/Ball-Lang/ball',
             classes: 'btn btn-secondary btn-lg',
             attributes: {'target': '_blank', 'rel': 'noopener noreferrer'},
             [Component.text('Star on GitHub')],
@@ -446,9 +446,9 @@ class HomePage extends StatelessComponent {
           const CodeBlock(
             language: 'bash',
             code: '# Clone and get started\n'
-                'git clone https://github.com/AhmedNF/ball.git\n'
+                'git clone https://github.com/Ball-Lang/ball.git\n'
                 'cd ball/dart && dart pub get\n'
-                'cd engine && dart test  # Run 193 tests\n'
+                'cd engine && dart test  # Run 242 tests\n'
                 '\n'
                 '# Compile an example\n'
                 'cd ../compiler\n'

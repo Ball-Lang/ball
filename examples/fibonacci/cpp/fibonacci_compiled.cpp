@@ -16,6 +16,8 @@
 #include <cassert>
 #include <regex>
 
+using namespace std::string_literals;
+
 
 int64_t fibonacci(auto n) {
     if ((n <= 1LL)) {

@@ -186,6 +186,7 @@ TEST(includes_standard_headers) {
     ASSERT_CONTAINS(out, "#include <iostream>");
     ASSERT_CONTAINS(out, "#include <string>");
     ASSERT_CONTAINS(out, "#include <vector>");
+    ASSERT_CONTAINS(out, "using namespace std::string_literals;");
 }
 
 // ================================================================
@@ -207,7 +208,8 @@ TEST(compile_double_literal) {
 TEST(compile_string_literal) {
     auto prog = build_program(print_call(lit_string("test string")));
     auto out = compile_program(prog);
-    ASSERT_CONTAINS(out, "\"test string\"");
+    ASSERT_CONTAINS(out, "\"test string\"s");
+    ASSERT_NOT_CONTAINS(out, "std::string(\"test string\")");
 }
 
 TEST(compile_bool_literal) {

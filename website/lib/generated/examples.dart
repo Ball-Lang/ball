@@ -62,8 +62,11 @@ void main() {
 
 /// examples/hello_world/cpp/hello_world_compiled.cpp (includes stripped)
 const helloWorldCompiledCpp = r'''
+using namespace std::string_literals;
+
+
 int main() {
-    std::cout << std::string("Hello, World!") << std::endl;
+    std::cout << "Hello, World!"s << std::endl;
     return 0;
 }
 ''';
@@ -357,6 +360,9 @@ void main() {
 
 /// examples/fibonacci/cpp/fibonacci_compiled.cpp (includes stripped)
 const fibonacciCompiledCpp = r'''
+using namespace std::string_literals;
+
+
 int64_t fibonacci(auto n) {
     if ((n <= 1LL)) {
         /* return */ n;

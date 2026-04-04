@@ -199,8 +199,8 @@ std::string CppCompiler::compile_literal(const ball::v1::Literal& lit) {
                     default: result += c; break;
                 }
             }
-            result += "\"";
-            return "std::string(" + result + ")";
+            result += "\"s";
+            return result;
         }
         case ball::v1::Literal::kBoolValue:
             return lit.bool_value() ? "true" : "false";
@@ -1039,6 +1039,8 @@ void CppCompiler::emit_includes() {
         emit_line("#include <chrono>");
         emit_line("#include <random>");
     }
+    emit_newline();
+    emit_line("using namespace std::string_literals;");
     emit_newline();
 }
 

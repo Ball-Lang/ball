@@ -16,8 +16,10 @@
 #include <cassert>
 #include <regex>
 
+using namespace std::string_literals;
+
 
 int main() {
-    std::cout << std::string("Hello, World!") << std::endl;
+    std::cout << "Hello, World!"s << std::endl;
     return 0;
 }

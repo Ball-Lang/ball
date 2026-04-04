@@ -38,7 +38,7 @@ public:
             s += ".0";
         return CppExpr(s);
     }
-    static CppExpr lit_string(const std::string& v) { return CppExpr("\"" + v + "\""); }
+    static CppExpr lit_string(const std::string& v) { return CppExpr("\"" + v + "\"s"); }
     static CppExpr lit_char(char c) {
         return CppExpr(std::string("'") + c + "'");
     }

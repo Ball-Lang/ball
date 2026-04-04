@@ -161,13 +161,13 @@ flowchart LR
 
 ### Implementation Status
 
-| Language | Compiler | Encoder | Engine | Tests |
-|----------|----------|---------|--------|-------|
-| **Dart** | ✅ Full | ✅ Full | ✅ Full | 242 engine tests |
-| **C++** | ✅ Prototype | ✅ Prototype | ✅ Prototype | 37 compiler + engine tests |
-| Go | Proto bindings | — | — | — |
-| Python | Proto bindings | — | — | — |
-| TypeScript | Proto bindings | — | — | — |
+| Language | Compiler | Encoder | Engine |
+|----------|----------|---------|--------|
+| **Dart** | ✅ Full | ✅ Full | ✅ Full |
+| **C++** | ✅ Prototype | ✅ Prototype | ✅ Prototype |
+| Go | Proto bindings | — | — |
+| Python | Proto bindings | — | — |
+| TypeScript | Proto bindings | — | — |
 | Java | Proto bindings | — | — | — |
 | C# | Proto bindings | — | — | — |
 
@@ -223,7 +223,7 @@ ball/
 │   ├── shared/                        # Protobuf types, std module definitions
 │   ├── compiler/                      # Ball → Dart code generator
 │   ├── encoder/                       # Dart → Ball encoder
-│   ├── engine/                        # Ball runtime interpreter (242 tests)
+│   ├── engine/                        # Ball runtime interpreter
 │   └── cli/                           # Command-line interface
 ├── cpp/                               # C++ implementation (prototype)
 │   ├── shared/                        # Protobuf types

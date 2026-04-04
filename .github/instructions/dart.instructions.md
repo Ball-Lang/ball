@@ -43,7 +43,7 @@ Ball's Dart implementation is a workspace with 5 packages:
 
 ## Testing
 
-- All tests in `dart/engine/test/engine_test.dart` (193 tests)
+- Tests in `dart/engine/test/engine_test.dart`
 - Use `buildProgram()` helper for minimal test programs
 - Use `runAndCapture()` to execute and capture stdout
 - Use `loadProgram()` to load .ball.json files from examples/

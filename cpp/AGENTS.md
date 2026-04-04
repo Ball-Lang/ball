@@ -4,7 +4,7 @@ When working in the C++ codebase:
 
 ## Critical Context
 
-- 37 tests exist across engine + compiler (see `cpp/test/`)
+- Tests exist across engine + compiler (see `cpp/test/`)
 - Several features are BROKEN or STUBBED (see below)
 - This is prototype-quality code, not production-ready
 

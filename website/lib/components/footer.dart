@@ -67,7 +67,7 @@ class Footer extends StatelessComponent {
         ]),
         div(classes: 'footer-bottom', [
           p(classes: 'footer-copy', [
-            Component.text('\u00A9 2024\u20132026 Ball Project. Built with '),
+            Component.text('\u00A9 2024\u2013present Ball Project. Built with '),
             a(
               href: 'https://jaspr.site',
               attributes: {

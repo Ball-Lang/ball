@@ -113,7 +113,7 @@ buf generate
 
 ## Testing
 
-- Dart engine: 242 tests in `dart/engine/test/engine_test.dart`
-- Dart encoder: 20 tests in `dart/encoder/test/encoder_test.dart`
-- C++: 37 tests in `cpp/test/test_engine.cpp` + `cpp/test/test_compiler.cpp`
+- Dart engine: `dart/engine/test/engine_test.dart`
+- Dart encoder: `dart/encoder/test/encoder_test.dart`
+- C++: `cpp/test/test_engine.cpp` + `cpp/test/test_compiler.cpp`
 - FFmpeg stress test: 965 files compiled successfully through both Dart and C++ compilers

@@ -170,7 +170,7 @@ class DocsPage extends StatelessComponent {
               ),
             ]),
             _buildStdTable(),
-            h4(classes: 'docs-h4', [Component.text('std module highlights (~120 functions)')]),
+            h4(classes: 'docs-h4', [Component.text('std module highlights')]),
             _buildStdCategory('Arithmetic',
                 'add, subtract, multiply, divide, divide_double, modulo, negate'),
             _buildStdCategory('Comparison',
@@ -178,9 +178,9 @@ class DocsPage extends StatelessComponent {
             _buildStdCategory('Logical', 'and, or, not'),
             _buildStdCategory('Bitwise',
                 'bitwise_and, bitwise_or, bitwise_xor, bitwise_not, left_shift, right_shift'),
-            _buildStdCategory('Strings (~25)',
+            _buildStdCategory('Strings',
                 'string_length, string_contains, string_substring, string_replace, string_split, string_trim, string_to_upper, ...'),
-            _buildStdCategory('Math (~30)',
+            _buildStdCategory('Math',
                 'math_abs, math_sqrt, math_pow, math_sin, math_cos, math_pi, math_e, math_clamp, ...'),
             _buildStdCategory('Regex',
                 'regex_match, regex_find, regex_find_all, regex_replace, regex_replace_all'),
@@ -284,7 +284,7 @@ class DocsPage extends StatelessComponent {
                   '# Install Dart dependencies\n'
                   'cd dart && dart pub get\n'
                   '\n'
-                  '# Run the engine tests (242 tests)\n'
+                  '# Run the engine tests\n'
                   'cd engine && dart test\n'
                   '\n'
                   '# Compile an example to Dart\n'

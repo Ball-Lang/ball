@@ -267,7 +267,7 @@ class HomePage extends StatelessComponent {
         ]),
         div(classes: 'lang-grid', [
           _buildLangCard('Dart', 'Mature', 'dart',
-              'Full compiler, encoder, engine. 242 engine tests. Reference implementation.'),
+              'Full compiler, encoder, engine. Reference implementation.'),
           _buildLangCard('C++', 'Prototype', 'cpp',
               'Full compiler, encoder (Clang AST), engine. Actively developed.'),
           _buildLangCard('Go', 'Bindings', 'go',
@@ -378,7 +378,7 @@ class HomePage extends StatelessComponent {
             code: '# Clone and get started\n'
                 'git clone https://github.com/Ball-Lang/ball.git\n'
                 'cd ball/dart && dart pub get\n'
-                'cd engine && dart test  # Run 242 tests\n'
+                'cd engine && dart test\n'
                 '\n'
                 '# Compile an example\n'
                 'cd ../compiler\n'

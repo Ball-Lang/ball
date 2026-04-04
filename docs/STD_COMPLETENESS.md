@@ -1,6 +1,5 @@
 # Standard Library Completeness Tracker
 
-**Last Updated:** April 1, 2026  
 **Legend:** ✅ = Implemented | ⚠️ = Partial | ❌ = Missing/Stubbed
 
 > **Note:** Compilers emit native language equivalents (e.g., `list.push_back()` in C++, `list.add()` in Dart).

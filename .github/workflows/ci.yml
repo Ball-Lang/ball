@@ -59,7 +59,7 @@ jobs:
       - name: Format check
         run: dart format --set-exit-if-changed dart/
 
-      - name: Engine tests (242 tests + conformance)
+      - name: Engine tests
         run: cd dart/engine && dart test
 
       - name: Encoder tests

@@ -1,6 +1,5 @@
 # Ball Programming Language — Status Report
 
-**Date:** March 22, 2026  
 **Scope:** Full project analysis — Dart & C++ implementations
 
 ---
@@ -54,7 +53,7 @@ Ball is a protobuf-based programming language where code is data. The project ha
 | **std_collections module** | Stubs only | `list_map`, `list_filter`, `list_reduce` etc. declared but not implemented in engine |
 | **std_io module** | Stubs only | `print_error`, `read_line`, `exit`, `sleep_ms` etc. declared but stubbed |
 | **Regex support** | Missing | No `<regex>` integration |
-| **Test suite** | 37 tests | Engine tests + compiler tests in `cpp/test/` |
+| **Test suite** | See `cpp/test/` | Engine tests + compiler tests |
 
 ### 1.4 Cross-Language Gaps
 
@@ -134,7 +133,7 @@ Ball is a protobuf-based programming language where code is data. The project ha
 
 | Improvement | Description |
 |-------------|-------------|
-| **Add test suite** | Zero tests currently — need at minimum 30 compiler + 30 engine tests |
+| **Expand test suite** | Improve coverage for compiler + engine tests |
 | **Complete string operations** | Implement `string_split`, `string_replace`, `string_replace_all` |
 | **Complete switch compilation** | Generate proper case lists with fall-through control |
 | **Implement collections module** | Wire up `list_map`, `list_filter`, `list_reduce`, etc. in engine |

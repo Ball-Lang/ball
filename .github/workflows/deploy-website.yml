@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'website/**'
+      - 'examples/**'
       - '.github/workflows/deploy-website.yml'
   workflow_dispatch:
 
@@ -34,6 +35,9 @@ jobs:
       - name: Install dependencies
         working-directory: website
         run: dart pub get
+
+      - name: Generate example excerpts
+        run: dart run website/tool/generate_examples.dart
 
       - name: Build website
         working-directory: website

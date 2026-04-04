@@ -6,6 +6,7 @@ import '../components/footer.dart';
 import '../components/feature_card.dart';
 import '../components/code_block.dart';
 import '../components/language_tabs.dart';
+import '../generated/examples.dart' as examples;
 
 class HomePage extends StatelessComponent {
   const HomePage({super.key});
@@ -71,37 +72,7 @@ class HomePage extends StatelessComponent {
           const CodeBlock(
             filename: 'hello_world.ball.json',
             language: 'json',
-            code: '{\n'
-                '  "name": "hello_world",\n'
-                '  "entryModule": "main",\n'
-                '  "entryFunction": "main",\n'
-                '  "modules": [\n'
-                '    {\n'
-                '      "name": "main",\n'
-                '      "functions": [{\n'
-                '        "name": "main",\n'
-                '        "body": {\n'
-                '          "call": {\n'
-                '            "module": "std",\n'
-                '            "function": "print",\n'
-                '            "input": {\n'
-                '              "messageCreation": {\n'
-                '                "fields": [{\n'
-                '                  "name": "message",\n'
-                '                  "value": {\n'
-                '                    "literal": {\n'
-                '                      "stringValue": "Hello, World!"\n'
-                '                    }\n'
-                '                  }\n'
-                '                }]\n'
-                '              }\n'
-                '            }\n'
-                '          }\n'
-                '        }\n'
-                '      }]\n'
-                '    }\n'
-                '  ]\n'
-                '}',
+            code: examples.helloWorldBallJson,
           ),
         ]),
       ]),
@@ -260,88 +231,20 @@ class HomePage extends StatelessComponent {
         ]),
         div(classes: 'demo-grid', [
           div(classes: 'demo-col', [
-            const CodeBlock(
-              filename: 'fibonacci.ball.json (simplified)',
+            CodeBlock(
+              filename: 'fibonacci.ball.json',
               language: 'json',
-              code: '// Ball expression tree (simplified)\n'
-                  '{\n'
-                  '  "function": "fibonacci",\n'
-                  '  "inputType": "int",\n'
-                  '  "outputType": "int",\n'
-                  '  "body": {\n'
-                  '    "block": {\n'
-                  '      "statements": [{\n'
-                  '        "call": {\n'
-                  '          "module": "std",\n'
-                  '          "function": "if",\n'
-                  '          "input": {\n'
-                  '            "messageCreation": {\n'
-                  '              "fields": [\n'
-                  '                { "name": "condition",\n'
-                  '                  "value": { "call": {\n'
-                  '                    "module": "std",\n'
-                  '                    "function": "lte",\n'
-                  '                    "input": { "messageCreation": {\n'
-                  '                      "fields": [\n'
-                  '                        { "name": "left",\n'
-                  '                          "value": { "reference": { "name": "n" } } },\n'
-                  '                        { "name": "right",\n'
-                  '                          "value": { "literal": { "intValue": "1" } } }\n'
-                  '                      ]\n'
-                  '                    }}\n'
-                  '                  }}\n'
-                  '                },\n'
-                  '                { "name": "then",\n'
-                  '                  "value": { "call": {\n'
-                  '                    "module": "std",\n'
-                  '                    "function": "return",\n'
-                  '                    "input": { "messageCreation": {\n'
-                  '                      "fields": [{ "name": "value",\n'
-                  '                        "value": { "reference": { "name": "n" } } }]\n'
-                  '                    }}\n'
-                  '                  }}\n'
-                  '                }\n'
-                  '              ]\n'
-                  '            }\n'
-                  '          }\n'
-                  '        }\n'
-                  '      }],\n'
-                  '      "result": { "..." : "add(fib(n-1), fib(n-2))" }\n'
-                  '    }\n'
-                  '  }\n'
-                  '}',
+              code: examples.fibonacciBallJson,
             ),
           ]),
           div(classes: 'demo-col', [
             LanguageTabs(
               labels: const ['Dart', 'C++'],
               languages: const ['dart', 'cpp'],
-              filenames: const ['fibonacci.dart', 'fibonacci.cpp'],
+              filenames: const ['fibonacci_compiled.dart', 'fibonacci_compiled.cpp'],
               codes: const [
-                '// Compiled to Dart\n'
-                    'int fibonacci(int n) {\n'
-                    '  if (n <= 1) return n;\n'
-                    '  return fibonacci(n - 1)\n'
-                    '       + fibonacci(n - 2);\n'
-                    '}\n'
-                    '\n'
-                    'void main() {\n'
-                    '  final result = fibonacci(10);\n'
-                    '  print(result.toString());\n'
-                    '}',
-                '// Compiled to C++\n'
-                    '#include <iostream>\n'
-                    '\n'
-                    'int fibonacci(int n) {\n'
-                    '  if (n <= 1) return n;\n'
-                    '  return fibonacci(n - 1)\n'
-                    '       + fibonacci(n - 2);\n'
-                    '}\n'
-                    '\n'
-                    'int main() {\n'
-                    '  auto result = fibonacci(10);\n'
-                    '  std::cout << std::to_string(result);\n'
-                    '}',
+                examples.fibonacciCompiledDart,
+                examples.fibonacciCompiledCpp,
               ],
             ),
           ]),

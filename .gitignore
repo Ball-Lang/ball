@@ -41,6 +41,9 @@ website/.dart_tool/
 website/lib/main.server.options.dart
 website/lib/main.client.options.dart
 
+# Generated from examples/ by website/tool/generate_examples.dart
+website/lib/generated/examples.dart
+
 # ----------------------------------
 # Examples — temporary output
 # ----------------------------------

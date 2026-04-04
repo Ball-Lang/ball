@@ -71,59 +71,73 @@ void main() {
   // Read source files
   final helloWorldJson =
       File('$examplesDir/hello_world/hello_world.ball.json').readAsStringSync();
+  final helloWorldDart =
+      File('$examplesDir/hello_world/dart/hello_world_compiled.dart').readAsStringSync();
+  final helloWorldCpp =
+      File('$examplesDir/hello_world/cpp/hello_world_compiled.cpp').readAsStringSync();
   final fibonacciJson =
       File('$examplesDir/fibonacci/fibonacci.ball.json').readAsStringSync();
   final fibonacciDart =
       File('$examplesDir/fibonacci/dart/fibonacci_compiled.dart').readAsStringSync();
   final fibonacciCpp =
       File('$examplesDir/fibonacci/cpp/fibonacci_compiled.cpp').readAsStringSync();
+  final comprehensiveDart =
+      File('$examplesDir/comprehensive/dart/comprehensive_compiled.dart').readAsStringSync();
 
   // Process
   final helloWorldSimplified = _simplifyBallJson(helloWorldJson);
   final fibonacciSimplified = _simplifyBallJson(fibonacciJson);
   final fibCppClean = _cleanCompiledCpp(fibonacciCpp);
+  final hwCppClean = _cleanCompiledCpp(helloWorldCpp);
+  // Take first ~60 lines of comprehensive Dart (enough to show classes, enums, etc.)
+  final compDartLines = comprehensiveDart.split('\n');
+  final compDartExcerpt =
+      compDartLines.take(60).join('\n').trimRight() + '\n\n// ... (${compDartLines.length} lines total)';
 
-  // Escape for Dart raw string literals (triple-quoted)
-  // Only need to escape the closing triple-quote sequence
   String escape(String s) => s.replaceAll("'''", "' ' '");
 
-  // Generate output
   final buf = StringBuffer();
   buf.writeln('// GENERATED — do not edit. Run: dart run tool/generate_examples.dart');
   buf.writeln('// Source: examples/ directory');
   buf.writeln('');
 
-  buf.writeln("/// hello_world.ball.json (simplified: main module only, std stripped)");
-  buf.writeln("const helloWorldBallJson = r'''");
-  buf.writeln(escape(helloWorldSimplified));
-  buf.writeln("''';");
-  buf.writeln('');
+  void writeConst(String name, String doc, String value) {
+    buf.writeln('/// $doc');
+    buf.writeln("const $name = r'''");
+    buf.writeln(escape(value));
+    buf.writeln("''';");
+    buf.writeln('');
+  }
 
-  buf.writeln("/// fibonacci.ball.json (simplified: main module only, std stripped)");
-  buf.writeln("const fibonacciBallJson = r'''");
-  buf.writeln(escape(fibonacciSimplified));
-  buf.writeln("''';");
-  buf.writeln('');
+  // Hello World
+  writeConst('helloWorldBallJson',
+      'hello_world.ball.json (simplified: std stripped)', helloWorldSimplified);
+  writeConst('helloWorldCompiledDart',
+      'examples/hello_world/dart/hello_world_compiled.dart', helloWorldDart.trimRight());
+  writeConst('helloWorldCompiledCpp',
+      'examples/hello_world/cpp/hello_world_compiled.cpp (includes stripped)', hwCppClean);
 
-  buf.writeln("/// Dart compiled output from examples/fibonacci/dart/fibonacci_compiled.dart");
-  buf.writeln("const fibonacciCompiledDart = r'''");
-  buf.writeln(escape(fibonacciDart.trimRight()));
-  buf.writeln("''';");
-  buf.writeln('');
+  // Fibonacci
+  writeConst('fibonacciBallJson',
+      'fibonacci.ball.json (simplified: std stripped)', fibonacciSimplified);
+  writeConst('fibonacciCompiledDart',
+      'examples/fibonacci/dart/fibonacci_compiled.dart', fibonacciDart.trimRight());
+  writeConst('fibonacciCompiledCpp',
+      'examples/fibonacci/cpp/fibonacci_compiled.cpp (includes stripped)', fibCppClean);
 
-  buf.writeln("/// C++ compiled output (includes stripped) from");
-  buf.writeln("/// examples/fibonacci/cpp/fibonacci_compiled.cpp");
-  buf.writeln("const fibonacciCompiledCpp = r'''");
-  buf.writeln(escape(fibCppClean));
-  buf.writeln("''';");
-  buf.writeln('');
+  // Comprehensive (excerpt only — full file is 300+ lines)
+  writeConst('comprehensiveCompiledDartExcerpt',
+      'First ~60 lines of examples/comprehensive/dart/comprehensive_compiled.dart', compDartExcerpt);
 
   // Write
   outputFile.parent.createSync(recursive: true);
   outputFile.writeAsStringSync(buf.toString());
   print('Generated ${outputFile.path}');
   print('  helloWorldBallJson: ${helloWorldSimplified.length} chars');
+  print('  helloWorldCompiledDart: ${helloWorldDart.trimRight().length} chars');
+  print('  helloWorldCompiledCpp: ${hwCppClean.length} chars');
   print('  fibonacciBallJson: ${fibonacciSimplified.length} chars');
   print('  fibonacciCompiledDart: ${fibonacciDart.trimRight().length} chars');
   print('  fibonacciCompiledCpp: ${fibCppClean.length} chars');
+  print('  comprehensiveCompiledDartExcerpt: ${compDartExcerpt.length} chars');
 }

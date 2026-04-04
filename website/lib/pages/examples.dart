@@ -5,6 +5,7 @@ import '../components/navbar.dart';
 import '../components/footer.dart';
 import '../components/code_block.dart';
 import '../components/language_tabs.dart';
+import '../generated/examples.dart' as examples;
 
 class ExamplesPage extends StatelessComponent {
   const ExamplesPage({super.key});
@@ -40,64 +41,21 @@ class ExamplesPage extends StatelessComponent {
         _buildExample(
           'Hello World',
           'The simplest Ball program \u2014 prints a message to the console using the std.print base function.',
-          const CodeBlock(
+          CodeBlock(
             filename: 'hello_world.ball.json',
             language: 'json',
-            code: '{\n'
-                '  "name": "hello_world",\n'
-                '  "entryModule": "main",\n'
-                '  "entryFunction": "main",\n'
-                '  "modules": [\n'
-                '    {\n'
-                '      "name": "std",\n'
-                '      "functions": [\n'
-                '        { "name": "print", "isBase": true }\n'
-                '      ]\n'
-                '    },\n'
-                '    {\n'
-                '      "name": "main",\n'
-                '      "functions": [{\n'
-                '        "name": "main",\n'
-                '        "body": {\n'
-                '          "call": {\n'
-                '            "module": "std",\n'
-                '            "function": "print",\n'
-                '            "input": {\n'
-                '              "messageCreation": {\n'
-                '                "fields": [{\n'
-                '                  "name": "message",\n'
-                '                  "value": {\n'
-                '                    "literal": {\n'
-                '                      "stringValue": "Hello, World!"\n'
-                '                    }\n'
-                '                  }\n'
-                '                }]\n'
-                '              }\n'
-                '            }\n'
-                '          }\n'
-                '        }\n'
-                '      }]\n'
-                '    }\n'
-                '  ]\n'
-                '}',
+            code: examples.helloWorldBallJson,
           ),
           [
-            const CodeBlock(
+            CodeBlock(
               filename: 'Compiled \u2192 Dart',
               language: 'dart',
-              code: 'void main() {\n'
-                  '  print(\'Hello, World!\');\n'
-                  '}',
+              code: examples.helloWorldCompiledDart,
             ),
-            const CodeBlock(
+            CodeBlock(
               filename: 'Compiled \u2192 C++',
               language: 'cpp',
-              code: '#include <iostream>\n'
-                  '\n'
-                  'int main() {\n'
-                  '  std::cout << "Hello, World!" << std::endl;\n'
-                  '  return 0;\n'
-                  '}',
+              code: examples.helloWorldCompiledCpp,
             ),
           ],
         ),
@@ -107,55 +65,21 @@ class ExamplesPage extends StatelessComponent {
           'Fibonacci',
           'A recursive Fibonacci implementation demonstrating control flow (if), '
               'comparison (lte), arithmetic (add, subtract), and function recursion.',
-          const CodeBlock(
-            filename: 'fibonacci.ball.json (simplified)',
+          CodeBlock(
+            filename: 'fibonacci.ball.json',
             language: 'json',
-            code: '// Functions: fibonacci(n) and main()\n'
-                '// fibonacci uses:\n'
-                '//   std.if     - branching (lazy evaluation)\n'
-                '//   std.lte    - comparison (n <= 1)\n'
-                '//   std.return - early return\n'
-                '//   std.add    - addition\n'
-                '//   std.subtract - subtraction\n'
-                '// \n'
-                '// The expression tree encodes:\n'
-                '//   if (n <= 1) return n;\n'
-                '//   return fibonacci(n-1) + fibonacci(n-2);\n'
-                '//\n'
-                '// All control flow is function calls \u2014\n'
-                '// std.if is a base function that receives\n'
-                '// condition, then, and else as lazy expressions.',
+            code: examples.fibonacciBallJson,
           ),
           [
-            const CodeBlock(
+            CodeBlock(
               filename: 'Compiled \u2192 Dart',
               language: 'dart',
-              code: 'int fibonacci(int n) {\n'
-                  '  if (n <= 1) return n;\n'
-                  '  return fibonacci(n - 1) + fibonacci(n - 2);\n'
-                  '}\n'
-                  '\n'
-                  'void main() {\n'
-                  '  final result = fibonacci(10);\n'
-                  '  print(result.toString());\n'
-                  '}',
+              code: examples.fibonacciCompiledDart,
             ),
-            const CodeBlock(
+            CodeBlock(
               filename: 'Compiled \u2192 C++',
               language: 'cpp',
-              code: '#include <iostream>\n'
-                  '#include <string>\n'
-                  '\n'
-                  'int fibonacci(int n) {\n'
-                  '  if (n <= 1) return n;\n'
-                  '  return fibonacci(n - 1) + fibonacci(n - 2);\n'
-                  '}\n'
-                  '\n'
-                  'int main() {\n'
-                  '  auto result = fibonacci(10);\n'
-                  '  std::cout << std::to_string(result);\n'
-                  '  return 0;\n'
-                  '}',
+              code: examples.fibonacciCompiledCpp,
             ),
           ],
         ),
@@ -166,62 +90,26 @@ class ExamplesPage extends StatelessComponent {
           'A larger example demonstrating variables, string operations, lists, '
               'conditionals, loops, math functions, type checking, and more.',
           const CodeBlock(
-            filename: 'comprehensive.ball.json (excerpt)',
+            filename: 'comprehensive.ball.json',
             language: 'json',
-            code: '// This example demonstrates:\n'
+            code: '// The comprehensive example is 7000+ lines of Ball JSON.\n'
+                '// It demonstrates:\n'
+                '//   \u2022 Type definitions (class, enum, mixin, typedef)\n'
+                '//   \u2022 Inheritance and mixins\n'
+                '//   \u2022 String and math operations\n'
+                '//   \u2022 Collections (list, map)\n'
+                '//   \u2022 Control flow (if, for, while, switch)\n'
+                '//   \u2022 Type checking and casting\n'
                 '//\n'
-                '// \u2022 Variable declarations (let-bindings)\n'
-                '//   - final, var, const semantics via metadata\n'
-                '//\n'
-                '// \u2022 String operations\n'
-                '//   - string_length, string_to_upper, string_contains\n'
-                '//   - string_substring, string_replace, string_split\n'
-                '//\n'
-                '// \u2022 Math functions\n'
-                '//   - math_sqrt, math_pow, math_abs, math_max\n'
-                '//\n'
-                '// \u2022 Collections (std_collections module)\n'
-                '//   - list_add, list_length, list_map, list_where\n'
-                '//   - map_put, map_get, map_contains_key\n'
-                '//\n'
-                '// \u2022 Control flow (all are function calls)\n'
-                '//   - if/else, for, for_in, while, switch\n'
-                '//\n'
-                '// \u2022 Type operations\n'
-                '//   - is, as type checking and casting',
+                '// View the full file on GitHub:\n'
+                '// github.com/Ball-Lang/ball/blob/main/examples/\n'
+                '//   comprehensive/comprehensive.ball.json',
           ),
           [
-            const CodeBlock(
+            CodeBlock(
               filename: 'Compiled \u2192 Dart (excerpt)',
               language: 'dart',
-              code: 'void main() {\n'
-                  '  // Variables\n'
-                  '  final greeting = \'Hello, Ball!\';\n'
-                  '  var counter = 0;\n'
-                  '  const pi = 3.14159;\n'
-                  '\n'
-                  '  // String ops\n'
-                  '  final len = greeting.length;\n'
-                  '  final upper = greeting.toUpperCase();\n'
-                  '  final hasHello = greeting.contains(\'Hello\');\n'
-                  '\n'
-                  '  // Math\n'
-                  '  final root = sqrt(144.0);\n'
-                  '  final power = pow(2, 10);\n'
-                  '\n'
-                  '  // Collections\n'
-                  '  final numbers = [1, 2, 3, 4, 5];\n'
-                  '  final doubled = numbers.map((n) => n * 2);\n'
-                  '  final evens = numbers.where((n) => n % 2 == 0);\n'
-                  '\n'
-                  '  // Control flow\n'
-                  '  if (counter == 0) {\n'
-                  '    print(\'Counter is zero\');\n'
-                  '  }\n'
-                  '  for (var i = 0; i < 5; i++) {\n'
-                  '    counter += i;\n'
-                  '  }\n'
-                  '}',
+              code: examples.comprehensiveCompiledDartExcerpt,
             ),
           ],
         ),

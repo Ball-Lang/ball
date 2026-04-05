@@ -69,10 +69,10 @@ class HomePage extends StatelessComponent {
           ),
         ]),
         div(classes: 'hero-code-preview', [
-          const CodeBlock(
-            filename: 'hello_world.ball.json',
-            language: 'json',
-            code: examples.helloWorldBallJson,
+          CodeBlock(
+            filename: 'hello_world.ball.yaml',
+            language: 'yaml',
+            code: examples.helloWorldYaml,
           ),
         ]),
       ]),
@@ -232,9 +232,9 @@ class HomePage extends StatelessComponent {
         div(classes: 'demo-grid', [
           div(classes: 'demo-col', [
             CodeBlock(
-              filename: 'fibonacci.ball.json',
-              language: 'json',
-              code: examples.fibonacciBallJson,
+              filename: 'fibonacci.ball.yaml',
+              language: 'yaml',
+              code: examples.fibonacciFunctionYaml,
             ),
           ]),
           div(classes: 'demo-col', [
@@ -242,9 +242,9 @@ class HomePage extends StatelessComponent {
               labels: const ['Dart', 'C++'],
               languages: const ['dart', 'cpp'],
               filenames: const ['fibonacci_compiled.dart', 'fibonacci_compiled.cpp'],
-              codes: const [
-                examples.fibonacciCompiledDart,
-                examples.fibonacciCompiledCpp,
+              codes: [
+                examples.fibonacciDart,
+                examples.fibonacciCpp,
               ],
             ),
           ]),

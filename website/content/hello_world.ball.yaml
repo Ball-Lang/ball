@@ -1,0 +1,24 @@
+# Display-only: the real program is hello_world.ball.json (proto3 JSON / binary protobuf)
+name: hello_world
+entryModule: main
+entryFunction: main
+modules:
+  - name: main
+    functions:
+      - name: main
+        body:
+          call:
+            module: std
+            function: print
+            input:
+              messageCreation:
+                typeName: PrintInput
+                fields:
+                  - name: message
+                    value:
+                      literal:
+                        stringValue: "Hello, World!"
+        metadata:
+          kind: function
+    moduleImports:
+      - name: std

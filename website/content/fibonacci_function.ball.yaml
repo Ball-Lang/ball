@@ -1,0 +1,79 @@
+# fibonacci function body — the interesting part
+# (full program includes main() and module imports)
+name: fibonacci
+inputType: int
+outputType: int
+body:
+  block:
+    statements:
+      - expression:
+          call:
+            module: std
+            function: if
+            input:
+              messageCreation:
+                fields:
+                  - name: condition
+                    value:
+                      call:
+                        module: std
+                        function: lte     # n <= 1
+                        input:
+                          messageCreation:
+                            fields:
+                              - name: left
+                                value: { reference: { name: n } }
+                              - name: right
+                                value: { literal: { intValue: "1" } }
+                  - name: then
+                    value:
+                      call:
+                        module: std
+                        function: return
+                        input:
+                          messageCreation:
+                            fields:
+                              - name: value
+                                value: { reference: { name: n } }
+    result:
+      call:
+        module: std
+        function: add           # fibonacci(n-1) + fibonacci(n-2)
+        input:
+          messageCreation:
+            fields:
+              - name: left
+                value:
+                  call:
+                    function: fibonacci
+                    input:
+                      call:
+                        module: std
+                        function: subtract
+                        input:
+                          messageCreation:
+                            fields:
+                              - name: left
+                                value: { reference: { name: n } }
+                              - name: right
+                                value: { literal: { intValue: "1" } }
+              - name: right
+                value:
+                  call:
+                    function: fibonacci
+                    input:
+                      call:
+                        module: std
+                        function: subtract
+                        input:
+                          messageCreation:
+                            fields:
+                              - name: left
+                                value: { reference: { name: n } }
+                              - name: right
+                                value: { literal: { intValue: "2" } }
+metadata:
+  kind: function
+  params:
+    - name: n
+      type: int

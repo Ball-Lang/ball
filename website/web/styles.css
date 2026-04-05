@@ -1003,6 +1003,21 @@ code {
   margin-bottom: 12px;
 }
 
+.example-note {
+  margin-bottom: 32px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  border-left: 3px solid rgba(139, 92, 246, 0.4);
+  background: rgba(139, 92, 246, 0.06);
+}
+
+.example-note-text {
+  font-size: 14px;
+  color: #94A3B8;
+  line-height: 1.6;
+  margin: 0;
+}
+
 .examples-run {
   padding: 40px;
   border-radius: 16px;

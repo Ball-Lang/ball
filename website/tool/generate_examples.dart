@@ -1,7 +1,7 @@
-/// Generates website/lib/generated/examples.dart from real example files.
-///
-/// Sourced from examples/ directory — compiled outputs change when the
-/// compiler changes, so this keeps the website in sync automatically.
+/// Generates website/lib/generated/examples.dart from:
+///   - website/content/*.ball.yaml  (YAML display versions of Ball programs)
+///   - examples/*/dart/*_compiled.dart  (real compiler output)
+///   - examples/*/cpp/*_compiled.cpp    (real compiler output)
 ///
 /// Run from repo root:
 ///   dart run website/tool/generate_examples.dart
@@ -10,27 +10,9 @@
 ///   dart run tool/generate_examples.dart
 library;
 
-import 'dart:convert';
 import 'dart:io';
 
-/// Strips the Ball std module boilerplate from a .ball.json,
-/// keeping only the main module and program-level fields.
-String _simplifyBallJson(String raw) {
-  final parsed = jsonDecode(raw) as Map<String, dynamic>;
-  final modules = (parsed['modules'] as List).cast<Map<String, dynamic>>();
-  final mainModule =
-      modules.firstWhere((m) => m['name'] == 'main', orElse: () => modules.last);
-  final simplified = <String, dynamic>{
-    'name': parsed['name'],
-    'entryModule': parsed['entryModule'],
-    'entryFunction': parsed['entryFunction'],
-    'modules': [mainModule],
-  };
-  return const JsonEncoder.withIndent('  ').convert(simplified);
-}
-
-/// Strips the header comments and includes from compiled C++ output,
-/// keeping only the function definitions for a cleaner display.
+/// Strips #include, // comments, and leading blank lines from C++ output.
 String _cleanCompiledCpp(String raw) {
   final lines = raw.split('\n');
   final buf = <String>[];
@@ -46,14 +28,27 @@ String _cleanCompiledCpp(String raw) {
     }
     buf.add(line);
   }
-  // Remove trailing empty lines
-  while (buf.isNotEmpty && buf.last.trim().isEmpty) {
-    buf.removeLast();
-  }
+  while (buf.isNotEmpty && buf.last.trim().isEmpty) buf.removeLast();
   return buf.join('\n');
 }
+
+/// Strips leading comment lines (// ...) from compiled Dart output.
+String _cleanCompiledDart(String raw) {
+  final lines = raw.split('\n');
+  final buf = <String>[];
+  var pastComments = false;
+  for (final line in lines) {
+    if (!pastComments) {
+      if (line.startsWith('//') || line.trim().isEmpty) continue;
+      pastComments = true;
+    }
+    buf.add(line);
+  }
+  while (buf.isNotEmpty && buf.last.trim().isEmpty) buf.removeLast();
+  return buf.join('\n');
+}
+
 void main() {
-  // Resolve repo root: works from repo root or from website/
   var repoRoot = Directory.current;
   if (File('${repoRoot.path}/website/pubspec.yaml').existsSync()) {
     // Running from repo root
@@ -65,40 +60,39 @@ void main() {
     exit(1);
   }
 
+  final contentDir = '${repoRoot.path}/website/content';
   final examplesDir = '${repoRoot.path}/examples';
   final outputFile = File('${repoRoot.path}/website/lib/generated/examples.dart');
 
-  // Read source files
-  final helloWorldJson =
-      File('$examplesDir/hello_world/hello_world.ball.json').readAsStringSync();
+  // ── YAML display files ──────────────────────────────────────
+  final helloWorldYaml =
+      File('$contentDir/hello_world.ball.yaml').readAsStringSync().trimRight();
+  final fibonacciYaml =
+      File('$contentDir/fibonacci.ball.yaml').readAsStringSync().trimRight();
+  final fibonacciFunctionYaml =
+      File('$contentDir/fibonacci_function.ball.yaml').readAsStringSync().trimRight();
+
+  // ── Compiled outputs (real compiler output) ─────────────────
   final helloWorldDart =
       File('$examplesDir/hello_world/dart/hello_world_compiled.dart').readAsStringSync();
   final helloWorldCpp =
       File('$examplesDir/hello_world/cpp/hello_world_compiled.cpp').readAsStringSync();
-  final fibonacciJson =
-      File('$examplesDir/fibonacci/fibonacci.ball.json').readAsStringSync();
   final fibonacciDart =
       File('$examplesDir/fibonacci/dart/fibonacci_compiled.dart').readAsStringSync();
   final fibonacciCpp =
       File('$examplesDir/fibonacci/cpp/fibonacci_compiled.cpp').readAsStringSync();
-  final comprehensiveDart =
-      File('$examplesDir/comprehensive/dart/comprehensive_compiled.dart').readAsStringSync();
 
-  // Process
-  final helloWorldSimplified = _simplifyBallJson(helloWorldJson);
-  final fibonacciSimplified = _simplifyBallJson(fibonacciJson);
-  final fibCppClean = _cleanCompiledCpp(fibonacciCpp);
+  // ── Process ─────────────────────────────────────────────────
+  final hwDartClean = _cleanCompiledDart(helloWorldDart);
   final hwCppClean = _cleanCompiledCpp(helloWorldCpp);
-  // Take first ~60 lines of comprehensive Dart (enough to show classes, enums, etc.)
-  final compDartLines = comprehensiveDart.split('\n');
-  final compDartExcerpt =
-      compDartLines.take(60).join('\n').trimRight() + '\n\n// ... (${compDartLines.length} lines total)';
+  final fibDartClean = _cleanCompiledDart(fibonacciDart);
+  final fibCppClean = _cleanCompiledCpp(fibonacciCpp);
 
   String escape(String s) => s.replaceAll("'''", "' ' '");
 
   final buf = StringBuffer();
   buf.writeln('// GENERATED — do not edit. Run: dart run tool/generate_examples.dart');
-  buf.writeln('// Source: examples/ directory');
+  buf.writeln('// Source: website/content/ (YAML) + examples/ (compiled output)');
   buf.writeln('');
 
   void writeConst(String name, String doc, String value) {
@@ -110,34 +104,26 @@ void main() {
   }
 
   // Hello World
-  writeConst('helloWorldBallJson',
-      'hello_world.ball.json (simplified: std stripped)', helloWorldSimplified);
-  writeConst('helloWorldCompiledDart',
-      'examples/hello_world/dart/hello_world_compiled.dart', helloWorldDart.trimRight());
-  writeConst('helloWorldCompiledCpp',
-      'examples/hello_world/cpp/hello_world_compiled.cpp (includes stripped)', hwCppClean);
+  writeConst('helloWorldYaml', 'website/content/hello_world.ball.yaml', helloWorldYaml);
+  writeConst('helloWorldDart', 'Compiled Dart (header stripped)', hwDartClean);
+  writeConst('helloWorldCpp', 'Compiled C++ (includes stripped)', hwCppClean);
 
   // Fibonacci
-  writeConst('fibonacciBallJson',
-      'fibonacci.ball.json (simplified: std stripped)', fibonacciSimplified);
-  writeConst('fibonacciCompiledDart',
-      'examples/fibonacci/dart/fibonacci_compiled.dart', fibonacciDart.trimRight());
-  writeConst('fibonacciCompiledCpp',
-      'examples/fibonacci/cpp/fibonacci_compiled.cpp (includes stripped)', fibCppClean);
-
-  // Comprehensive (excerpt only — full file is 300+ lines)
-  writeConst('comprehensiveCompiledDartExcerpt',
-      'First ~60 lines of examples/comprehensive/dart/comprehensive_compiled.dart', compDartExcerpt);
+  writeConst('fibonacciYaml', 'website/content/fibonacci.ball.yaml', fibonacciYaml);
+  writeConst('fibonacciFunctionYaml',
+      'website/content/fibonacci_function.ball.yaml (just the function)', fibonacciFunctionYaml);
+  writeConst('fibonacciDart', 'Compiled Dart (header stripped)', fibDartClean);
+  writeConst('fibonacciCpp', 'Compiled C++ (includes stripped)', fibCppClean);
 
   // Write
   outputFile.parent.createSync(recursive: true);
   outputFile.writeAsStringSync(buf.toString());
   print('Generated ${outputFile.path}');
-  print('  helloWorldBallJson: ${helloWorldSimplified.length} chars');
-  print('  helloWorldCompiledDart: ${helloWorldDart.trimRight().length} chars');
-  print('  helloWorldCompiledCpp: ${hwCppClean.length} chars');
-  print('  fibonacciBallJson: ${fibonacciSimplified.length} chars');
-  print('  fibonacciCompiledDart: ${fibonacciDart.trimRight().length} chars');
-  print('  fibonacciCompiledCpp: ${fibCppClean.length} chars');
-  print('  comprehensiveCompiledDartExcerpt: ${compDartExcerpt.length} chars');
+  print('  helloWorldYaml: ${helloWorldYaml.length} chars');
+  print('  helloWorldDart: ${hwDartClean.length} chars');
+  print('  helloWorldCpp: ${hwCppClean.length} chars');
+  print('  fibonacciYaml: ${fibonacciYaml.length} chars');
+  print('  fibonacciFunctionYaml: ${fibonacciFunctionYaml.length} chars');
+  print('  fibonacciDart: ${fibDartClean.length} chars');
+  print('  fibonacciCpp: ${fibCppClean.length} chars');
 }

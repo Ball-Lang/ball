@@ -37,25 +37,35 @@ class ExamplesPage extends StatelessComponent {
   Component _buildContent() {
     return div(classes: 'examples-content', [
       div(classes: 'examples-inner', [
+        // Format note
+        div(classes: 'example-note', [
+          p(classes: 'example-note-text', [
+            Component.text(
+              'Ball programs are stored as Protocol Buffers (binary or JSON). '
+              'Shown here as YAML for readability.',
+            ),
+          ]),
+        ]),
+
         // Hello World
         _buildExample(
           'Hello World',
           'The simplest Ball program \u2014 prints a message to the console using the std.print base function.',
           CodeBlock(
-            filename: 'hello_world.ball.json',
-            language: 'json',
-            code: examples.helloWorldBallJson,
+            filename: 'hello_world.ball.yaml',
+            language: 'yaml',
+            code: examples.helloWorldYaml,
           ),
           [
             CodeBlock(
               filename: 'Compiled \u2192 Dart',
               language: 'dart',
-              code: examples.helloWorldCompiledDart,
+              code: examples.helloWorldDart,
             ),
             CodeBlock(
               filename: 'Compiled \u2192 C++',
               language: 'cpp',
-              code: examples.helloWorldCompiledCpp,
+              code: examples.helloWorldCpp,
             ),
           ],
         ),
@@ -66,50 +76,20 @@ class ExamplesPage extends StatelessComponent {
           'A recursive Fibonacci implementation demonstrating control flow (if), '
               'comparison (lte), arithmetic (add, subtract), and function recursion.',
           CodeBlock(
-            filename: 'fibonacci.ball.json',
-            language: 'json',
-            code: examples.fibonacciBallJson,
+            filename: 'fibonacci.ball.yaml',
+            language: 'yaml',
+            code: examples.fibonacciYaml,
           ),
           [
             CodeBlock(
               filename: 'Compiled \u2192 Dart',
               language: 'dart',
-              code: examples.fibonacciCompiledDart,
+              code: examples.fibonacciDart,
             ),
             CodeBlock(
               filename: 'Compiled \u2192 C++',
               language: 'cpp',
-              code: examples.fibonacciCompiledCpp,
-            ),
-          ],
-        ),
-
-        // Comprehensive
-        _buildExample(
-          'Comprehensive Example',
-          'A larger example demonstrating variables, string operations, lists, '
-              'conditionals, loops, math functions, type checking, and more.',
-          const CodeBlock(
-            filename: 'comprehensive.ball.json',
-            language: 'json',
-            code: '// The comprehensive example is 7000+ lines of Ball JSON.\n'
-                '// It demonstrates:\n'
-                '//   \u2022 Type definitions (class, enum, mixin, typedef)\n'
-                '//   \u2022 Inheritance and mixins\n'
-                '//   \u2022 String and math operations\n'
-                '//   \u2022 Collections (list, map)\n'
-                '//   \u2022 Control flow (if, for, while, switch)\n'
-                '//   \u2022 Type checking and casting\n'
-                '//\n'
-                '// View the full file on GitHub:\n'
-                '// github.com/Ball-Lang/ball/blob/main/examples/\n'
-                '//   comprehensive/comprehensive.ball.json',
-          ),
-          [
-            CodeBlock(
-              filename: 'Compiled \u2192 Dart (excerpt)',
-              language: 'dart',
-              code: examples.comprehensiveCompiledDartExcerpt,
+              code: examples.fibonacciCpp,
             ),
           ],
         ),

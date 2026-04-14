@@ -1,16 +1,15 @@
 // GENERATED — do not edit. Run: dart run tool/generate_examples.dart
-// Source: website/content/ (YAML) + examples/ (compiled output)
+// Source: examples/*.ball.json (auto-converted to YAML) + compiled output
 
-/// website/content/hello_world.ball.yaml
+/// Auto-generated YAML from hello_world.ball.json (std stripped)
 const helloWorldYaml = r'''
-# Display-only: the real program is hello_world.ball.json (proto3 JSON / binary protobuf)
 name: hello_world
-entryModule: main
-entryFunction: main
 modules:
-  - name: main
+  -
+    name: main
     functions:
-      - name: main
+      -
+        name: main
         body:
           call:
             module: std
@@ -19,14 +18,18 @@ modules:
               messageCreation:
                 typeName: PrintInput
                 fields:
-                  - name: message
+                  -
+                    name: message
                     value:
                       literal:
-                        stringValue: "Hello, World!"
+                        { stringValue: Hello, World! }
         metadata:
-          kind: function
+          { kind: function }
     moduleImports:
-      - name: std
+      -
+        { name: std }
+entryModule: main
+entryFunction: main
 ''';
 
 /// Compiled Dart (header stripped)
@@ -38,67 +41,78 @@ void main() {
 
 /// Compiled C++ (includes stripped)
 const helloWorldCpp = r'''
-using namespace std::string_literals;
-
-
 int main() {
     std::cout << "Hello, World!"s << std::endl;
     return 0;
 }
 ''';
 
-/// website/content/fibonacci.ball.yaml
+/// Auto-generated YAML from fibonacci.ball.json (std stripped)
 const fibonacciYaml = r'''
-# Display-only: the real program is fibonacci.ball.json (proto3 JSON / binary protobuf)
 name: fibonacci
-entryModule: main
-entryFunction: main
 modules:
-  - name: main
+  -
+    name: main
     functions:
-      - name: fibonacci
+      -
+        name: fibonacci
         inputType: int
         outputType: int
         body:
           block:
             statements:
-              - expression:
+              -
+                expression:
                   call:
                     module: std
                     function: if
                     input:
                       messageCreation:
+                        typeName: ""
                         fields:
-                          - name: condition
+                          -
+                            name: condition
                             value:
                               call:
                                 module: std
                                 function: lte
                                 input:
                                   messageCreation:
+                                    typeName: ""
                                     fields:
-                                      - name: left
-                                        value: { reference: { name: n } }
-                                      - name: right
-                                        value: { literal: { intValue: "1" } }
-                          - name: then
+                                      -
+                                        name: left
+                                        value:
+                                          reference:
+                                            { name: n }                                      -
+                                        name: right
+                                        value:
+                                          literal:
+                                            { intValue: "1" }                          -
+                            name: then
                             value:
                               call:
                                 module: std
                                 function: return
                                 input:
                                   messageCreation:
+                                    typeName: ""
                                     fields:
-                                      - name: value
-                                        value: { reference: { name: n } }
+                                      -
+                                        name: value
+                                        value:
+                                          reference:
+                                            { name: n }
             result:
               call:
                 module: std
                 function: add
                 input:
                   messageCreation:
+                    typeName: ""
                     fields:
-                      - name: left
+                      -
+                        name: left
                         value:
                           call:
                             function: fibonacci
@@ -108,12 +122,18 @@ modules:
                                 function: subtract
                                 input:
                                   messageCreation:
+                                    typeName: ""
                                     fields:
-                                      - name: left
-                                        value: { reference: { name: n } }
-                                      - name: right
-                                        value: { literal: { intValue: "1" } }
-                      - name: right
+                                      -
+                                        name: left
+                                        value:
+                                          reference:
+                                            { name: n }                                      -
+                                        name: right
+                                        value:
+                                          literal:
+                                            { intValue: "1" }                      -
+                        name: right
                         value:
                           call:
                             function: fibonacci
@@ -123,29 +143,39 @@ modules:
                                 function: subtract
                                 input:
                                   messageCreation:
+                                    typeName: ""
                                     fields:
-                                      - name: left
-                                        value: { reference: { name: n } }
-                                      - name: right
-                                        value: { literal: { intValue: "2" } }
+                                      -
+                                        name: left
+                                        value:
+                                          reference:
+                                            { name: n }                                      -
+                                        name: right
+                                        value:
+                                          literal:
+                                            { intValue: "2" }
         metadata:
           kind: function
           params:
-            - name: n
-              type: int
-      - name: main
+            -
+              name: n
+              type: int      -
+        name: main
         body:
           block:
             statements:
-              - let:
+              -
+                let:
                   name: result
                   value:
                     call:
                       function: fibonacci
-                      input: { literal: { intValue: "10" } }
+                      input:
+                        literal:
+                          { intValue: "10" }
                   metadata:
-                    keyword: final
-              - expression:
+                    { keyword: final }              -
+                expression:
                   call:
                     module: std
                     function: print
@@ -153,69 +183,90 @@ modules:
                       messageCreation:
                         typeName: PrintInput
                         fields:
-                          - name: message
+                          -
+                            name: message
                             value:
                               call:
                                 module: std
                                 function: to_string
                                 input:
                                   messageCreation:
+                                    typeName: ""
                                     fields:
-                                      - name: value
-                                        value: { reference: { name: result } }
+                                      -
+                                        name: value
+                                        value:
+                                          reference:
+                                            { name: result }
         metadata:
-          kind: function
+          { kind: function }
     moduleImports:
-      - name: std
+      -
+        { name: std }
+entryModule: main
+entryFunction: main
 ''';
 
-/// website/content/fibonacci_function.ball.yaml (just the function)
+/// Auto-extracted fibonacci function as YAML
 const fibonacciFunctionYaml = r'''
-# fibonacci function body — the interesting part
-# (full program includes main() and module imports)
 name: fibonacci
 inputType: int
 outputType: int
 body:
   block:
     statements:
-      - expression:
+      -
+        expression:
           call:
             module: std
             function: if
             input:
               messageCreation:
+                typeName: ""
                 fields:
-                  - name: condition
+                  -
+                    name: condition
                     value:
                       call:
                         module: std
-                        function: lte     # n <= 1
+                        function: lte
                         input:
                           messageCreation:
+                            typeName: ""
                             fields:
-                              - name: left
-                                value: { reference: { name: n } }
-                              - name: right
-                                value: { literal: { intValue: "1" } }
-                  - name: then
+                              -
+                                name: left
+                                value:
+                                  reference:
+                                    { name: n }                              -
+                                name: right
+                                value:
+                                  literal:
+                                    { intValue: "1" }                  -
+                    name: then
                     value:
                       call:
                         module: std
                         function: return
                         input:
                           messageCreation:
+                            typeName: ""
                             fields:
-                              - name: value
-                                value: { reference: { name: n } }
+                              -
+                                name: value
+                                value:
+                                  reference:
+                                    { name: n }
     result:
       call:
         module: std
-        function: add           # fibonacci(n-1) + fibonacci(n-2)
+        function: add
         input:
           messageCreation:
+            typeName: ""
             fields:
-              - name: left
+              -
+                name: left
                 value:
                   call:
                     function: fibonacci
@@ -225,12 +276,18 @@ body:
                         function: subtract
                         input:
                           messageCreation:
+                            typeName: ""
                             fields:
-                              - name: left
-                                value: { reference: { name: n } }
-                              - name: right
-                                value: { literal: { intValue: "1" } }
-              - name: right
+                              -
+                                name: left
+                                value:
+                                  reference:
+                                    { name: n }                              -
+                                name: right
+                                value:
+                                  literal:
+                                    { intValue: "1" }              -
+                name: right
                 value:
                   call:
                     function: fibonacci
@@ -240,15 +297,22 @@ body:
                         function: subtract
                         input:
                           messageCreation:
+                            typeName: ""
                             fields:
-                              - name: left
-                                value: { reference: { name: n } }
-                              - name: right
-                                value: { literal: { intValue: "2" } }
+                              -
+                                name: left
+                                value:
+                                  reference:
+                                    { name: n }                              -
+                                name: right
+                                value:
+                                  literal:
+                                    { intValue: "2" }
 metadata:
   kind: function
   params:
-    - name: n
+    -
+      name: n
       type: int
 ''';
 
@@ -269,9 +333,6 @@ void main() {
 
 /// Compiled C++ (includes stripped)
 const fibonacciCpp = r'''
-using namespace std::string_literals;
-
-
 int64_t fibonacci(auto n) {
     if ((n <= 1LL)) {
         /* return */ n;

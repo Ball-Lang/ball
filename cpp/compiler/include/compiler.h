@@ -43,6 +43,16 @@ private:
     std::ostringstream out_;
     int indent_ = 0;
 
+    // Pending label from a `labeled` wrapper — consumed by the next loop
+    // emission so it can plant `__ball_break_<label>` / `__ball_continue_<label>`
+    // goto targets around/inside its body.
+    std::string pending_label_;
+
+    // Variables currently bound to a `BallException&` inside a catch
+    // block. Field access on these compiles to `.fields.at("X")` so
+    // catch-side payload reads reach the original throw values.
+    std::unordered_set<std::string> catch_bound_vars_;
+
     void build_lookup_tables();
     std::vector<std::string> extract_params(const google::protobuf::Struct& metadata);
     std::map<std::string, std::string> read_meta(const ball::v1::FunctionDefinition& func);

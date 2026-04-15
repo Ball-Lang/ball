@@ -1,6 +1,7 @@
 // ball::CppCompiler — compiles a ball Program AST to C++ source code.
 
 #include "compiler.h"
+#include "ball_emit_runtime_embed.h"
 
 #include <algorithm>
 #include <cmath>
@@ -146,6 +147,17 @@ std::string CppCompiler::sanitize_name(const std::string& name) {
         "namespace", "operator", "default", "register", "explicit"
     };
     if (reserved.count(result)) result += "_";
+    // C stdlib / <cmath> / <cstdlib> names that would collide with
+    // user-defined functions in main's global-lookup scope. Suffixed
+    // consistently here so both definition and call sites match.
+    static const std::set<std::string> stdlib_collisions = {
+        "abs", "fabs", "floor", "ceil", "round", "trunc", "sqrt", "pow",
+        "exp", "log", "log2", "log10", "sin", "cos", "tan", "atan",
+        "atan2", "min", "max", "fmod", "div", "hypot",
+        "strcmp", "strlen", "strcpy", "memcpy", "memset", "malloc",
+        "free", "exit", "atoi", "atof", "rand", "srand",
+    };
+    if (stdlib_collisions.count(result)) result += "_";
     return result;
 }
 
@@ -229,6 +241,15 @@ std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
 std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& access) {
     auto obj = compile_expr(access.object());
     auto field = access.field();
+    // Catch-bound variables hold a `const BallException&`. Their
+    // original throw-site field values live in `.fields` (std::map), so
+    // rewrite `e.detail` as `e.fields.at("detail")` to read them back.
+    if (access.object().expr_case() == ball::v1::Expression::kReference) {
+        const auto& ref_name = access.object().reference().name();
+        if (catch_bound_vars_.count(ref_name) > 0) {
+            return ref_name + ".fields.at(\"" + field + "\")";
+        }
+    }
     // Common virtual properties → C++ equivalents
     if (field == "length") return "static_cast<int64_t>(" + obj + ".size())";
     if (field == "isEmpty") return obj + ".empty()";
@@ -379,8 +400,16 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
     std::string mod = call.module();
     const auto& fn = call.function();
 
-    // std / dart_std operations → native C++
-    if (mod == "std" || mod == "dart_std") {
+    // std / dart_std operations → native C++. Empty module is also
+    // treated as std when the function name is a known std operation
+    // (the encoder omits `module: 'std'` for core wrappers like
+    // `labeled`, `paren`, `switch_expr`).
+    static const std::set<std::string> std_builtins = {
+        "labeled", "paren", "switch_expr", "set_create", "map_create",
+        "yield_each",
+    };
+    if (mod == "std" || mod == "dart_std" ||
+        (mod.empty() && std_builtins.count(fn) > 0)) {
         return compile_std_call(fn, call);
     }
 
@@ -517,10 +546,24 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     // ── String operations ──
     if (fn == "concat" || fn == "string_concat") return compile_binary_op("+", call);
     if (fn == "to_string" || fn == "int_to_string" || fn == "double_to_string") {
-        return "std::to_string(" + get_message_field(call, "value") + ")";
+        return "ball_to_string(" + get_message_field(call, "value") + ")";
     }
-    if (fn == "string_to_int") return "std::stoll(" + get_message_field(call, "value") + ")";
-    if (fn == "string_to_double") return "std::stod(" + get_message_field(call, "value") + ")";
+    if (fn == "string_to_int") {
+        // Wrap in an IIFE that converts std::invalid_argument /
+        // std::out_of_range into a `BallException("FormatException", …)`
+        // so typed catches like `on FormatException catch (e)` dispatch
+        // correctly — matches Dart runtime semantics.
+        auto v = get_message_field(call, "value");
+        return "[](const std::string& s) -> int64_t { try { return std::stoll(s); } "
+               "catch (const std::exception&) { throw BallException(\"FormatException\"s, "
+               "\"FormatException: \"s + s); } }(" + v + ")";
+    }
+    if (fn == "string_to_double") {
+        auto v = get_message_field(call, "value");
+        return "[](const std::string& s) -> double { try { return std::stod(s); } "
+               "catch (const std::exception&) { throw BallException(\"FormatException\"s, "
+               "\"FormatException: \"s + s); } }(" + v + ")";
+    }
     if (fn == "string_length") return "static_cast<int64_t>(" + get_message_field(call, "value") + ".size())";
     if (fn == "string_is_empty") return get_message_field(call, "value") + ".empty()";
     if (fn == "string_contains") return "(" + get_message_field(call, "left") + ".find(" +
@@ -646,8 +689,16 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         // This will be handled as a statement when used in statement context
         return "/* return */ " + val;
     }
-    if (fn == "break") return "break";
-    if (fn == "continue") return "continue";
+    if (fn == "break") {
+        auto label = get_string_field(call, "label");
+        if (!label.empty()) return "goto __ball_break_" + label;
+        return "break";
+    }
+    if (fn == "continue") {
+        auto label = get_string_field(call, "label");
+        if (!label.empty()) return "goto __ball_continue_" + label;
+        return "continue";
+    }
     if (fn == "goto") {
         auto label = get_string_field(call, "label");
         return "goto " + label;
@@ -695,10 +746,57 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "spread" || fn == "null_spread") return get_message_field(call, "value");
 
     // ── Exception ──
-    if (fn == "throw") return "throw std::runtime_error(" + get_message_field(call, "value") + ")";
+    if (fn == "rethrow") {
+        // `throw;` with no operand re-raises the currently handled
+        // exception. Valid only inside a catch block; outside one it
+        // calls std::terminate — matching the Dart engine's runtime
+        // "rethrow outside of catch" error path.
+        return "throw";
+    }
+    if (fn == "throw") {
+        // Best-effort static type extraction: if the throw value is a
+        // messageCreation literal carrying a `__type` string field,
+        // promote it to the BallException type_name so typed catches
+        // can dispatch. Other string-literal fields populate the
+        // exception's `fields` map, so catch-side `e.detail` reads the
+        // original payload.
+        auto* val_expr = get_message_field_expr(call, "value");
+        std::string type_name = "Exception";
+        bool is_msg = val_expr &&
+                      val_expr->expr_case() == ball::v1::Expression::kMessageCreation;
+        if (is_msg) {
+            std::string fields_init;
+            for (const auto& f : val_expr->message_creation().fields()) {
+                if (f.value().expr_case() == ball::v1::Expression::kLiteral &&
+                    f.value().literal().value_case() ==
+                        ball::v1::Literal::kStringValue) {
+                    const auto& val = f.value().literal().string_value();
+                    if (f.name() == "__type") {
+                        type_name = val;
+                    } else {
+                        if (!fields_init.empty()) fields_init += ", ";
+                        fields_init += "{\"" + f.name() + "\"s, \"" + val + "\"s}";
+                    }
+                }
+            }
+            return "throw BallException(\"" + type_name + "\"s, \"" +
+                   type_name + "\"s, std::map<std::string, std::string>{" +
+                   fields_init + "})";
+        }
+        // Non-message value — stringify and pass through as the message
+        // with an empty fields map.
+        std::string message_expr = get_message_field(call, "value");
+        return "throw BallException(\"Exception\"s, " + message_expr + ")";
+    }
     if (fn == "assert") {
         auto cond = get_message_field(call, "condition");
         return "assert(" + cond + ")";
+    }
+    if (fn == "paren") {
+        // Wrapper emitted by the encoder to mark precedence-sensitive
+        // parenthesized sub-expressions (e.g. around ternary/assign).
+        // At the C++ level parens are always fine, so just re-wrap.
+        return "(" + get_message_field(call, "value") + ")";
     }
 
     // ── Invoke ──
@@ -751,54 +849,135 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
         // Special handling for return in statement context
         if (stmt.expression().expr_case() == ball::v1::Expression::kCall) {
             const auto& call = stmt.expression().call();
-            if ((call.module() == "std" || call.module() == "dart_std") &&
+            // `labeled` wraps a loop (or any statement) to attach a label used
+            // by `break <label>` / `continue <label>`. We stash the label in
+            // `pending_label_` so the next loop emission plants the goto
+            // targets, then recursively compile the wrapped body.
+            // Empty module is an implicit std reference (encoder sometimes
+            // omits `module: 'std'`). Accept both forms for every std
+            // control-flow case below.
+            const auto& call_mod = call.module();
+            const bool std_like = call_mod.empty() ||
+                                  call_mod == "std" ||
+                                  call_mod == "dart_std";
+            if (std_like && call.function() == "labeled") {
+                auto label_name = get_string_field(call, "label");
+                auto* body_expr = get_message_field_expr(call, "body");
+                if (body_expr) {
+                    auto prev_label = pending_label_;
+                    pending_label_ = label_name;
+                    // The body can be a block wrapping the loop, or the
+                    // loop call directly. Unwrap blocks so the loop's
+                    // statement-form emission picks up the pending label.
+                    if (body_expr->expr_case() == ball::v1::Expression::kBlock) {
+                        for (const auto& s : body_expr->block().statements()) {
+                            compile_statement(s);
+                        }
+                    } else {
+                        ball::v1::Statement inner;
+                        *inner.mutable_expression() = *body_expr;
+                        compile_statement(inner);
+                    }
+                    // If the body wasn't a recognized loop, the label was
+                    // never consumed — fall back to emitting a break target
+                    // so `break <label>` still has somewhere to land.
+                    if (!pending_label_.empty()) {
+                        emit_line("__ball_break_" + pending_label_ + ":;");
+                        pending_label_ = prev_label;
+                    } else {
+                        pending_label_ = prev_label;
+                    }
+                }
+                return;
+            }
+            if (std_like &&
                 call.function() == "return") {
                 auto val = get_message_field(call, "value");
                 emit_line("return " + val + ";");
                 return;
             }
-            if ((call.module() == "std" || call.module() == "dart_std") &&
+            if (std_like &&
                 call.function() == "if") {
                 // Emit if as a statement
                 auto cond = get_message_field(call, "condition");
                 emit_line("if (" + cond + ") {");
                 indent_++;
-                auto* then_expr = get_message_field_expr(call, "then");
-                if (then_expr) {
-                    if (then_expr->expr_case() == ball::v1::Expression::kBlock) {
-                        for (const auto& s : then_expr->block().statements()) {
+                // Lambda: emit an arbitrary expression as a nested statement
+                // so that direct calls to `return`/`break`/`continue` get
+                // their proper statement form instead of falling back to
+                // `compile_expr`, which renders them as comment placeholders.
+                auto emit_branch = [&](const ball::v1::Expression* e) {
+                    if (!e) return;
+                    if (e->expr_case() == ball::v1::Expression::kBlock) {
+                        for (const auto& s : e->block().statements()) {
                             compile_statement(s);
                         }
-                        if (then_expr->block().has_result()) {
-                            emit_line(compile_expr(then_expr->block().result()) + ";");
+                        if (e->block().has_result()) {
+                            emit_line(compile_expr(e->block().result()) + ";");
                         }
                     } else {
-                        emit_line(compile_expr(*then_expr) + ";");
+                        ball::v1::Statement inner;
+                        *inner.mutable_expression() = *e;
+                        compile_statement(inner);
                     }
-                }
+                };
+                emit_branch(get_message_field_expr(call, "then"));
                 indent_--;
                 auto* else_expr = get_message_field_expr(call, "else");
                 if (else_expr) {
                     emit_line("} else {");
                     indent_++;
-                    if (else_expr->expr_case() == ball::v1::Expression::kBlock) {
-                        for (const auto& s : else_expr->block().statements()) {
-                            compile_statement(s);
-                        }
-                        if (else_expr->block().has_result()) {
-                            emit_line(compile_expr(else_expr->block().result()) + ";");
-                        }
-                    } else {
-                        emit_line(compile_expr(*else_expr) + ";");
-                    }
+                    emit_branch(else_expr);
                     indent_--;
                 }
                 emit_line("}");
                 return;
             }
-            if ((call.module() == "std" || call.module() == "dart_std") &&
+            if (std_like &&
                 call.function() == "for") {
-                auto init = get_message_field(call, "init");
+                auto loop_label = pending_label_;
+                pending_label_.clear();
+                // The Dart encoder emits `init` as an opaque source
+                // string like `"var i = 0"`. Detect that case and
+                // translate it into a C++ declaration so the emitted
+                // `for(...)` header is valid. Any non-literal init
+                // expression falls through to the default path.
+                auto* init_expr = get_message_field_expr(call, "init");
+                std::string init;
+                if (init_expr &&
+                    init_expr->expr_case() == ball::v1::Expression::kLiteral &&
+                    init_expr->literal().value_case() == ball::v1::Literal::kStringValue) {
+                    const auto& raw = init_expr->literal().string_value();
+                    // Match `var name = value` / `int name = value` / ...
+                    // Simple parse: strip leading keyword, replace `var`
+                    // with `auto` so C++ accepts it.
+                    auto dart_to_cpp_init = [](std::string s) {
+                        const std::vector<std::string> kws = {
+                            "var", "final", "int", "double", "String",
+                            "bool", "num",
+                        };
+                        std::string out = s;
+                        for (const auto& kw : kws) {
+                            if (out.size() > kw.size() &&
+                                out.compare(0, kw.size(), kw) == 0 &&
+                                out[kw.size()] == ' ') {
+                                out = (kw == "var" || kw == "final"
+                                           ? std::string("auto")
+                                           : kw == "num"
+                                                 ? std::string("double")
+                                                 : kw == "String"
+                                                       ? std::string("std::string")
+                                                       : kw) +
+                                      out.substr(kw.size());
+                                break;
+                            }
+                        }
+                        return out;
+                    };
+                    init = dart_to_cpp_init(raw);
+                } else {
+                    init = get_message_field(call, "init");
+                }
                 auto cond = get_message_field(call, "condition");
                 auto update = get_message_field(call, "update");
                 emit_line("for (" + init + "; " + cond + "; " + update + ") {");
@@ -810,15 +989,31 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                             compile_statement(s);
                         }
                     } else {
-                        emit_line(compile_expr(*body_expr) + ";");
+                        // Wrap the bare-expression body in a synthetic
+                        // statement so control-flow calls (if / labeled
+                        // / break / continue / return / try) reach
+                        // their statement-context emission instead of
+                        // falling back to the IIFE-wrapped expression
+                        // form in compile_expr.
+                        ball::v1::Statement inner;
+                        *inner.mutable_expression() = *body_expr;
+                        compile_statement(inner);
                     }
+                }
+                if (!loop_label.empty()) {
+                    emit_line("__ball_continue_" + loop_label + ":;");
                 }
                 indent_--;
                 emit_line("}");
+                if (!loop_label.empty()) {
+                    emit_line("__ball_break_" + loop_label + ":;");
+                }
                 return;
             }
-            if ((call.module() == "std" || call.module() == "dart_std") &&
+            if (std_like &&
                 call.function() == "for_in") {
+                auto loop_label = pending_label_;
+                pending_label_.clear();
                 auto* var_expr = get_message_field_expr(call, "variable");
                 std::string var_name = "item";
                 if (var_expr && var_expr->expr_case() == ball::v1::Expression::kLiteral)
@@ -833,15 +1028,28 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                             compile_statement(s);
                         }
                     } else {
-                        emit_line(compile_expr(*body_expr) + ";");
+                        // Wrap bare-expression body in a synthetic
+                        // statement so nested control-flow calls hit
+                        // their statement-context emission.
+                        ball::v1::Statement inner;
+                        *inner.mutable_expression() = *body_expr;
+                        compile_statement(inner);
                     }
+                }
+                if (!loop_label.empty()) {
+                    emit_line("__ball_continue_" + loop_label + ":;");
                 }
                 indent_--;
                 emit_line("}");
+                if (!loop_label.empty()) {
+                    emit_line("__ball_break_" + loop_label + ":;");
+                }
                 return;
             }
-            if ((call.module() == "std" || call.module() == "dart_std") &&
+            if (std_like &&
                 call.function() == "while") {
+                auto loop_label = pending_label_;
+                pending_label_.clear();
                 auto cond = get_message_field(call, "condition");
                 emit_line("while (" + cond + ") {");
                 indent_++;
@@ -852,15 +1060,28 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                             compile_statement(s);
                         }
                     } else {
-                        emit_line(compile_expr(*body_expr) + ";");
+                        // Wrap bare-expression body in a synthetic
+                        // statement so nested control-flow calls hit
+                        // their statement-context emission.
+                        ball::v1::Statement inner;
+                        *inner.mutable_expression() = *body_expr;
+                        compile_statement(inner);
                     }
+                }
+                if (!loop_label.empty()) {
+                    emit_line("__ball_continue_" + loop_label + ":;");
                 }
                 indent_--;
                 emit_line("}");
+                if (!loop_label.empty()) {
+                    emit_line("__ball_break_" + loop_label + ":;");
+                }
                 return;
             }
-            if ((call.module() == "std" || call.module() == "dart_std") &&
+            if (std_like &&
                 call.function() == "do_while") {
+                auto loop_label = pending_label_;
+                pending_label_.clear();
                 emit_line("do {");
                 indent_++;
                 auto* body_expr = get_message_field_expr(call, "body");
@@ -870,15 +1091,26 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                             compile_statement(s);
                         }
                     } else {
-                        emit_line(compile_expr(*body_expr) + ";");
+                        // Wrap bare-expression body in a synthetic
+                        // statement so nested control-flow calls hit
+                        // their statement-context emission.
+                        ball::v1::Statement inner;
+                        *inner.mutable_expression() = *body_expr;
+                        compile_statement(inner);
                     }
+                }
+                if (!loop_label.empty()) {
+                    emit_line("__ball_continue_" + loop_label + ":;");
                 }
                 indent_--;
                 auto cond = get_message_field(call, "condition");
                 emit_line("} while (" + cond + ");");
+                if (!loop_label.empty()) {
+                    emit_line("__ball_break_" + loop_label + ":;");
+                }
                 return;
             }
-            if ((call.module() == "std" || call.module() == "dart_std") &&
+            if (std_like &&
                 call.function() == "switch") {
                 auto subj = get_message_field(call, "subject");
                 emit_line("switch (" + subj + ") {");
@@ -927,7 +1159,7 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                 emit_line("}");
                 return;
             }
-            if ((call.module() == "std" || call.module() == "dart_std") &&
+            if (std_like &&
                 call.function() == "try") {
                 emit_line("try {");
                 indent_++;
@@ -938,52 +1170,131 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                             compile_statement(s);
                         }
                     } else {
-                        emit_line(compile_expr(*body_expr) + ";");
+                        // Wrap bare-expression body in a synthetic
+                        // statement so nested control-flow calls hit
+                        // their statement-context emission.
+                        ball::v1::Statement inner;
+                        *inner.mutable_expression() = *body_expr;
+                        compile_statement(inner);
                     }
                 }
                 indent_--;
                 auto* catches_expr = get_message_field_expr(call, "catches");
-                if (catches_expr) {
-                    // Handle catch clauses from list
-                    if (catches_expr->expr_case() == ball::v1::Expression::kLiteral &&
-                        catches_expr->literal().value_case() == ball::v1::Literal::kListValue) {
-                        for (const auto& cx : catches_expr->literal().list_value().elements()) {
-                            if (cx.expr_case() != ball::v1::Expression::kMessageCreation) continue;
-                            const ball::v1::Expression* catch_body = nullptr;
-                            std::string exception_var = "e";
-                            std::string exception_type;
-                            for (const auto& f : cx.message_creation().fields()) {
-                                if (f.name() == "body") catch_body = &f.value();
-                                else if (f.name() == "variable" &&
-                                         f.value().expr_case() == ball::v1::Expression::kLiteral)
-                                    exception_var = f.value().literal().string_value();
-                                else if (f.name() == "type" &&
-                                         f.value().expr_case() == ball::v1::Expression::kLiteral)
-                                    exception_type = f.value().literal().string_value();
-                            }
-                            emit_line("} catch (const std::exception& " + sanitize_name(exception_var) + ") {");
-                            indent_++;
-                            if (catch_body) {
-                                if (catch_body->expr_case() == ball::v1::Expression::kBlock) {
-                                    for (const auto& s : catch_body->block().statements()) {
-                                        compile_statement(s);
-                                    }
-                                    if (catch_body->block().has_result()) {
-                                        emit_line(compile_expr(catch_body->block().result()) + ";");
-                                    }
-                                } else {
-                                    emit_line(compile_expr(*catch_body) + ";");
-                                }
-                            }
-                            indent_--;
+                if (catches_expr &&
+                    catches_expr->expr_case() == ball::v1::Expression::kLiteral &&
+                    catches_expr->literal().value_case() == ball::v1::Literal::kListValue) {
+                    // Partition catches into typed and untyped, preserving order
+                    // within each group. Typed catches dispatch inside a single
+                    // `catch (const BallException&)` block via if/else on
+                    // type_name. Untyped catches match anything (last-resort).
+                    struct CatchClause {
+                        const ball::v1::Expression* body = nullptr;
+                        std::string var = "e";
+                        std::string type_name; // empty = untyped
+                    };
+                    std::vector<CatchClause> clauses;
+                    for (const auto& cx : catches_expr->literal().list_value().elements()) {
+                        if (cx.expr_case() != ball::v1::Expression::kMessageCreation) continue;
+                        CatchClause cc;
+                        for (const auto& f : cx.message_creation().fields()) {
+                            if (f.name() == "body") cc.body = &f.value();
+                            else if (f.name() == "variable" &&
+                                     f.value().expr_case() == ball::v1::Expression::kLiteral)
+                                cc.var = f.value().literal().string_value();
+                            else if (f.name() == "type" &&
+                                     f.value().expr_case() == ball::v1::Expression::kLiteral)
+                                cc.type_name = f.value().literal().string_value();
                         }
-                    } else {
-                        // Single catch expression
-                        emit_line("} catch (const std::exception& e) {");
+                        clauses.push_back(std::move(cc));
+                    }
+
+                    auto emit_catch_body = [&](const CatchClause& cc) {
+                        if (!cc.body) return;
+                        if (cc.body->expr_case() == ball::v1::Expression::kBlock) {
+                            for (const auto& s : cc.body->block().statements()) {
+                                compile_statement(s);
+                            }
+                            if (cc.body->block().has_result()) {
+                                emit_line(compile_expr(cc.body->block().result()) + ";");
+                            }
+                        } else {
+                            emit_line(compile_expr(*cc.body) + ";");
+                        }
+                    };
+
+                    // Count typed vs. find first untyped
+                    int typed_count = 0;
+                    const CatchClause* first_untyped = nullptr;
+                    for (const auto& cc : clauses) {
+                        if (cc.type_name.empty()) {
+                            if (!first_untyped) first_untyped = &cc;
+                        } else {
+                            typed_count++;
+                        }
+                    }
+
+                    // Emit `catch (const BallException&)` block with type
+                    // dispatch when at least one typed catch exists. The
+                    // catch variable is bound to the BallException itself
+                    // so field access can reach `.fields.at("X")`. A
+                    // stream `operator<<` overload in the runtime makes
+                    // `print(e)` fall through to `.what()`.
+                    if (typed_count > 0) {
+                        emit_line("} catch (const BallException& __ball_e) {");
                         indent_++;
-                        emit_line(compile_expr(*catches_expr) + ";");
+                        bool first = true;
+                        for (const auto& cc : clauses) {
+                            if (cc.type_name.empty()) continue;
+                            emit_line(std::string(first ? "if" : "else if") +
+                                      " (__ball_e.type_name == \"" + cc.type_name + "\"s) {");
+                            indent_++;
+                            auto var = sanitize_name(cc.var);
+                            emit_line("const BallException& " + var + " = __ball_e;");
+                            catch_bound_vars_.insert(var);
+                            emit_catch_body(cc);
+                            catch_bound_vars_.erase(var);
+                            indent_--;
+                            emit_line("}");
+                            first = false;
+                        }
+                        // Fallback: untyped catch body (if any), else rethrow.
+                        emit_line("else {");
+                        indent_++;
+                        if (first_untyped) {
+                            auto var = sanitize_name(first_untyped->var);
+                            emit_line("const BallException& " + var + " = __ball_e;");
+                            catch_bound_vars_.insert(var);
+                            emit_catch_body(*first_untyped);
+                            catch_bound_vars_.erase(var);
+                        } else {
+                            emit_line("throw;");
+                        }
+                        indent_--;
+                        emit_line("}");
                         indent_--;
                     }
+                    // Always emit a std::exception catch for non-BallException
+                    // throws (e.g. real `std::runtime_error` escaping a
+                    // library call). Untyped catch clauses match here;
+                    // otherwise rethrow to propagate.
+                    emit_line("} catch (const std::exception& __ball_e) {");
+                    indent_++;
+                    if (first_untyped) {
+                        auto var = sanitize_name(first_untyped->var);
+                        emit_line("std::string " + var + " = __ball_e.what();");
+                        // Not a BallException — no fields map, so don't
+                        // register as catch-bound for field access.
+                        emit_catch_body(*first_untyped);
+                    } else {
+                        emit_line("throw;");
+                    }
+                    indent_--;
+                } else if (catches_expr) {
+                    // Single catch expression (non-list) — treat as untyped
+                    emit_line("} catch (const std::exception& e) {");
+                    indent_++;
+                    emit_line(compile_expr(*catches_expr) + ";");
+                    indent_--;
                 } else {
                     emit_line("} catch (const std::exception& e) {");
                     indent_++;
@@ -1041,6 +1352,14 @@ void CppCompiler::emit_includes() {
     }
     emit_newline();
     emit_line("using namespace std::string_literals;");
+    emit_newline();
+
+    // Splice the single-source-of-truth runtime (BallException +
+    // ball_to_string overloads) from ball_emit_runtime.h. The embed
+    // header is generated at configure time by EmbedRuntimeHeader.cmake,
+    // so edits to ball_emit_runtime.h automatically flow into every
+    // emitted C++ program AND the engine (via ball_shared.h).
+    out_ << BALL_EMIT_RUNTIME_SOURCE;
     emit_newline();
 }
 
@@ -1109,6 +1428,68 @@ void CppCompiler::emit_forward_decls(const ball::v1::Module& module) {
         // Forward decls also need template prefix
         emit_template_prefix(td);
         emit_line("struct " + sanitize_name(td.name()) + ";");
+    }
+
+    // Forward-declare top-level functions so mutual recursion works
+    // regardless of declaration order. We only declare true free
+    // functions (not the entry point, methods, operators, or
+    // conversion operators) — those either aren't callable from
+    // elsewhere or are declared inside their struct.
+    for (const auto& func : module.functions()) {
+        if (func.is_base()) continue;
+        if (func.name() == "main") continue;
+        // Skip methods (names contain ':' or '.') and operators.
+        if (func.name().find(':') != std::string::npos) continue;
+        auto meta_map = read_meta(func);
+        if (meta_map.count("kind") &&
+            (meta_map["kind"] == "method" ||
+             meta_map["kind"] == "constructor" ||
+             meta_map["kind"] == "top_level_variable")) continue;
+        if (meta_map.count("is_operator") && meta_map["is_operator"] == "true") continue;
+
+        auto return_type = map_return_type(func);
+        auto name = sanitize_name(func.name());
+        if (meta_map.count("original_name")) {
+            name = sanitize_name(meta_map["original_name"]);
+        }
+        if (func.has_metadata()) emit_template_prefix_from_meta(func.metadata());
+        emit_indent();
+        out_ << return_type << " " << name << "(";
+
+        // Re-derive the parameter list (same shape as emit_function).
+        auto params = func.has_metadata()
+                          ? extract_params(func.metadata())
+                          : std::vector<std::string>{};
+        std::vector<std::string> ptypes;
+        if (func.has_metadata()) {
+            auto it = func.metadata().fields().find("params");
+            if (it != func.metadata().fields().end() &&
+                it->second.kind_case() == google::protobuf::Value::kListValue) {
+                for (const auto& v : it->second.list_value().values()) {
+                    std::string t;
+                    if (v.kind_case() == google::protobuf::Value::kStructValue) {
+                        auto tit = v.struct_value().fields().find("type");
+                        if (tit != v.struct_value().fields().end() &&
+                            tit->second.kind_case() == google::protobuf::Value::kStringValue) {
+                            t = tit->second.string_value();
+                        }
+                    }
+                    ptypes.push_back(t);
+                }
+            }
+        }
+        if (!params.empty()) {
+            for (size_t i = 0; i < params.size(); i++) {
+                if (i > 0) out_ << ", ";
+                std::string t = (i < ptypes.size() && !ptypes[i].empty())
+                                    ? map_type(ptypes[i])
+                                    : "auto";
+                out_ << t << " " << sanitize_name(params[i]);
+            }
+        } else if (!func.input_type().empty()) {
+            out_ << map_type(func.input_type()) << " input";
+        }
+        out_ << ");\n";
     }
     emit_newline();
 }
@@ -1307,12 +1688,65 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     } else {
         out_ << return_type << " " << name << "(";
     }
-    for (size_t i = 0; i < params.size(); i++) {
-        if (i > 0) out_ << ", ";
-        out_ << "auto " << sanitize_name(params[i]);
+
+    // Parameter emission strategy matches the Dart compiler:
+    //   - If metadata provides N>=1 named params, emit them as N separate
+    //     typed parameters. The function body references them by name
+    //     (the encoder preserves original param names), so no aliasing
+    //     is needed. This is the modern, encoder-generated path.
+    //   - If metadata is absent but input_type is set, fall back to the
+    //     legacy "single `input` parameter" convention used by older
+    //     hand-written ball.json files whose bodies reference `input`
+    //     directly.
+    //   - Otherwise emit `()`.
+    auto extract_param_types = [&](const ball::v1::FunctionDefinition& f)
+        -> std::vector<std::string> {
+        std::vector<std::string> types;
+        if (!f.has_metadata()) return types;
+        auto it = f.metadata().fields().find("params");
+        if (it == f.metadata().fields().end()) return types;
+        if (it->second.kind_case() != google::protobuf::Value::kListValue) return types;
+        for (const auto& v : it->second.list_value().values()) {
+            if (v.kind_case() != google::protobuf::Value::kStructValue) {
+                types.push_back("");
+                continue;
+            }
+            auto tit = v.struct_value().fields().find("type");
+            if (tit != v.struct_value().fields().end() &&
+                tit->second.kind_case() == google::protobuf::Value::kStringValue) {
+                types.push_back(tit->second.string_value());
+            } else {
+                types.push_back("");
+            }
+        }
+        return types;
+    };
+    auto param_types = extract_param_types(func);
+
+    if (!params.empty()) {
+        for (size_t i = 0; i < params.size(); i++) {
+            if (i > 0) out_ << ", ";
+            std::string t = (i < param_types.size() && !param_types[i].empty())
+                                ? map_type(param_types[i])
+                                : "auto";
+            out_ << t << " " << sanitize_name(params[i]);
+        }
+    } else if (!func.input_type().empty()) {
+        out_ << map_type(func.input_type()) << " input";
     }
     out_ << ") {\n";
     indent_++;
+
+    // Legacy alias: hand-written ball.json fixtures often reference
+    // `input` in the body even when metadata.params declares real
+    // names (e.g. `fibonacci(n) { return input - 1; }`). For
+    // single-param functions, alias `input` → the declared parameter
+    // so both names resolve. Modern encoder-generated programs use
+    // the real param names and the alias is harmless (just a local
+    // reference binding).
+    if (params.size() == 1 && sanitize_name(params[0]) != "input") {
+        emit_line("auto& input = " + sanitize_name(params[0]) + ";");
+    }
 
     if (func.has_body()) {
         if (func.body().expr_case() == ball::v1::Expression::kBlock) {
@@ -1321,11 +1755,17 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
             if (func.body().block().has_result() && return_type != "void") {
                 emit_line("return " + compile_expr(func.body().block().result()) + ";");
             }
+        } else if (return_type != "void") {
+            // Value-returning body as a bare expression — emit a return.
+            emit_line("return " + compile_expr(func.body()) + ";");
         } else {
-            if (return_type != "void")
-                emit_line("return " + compile_expr(func.body()) + ";");
-            else
-                emit_line(compile_expr(func.body()) + ";");
+            // Void body as a bare expression: route through compile_statement
+            // so control-flow calls (try/if/for/while/labeled/etc.) reach
+            // their statement-context emission instead of the broken lambda
+            // fallback in compile_expr (which wraps try in an IIFE).
+            ball::v1::Statement inner;
+            *inner.mutable_expression() = func.body();
+            compile_statement(inner);
         }
     }
 
@@ -1362,7 +1802,13 @@ void CppCompiler::emit_main(const ball::v1::FunctionDefinition& entry) {
                 emit_line(compile_expr(entry.body().block().result()) + ";");
             }
         } else {
-            emit_line(compile_expr(entry.body()) + ";");
+            // Route bare expressions through compile_statement so
+            // control-flow calls (try/if/for/while/labeled) hit their
+            // statement-context emission instead of the lambda fallback
+            // in compile_expr.
+            ball::v1::Statement inner;
+            *inner.mutable_expression() = entry.body();
+            compile_statement(inner);
         }
     }
 
@@ -1411,6 +1857,13 @@ std::string CppCompiler::compile() {
         emit_line("static std::vector<size_t> _ball_stack_frames;");
         emit_newline();
     }
+
+    // Wrap user declarations in an anonymous namespace so user function
+    // names can't collide with C stdlib names (`abs`, `pow`, etc.) that
+    // are pulled in by `<cmath>` / `<cstdlib>`. `main()` stays at global
+    // scope and picks up these names via unqualified lookup.
+    emit_line("namespace {");
+    emit_newline();
 
     // Forward declarations
     emit_forward_decls(*main_module);
@@ -1468,7 +1921,12 @@ std::string CppCompiler::compile() {
         emit_function(*func);
     }
 
-    // Main entry point
+    // Close the anonymous namespace opened before emit_forward_decls.
+    emit_line("} // namespace");
+    emit_newline();
+
+    // Main entry point (global scope — has access to everything in the
+    // anonymous namespace via unqualified lookup).
     if (entry_func) {
         emit_main(*entry_func);
     }
@@ -2066,8 +2524,37 @@ std::string CppCompiler::compile_convert_call(const std::string& fn,
         return CppExpr::static_call("std::string",
             {bytes.dot("begin").call(), bytes.dot("end").call()}).str();
     }
-    if (fn == "base64_encode" || fn == "base64_decode") {
-        return "/* " + fn + " not yet implemented */";
+    if (fn == "base64_encode") {
+        auto src = field_expr(call, "source");
+        return "[](const std::vector<uint8_t>& b){"
+               "static const char* a=\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";"
+               "std::string o;o.reserve(((b.size()+2)/3)*4);"
+               "size_t i=0;for(;i+3<=b.size();i+=3){"
+               "o+=a[(b[i]>>2)&0x3f];"
+               "o+=a[((b[i]&0x3)<<4)|((b[i+1]>>4)&0xf)];"
+               "o+=a[((b[i+1]&0xf)<<2)|((b[i+2]>>6)&0x3)];"
+               "o+=a[b[i+2]&0x3f];}"
+               "if(i<b.size()){o+=a[(b[i]>>2)&0x3f];"
+               "if(i+1==b.size()){o+=a[(b[i]&0x3)<<4];o+=\"==\";}"
+               "else{o+=a[((b[i]&0x3)<<4)|((b[i+1]>>4)&0xf)];"
+               "o+=a[(b[i+1]&0xf)<<2];o+='=';}}"
+               "return o;}(" + src.str() + ")";
+    }
+    if (fn == "base64_decode") {
+        auto src = field_expr(call, "source");
+        return "[](const std::string& s){"
+               "static int t[256];static bool init=false;"
+               "if(!init){for(int i=0;i<256;i++)t[i]=-1;"
+               "const char* a=\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";"
+               "for(int i=0;i<64;i++)t[(unsigned char)a[i]]=i;init=true;}"
+               "std::vector<uint8_t> o;o.reserve((s.size()/4)*3);"
+               "int v=0,bits=0;"
+               "for(char c:s){"
+               "if(c=='='||c=='\\n'||c=='\\r'||c==' '||c=='\\t')continue;"
+               "int d=t[(unsigned char)c];if(d<0)continue;"
+               "v=(v<<6)|d;bits+=6;"
+               "if(bits>=8){bits-=8;o.push_back((uint8_t)((v>>bits)&0xff));}}"
+               "return o;}(" + src.str() + ")";
     }
     return "/* std_convert." + fn + " */";
 }

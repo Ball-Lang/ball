@@ -21,6 +21,12 @@
 
 namespace ball {
 
+// The exception currently bound inside an active `catch` block, or null.
+// Used by the `rethrow` base function to re-raise the original exception.
+// thread_local so concurrent engines (future) won't clobber each other;
+// saved/restored around each catch body so nested tries unwind cleanly.
+static thread_local std::exception_ptr g_active_exception;
+
 // ================================================================
 // Construction
 // ================================================================
@@ -590,9 +596,34 @@ BallValue Engine::eval_statement(const ball::v1::Statement& stmt, std::shared_pt
 BallValue Engine::eval_lambda(const ball::v1::FunctionDefinition& func, std::shared_ptr<Scope> scope) {
     auto func_copy = func;
     auto captured = scope;
-    BallFunction closure = [this, func_copy, captured](BallValue input) -> BallValue {
+
+    // Pre-extract metadata param names so the closure body can bind
+    // scalar inputs to the declared param (e.g. a lambda `(x) => x + 1`
+    // called with `3` binds `x = 3`). Otherwise only map-style inputs
+    // get their keys propagated as bindings.
+    std::vector<std::string> param_names;
+    if (func.has_metadata()) {
+        auto it = func.metadata().fields().find("params");
+        if (it != func.metadata().fields().end() &&
+            it->second.kind_case() == google::protobuf::Value::kListValue) {
+            for (const auto& v : it->second.list_value().values()) {
+                if (v.kind_case() != google::protobuf::Value::kStructValue) continue;
+                auto nit = v.struct_value().fields().find("name");
+                if (nit != v.struct_value().fields().end() &&
+                    nit->second.kind_case() == google::protobuf::Value::kStringValue) {
+                    param_names.push_back(nit->second.string_value());
+                }
+            }
+        }
+    }
+
+    BallFunction closure = [this, func_copy, captured, param_names](BallValue input) -> BallValue {
         auto lambda_scope = std::make_shared<Scope>(captured);
         lambda_scope->bind("input", input);
+        // Scalar-to-single-param binding.
+        if (param_names.size() == 1 && !is_map(input)) {
+            lambda_scope->bind(param_names.front(), input);
+        }
         if (is_map(input)) {
             const auto& m = std::any_cast<const BallMap&>(input);
             for (const auto& [k, v] : m)
@@ -653,11 +684,47 @@ BallValue Engine::eval_lazy_for(const ball::v1::FunctionCall& call, std::shared_
     auto for_scope = std::make_shared<Scope>(scope);
     auto init_it = fields.find("init");
     if (init_it != fields.end()) {
-        if (init_it->second.expr_case() == ball::v1::Expression::kBlock) {
-            for (const auto& stmt : init_it->second.block().statements())
+        const auto& init_expr = init_it->second;
+        if (init_expr.expr_case() == ball::v1::Expression::kBlock) {
+            for (const auto& stmt : init_expr.block().statements())
                 eval_statement(stmt, for_scope);
+        } else if (init_expr.expr_case() == ball::v1::Expression::kLiteral &&
+                   init_expr.literal().value_case() == ball::v1::Literal::kStringValue) {
+            // Legacy encoding: some encoders emit the init clause as a
+            // raw source string like "var i = 0". Parse it into a
+            // scope binding to match the Dart engine's behavior.
+            const auto& s = init_expr.literal().string_value();
+            static const std::regex var_pat(R"(^\s*(?:var|final|int|double|String|bool)?\s*(\w+)\s*=\s*(.+?)\s*$)");
+            std::smatch m;
+            if (std::regex_match(s, m, var_pat)) {
+                const auto& name = m[1].str();
+                const auto& raw_val = m[2].str();
+                BallValue parsed;
+                try {
+                    size_t consumed = 0;
+                    auto i = std::stoll(raw_val, &consumed);
+                    if (consumed == raw_val.size()) {
+                        parsed = static_cast<int64_t>(i);
+                    }
+                } catch (...) {}
+                if (!parsed.has_value()) {
+                    try {
+                        size_t consumed = 0;
+                        auto d = std::stod(raw_val, &consumed);
+                        if (consumed == raw_val.size()) parsed = d;
+                    } catch (...) {}
+                }
+                if (!parsed.has_value()) {
+                    if (raw_val == "true") parsed = true;
+                    else if (raw_val == "false") parsed = false;
+                    else parsed = raw_val;
+                }
+                for_scope->bind(name, parsed);
+            }
+            // If the string doesn't match, ignore it (parity with Dart:
+            // opaque init strings are no-ops).
         } else {
-            eval_expr(init_it->second, for_scope);
+            eval_expr(init_expr, for_scope);
         }
     }
     auto cond_it = fields.find("condition");
@@ -851,7 +918,18 @@ BallValue Engine::eval_lazy_try(const ball::v1::FunctionCall& call, std::shared_
             if (bit != cf.end()) {
                 auto cs = std::make_shared<Scope>(scope);
                 cs->bind(var, exception_value);
-                result = eval_expr(*bit->second, cs);
+                // Save/restore the active exception so `rethrow` can
+                // re-raise the original exception, and nested tries
+                // restore the outer active exception on exit.
+                auto prev_active = g_active_exception;
+                g_active_exception = std::current_exception();
+                try {
+                    result = eval_expr(*bit->second, cs);
+                } catch (...) {
+                    g_active_exception = prev_active;
+                    throw;
+                }
+                g_active_exception = prev_active;
                 return true;
             }
         }
@@ -1238,9 +1316,24 @@ Engine::build_std_dispatch() {
             return static_cast<int64_t>(0);
         }},
         {"int_to_string", [](BallValue i) -> BallValue { return std::to_string(to_int(extract_unary(i))); }},
-        {"double_to_string", [](BallValue i) -> BallValue { return std::to_string(to_double(extract_unary(i))); }},
-        {"string_to_int", [](BallValue i) -> BallValue { return static_cast<int64_t>(std::stoll(ball::to_string(extract_unary(i)))); }},
-        {"string_to_double", [](BallValue i) -> BallValue { return std::stod(ball::to_string(extract_unary(i))); }},
+        {"double_to_string", [](BallValue i) -> BallValue { return double_to_dart_string(to_double(extract_unary(i))); }},
+        {"string_to_int", [](BallValue i) -> BallValue {
+            auto s = ball::to_string(extract_unary(i));
+            try {
+                return static_cast<int64_t>(std::stoll(s));
+            } catch (const std::exception&) {
+                // Dart parity: int.parse() throws FormatException on bad input.
+                throw BallException("FormatException", "FormatException: " + s);
+            }
+        }},
+        {"string_to_double", [](BallValue i) -> BallValue {
+            auto s = ball::to_string(extract_unary(i));
+            try {
+                return std::stod(s);
+            } catch (const std::exception&) {
+                throw BallException("FormatException", "FormatException: " + s);
+            }
+        }},
         {"string_interpolation", [](BallValue i) -> BallValue {
             if(is_map(i)){auto p=extract_field(i,"parts");if(is_list(p)){std::string r;for(auto&x:std::any_cast<BallList>(p))r+=ball::to_string(x);return r;} auto v=extract_field(i,"value");if(v.has_value())return ball::to_string(v);} return ball::to_string(i);
         }},
@@ -1289,7 +1382,14 @@ Engine::build_std_dispatch() {
             }
             throw BallException(typeName, val);
         }},
-        {"rethrow", [](BallValue) -> BallValue { throw BallRuntimeError("rethrow"); }},
+        {"rethrow", [](BallValue) -> BallValue {
+            if (g_active_exception) std::rethrow_exception(g_active_exception);
+            throw BallRuntimeError("rethrow outside of catch");
+        }},
+        // The encoder wraps parenthesized sub-expressions in `std.paren`
+        // so the compiler knows where Dart source had explicit parens.
+        // At runtime `paren(x)` is just `x`.
+        {"paren", [](BallValue i) -> BallValue { return extract_field(i, "value"); }},
         {"assert", [](BallValue i) -> BallValue {
             if(!to_bool(extract_field(i,"condition"))) throw BallRuntimeError("Assertion failed: "+ball::to_string(extract_field(i,"message")));
             return {};

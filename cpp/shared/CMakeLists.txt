@@ -46,14 +46,37 @@ buf_generate_cpp(
     HEADERS_VAR  BALL_PROTO_HEADERS
 )
 
+# Generate ball_emit_runtime_embed.h from ball_emit_runtime.h — the
+# compiler splices this string into the preamble of every emitted
+# C++ program, so the runtime helpers live in exactly one source file.
+set(BALL_EMIT_RUNTIME_SRC "${CMAKE_CURRENT_SOURCE_DIR}/include/ball_emit_runtime.h")
+set(BALL_EMIT_RUNTIME_EMBED "${CMAKE_CURRENT_BINARY_DIR}/gen/ball_emit_runtime_embed.h")
+add_custom_command(
+    OUTPUT  "${BALL_EMIT_RUNTIME_EMBED}"
+    COMMAND ${CMAKE_COMMAND}
+            -DIN=${BALL_EMIT_RUNTIME_SRC}
+            -DOUT=${BALL_EMIT_RUNTIME_EMBED}
+            -P  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedRuntimeHeader.cmake"
+    DEPENDS "${BALL_EMIT_RUNTIME_SRC}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedRuntimeHeader.cmake"
+    COMMENT "Generating ball_emit_runtime_embed.h"
+    VERBATIM
+)
+add_custom_target(ball_emit_runtime_gen
+    DEPENDS "${BALL_EMIT_RUNTIME_EMBED}"
+)
+
 add_library(ball_shared
     src/ball_shared.cpp
     ${BALL_PROTO_SOURCES}
+    "${BALL_EMIT_RUNTIME_EMBED}"
 )
+add_dependencies(ball_shared ball_emit_runtime_gen)
 
 target_include_directories(ball_shared PUBLIC
     include
     ${BALL_PROTO_INCLUDE_DIR}
+    "${CMAKE_CURRENT_BINARY_DIR}/gen"
 )
 
 target_link_libraries(ball_shared PUBLIC protobuf::libprotobuf)

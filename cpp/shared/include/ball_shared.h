@@ -6,13 +6,21 @@
 // provides the universal std module builders.
 
 #include <any>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
+#include <sstream>
+#include <stdexcept>
 #include <string>
 #include <variant>
 #include <vector>
+
+// Shared runtime helpers (BallException, ball_to_string). The compiler
+// also embeds this file verbatim into every emitted C++ program so the
+// runtime functions have one canonical definition.
+#include "ball_emit_runtime.h"
 
 #include "ball/v1/ball.pb.h"
 #include "google/protobuf/descriptor.pb.h"
@@ -83,11 +91,16 @@ inline bool to_bool(const BallValue& v) {
     return true;
 }
 
+// Back-compat alias: existing call sites used `double_to_dart_string(d)`.
+// The canonical implementation lives in ball_emit_runtime.h as the
+// `ball_to_string(double)` overload.
+inline std::string double_to_dart_string(double d) { return ball_to_string(d); }
+
 inline std::string to_string(const BallValue& v) {
     if (v.type() == typeid(std::string)) return std::any_cast<std::string>(v);
     if (v.type() == typeid(int64_t)) return std::to_string(std::any_cast<int64_t>(v));
-    if (v.type() == typeid(double)) return std::to_string(std::any_cast<double>(v));
-    if (v.type() == typeid(bool)) return std::any_cast<bool>(v) ? "true" : "false";
+    if (v.type() == typeid(double)) return ball_to_string(std::any_cast<double>(v));
+    if (v.type() == typeid(bool)) return ball_to_string(std::any_cast<bool>(v));
     if (!v.has_value()) return "null";
     if (v.type() == typeid(BallFuture)) return "<future>";
     if (v.type() == typeid(BallGenerator)) return "<generator>";

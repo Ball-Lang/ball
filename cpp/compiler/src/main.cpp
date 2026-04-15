@@ -1,5 +1,7 @@
 // ball::CppCompiler CLI — reads a .ball.json or .ball.pb program and emits C++ source.
 
+#include <cstdlib>
+#include <exception>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -8,7 +10,38 @@
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 #include "compiler.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#include <crtdbg.h>
+static void suppress_windows_crash_dialogs() {
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX |
+                 SEM_NOOPENFILEERRORBOX);
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+}
+#else
+static void suppress_windows_crash_dialogs() {}
+#endif
+
+static int run_compile(int argc, char** argv);
+
 int main(int argc, char** argv) {
+    suppress_windows_crash_dialogs();
+    try {
+        return run_compile(argc, argv);
+    } catch (const std::exception& e) {
+        std::cerr << "Compile error: " << e.what() << std::endl;
+        return 2;
+    } catch (...) {
+        std::cerr << "Compile error: unknown exception" << std::endl;
+        return 2;
+    }
+}
+
+static int run_compile(int argc, char** argv) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <program.ball.json|program.ball.pb> [output.cpp]"
                   << std::endl;

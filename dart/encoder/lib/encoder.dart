@@ -38,6 +38,19 @@ class EncoderError implements Exception {
 
 /// Functions that belong to the Dart-specific `dart_std` module rather than
 /// the universal `std` module.
+/// Functions that belong to the Dart-specific `dart_std` module because
+/// they have no universal analog (Dart syntax features like cascade,
+/// null-aware access, record literals, or collection elements that
+/// can't be represented as plain calls).
+///
+/// Operations with a universal std equivalent have been promoted out
+/// of this set so the encoded program uses the shared `std` module.
+/// This is the practical form of "per-language modules build on common
+/// modules": cross-language compilation only needs to handle `std.*`
+/// for these ops, not a parallel dart_std version.
+///
+/// Promoted to std: `labeled`, `switch_expr`, `yield_each`, `set_create`,
+/// `map_create` (all handled by every engine's std dispatch table).
 const _dartStdFunctions = {
   'null_aware_access',
   'null_aware_call',
@@ -45,16 +58,11 @@ const _dartStdFunctions = {
   'spread',
   'null_spread',
   'invoke',
-  'map_create',
-  'set_create',
   'record',
   'collection_if',
   'collection_for',
-  'switch_expr',
   'symbol',
   'type_literal',
-  'labeled',
-  'yield_each',
   'typed_list',
 };
 
@@ -267,11 +275,21 @@ class DartEncoder {
         //     if (dart.library.js_interop) 'web.dart';
         if (directive.configurations.isNotEmpty) {
           detail['configurations'] = directive.configurations.map((c) {
+            final cUri = c.uri.stringValue;
+            if (cUri == null) {
+              _warn('Configuration URI is null', source: c.toSource());
+            }
             final m = <String, Object>{
               'name': c.name.toSource(),
-              'uri': c.uri.stringValue ?? '',
+              'uri': cUri ?? '',
             };
-            if (c.value != null) m['value'] = c.value!.stringValue ?? '';
+            if (c.value != null) {
+              final cVal = c.value!.stringValue;
+              if (cVal == null) {
+                _warn('Configuration value is null', source: c.toSource());
+              }
+              m['value'] = cVal ?? '';
+            }
             return m;
           }).toList();
         }
@@ -296,11 +314,21 @@ class DartEncoder {
         if (hide.isNotEmpty) detail['hide'] = hide;
         if (directive.configurations.isNotEmpty) {
           detail['configurations'] = directive.configurations.map((c) {
+            final cUri = c.uri.stringValue;
+            if (cUri == null) {
+              _warn('Configuration URI is null', source: c.toSource());
+            }
             final m = <String, Object>{
               'name': c.name.toSource(),
-              'uri': c.uri.stringValue ?? '',
+              'uri': cUri ?? '',
             };
-            if (c.value != null) m['value'] = c.value!.stringValue ?? '';
+            if (c.value != null) {
+              final cVal = c.value!.stringValue;
+              if (cVal == null) {
+                _warn('Configuration value is null', source: c.toSource());
+              }
+              m['value'] = cVal ?? '';
+            }
             return m;
           }).toList();
         }
@@ -309,12 +337,21 @@ class DartEncoder {
         final uriValue = directive.uri.stringValue;
         if (uriValue != null) {
           _partDetails.add(<String, Object>{'uri': uriValue});
+        } else {
+          _warn('Part directive has null URI');
         }
       } else if (directive is ast.PartOfDirective) {
         if (directive.uri != null) {
           _partOfUri = directive.uri?.stringValue;
         } else if (directive.libraryName != null) {
           _partOfUri = directive.libraryName?.toSource();
+        } else {
+          // Defensive: the Dart grammar requires `part of` to carry
+          // either a URI string or an identifier, so valid source can
+          // never reach this branch. We keep the warn as a tripwire in
+          // case analyzer grammar evolves — strict-mode users will see
+          // it immediately rather than getting silent data loss.
+          _warn('Part-of directive has neither URI nor library name');
         }
       }
     }
@@ -763,6 +800,20 @@ class DartEncoder {
     }
 
     // Encode method body.
+    //
+    // Convention: `ExpressionFunctionBody` (e.g. `int f() => x + 1;`)
+    // is encoded as a BARE expression, not wrapped in a block. Compilers
+    // receiving a Ball program MUST handle both forms at the top-level
+    // body position — bare expressions are NOT guaranteed to be blocks.
+    // The `expression_body: true` metadata flag distinguishes the two.
+    //
+    // Known pitfalls if you forget this:
+    //   - C++ compiler: bare body expressions needed routing through
+    //     compile_statement so control-flow calls (try/if/labeled) hit
+    //     their statement-context paths instead of a broken IIFE.
+    //   - Dart compiler: must honor `expression_body: true` to emit
+    //     `=> expr` form and `_hasNonVoidReturn` handling for the
+    //     implicit return.
     final body = member.body;
     if (body is ast.ExpressionFunctionBody) {
       def.body = _encodeExpr(body.expression);
@@ -1047,7 +1098,13 @@ class DartEncoder {
     List<FunctionDefinition> functions,
     List<TypeDefinition> typeDefs,
   ) {
-    final extName = decl.name?.lexeme ?? '_unnamed_extension';
+    String extName;
+    if (decl.name == null) {
+      _warn('Extension declaration has no name; using "_unnamed_extension"');
+      extName = '_unnamed_extension';
+    } else {
+      extName = decl.name!.lexeme;
+    }
     final ballName = extName == '_unnamed_extension'
         ? '_unnamed_extension'
         : '$_moduleName:$extName';
@@ -1143,6 +1200,12 @@ class DartEncoder {
                 ? (repParam.type?.toSource() ?? 'dynamic')
                 : repParam.toSource());
       if (repParam is ast.SimpleFormalParameter) {
+        if (repParam.name == null) {
+          _warn(
+            'Representation parameter has no name',
+            source: repParam.toSource(),
+          );
+        }
         meta['rep_field'] = repParam.name?.lexeme ?? '';
       }
     }
@@ -2036,13 +2099,11 @@ class DartEncoder {
   Expression _encodeExpr(ast.Expression expr) {
     // ---- Literals ----
     if (expr is ast.IntegerLiteral) {
-      final lexeme = expr.literal.lexeme;
-      // Preserve hex literals verbatim: dart2js / DDC reject large decimal
-      // integer literals that exceed the JavaScript Number precision limit
-      // (2^53).  Hex notation round-trips correctly.
-      if (lexeme.startsWith('0x') || lexeme.startsWith('0X')) {
-        return Expression()..reference = (Reference()..name = lexeme);
-      }
+      // Always encode as an int literal — the analyzer's `expr.value`
+      // is Int64 so both decimal and hex source forms fit. Emitting hex
+      // literals as references (the old workaround for JS Number
+      // precision) broke the engine since there's no variable named
+      // "0xF0" in scope.
       return Expression()
         ..literal = (Literal()..intValue = Int64(expr.value ?? 0));
     }
@@ -2525,6 +2586,33 @@ class DartEncoder {
     if (methodName == 'toString' && args.isEmpty && realTarget != null) {
       _usedBaseFunctions.add('to_string');
       return _buildUnaryStdCall('to_string', _encodeExpr(realTarget));
+    }
+
+    // Well-known unary method calls route to std base functions.
+    // Without type resolution we can't prove the receiver type, so
+    // these always route — if a non-matching receiver hits one, the
+    // std function throws at runtime (same risk as unconditional
+    // `.toString()` routing above).
+    if (realTarget != null && args.isEmpty) {
+      const unaryRoutes = <String, String>{
+        // Strings
+        'toUpperCase': 'string_to_upper',
+        'toLowerCase': 'string_to_lower',
+        'trim': 'string_trim',
+        'trimLeft': 'string_trim_start',
+        'trimRight': 'string_trim_end',
+        // Numbers
+        'abs': 'math_abs',
+        'round': 'math_round',
+        'floor': 'math_floor',
+        'ceil': 'math_ceil',
+        'truncate': 'math_trunc',
+      };
+      if (unaryRoutes.containsKey(methodName)) {
+        final stdName = unaryRoutes[methodName]!;
+        _usedBaseFunctions.add(stdName);
+        return _buildUnaryStdCall(stdName, _encodeExpr(realTarget));
+      }
     }
 
     // .length -> std.length  (only for actual property access, not method calls;
@@ -3214,7 +3302,16 @@ class DartEncoder {
                       ..name = 'name'
                       ..value = (Expression()
                         ..literal = (Literal()
-                          ..stringValue = field.name!.name?.lexeme ?? '')),
+                          ..stringValue = () {
+                            final n = field.name!.name?.lexeme;
+                            if (n == null) {
+                              _warn(
+                                'Record pattern field has null name',
+                                source: field.toSource(),
+                              );
+                            }
+                            return n ?? '';
+                          }())),
                   FieldValuePair()
                     ..name = 'pattern'
                     ..value = sub,

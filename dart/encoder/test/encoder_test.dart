@@ -65,6 +65,32 @@ void main() {
       expect(DartEncoder(strict: true).strict, isTrue);
     });
 
+    test('unnamed extension triggers warning in permissive mode', () {
+      final encoder = DartEncoder();
+      encoder.encode('''
+extension on int {
+  int doubled() => this * 2;
+}
+''');
+      expect(
+        encoder.warnings.any((w) => w.contains('Extension declaration has no name')),
+        isTrue,
+        reason: 'unnamed extensions should produce a warning',
+      );
+    });
+
+    test('unnamed extension throws in strict mode', () {
+      final encoder = DartEncoder(strict: true);
+      expect(
+        () => encoder.encode('''
+extension on int {
+  int doubled() => this * 2;
+}
+'''),
+        throwsA(isA<EncoderError>()),
+      );
+    });
+
     test('warnings list is cleared between encode() calls', () {
       final encoder = DartEncoder();
       // First encode may produce some artefact warnings; second must be independent.

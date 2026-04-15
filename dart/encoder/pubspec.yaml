@@ -8,4 +8,6 @@ dependencies:
     path: ../shared
 
 dev_dependencies:
+  ball_engine:
+    path: ../engine
   test: ^1.25.0

@@ -3033,6 +3033,401 @@ void main() {
       );
       expect(() => runAndCapture(program), throwsA(isA<BallException>()));
     });
+
+    test('rethrow re-raises caught exception', () {
+      final fns = [
+        {'name': 'throw', 'isBase': true},
+        {'name': 'rethrow', 'isBase': true},
+      ];
+      // Outer try catches; inner catch calls rethrow which must surface the
+      // original "boom" value in the outer handler.
+      final program = buildProgram(
+        stdFunctions: fns,
+        functions: [
+          mainFn([
+            stmt(
+              stdCall(
+                'try',
+                msg([
+                  field('body', {
+                    'block': {
+                      'statements': [
+                        stmt(
+                          stdCall(
+                            'try',
+                            msg([
+                              field('body', {
+                                'block': {
+                                  'statements': [
+                                    stmt(
+                                      stdCall(
+                                        'throw',
+                                        msg([
+                                          field('value', literal('boom')),
+                                        ]),
+                                      ),
+                                    ),
+                                  ],
+                                },
+                              }),
+                              field(
+                                'catches',
+                                listLit([
+                                  msg([
+                                    field('variable', literal('e')),
+                                    field('body', {
+                                      'block': {
+                                        'statements': [
+                                          stmt(
+                                            stdCall(
+                                              'rethrow',
+                                              msg([]),
+                                            ),
+                                          ),
+                                        ],
+                                      },
+                                    }),
+                                  ]),
+                                ]),
+                              ),
+                            ]),
+                          ),
+                        ),
+                      ],
+                    },
+                  }),
+                  field(
+                    'catches',
+                    listLit([
+                      msg([
+                        field('variable', literal('e')),
+                        field('body', {
+                          'block': {
+                            'statements': [stmt(printExpr(ref('e')))],
+                          },
+                        }),
+                      ]),
+                    ]),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(runAndCapture(program), ['boom']);
+    });
+
+    test('rethrow outside catch throws runtime error', () {
+      final fns = [
+        {'name': 'rethrow', 'isBase': true},
+      ];
+      final program = buildProgram(
+        stdFunctions: fns,
+        functions: [
+          mainFn([
+            stmt(stdCall('rethrow', msg([]))),
+          ]),
+        ],
+      );
+      expect(() => runAndCapture(program), throwsA(isA<BallRuntimeError>()));
+    });
+
+    test('typed catch matches by exception type', () {
+      final fns = [
+        {'name': 'throw', 'isBase': true},
+      ];
+      // Throw a typed BallException by passing a message with __type=NotFound.
+      // First catch clause has type=FormatException → must skip. Second has
+      // type=NotFound → must match and bind the value.
+      final program = buildProgram(
+        stdFunctions: fns,
+        functions: [
+          mainFn([
+            stmt(
+              stdCall(
+                'try',
+                msg([
+                  field('body', {
+                    'block': {
+                      'statements': [
+                        stmt(
+                          stdCall(
+                            'throw',
+                            msg([
+                              field('value', msg([
+                                field('__type', literal('NotFound')),
+                                field('detail', literal('missing')),
+                              ])),
+                            ]),
+                          ),
+                        ),
+                      ],
+                    },
+                  }),
+                  field(
+                    'catches',
+                    listLit([
+                      msg([
+                        field('type', literal('FormatException')),
+                        field('variable', literal('e')),
+                        field('body', {
+                          'block': {
+                            'statements': [stmt(printStr('wrong'))],
+                          },
+                        }),
+                      ]),
+                      msg([
+                        field('type', literal('NotFound')),
+                        field('variable', literal('e')),
+                        field('body', {
+                          'block': {
+                            'statements': [stmt(printStr('right'))],
+                          },
+                        }),
+                      ]),
+                    ]),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(runAndCapture(program), ['right']);
+    });
+
+    test('untyped catch catches all', () {
+      final fns = [
+        {'name': 'throw', 'isBase': true},
+      ];
+      final program = buildProgram(
+        stdFunctions: fns,
+        functions: [
+          mainFn([
+            stmt(
+              stdCall(
+                'try',
+                msg([
+                  field('body', {
+                    'block': {
+                      'statements': [
+                        stmt(
+                          stdCall(
+                            'throw',
+                            msg([
+                              field('value', msg([
+                                field('__type', literal('Anything')),
+                              ])),
+                            ]),
+                          ),
+                        ),
+                      ],
+                    },
+                  }),
+                  field(
+                    'catches',
+                    listLit([
+                      msg([
+                        field('variable', literal('e')),
+                        field('body', {
+                          'block': {
+                            'statements': [stmt(printStr('handled'))],
+                          },
+                        }),
+                      ]),
+                    ]),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(runAndCapture(program), ['handled']);
+    });
+  });
+
+  // ── async / await ───────────────────────────────────────────────────────
+  //
+  // The Ball engine runs synchronously, so `async` functions wrap their
+  // return value in a `BallFuture` and `await` unwraps it. These tests pin
+  // that contract so future changes can't silently regress the simulation.
+
+  group('engine: async and await', () {
+    test('async function result wraps in BallFuture', () {
+      // function get42() is_async → returns 42; the caller observes a
+      // BallFuture holding 42.
+      final program = buildProgram(
+        stdFunctions: [{'name': 'await', 'isBase': true}],
+        functions: [
+          {
+            'name': 'get42',
+            'body': {
+              'block': {
+                'statements': [],
+                'result': literal(42),
+              },
+            },
+            'metadata': {'is_async': true},
+          },
+          mainFn([
+            letStmt('f', call('get42')),
+            stmt(printToString(ref('f'))),
+          ]),
+        ],
+      );
+      final out = runAndCapture(program);
+      expect(out.length, 1);
+      expect(out[0], contains('BallFuture'));
+      expect(out[0], contains('42'));
+    });
+
+    test('await unwraps a BallFuture', () {
+      final program = buildProgram(
+        stdFunctions: [{'name': 'await', 'isBase': true}],
+        functions: [
+          {
+            'name': 'get42',
+            'body': {
+              'block': {
+                'statements': [],
+                'result': literal(42),
+              },
+            },
+            'metadata': {'is_async': true},
+          },
+          mainFn([
+            stmt(
+              printToString(
+                stdCall('await', msg([field('value', call('get42'))])),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(runAndCapture(program), ['42']);
+    });
+
+    test('await recursively unwraps nested BallFutures', () {
+      // inner() is_async returns 7 → BallFuture(7).
+      // outer() is_async returns inner() → BallFuture(BallFuture(7)).
+      // `await outer()` must yield 7, not BallFuture(7).
+      final program = buildProgram(
+        stdFunctions: [{'name': 'await', 'isBase': true}],
+        functions: [
+          {
+            'name': 'inner',
+            'body': {
+              'block': {
+                'statements': [],
+                'result': literal(7),
+              },
+            },
+            'metadata': {'is_async': true},
+          },
+          {
+            'name': 'outer',
+            'body': {
+              'block': {
+                'statements': [],
+                'result': call('inner'),
+              },
+            },
+            'metadata': {'is_async': true},
+          },
+          mainFn([
+            stmt(
+              printToString(
+                stdCall('await', msg([field('value', call('outer'))])),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(runAndCapture(program), ['7']);
+    });
+
+    test('await on a non-future value passes through', () {
+      final program = buildProgram(
+        stdFunctions: [{'name': 'await', 'isBase': true}],
+        functions: [
+          mainFn([
+            stmt(
+              printToString(
+                stdCall('await', msg([field('value', literal(99))])),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(runAndCapture(program), ['99']);
+    });
+
+    test('async function throw propagates through await', () {
+      // Even though the async wrapping happens on successful return, a
+      // throw inside an async body must still escape the `await` site.
+      final fns = [
+        {'name': 'throw', 'isBase': true},
+        {'name': 'await', 'isBase': true},
+      ];
+      final program = buildProgram(
+        stdFunctions: fns,
+        functions: [
+          {
+            'name': 'boom',
+            'body': {
+              'block': {
+                'statements': [
+                  stmt(
+                    stdCall(
+                      'throw',
+                      msg([field('value', literal('kapow'))]),
+                    ),
+                  ),
+                ],
+              },
+            },
+            'metadata': {'is_async': true},
+          },
+          mainFn([
+            stmt(
+              stdCall(
+                'try',
+                msg([
+                  field('body', {
+                    'block': {
+                      'statements': [
+                        stmt(
+                          stdCall(
+                            'await',
+                            msg([field('value', call('boom'))]),
+                          ),
+                        ),
+                      ],
+                    },
+                  }),
+                  field(
+                    'catches',
+                    listLit([
+                      msg([
+                        field('variable', literal('e')),
+                        field('body', {
+                          'block': {
+                            'statements': [stmt(printExpr(ref('e')))],
+                          },
+                        }),
+                      ]),
+                    ]),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(runAndCapture(program), ['kapow']);
+    });
   });
 
   // ── break and continue ───────────────────────────────────────────────────

@@ -430,6 +430,11 @@ class BallEngine {
   /// Counter for simulated mutex handles (single-threaded mode).
   int _nextMutexId = 0;
 
+  /// The exception currently bound inside an active `catch` block, or `null`.
+  /// Used by the `rethrow` base function to re-raise the original exception.
+  /// Saved and restored around each catch body so nested tries unwind cleanly.
+  Object? _activeException;
+
   BallEngine(
     this.program, {
     void Function(String)? stdout,
@@ -756,6 +761,18 @@ class BallEngine {
     final func = _functions[key];
     if (func != null && func.isBase) {
       return _callBaseFunction(moduleName, call.function, input);
+    }
+
+    // Local closure call: when the function name resolves to a value
+    // in the current scope (bound via `let f = (x) => ...`), invoke
+    // that value directly. Otherwise fall through to module lookup.
+    // Module-qualified calls skip the scope check — those always mean
+    // "call function F in module M".
+    if (call.module.isEmpty && scope.has(call.function)) {
+      final bound = scope.lookup(call.function);
+      if (bound is BallValue Function(BallValue)) {
+        return bound(input);
+      }
     }
 
     // Method call on object (has 'self' field)
@@ -1137,10 +1154,22 @@ class BallEngine {
     // Capture the scope for closures.
     return (BallValue input) {
       final lambdaScope = scope.child();
-      if (func.inputType.isNotEmpty && input != null) {
-        lambdaScope.bind('input', input);
+      // Always bind `input` so body code referencing the Ball convention
+      // name resolves.
+      lambdaScope.bind('input', input);
+
+      // Bind declared parameter names. For a lambda with positional
+      // params `(x)`, a scalar input binds to `x`. For multi-param or
+      // named params, the encoder packs the call site into a
+      // messageCreation and the input is a map whose keys match param
+      // names — that path uses the map loop below.
+      final paramNames =
+          func.hasMetadata() ? _extractParams(func.metadata) : const <String>[];
+      if (paramNames.length == 1 && input is! Map<String, Object?>) {
+        lambdaScope.bind(paramNames.first, input);
       }
-      // Also bind positional args from the input map
+
+      // Bind map-style args (multi-param call sites / message creations).
       if (input is Map<String, Object?>) {
         for (final entry in input.entries) {
           if (entry.key != '__type__') {
@@ -1156,6 +1185,7 @@ class BallEngine {
       return result;
     };
   }
+
 
   // ============================================================
   // Lazy-evaluated std functions (control flow)
@@ -1243,9 +1273,15 @@ class BallEngine {
       if (body != null) {
         final result = _evalExpression(body, forScope);
         if (result is _FlowSignal) {
-          if (result.kind == 'break') break;
+          // Labeled break/continue propagate upward to the enclosing
+          // `labeled` wrapper. Only unlabeled signals are consumed by
+          // the immediate loop.
           if (result.kind == 'return') return result;
-          // continue: fall through to update
+          if (result.label != null && result.label!.isNotEmpty) {
+            return result;
+          }
+          if (result.kind == 'break') break;
+          // unlabeled continue: fall through to update
         }
       }
       if (update != null) _evalExpression(update, forScope);
@@ -1269,8 +1305,11 @@ class BallEngine {
       loopScope.bind(variable, item);
       final result = _evalExpression(body, loopScope);
       if (result is _FlowSignal) {
-        if (result.kind == 'break') break;
         if (result.kind == 'return') return result;
+        if (result.label != null && result.label!.isNotEmpty) {
+          return result;
+        }
+        if (result.kind == 'break') break;
       }
     }
     return null;
@@ -1288,8 +1327,11 @@ class BallEngine {
       if (body != null) {
         final result = _evalExpression(body, scope);
         if (result is _FlowSignal) {
-          if (result.kind == 'break') break;
           if (result.kind == 'return') return result;
+          if (result.label != null && result.label!.isNotEmpty) {
+            return result;
+          }
+          if (result.kind == 'break') break;
         }
       }
     }
@@ -1304,8 +1346,11 @@ class BallEngine {
       if (body != null) {
         final result = _evalExpression(body, scope);
         if (result is _FlowSignal) {
-          if (result.kind == 'break') break;
           if (result.kind == 'return') return result;
+          if (result.label != null && result.label!.isNotEmpty) {
+            return result;
+          }
+          if (result.kind == 'break') break;
         }
       }
       if (condition != null) {
@@ -1381,12 +1426,35 @@ class BallEngine {
           for (final f in catchExpr.messageCreation.fields) {
             cf[f.name] = f.value;
           }
+          // Typed catch: when `type` is set, match either
+          //   (a) a BallException whose typeName matches, or
+          //   (b) a real Dart exception whose runtimeType name matches
+          //       (e.g. `on FormatException catch (e)` from `int.parse`).
+          // Untyped catches match any exception.
+          final catchType = _stringFieldVal(cf, 'type');
+          if (catchType != null && catchType.isNotEmpty) {
+            final matches = e is BallException
+                ? e.typeName == catchType
+                : e.runtimeType.toString() == catchType;
+            if (!matches) continue;
+          }
           final variable = _stringFieldVal(cf, 'variable') ?? 'e';
           final catchBody = cf['body'];
           if (catchBody != null) {
             final catchScope = scope.child();
-            catchScope.bind(variable, e.toString());
-            result = _evalExpression(catchBody, catchScope);
+            // Bind original thrown value for BallException (so catch
+            // bodies can read field data); fall back to string form for
+            // real Dart runtime errors.
+            catchScope.bind(variable, e is BallException ? e.value : e.toString());
+            // Save/restore the active exception so `rethrow` re-raises
+            // the original error and nested tries unwind cleanly.
+            final previousActive = _activeException;
+            _activeException = e;
+            try {
+              result = _evalExpression(catchBody, catchScope);
+            } finally {
+              _activeException = previousActive;
+            }
             caught = true;
             break;
           }
@@ -2045,7 +2113,18 @@ class BallEngine {
         }
         throw BallException(typeName, val);
       },
-      'rethrow': (_) => throw BallRuntimeError('rethrow'),
+      'rethrow': (_) {
+        final ex = _activeException;
+        if (ex == null) {
+          throw BallRuntimeError('rethrow outside of catch');
+        }
+        throw ex;
+      },
+      // The encoder wraps parenthesized sub-expressions (assign /
+      // cascade / ternary) in a `std.paren` call to preserve precedence.
+      // At runtime the parens are semantically a no-op — just return
+      // the inner value.
+      'paren': (i) => _extractUnaryArg(i),
 
       // Assert
       'assert': _stdAssert,

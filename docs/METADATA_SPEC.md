@@ -28,7 +28,7 @@ is semantically identical to the original.
 | `is_external` | `bool` | External/native declaration. |
 | `is_override` | `bool` | Override annotation hint. |
 | `is_factory` | `bool` | Factory constructor (Dart). |
-| `expression_body` | `bool` | Emit `=> expr` form (Dart) / expression body (C#). |
+| `expression_body` | `bool` | When `true`, the function's `body` field is a bare expression (not a `block`). Compilers must handle both forms at the top-level body position — bare expressions are NOT guaranteed to be wrapped in a block. The Dart compiler uses this to emit `=> expr` form; C++ routes through `compile_statement` so control-flow calls in the body hit their statement-context paths. |
 | `constructor_name` | `string` | Named constructor: `"Foo.named"` → the `"named"` part. |
 | `redirects_to` | `string` | Redirecting constructor target. |
 | `initializers` | `string` | Constructor initializer list source. |
@@ -57,7 +57,7 @@ is semantically identical to the original.
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `kind` | `string` | `"class"` \| `"struct"` \| `"trait"` \| `"interface"` \| `"mixin"` \| `"enum"` \| `"union"` \| `"record"` \| `"extension"` \| `"typedef"` \| `"sealed_class"` |
+| `kind` | `string` | `"class"` \| `"struct"` \| `"trait"` \| `"interface"` \| `"mixin"` \| `"enum"` \| `"union"` \| `"record"` \| `"extension"` \| `"extension_type"` \| `"typedef"` \| `"sealed_class"` |
 | `superclass` | `string` | Parent type name. |
 | `interfaces` | `[string]` | Implemented interfaces/protocols. |
 | `mixins` | `[string]` | Applied mixins (Dart, Scala). |
@@ -73,6 +73,8 @@ is semantically identical to the original.
 | `annotations` | `[{name, args?, module?}]` | Class-level annotations. |
 | `fields` | `[{name, type?, is_final?, is_const?, is_late?, is_static?, initializer?}]` | Field metadata for round-trip fidelity. |
 | `values` | `[{name, args?, doc?}]` | Enum value metadata (constructor args). |
+| `rep_type` | `string` | Extension-type representation type (Dart 3 extension types). Only when `kind == "extension_type"`. |
+| `rep_field` | `string` | Extension-type representation field name (Dart 3 extension types). Only when `kind == "extension_type"`. |
 
 ---
 

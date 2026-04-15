@@ -63,11 +63,10 @@ Types are emitted from `typeDefs[]` (preferred) or the legacy `types[]` + `_meta
 
 ## Known Broken / Stubbed (don't assume these work)
 
-- **C++ compiler:** `string_split`, `string_replace`, `string_replace_all` emit empty comments. `switch` compilation is stubbed. `try-catch` only catches `std::exception`. `for_in` loops unsupported. Labeled break/continue dispatch is rudimentary.
-- **C++ engine:** `std_collections` functions are declared but not implemented; `std_io` is stubbed.
-- **Dart encoder:** silently swallows malformed metadata.
-- **Both engines:** `async`/`await` pass through as no-ops.
-- **C++ has no test framework yet** — add tests alongside any C++ change (`cpp/test/test_engine.cpp`, `cpp/test/test_compiler.cpp`).
+- **Dart encoder:** Permissive mode silently collects (non-fatal) warnings on malformed metadata. Use `DartEncoder(strict: true)` to surface them as errors.
+- **Both engines:** `async`/`await` is a synchronous simulation — `async` functions wrap their return value in `BallFuture`, `await` recursively unwraps, but there is no event loop, no microtask queue, and no deferred execution. A real scheduler would require rewriting every expression evaluator to be async.
+
+C++ has a custom test framework (`TEST(name)` macros) at [cpp/test/test_engine.cpp](cpp/test/test_engine.cpp), [cpp/test/test_compiler.cpp](cpp/test/test_compiler.cpp), and [cpp/test/test_conformance.cpp](cpp/test/test_conformance.cpp) (the conformance harness runs every `tests/conformance/*.ball.json` through the C++ engine and diff-checks stdout against the matching `.expected_output.txt`). Build via `cmake --build build --target test_engine test_compiler test_conformance` and run the resulting binaries. Always add tests alongside C++ changes.
 
 ## Typical Feature Workflow
 

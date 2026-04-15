@@ -29,6 +29,26 @@ class DartCompiler {
   final Map<String, FunctionDefinition> _functions = {};
   final Set<String> _baseModules = {};
 
+  /// Variables bound to thrown Ball values (maps) — inside a catch body
+  /// their `fieldAccess` expressions compile to subscript `e['field']`
+  /// rather than dotted `e.field`, because Ball throws Maps and Dart
+  /// Maps don't support dotted access. Populated by [_generateTry] and
+  /// read by [_compileFieldAccess].
+  final Set<String> _catchBoundVars = {};
+
+  /// Param-name aliases for the function currently being compiled.
+  ///
+  /// Ball's calling convention is "one input per function" with the
+  /// canonical name `input`. The Dart encoder (and hand-written conformance
+  /// programs) stash the original Dart parameter names in
+  /// `metadata.params[].name` so the emitted Dart source can still declare
+  /// them as `int fibonacci(int n)`. But function bodies reference `input`
+  /// internally (that's the Ball convention), so we rename the declared
+  /// parameter to `input` and inject `final n = input;` at the top of the
+  /// body. This list is populated by [_addParameters] and consumed by
+  /// [_generateFunctionBody].
+  List<({String name, String? type})> _pendingParamAliases = const [];
+
   // ── Per-module import alias mapping ────────────────────────
   // Maps dart module ball-names (e.g. 'dart.developer') to their import
   // alias (e.g. 'dev') for the module currently being compiled.
@@ -1090,7 +1110,12 @@ class DartCompiler {
       _addParameters(b, meta);
 
       if (!isAbstract && !isExternal && func.hasBody()) {
-        if (isExpressionBody) {
+        // If `_addParameters` stashed renames (e.g. original param `n`
+        // became `input`), we can't use `=> expr` form since the
+        // expression references `n` which no longer exists. Demote to
+        // block form so `_generateFunctionBody` emits the alias prologue.
+        final mustUseBlockForm = _pendingParamAliases.isNotEmpty;
+        if (isExpressionBody && !mustUseBlockForm) {
           b.lambda = true;
           b.body = _compileExpression(func.body).code;
         } else {
@@ -1184,9 +1209,29 @@ class DartCompiler {
     final params = meta['params'];
     if (params == null || params is! List) return;
 
+    // Reset aliases. Populated below for positional Ball params so that
+    // [_generateFunctionBody] can prepend `final <orig> = input;` lines
+    // and the function body's references to `input` resolve.
+    final aliases = <({String name, String? type})>[];
+
+    // Count positional (non-named, non-optional) params. If there's
+    // exactly one, rename it to `input` so the Ball body's `input`
+    // reference works; stash the original name so we can alias it
+    // inside the body.
+    int positionalCount = 0;
     for (final p in params) {
       if (p is! Map) continue;
-      final paramName = p['name'] as String? ?? '_';
+      final isNamed = p['is_named'] == true ||
+          p['is_required_named'] == true ||
+          p['is_optional_named'] == true;
+      final isOptional = p['is_optional'] == true;
+      if (!isNamed && !isOptional) positionalCount++;
+    }
+    final renameSinglePositional = positionalCount == 1;
+
+    for (final p in params) {
+      if (p is! Map) continue;
+      final rawName = p['name'] as String? ?? '_';
       final paramType = p['type'] as String?;
       final isNamed =
           p['is_named'] == true ||
@@ -1195,6 +1240,15 @@ class DartCompiler {
       final isOptional = p['is_optional'] == true;
       final isRequiredNamed = p['is_required_named'] == true;
       final defaultValue = p['default'] as String?;
+
+      String paramName = rawName;
+      if (!isNamed &&
+          !isOptional &&
+          renameSinglePositional &&
+          rawName != 'input') {
+        paramName = 'input';
+        aliases.add((name: rawName, type: paramType));
+      }
 
       final param = cb.Parameter((pb) {
         pb.name = paramName;
@@ -1212,6 +1266,7 @@ class DartCompiler {
         (builder as dynamic).requiredParameters.add(param);
       }
     }
+    _pendingParamAliases = aliases;
   }
 
   // ════════════════════════════════════════════════════════════
@@ -1300,6 +1355,19 @@ class DartCompiler {
   // ════════════════════════════════════════════════════════════
 
   void _generateFunctionBody(Expression body, bool hasReturn) {
+    // Emit `final <orig> = input;` aliases for any renamed positional
+    // parameters so the body's original-name references resolve. Consumed
+    // on entry so nested lambdas don't inherit the parent's aliases.
+    final aliases = _pendingParamAliases;
+    _pendingParamAliases = const [];
+    for (final a in aliases) {
+      if (a.type != null) {
+        _wl('final ${a.type} ${a.name} = input;');
+      } else {
+        _wl('final ${a.name} = input;');
+      }
+    }
+
     if (body.whichExpr() == Expression_Expr.block) {
       _generateBlockStatements(body.block, hasReturn);
       return;
@@ -1647,7 +1715,12 @@ class DartCompiler {
         _generateLabeled(fields);
       case 'throw':
         final v = fields['value'];
-        _wl('throw ${v != null ? _e(v) : "null"};');
+        if (v == null) {
+          _wl('throw null;');
+        } else {
+          final special = _compileThrowValue(v);
+          _wl('throw ${special ?? _e(v)};');
+        }
       case 'rethrow':
         _wl('rethrow;');
       default:
@@ -1675,7 +1748,9 @@ class DartCompiler {
             : 'continue;\n');
       case 'throw':
         final v = fields['value'];
-        return 'throw ${v != null ? _e(v) : "null"};\n';
+        if (v == null) return 'throw null;\n';
+        final special = _compileThrowValue(v);
+        return 'throw ${special ?? _e(v)};\n';
       case 'rethrow':
         return 'rethrow;\n';
       case 'assign':
@@ -1842,23 +1917,120 @@ class DartCompiler {
     _depth--;
   }
 
+  /// Common Dart exception class names. When a typed catch's `type` is
+  /// one of these, we emit `on Type catch` so existing Dart programs
+  /// (e.g. `try { ... } on FormatException catch (e) { ... }`) round-trip
+  /// unchanged. For any other type name — including user types and Ball
+  /// tag strings — we emit a catch-all with runtime dispatch that
+  /// matches the Ball engine's semantics.
+  static const _dartBuiltinExceptions = {
+    'Exception',
+    'Error',
+    'FormatException',
+    'RangeError',
+    'ArgumentError',
+    'StateError',
+    'UnsupportedError',
+    'UnimplementedError',
+    'TypeError',
+    'NoSuchMethodError',
+    'OutOfMemoryError',
+    'StackOverflowError',
+    'IntegerDivisionByZeroException',
+    'ConcurrentModificationError',
+    'IndexError',
+    'IOException',
+    'FileSystemException',
+    'HttpException',
+    'SocketException',
+  };
+
   void _generateTry(Map<String, Expression> fields) {
     final body = fields['body'];
     final catches = fields['catches'];
     final fin = fields['finally'];
+
+    // Partition catches into "real Dart class" vs "Ball tag / untyped".
+    // Real Dart classes emit as `} on T catch (e) { ... }`; everything
+    // else goes into a single catch-all that dispatches via if-else on
+    // `e['__type']` so the Ball engine's semantics round-trip.
+    final dartClassCatches = <Expression>[];
+    final tagCatches = <Expression>[];
+    Expression? untypedCatch;
+
+    if (catches != null &&
+        catches.whichExpr() == Expression_Expr.literal &&
+        catches.literal.whichValue() == Literal_Value.listValue) {
+      for (final ce in catches.literal.listValue.elements) {
+        if (ce.whichExpr() != Expression_Expr.messageCreation) continue;
+        final cf = _fieldsToMap(ce.messageCreation.fields);
+        final type = _stringFieldValue(cf, 'type');
+        if (type == null || type.isEmpty) {
+          untypedCatch ??= ce;
+        } else if (_dartBuiltinExceptions.contains(type)) {
+          dartClassCatches.add(ce);
+        } else {
+          tagCatches.add(ce);
+        }
+      }
+    }
 
     _wl('try {');
     _depth++;
     if (body != null) _generateBranchBody(body, false);
     _depth--;
 
-    if (catches != null &&
-        catches.whichExpr() == Expression_Expr.literal &&
-        catches.literal.whichValue() == Literal_Value.listValue) {
-      for (final ce in catches.literal.listValue.elements) {
-        _generateCatchClause(ce);
-      }
+    // Emit each real-Dart-class catch as a standalone `on T catch`.
+    for (final ce in dartClassCatches) {
+      _generateCatchClause(ce);
     }
+
+    // If we have tag-typed catches or an untyped catch, emit a single
+    // catch-all that dispatches. Otherwise nothing (unhandled
+    // exceptions propagate naturally).
+    if (tagCatches.isNotEmpty || untypedCatch != null) {
+      _wl('} catch (__ball_e) {');
+      _depth++;
+      bool first = true;
+      for (final ce in tagCatches) {
+        final cf = _fieldsToMap(ce.messageCreation.fields);
+        final type = _stringFieldValue(cf, 'type')!;
+        final variable = _stringFieldValue(cf, 'variable') ?? 'e';
+        final cbody = cf['body'];
+        final keyword = first ? 'if' : 'else if';
+        _wl("$keyword (__ball_e is Map && __ball_e['__type'] == '$type') {");
+        _depth++;
+        _wl('final $variable = __ball_e;');
+        _catchBoundVars.add(variable);
+        if (cbody != null) _generateBranchBody(cbody, false);
+        _catchBoundVars.remove(variable);
+        _depth--;
+        _wl('}');
+        first = false;
+      }
+      // Fallback: the untyped catch body, or rethrow to propagate.
+      if (untypedCatch != null) {
+        final cf = _fieldsToMap(untypedCatch.messageCreation.fields);
+        final variable = _stringFieldValue(cf, 'variable') ?? 'e';
+        final cbody = cf['body'];
+        if (tagCatches.isNotEmpty) {
+          _wl('else {');
+          _depth++;
+        }
+        _wl('final $variable = __ball_e;');
+        _catchBoundVars.add(variable);
+        if (cbody != null) _generateBranchBody(cbody, false);
+        _catchBoundVars.remove(variable);
+        if (tagCatches.isNotEmpty) {
+          _depth--;
+          _wl('}');
+        }
+      } else {
+        _wl('else { rethrow; }');
+      }
+      _depth--;
+    }
+
     if (fin != null) {
       _wl('} finally {');
       _depth++;
@@ -1888,7 +2060,9 @@ class DartCompiler {
     clause.write(') {');
     _wl(clause.toString());
     _depth++;
+    _catchBoundVars.add(variable);
     if (body != null) _generateBranchBody(body, false);
+    _catchBoundVars.remove(variable);
     _depth--;
   }
 
@@ -1940,6 +2114,14 @@ class DartCompiler {
     // __cascade_self__ is a sentinel that means "no explicit receiver" inside
     // a cascade section — emit just the field name.
     if (_emit(obj) == '__cascade_self__') return cb.refer(fa.field_2);
+    // Catch-bound variables hold the thrown value, which in Ball's
+    // typed-catch convention is a Map. Use subscript access instead of
+    // dotted access so `e.detail` becomes `e['detail']` — Dart Maps
+    // don't support dotted field access.
+    if (fa.object.whichExpr() == Expression_Expr.reference &&
+        _catchBoundVars.contains(fa.object.reference.name)) {
+      return _raw("${fa.object.reference.name}['${fa.field_2}']");
+    }
     return obj.property(fa.field_2);
   }
 
@@ -2538,6 +2720,18 @@ class DartCompiler {
   String _prefixOp(Map<String, Expression> f, String op) {
     final v = f['value'];
     if (v == null) return '/* invalid $op */';
+    // Stacked unary minus / bitwise complement / logical-not render as
+    // `--5` / `~~5` / `!!5` which Dart misparses as pre-decrement etc.
+    // Wrap the operand in parens when its rendering starts with the
+    // same operator character.
+    final inner = _e(v);
+    final needsParen = inner.isNotEmpty &&
+        ((op == '-' && inner.startsWith('-')) ||
+         (op == '!' && inner.startsWith('!')) ||
+         (op == '~' && inner.startsWith('~')));
+    if (needsParen) {
+      return '$op($inner)';
+    }
     final ve = _compileExpression(v);
     final expr = switch (op) {
       '-' => ve.operatorUnaryMinus(),
@@ -2580,7 +2774,27 @@ class DartCompiler {
 
   String _throwExpr(Map<String, Expression> f) {
     final v = f['value'];
-    return v != null ? _emit(_compileExpression(v).thrown) : '(throw null)';
+    if (v == null) return '(throw null)';
+    final valStr = _compileThrowValue(v);
+    if (valStr != null) return 'throw $valStr';
+    return _emit(_compileExpression(v).thrown);
+  }
+
+  /// If [v] is an empty-typeName messageCreation, render it as a Dart
+  /// map literal so `throw` / catch dispatch can read the `__type` field.
+  /// The default messageCreation path emits it as an inline arg list
+  /// (`__type: 'NotFound'`), which is illegal after `throw`.
+  ///
+  /// Returns `null` when no special handling is needed — the caller
+  /// should fall back to its default expression compilation.
+  String? _compileThrowValue(Expression v) {
+    if (v.whichExpr() != Expression_Expr.messageCreation) return null;
+    if (v.messageCreation.typeName.isNotEmpty) return null;
+    final entries = <String>[];
+    for (final field in v.messageCreation.fields) {
+      entries.add("'${field.name}': ${_e(field.value)}");
+    }
+    return '{${entries.join(', ')}}';
   }
 
   String _compileSpread(Map<String, Expression> f, String op) {
@@ -2607,7 +2821,44 @@ class DartCompiler {
         return "'\$$name'";
       }
     }
-    return '${_e(v)}.toString()';
+    // Receivers of `.toString()` must bind tighter than method call.
+    // `!f.toString()` parses as `!(f.toString())`, not `(!f).toString()`.
+    // std calls to unary/binary operators render as prefix / infix
+    // strings, which need explicit parens to bind correctly.
+    final inner = _e(v);
+    return _needsParensAsReceiver(v, inner)
+        ? '($inner).toString()'
+        : '$inner.toString()';
+  }
+
+  /// Returns true if emitting `$inner.method()` would misparse because
+  /// the inner expression's rendering starts with an operator (prefix
+  /// `!`/`-`/`~`) or contains unparenthesized infix operators.
+  bool _needsParensAsReceiver(Expression v, String inner) {
+    if (inner.isEmpty) return false;
+    // Prefix operators.
+    final first = inner.codeUnitAt(0);
+    if (first == 0x21 /* ! */ || first == 0x7E /* ~ */ || first == 0x2D /* - */) {
+      return true;
+    }
+    // Binary op calls via std render as infix (`a + b`, `a == b`, etc.)
+    // without outer parens. Detect by checking if the value is one of
+    // those std calls.
+    if (v.whichExpr() == Expression_Expr.call) {
+      const infixOps = {
+        'add', 'subtract', 'multiply', 'divide', 'divide_double', 'modulo',
+        'equals', 'not_equals', 'less_than', 'greater_than', 'lte', 'gte',
+        'and', 'or',
+        'bitwise_and', 'bitwise_or', 'bitwise_xor',
+        'left_shift', 'right_shift', 'unsigned_right_shift',
+        'null_coalesce',
+      };
+      const prefixOps = {'not', 'negate', 'bitwise_not',
+                         'pre_increment', 'pre_decrement'};
+      final fn = v.call.function;
+      if (infixOps.contains(fn) || prefixOps.contains(fn)) return true;
+    }
+    return false;
   }
 
   String _methodCallExpr(Map<String, Expression> f, String method) {
@@ -2617,6 +2868,13 @@ class DartCompiler {
     final name = method.endsWith('()')
         ? method.substring(0, method.length - 2)
         : method;
+    // Receivers of `.method()` must bind tighter than method call.
+    // `-n.abs()` parses as `-(n.abs())`, not `(-n).abs()`. Wrap unary
+    // / infix operands in parens (same logic as `_compileToString`).
+    final inner = _e(v);
+    if (_needsParensAsReceiver(v, inner)) {
+      return '($inner).$name()';
+    }
     return _emit(_compileExpression(v).property(name).call([]));
   }
 

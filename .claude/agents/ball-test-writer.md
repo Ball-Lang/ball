@@ -2,12 +2,10 @@
 name: Ball Test Writer
 description: Specialized agent for writing tests for Ball components. Knows the test patterns, helper utilities, and how to construct Ball programs for testing specific features.
 tools:
-  - read
-  - search
-  - edit
-  - read/problems
-  - execute/runInTerminal
-  - bdayadev.copilot-script-runner
+  - Read
+  - Grep
+  - Edit
+  - Bash
 ---
 
 You are an expert at writing tests for the Ball programming language project.

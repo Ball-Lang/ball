@@ -2,11 +2,9 @@
 name: Ball Schema Designer
 description: Specialized agent for designing and modifying the Ball protobuf schema (proto/ball/v1/ball.proto). Understands the semantic/cosmetic boundary, protobuf conventions, and backward compatibility.
 tools:
-  - read
-  - search
-  - read/problems
-  - execute/runInTerminal
-  - bdayadev.copilot-script-runner
+  - Read
+  - Grep
+  - Bash
 ---
 
 You are an expert at designing the Ball protobuf language schema.

@@ -1,5 +1,6 @@
 ---
-applyTo: "cpp/**"
+paths:
+  - "cpp/**"
 ---
 
 # C++ Specific Instructions
@@ -69,17 +70,23 @@ buf generate --template cpp/buf.gen.cpp.yaml -o cpp/shared/gen proto/
 
 ## Known Issues — MUST READ
 
-- **ZERO TESTS**: Always add tests when modifying C++ code
-- `string_split`, `string_replace`, `string_replace_all` → emit empty comments (BROKEN)
-- `switch` statement compilation is STUBBED
-- `try-catch` is simplified (only catches std::exception)
-- `std_collections` module: functions declared but NOT implemented in engine
-- `std_io` module: functions declared but STUBBED
-- Labeled break/continue: tracked but dispatch is rudimentary
+C++ tests live in `cpp/test/test_engine.cpp`, `cpp/test/test_compiler.cpp`, and `cpp/test/test_conformance.cpp` and use a custom `TEST(name)` macro framework (no gtest). Build + run via:
+
+```bash
+cd cpp && cmake --build build --target test_engine test_compiler test_conformance
+./build/test/Debug/test_engine.exe       # or ./build/test/test_engine on POSIX
+./build/test/Debug/test_compiler.exe
+./build/test/Debug/test_conformance.exe  # runs every tests/conformance/*.ball.json
+```
+
+**Always add tests alongside every C++ change.** The suites cover arithmetic, comparisons, string/regex/math ops, control flow (`switch`, `for_in`, `try/catch`, typed catch, `rethrow`, labeled break/continue, base64), `std_collections` list/map/set ops, and most of `std_io`/`std_convert`/`std_time`. The conformance harness mirrors the Dart one and catches Dart/C++ parity bugs on any change.
+
+Remaining known limitations:
+
+- `async`/`await` in the engine is a synchronous simulation — `async` wraps the return in `BallFuture`, `await` recursively unwraps, but there is no event loop / no microtask queue. A real scheduler would need the whole engine rewritten to be async.
 
 ## When Adding Features
 
 1. Implement in BOTH compiler AND engine where applicable
-2. Add test cases (even though no test framework exists yet — create one)
-3. Verify the feature works with the corresponding Dart implementation behavior
-4. Check string operations carefully — several are broken/stubbed
+2. Add test cases in `cpp/test/test_engine.cpp` and/or `cpp/test/test_compiler.cpp`; conformance tests automatically pick up new programs added to `tests/conformance/`
+3. Verify the feature matches the corresponding Dart implementation's behavior

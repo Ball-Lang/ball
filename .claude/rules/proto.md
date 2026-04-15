@@ -1,5 +1,6 @@
 ---
-applyTo: "proto/**"
+paths:
+  - "proto/**"
 ---
 
 # Proto Schema Instructions

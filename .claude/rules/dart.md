@@ -1,5 +1,6 @@
 ---
-applyTo: "dart/**"
+paths:
+  - "dart/**"
 ---
 
 # Dart-Specific Instructions

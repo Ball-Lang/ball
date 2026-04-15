@@ -1,5 +1,6 @@
 ---
-applyTo: "examples/**"
+paths:
+  - "examples/**"
 ---
 
 # Ball Examples Instructions

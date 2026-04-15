@@ -1437,9 +1437,55 @@ TEST(throw_raises_exception) {
     ASSERT_THROWS(run_program(prog));
 }
 
-TEST(rethrow_raises_exception) {
+TEST(rethrow_outside_catch_raises_runtime_error) {
+    // Calling `rethrow` outside of a catch block surfaces a BallRuntimeError,
+    // not whatever the last thrown exception happened to be.
     auto prog = build_program(std_call("rethrow", make_msg("", {})));
-    ASSERT_THROWS(run_program(prog));
+    bool threw = false;
+    try {
+        run_program(prog);
+    } catch (const ball::BallRuntimeError& e) {
+        threw = true;
+        std::string msg = e.what();
+        ASSERT_TRUE(msg.find("rethrow") != std::string::npos);
+    } catch (...) {
+        // Any other exception type is a bug — rethrow without active
+        // exception must be a plain runtime error.
+    }
+    ASSERT_TRUE(threw);
+}
+
+TEST(rethrow_preserves_original_exception) {
+    // Outer try wraps an inner try whose catch does `rethrow`. The outer
+    // handler must receive the SAME exception (same value "boom"), not a
+    // generic "rethrow" error.
+    ball::v1::Expression inner_catches;
+    auto* inner_list = inner_catches.mutable_literal()->mutable_list_value();
+    *inner_list->add_elements() = make_msg("", {
+        {"variable", lit_string("e")},
+        {"body", std_call("rethrow", make_msg("", {}))}
+    });
+
+    auto inner_try = std_call("try", make_msg("TryInput", {
+        {"body", std_call("throw", make_msg("", {{"value", lit_string("boom")}}))},
+        {"catches", std::move(inner_catches)}
+    }));
+
+    ball::v1::Expression outer_catches;
+    auto* outer_list = outer_catches.mutable_literal()->mutable_list_value();
+    *outer_list->add_elements() = make_msg("", {
+        {"variable", lit_string("e")},
+        {"body", print_call(ref("e"))}
+    });
+
+    auto prog = build_program(
+        std_call("try", make_msg("TryInput", {
+            {"body", std::move(inner_try)},
+            {"catches", std::move(outer_catches)}
+        })));
+    auto out = run_program(prog);
+    ASSERT_EQ(out.size(), 1u);
+    ASSERT_EQ(out[0], "boom");
 }
 
 TEST(return_signal_unwinds_function) {

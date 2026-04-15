@@ -1,0 +1,284 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "try",
+          "isBase": true
+        },
+        {
+          "name": "string_to_int",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "throw",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "try",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "body",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "string_to_int",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "not a number"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "catches",
+                              "value": {
+                                "literal": {
+                                  "listValue": {
+                                    "elements": [
+                                      {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "type",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "FormatException"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "variable",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "e"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "body",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "print",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "PrintInput",
+                                                      "fields": [
+                                                        {
+                                                          "name": "message",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "caught-format"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "try",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "body",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "throw",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "boom"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "catches",
+                              "value": {
+                                "literal": {
+                                  "listValue": {
+                                    "elements": [
+                                      {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "variable",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "e"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "body",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "print",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "PrintInput",
+                                                      "fields": [
+                                                        {
+                                                          "name": "message",
+                                                          "value": {
+                                                            "reference": {
+                                                              "name": "e"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "after"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

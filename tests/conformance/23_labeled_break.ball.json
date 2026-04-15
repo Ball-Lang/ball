@@ -1,0 +1,180 @@
+{
+  "name": "23_labeled_break",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] },
+        { "name": "BinaryInput", "field": [ { "name": "left", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_INT64" }, { "name": "right", "number": 2, "label": "LABEL_OPTIONAL", "type": "TYPE_INT64" } ] },
+        { "name": "AssignInput", "field": [ { "name": "target", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" }, { "name": "value", "number": 2, "label": "LABEL_OPTIONAL", "type": "TYPE_INT64" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "while", "isBase": true },
+        { "name": "labeled", "isBase": true },
+        { "name": "break", "isBase": true },
+        { "name": "lte", "isBase": true },
+        { "name": "equals", "isBase": true },
+        { "name": "if", "isBase": true },
+        { "name": "add", "isBase": true },
+        { "name": "assign", "isBase": true },
+        { "name": "to_string", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "body": {
+            "block": {
+              "statements": [
+                { "let": { "name": "i", "value": { "literal": { "intValue": "1" } }, "metadata": { "keyword": "var" } } },
+                { "let": { "name": "j", "value": { "literal": { "intValue": "1" } }, "metadata": { "keyword": "var" } } },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "labeled",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            { "name": "label", "value": { "literal": { "stringValue": "outer" } } },
+                            {
+                              "name": "body",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "while",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "condition",
+                                          "value": { "call": { "module": "std", "function": "lte", "input": { "messageCreation": { "typeName": "BinaryInput", "fields": [ { "name": "left", "value": { "reference": { "name": "i" } } }, { "name": "right", "value": { "literal": { "intValue": "3" } } } ] } } } }
+                                        },
+                                        {
+                                          "name": "body",
+                                          "value": {
+                                            "block": {
+                                              "statements": [
+                                                {
+                                                  "expression": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "assign",
+                                                      "input": { "messageCreation": { "typeName": "AssignInput", "fields": [ { "name": "target", "value": { "reference": { "name": "j" } } }, { "name": "value", "value": { "literal": { "intValue": "1" } } } ] } }
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "expression": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "while",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "condition",
+                                                              "value": { "call": { "module": "std", "function": "lte", "input": { "messageCreation": { "typeName": "BinaryInput", "fields": [ { "name": "left", "value": { "reference": { "name": "j" } } }, { "name": "right", "value": { "literal": { "intValue": "3" } } } ] } } } }
+                                                            },
+                                                            {
+                                                              "name": "body",
+                                                              "value": {
+                                                                "block": {
+                                                                  "statements": [
+                                                                    {
+                                                                      "expression": {
+                                                                        "call": {
+                                                                          "module": "std",
+                                                                          "function": "print",
+                                                                          "input": { "messageCreation": { "typeName": "PrintInput", "fields": [ { "name": "message", "value": { "call": { "module": "std", "function": "to_string", "input": { "messageCreation": { "typeName": "", "fields": [ { "name": "value", "value": { "reference": { "name": "j" } } } ] } } } } } ] } }
+                                                                        }
+                                                                      }
+                                                                    },
+                                                                    {
+                                                                      "expression": {
+                                                                        "call": {
+                                                                          "module": "std",
+                                                                          "function": "if",
+                                                                          "input": {
+                                                                            "messageCreation": {
+                                                                              "typeName": "",
+                                                                              "fields": [
+                                                                                { "name": "condition", "value": { "call": { "module": "std", "function": "equals", "input": { "messageCreation": { "typeName": "BinaryInput", "fields": [ { "name": "left", "value": { "reference": { "name": "j" } } }, { "name": "right", "value": { "literal": { "intValue": "2" } } } ] } } } } },
+                                                                                { "name": "then", "value": { "call": { "module": "std", "function": "break", "input": { "messageCreation": { "typeName": "", "fields": [ { "name": "label", "value": { "literal": { "stringValue": "outer" } } } ] } } } } }
+                                                                              ]
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    },
+                                                                    {
+                                                                      "expression": {
+                                                                        "call": {
+                                                                          "module": "std",
+                                                                          "function": "assign",
+                                                                          "input": { "messageCreation": { "typeName": "AssignInput", "fields": [ { "name": "target", "value": { "reference": { "name": "j" } } }, { "name": "value", "value": { "call": { "module": "std", "function": "add", "input": { "messageCreation": { "typeName": "BinaryInput", "fields": [ { "name": "left", "value": { "reference": { "name": "j" } } }, { "name": "right", "value": { "literal": { "intValue": "1" } } } ] } } } } } ] } }
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "expression": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "assign",
+                                                      "input": { "messageCreation": { "typeName": "AssignInput", "fields": [ { "name": "target", "value": { "reference": { "name": "i" } } }, { "name": "value", "value": { "call": { "module": "std", "function": "add", "input": { "messageCreation": { "typeName": "BinaryInput", "fields": [ { "name": "left", "value": { "reference": { "name": "i" } } }, { "name": "right", "value": { "literal": { "intValue": "1" } } } ] } } } } } ] } }
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": { "messageCreation": { "typeName": "PrintInput", "fields": [ { "name": "message", "value": { "literal": { "stringValue": "done" } } } ] } }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

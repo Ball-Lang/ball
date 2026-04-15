@@ -1,0 +1,359 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "multiply",
+          "isBase": true
+        },
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "triple",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "multiply",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "x"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "intValue": "3"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "expression_body": true,
+            "params": [
+              {
+                "name": "x",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "addOne",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "add",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "x"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "intValue": "1"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "expression_body": true,
+            "params": [
+              {
+                "name": "x",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pipeline",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "function": "triple",
+              "input": {
+                "call": {
+                  "function": "addOne",
+                  "input": {
+                    "call": {
+                      "function": "triple",
+                      "input": {
+                        "reference": {
+                          "name": "x"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "expression_body": true,
+            "params": [
+              {
+                "name": "x",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "function": "pipeline",
+                                              "input": {
+                                                "literal": {
+                                                  "intValue": "2"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "function": "pipeline",
+                                              "input": {
+                                                "literal": {
+                                                  "intValue": "0"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "function": "triple",
+                                              "input": {
+                                                "call": {
+                                                  "function": "triple",
+                                                  "input": {
+                                                    "call": {
+                                                      "function": "triple",
+                                                      "input": {
+                                                        "literal": {
+                                                          "intValue": "1"
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

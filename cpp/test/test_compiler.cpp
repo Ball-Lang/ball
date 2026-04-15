@@ -719,6 +719,156 @@ TEST(compile_conversion_operator_method) {
     ASSERT_CONTAINS(out, "operator int64_t(");
 }
 
+TEST(compile_labeled_break_emits_goto) {
+    // labeled(outer) { for (...) { break outer; } }
+    // Must compile to: for (...) { goto __ball_break_outer; } __ball_break_outer:;
+    ball::v1::Expression for_body;
+    auto* for_blk = for_body.mutable_block();
+    *for_blk->add_statements()->mutable_expression() =
+        std_call("break", make_msg("", {{"label", lit_string("outer")}}));
+    *for_blk->mutable_result() = lit_int(0);
+
+    auto for_call = std_call("for", make_msg("ForInput", {
+        {"init", lit_int(0)},
+        {"condition", lit_bool(true)},
+        {"update", lit_int(0)},
+        {"body", std::move(for_body)}
+    }));
+
+    auto labeled_call = std_call("labeled", make_msg("LabeledInput", {
+        {"label", lit_string("outer")},
+        {"body", std::move(for_call)}
+    }));
+
+    ball::v1::Expression body;
+    auto* blk = body.mutable_block();
+    *blk->add_statements()->mutable_expression() = std::move(labeled_call);
+    *blk->mutable_result() = lit_int(0);
+
+    auto prog = build_program(std::move(body));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "goto __ball_break_outer");
+    ASSERT_CONTAINS(out, "__ball_break_outer:;");
+}
+
+TEST(compile_labeled_continue_emits_goto) {
+    ball::v1::Expression for_body;
+    auto* for_blk = for_body.mutable_block();
+    *for_blk->add_statements()->mutable_expression() =
+        std_call("continue", make_msg("", {{"label", lit_string("loop")}}));
+    *for_blk->mutable_result() = lit_int(0);
+
+    auto while_call = std_call("while", make_msg("WhileInput", {
+        {"condition", lit_bool(true)},
+        {"body", std::move(for_body)}
+    }));
+
+    auto labeled_call = std_call("labeled", make_msg("LabeledInput", {
+        {"label", lit_string("loop")},
+        {"body", std::move(while_call)}
+    }));
+
+    ball::v1::Expression body;
+    auto* blk = body.mutable_block();
+    *blk->add_statements()->mutable_expression() = std::move(labeled_call);
+    *blk->mutable_result() = lit_int(0);
+
+    auto prog = build_program(std::move(body));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "goto __ball_continue_loop");
+    ASSERT_CONTAINS(out, "__ball_continue_loop:;");
+    ASSERT_CONTAINS(out, "__ball_break_loop:;");
+}
+
+TEST(compile_try_catch_typed_dispatches_by_type) {
+    // Two typed catch clauses + one untyped fallback. The emitted C++ must:
+    //   1. Wrap the body in try
+    //   2. Have a BallException catch with if/else dispatch on type_name
+    //   3. Have a std::exception catch that runs the untyped body (not `throw;`)
+    ball::v1::Expression catches_list;
+    auto* list = catches_list.mutable_literal()->mutable_list_value();
+    auto typed1 = make_msg("", {
+        {"type", lit_string("NotFound")},
+        {"variable", lit_string("e")},
+        {"body", print_call(lit_string("not-found"))}
+    });
+    auto typed2 = make_msg("", {
+        {"type", lit_string("ParseError")},
+        {"variable", lit_string("e")},
+        {"body", print_call(lit_string("parse-error"))}
+    });
+    auto untyped = make_msg("", {
+        {"variable", lit_string("e")},
+        {"body", print_call(lit_string("fallback"))}
+    });
+    *list->add_elements() = std::move(typed1);
+    *list->add_elements() = std::move(typed2);
+    *list->add_elements() = std::move(untyped);
+
+    ball::v1::Expression body;
+    auto* blk = body.mutable_block();
+    *blk->add_statements()->mutable_expression() =
+        std_call("try", make_msg("TryInput", {
+            {"body", print_call(lit_string("try body"))},
+            {"catches", std::move(catches_list)}
+        }));
+    *blk->mutable_result() = lit_int(0);
+
+    auto prog = build_program(std::move(body));
+    auto out = compile_program(prog);
+    // BallException catch emitted (requires the preamble too).
+    ASSERT_CONTAINS(out, "struct BallException");
+    ASSERT_CONTAINS(out, "catch (const BallException&");
+    // Dispatch chain on type_name.
+    ASSERT_CONTAINS(out, "__ball_e.type_name == \"NotFound\"");
+    ASSERT_CONTAINS(out, "__ball_e.type_name == \"ParseError\"");
+    // Untyped fallback body (fallback), not a bare rethrow.
+    ASSERT_CONTAINS(out, "\"fallback\"");
+    // Non-BallException catch also present for std::exception-derived throws.
+    ASSERT_CONTAINS(out, "catch (const std::exception&");
+}
+
+TEST(compile_throw_uses_ball_exception) {
+    // Plain `throw "boom"` should emit BallException with default type
+    // "Exception", not std::runtime_error.
+    auto prog = build_program(
+        std_call("throw", make_msg("", {
+            {"value", lit_string("boom")}
+        })));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "throw BallException(\"Exception\"s");
+    ASSERT_NOT_CONTAINS(out, "throw std::runtime_error");
+}
+
+TEST(compile_base64_encode_decode_roundtrip) {
+    // base64_encode takes a vector<uint8_t> and returns a string.
+    // Use utf8_encode to produce a byte vector, then feed it through
+    // base64_encode, then decode it back. Both must emit real code, not
+    // "/* not yet implemented */" stubs.
+    auto utf8 = call("std_convert", "utf8_encode", make_msg("", {
+        {"source", lit_string("abc")}
+    }));
+    auto b64enc = call("std_convert", "base64_encode", make_msg("", {
+        {"source", std::move(utf8)}
+    }));
+    auto prog = build_program(print_call(std::move(b64enc)));
+    auto out = compile_program(prog);
+    ASSERT_NOT_CONTAINS(out, "not yet implemented");
+    // The inline alphabet marks the emitted encoder lambda.
+    ASSERT_CONTAINS(out, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/");
+
+    // base64_decode must also emit real code.
+    auto b64dec = call("std_convert", "base64_decode", make_msg("", {
+        {"source", lit_string("YWJj")}
+    }));
+    auto prog2 = build_program(print_call(call("std_convert", "utf8_decode", make_msg("", {
+        {"bytes", std::move(b64dec)}
+    }))));
+    auto out2 = compile_program(prog2);
+    ASSERT_NOT_CONTAINS(out2, "not yet implemented");
+    ASSERT_CONTAINS(out2, "push_back");
+}
+
 // ================================================================
 // Main
 // ================================================================

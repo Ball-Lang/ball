@@ -1,0 +1,407 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "multiply",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "compose",
+          "inputType": "int Function(int)",
+          "outputType": "int Function(int)",
+          "body": {
+            "lambda": {
+              "name": "",
+              "body": {
+                "call": {
+                  "function": "f",
+                  "input": {
+                    "call": {
+                      "function": "g",
+                      "input": {
+                        "reference": {
+                          "name": "x"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "metadata": {
+                "kind": "lambda",
+                "expression_body": true,
+                "has_return": true,
+                "params": [
+                  {
+                    "name": "x",
+                    "type": "int"
+                  }
+                ]
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "params": [
+              {
+                "name": "f",
+                "type": "int Function(int)"
+              },
+              {
+                "name": "g",
+                "type": "int Function(int)"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "inc",
+                    "value": {
+                      "lambda": {
+                        "name": "",
+                        "body": {
+                          "call": {
+                            "module": "std",
+                            "function": "add",
+                            "input": {
+                              "messageCreation": {
+                                "typeName": "",
+                                "fields": [
+                                  {
+                                    "name": "left",
+                                    "value": {
+                                      "reference": {
+                                        "name": "x"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "name": "right",
+                                    "value": {
+                                      "literal": {
+                                        "intValue": "1"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "metadata": {
+                          "kind": "lambda",
+                          "expression_body": true,
+                          "has_return": true,
+                          "params": [
+                            {
+                              "name": "x",
+                              "type": "int"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "dbl",
+                    "value": {
+                      "lambda": {
+                        "name": "",
+                        "body": {
+                          "call": {
+                            "module": "std",
+                            "function": "multiply",
+                            "input": {
+                              "messageCreation": {
+                                "typeName": "",
+                                "fields": [
+                                  {
+                                    "name": "left",
+                                    "value": {
+                                      "reference": {
+                                        "name": "x"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "name": "right",
+                                    "value": {
+                                      "literal": {
+                                        "intValue": "2"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "metadata": {
+                          "kind": "lambda",
+                          "expression_body": true,
+                          "has_return": true,
+                          "params": [
+                            {
+                              "name": "x",
+                              "type": "int"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "incThenDouble",
+                    "value": {
+                      "call": {
+                        "function": "compose",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "reference": {
+                                    "name": "dbl"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "arg1",
+                                "value": {
+                                  "reference": {
+                                    "name": "inc"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "doubleThenInc",
+                    "value": {
+                      "call": {
+                        "function": "compose",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "reference": {
+                                    "name": "inc"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "arg1",
+                                "value": {
+                                  "reference": {
+                                    "name": "dbl"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "function": "incThenDouble",
+                                              "input": {
+                                                "literal": {
+                                                  "intValue": "3"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "function": "doubleThenInc",
+                                              "input": {
+                                                "literal": {
+                                                  "intValue": "3"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

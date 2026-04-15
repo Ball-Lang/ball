@@ -1,0 +1,263 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "if",
+          "isBase": true
+        },
+        {
+          "name": "greater_than",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "less_than",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "x",
+                    "value": {
+                      "literal": {
+                        "intValue": "5"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "if",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "condition",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "greater_than",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "reference": {
+                                              "name": "x"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "0"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "then",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "print",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "PrintInput",
+                                      "fields": [
+                                        {
+                                          "name": "message",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "positive"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "else",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "if",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "condition",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "less_than",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "x"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "literal": {
+                                                          "intValue": "0"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "then",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "print",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "PrintInput",
+                                                  "fields": [
+                                                    {
+                                                      "name": "message",
+                                                      "value": {
+                                                        "literal": {
+                                                          "stringValue": "negative"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "else",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "print",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "PrintInput",
+                                                  "fields": [
+                                                    {
+                                                      "name": "message",
+                                                      "value": {
+                                                        "literal": {
+                                                          "stringValue": "zero"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

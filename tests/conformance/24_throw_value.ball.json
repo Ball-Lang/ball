@@ -1,0 +1,138 @@
+{
+  "name": "24_throw_value",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "try", "isBase": true },
+        { "name": "throw", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "try",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "body",
+                              "value": {
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "throw",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "value",
+                                                  "value": {
+                                                    "messageCreation": {
+                                                      "typeName": "",
+                                                      "fields": [
+                                                        { "name": "__type", "value": { "literal": { "stringValue": "NotFound" } } },
+                                                        { "name": "detail", "value": { "literal": { "stringValue": "missing-key" } } }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "name": "catches",
+                              "value": {
+                                "literal": {
+                                  "listValue": {
+                                    "elements": [
+                                      {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            { "name": "type", "value": { "literal": { "stringValue": "NotFound" } } },
+                                            { "name": "variable", "value": { "literal": { "stringValue": "e" } } },
+                                            {
+                                              "name": "body",
+                                              "value": {
+                                                "block": {
+                                                  "statements": [
+                                                    {
+                                                      "expression": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "print",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "PrintInput",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "message",
+                                                                  "value": {
+                                                                    "fieldAccess": {
+                                                                      "object": { "reference": { "name": "e" } },
+                                                                      "field": "detail"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

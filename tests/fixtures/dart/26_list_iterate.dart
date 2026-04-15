@@ -1,0 +1,14 @@
+void main() {
+  var xs = [1, 2, 3, 4, 5];
+  var product = 1;
+  for (var i = 0; i < xs.length; i = i + 1) {
+    product = product * xs[i];
+  }
+  print(product.toString());
+  // Also via for-in
+  var total = 0;
+  for (var x in xs) {
+    total = total + x;
+  }
+  print(total.toString());
+}

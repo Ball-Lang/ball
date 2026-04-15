@@ -6,3 +6,8 @@ resolution: workspace
 dependencies:
   ball_base:
     path: ../shared
+
+dev_dependencies:
+  ball_encoder:
+    path: ../encoder
+  test: ^1.25.0

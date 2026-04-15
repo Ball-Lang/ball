@@ -1,0 +1,11 @@
+int Function(int) adder(int delta) {
+  return (int x) => x + delta;
+}
+
+void main() {
+  final add5 = adder(5);
+  final add10 = adder(10);
+  print(add5(3).toString());
+  print(add10(3).toString());
+  print(add5(add10(1)).toString());
+}

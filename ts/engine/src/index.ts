@@ -166,6 +166,8 @@ export class BallEngine {
   private stdout: (msg: string) => void;
   private stderr: (msg: string) => void;
   private functions = new Map<string, FunctionDef>();
+  private constructors = new Map<string, { module: string; fn: FunctionDef }>();
+  private enumValues = new Map<string, Record<string, Record<string, BallValue>>>();
   private currentModule = '';
   private activeException: any = null;
   private output: string[] = [];
@@ -179,8 +181,40 @@ export class BallEngine {
 
   private buildLookupTables(): void {
     for (const mod of this.program.modules) {
+      // Index enum types from module (if present).
+      const enums = (mod as any).enums;
+      if (Array.isArray(enums)) {
+        for (const enumDesc of enums) {
+          const enumName: string = enumDesc.name; // e.g. "main:Color"
+          const values: Record<string, Record<string, BallValue>> = {};
+          for (const v of (enumDesc.value ?? enumDesc.values ?? [])) {
+            values[v.name] = { __type__: enumName, name: v.name, index: v.number ?? v.index ?? 0 };
+          }
+          this.enumValues.set(enumName, values);
+          const ec = enumName.indexOf(':');
+          if (ec >= 0) this.enumValues.set(enumName.substring(ec + 1), values);
+        }
+      }
+
       for (const fn of mod.functions) {
         this.functions.set(`${mod.name}.${fn.name}`, fn);
+
+        // Register constructors (metadata.kind === "constructor").
+        const kind = fn.metadata?.kind;
+        if (kind === 'constructor') {
+          const entry = { module: mod.name, fn };
+          // fn.name is "ClassName.new" or "ClassName.named".
+          const dotIdx = fn.name.indexOf('.');
+          if (dotIdx >= 0) {
+            const className = fn.name.substring(0, dotIdx);
+            const ctorSuffix = fn.name.substring(dotIdx + 1);
+            if (ctorSuffix === 'new') {
+              this.constructors.set(className, entry);
+              this.constructors.set(`${mod.name}:${className}`, entry);
+            }
+            this.constructors.set(fn.name, entry);
+          }
+        }
       }
     }
   }
@@ -251,6 +285,37 @@ export class BallEngine {
       return this.callBaseFunction(call.module, call.function, input);
     }
 
+    // Method call on object (has 'self' field) — instance method dispatch.
+    if (input && typeof input === 'object' && !Array.isArray(input) && 'self' in input) {
+      const self = input.self;
+      if (self && typeof self === 'object' && !Array.isArray(self)) {
+        const typeName: string | undefined = self.__type__;
+        if (typeName) {
+          const colonIdx = typeName.indexOf(':');
+          const modPart = colonIdx >= 0 ? typeName.substring(0, colonIdx) : this.currentModule;
+          // Try ClassName.methodName
+          const methodKey = `${modPart}.${typeName}.${call.function}`;
+          const method = this.functions.get(methodKey);
+          if (method) return this.callFunction(modPart, method, input, scope);
+          // Walk __super__ chain for inherited methods.
+          let superObj = self.__super__;
+          while (superObj && typeof superObj === 'object' && !Array.isArray(superObj)) {
+            const superType: string | undefined = superObj.__type__;
+            if (superType) {
+              const sColonIdx = superType.indexOf(':');
+              const sModPart = sColonIdx >= 0 ? superType.substring(0, sColonIdx) : modPart;
+              const sTypeName = sColonIdx >= 0 ? superType : `${sModPart}:${superType}`;
+              const superMethodKey = `${sModPart}.${sTypeName}.${call.function}`;
+              const superMethod = this.functions.get(superMethodKey);
+              if (superMethod) return this.callFunction(sModPart, superMethod, input, scope);
+            }
+            superObj = superObj.__super__;
+          }
+        }
+      }
+      // Fall through to normal resolution if no method found on the type.
+    }
+
     const key = `${moduleName}.${call.function}`;
     const fn = this.functions.get(key);
     if (fn?.isBase) return this.callBaseFunction(moduleName, call.function, input);
@@ -285,6 +350,11 @@ export class BallEngine {
 
     const fnScope = parentScope.child();
     fnScope.bind('input', input);
+
+    // Bind 'self' for instance method calls so `this` references resolve.
+    if (input && typeof input === 'object' && !Array.isArray(input) && 'self' in input) {
+      fnScope.bind('self', input.self);
+    }
 
     // Destructure input fields as named parameters
     const params = fn.metadata?.params;
@@ -328,7 +398,30 @@ export class BallEngine {
   }
 
   private evalReference(ref: { name: string }, scope: Scope): BallValue {
-    return scope.lookup(ref.name);
+    const name = ref.name;
+    if (scope.has(name)) return scope.lookup(name);
+
+    // Constructor tear-off: resolve class names to callable closures.
+    const ctorEntry = this.constructors.get(name);
+    if (ctorEntry) {
+      return (input: BallValue) => this.callFunction(ctorEntry.module, ctorEntry.fn, input, scope);
+    }
+
+    // Try stripping module prefix (e.g. "main:Foo" -> "Foo").
+    const colonIdx = name.indexOf(':');
+    if (colonIdx >= 0) {
+      const bare = name.substring(colonIdx + 1);
+      const bareEntry = this.constructors.get(bare);
+      if (bareEntry) {
+        return (input: BallValue) => this.callFunction(bareEntry.module, bareEntry.fn, input, scope);
+      }
+    }
+
+    // Enum type reference: resolve to a map of enum values.
+    const enumVals = this.enumValues.get(name);
+    if (enumVals) return enumVals;
+
+    return scope.lookup(name);
   }
 
   private evalFieldAccess(fa: { object: Expression; field: string }, scope: Scope): BallValue {
@@ -343,7 +436,15 @@ export class BallEngine {
       if (fa.field === 'length') return obj.length;
       return null;
     }
-    if (obj && typeof obj === 'object' && fa.field in obj) return obj[fa.field];
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      if (fa.field in obj) return obj[fa.field];
+      // Walk __super__ chain for inherited fields.
+      let superObj = obj.__super__;
+      while (superObj && typeof superObj === 'object' && !Array.isArray(superObj)) {
+        if (fa.field in superObj) return superObj[fa.field];
+        superObj = superObj.__super__;
+      }
+    }
     return null;
   }
 
@@ -732,7 +833,8 @@ export class BallEngine {
       case 'string_index_of': return String(input?.string ?? '').indexOf(String(input?.substring ?? ''));
 
       // Type ops
-      case 'is': return typeof input?.value === input?.type;
+      case 'is': return this.typeMatches(input?.value, input?.type);
+      case 'is_not': return !this.typeMatches(input?.value, input?.type);
       case 'as': return input?.value;
 
       // Math
@@ -823,6 +925,44 @@ export class BallEngine {
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
+
+  private typeMatches(value: BallValue, type: string | undefined): boolean {
+    if (type === undefined || type === null) return false;
+    // Primitive type checks
+    switch (type) {
+      case 'int': return typeof value === 'number' && Number.isInteger(value);
+      case 'double': return typeof value === 'number';
+      case 'num': return typeof value === 'number';
+      case 'String': return typeof value === 'string';
+      case 'bool': return typeof value === 'boolean';
+      case 'List': return Array.isArray(value);
+      case 'Map': return value !== null && typeof value === 'object' && !Array.isArray(value);
+      case 'Null': case 'void': return value === null || value === undefined;
+      case 'Object': case 'dynamic': return true;
+      case 'Function': return typeof value === 'function';
+    }
+    // Check BallObject __type__ and walk __super__ chain
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      if (this.typeNameMatches(value.__type__, type)) return true;
+      let superObj = value.__super__;
+      while (superObj && typeof superObj === 'object' && !Array.isArray(superObj)) {
+        if (this.typeNameMatches(superObj.__type__, type)) return true;
+        superObj = superObj.__super__;
+      }
+    }
+    // Fallback: JS typeof check
+    return typeof value === type;
+  }
+
+  private typeNameMatches(objType: string | undefined, checkType: string): boolean {
+    if (!objType) return false;
+    if (objType === checkType) return true;
+    // objType is "module:Foo", checkType is "Foo"
+    if (objType.endsWith(':' + checkType)) return true;
+    // objType is "Foo", checkType is "module:Foo"
+    if (checkType.endsWith(':' + objType)) return true;
+    return false;
+  }
 
   private toBool(v: BallValue): boolean {
     if (v === null || v === undefined || v === false || v === 0 || v === '') return false;

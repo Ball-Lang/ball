@@ -21,6 +21,8 @@ dependencies:
     path: ../encoder
   ball_engine:
     path: ../engine
+  ball_resolver:
+    path: ../resolver
   fixnum: ^1.1.1
   protobuf: ^6.0.0
 

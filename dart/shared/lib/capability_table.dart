@@ -16,6 +16,7 @@ enum Capability {
   memory,
   concurrency,
   network,
+  async,
 }
 
 /// Risk level associated with each capability.
@@ -29,6 +30,7 @@ const Map<Capability, String> capabilityRiskLevel = {
   Capability.memory: 'high',
   Capability.concurrency: 'medium',
   Capability.network: 'high',
+  Capability.async: 'low',
 };
 
 /// Lookup the capability of a base function call.
@@ -114,11 +116,11 @@ const Map<String, Capability> _table = {
   'std.break': Capability.pure,
   'std.continue': Capability.pure,
 
-  // ── std: generators & async (pure) ──
-  'std.yield': Capability.pure,
-  'std.yield_each': Capability.pure,
-  'std.await': Capability.pure,
-  'std.async': Capability.pure,
+  // ── std: generators & async ──
+  'std.yield': Capability.async,
+  'std.yield_each': Capability.async,
+  'std.await': Capability.async,
+  'std.async': Capability.async,
 
   // ── std: assignment (pure) ──
   'std.assign': Capability.pure,

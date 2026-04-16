@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+  packages: write
+
+jobs:
+  # ──────────────────────────────────────────────────
+  # Run all tests before releasing
+  # ──────────────────────────────────────────────────
+  test:
+    name: Pre-release Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+
+      - name: Proto lint
+        run: buf lint proto/
+
+      - name: Proto format check
+        run: buf format proto/ --diff --exit-code
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Dart install dependencies
+        run: cd dart && dart pub get
+
+      - name: Dart analyze
+        run: dart analyze dart/
+
+      - name: Dart shared tests
+        run: cd dart/shared && dart test
+
+      - name: Dart engine tests
+        run: cd dart/engine && dart test
+
+      - name: Dart encoder tests
+        run: cd dart/encoder && dart test
+
+      - name: Dart compiler tests
+        run: cd dart/compiler && dart test --exclude-tags slow
+
+      - name: Dart resolver tests
+        run: cd dart/resolver && dart test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ts/engine/package-lock.json
+
+      - name: TypeScript install dependencies
+        run: cd ts/engine && npm ci
+
+      - name: TypeScript build
+        run: cd ts/engine && npm run build
+
+      - name: TypeScript test
+        run: cd ts/engine && npm test
+
+  # ──────────────────────────────────────────────────
+  # Semantic Release
+  # ──────────────────────────────────────────────────
+  release:
+    name: Semantic Release
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install semantic-release plugins
+        run: >
+          npm install -g
+          semantic-release
+          @semantic-release/commit-analyzer
+          @semantic-release/release-notes-generator
+          @semantic-release/changelog
+          @semantic-release/github
+          @semantic-release/npm
+          @semantic-release/git
+
+      - name: Run semantic-release
+        run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

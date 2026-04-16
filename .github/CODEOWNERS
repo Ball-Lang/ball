@@ -1,0 +1,14 @@
+# Default
+* @ahmednfwela
+
+# Proto schema changes need careful review
+proto/ @ahmednfwela
+
+# Dart packages
+dart/ @ahmednfwela
+
+# C++ implementation
+cpp/ @ahmednfwela
+
+# TypeScript engine
+ts/ @ahmednfwela

@@ -21,11 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # needed for buf breaking against git history
+          fetch-depth: 0 # needed for buf breaking against git history
 
-      - uses: bufbuild/buf-setup-action@v1
+      - uses: bufbuild/buf-action@v1
         with:
-          github_token: ${{ github.token }}
+          setup_only: true
 
       - name: Lint
         run: buf lint proto/
@@ -59,18 +59,24 @@ jobs:
       - name: Format check
         run: dart format --set-exit-if-changed dart/
 
+      - name: Shared tests
+        run: cd dart/shared && dart test
+
       - name: Engine tests
         run: cd dart/engine && dart test
 
       - name: Encoder tests
         run: cd dart/encoder && dart test
 
+      - name: Compiler tests
+        run: cd dart/compiler && dart test --exclude-tags slow
+
+      - name: Resolver tests
+        run: cd dart/resolver && dart test
+
   # ──────────────────────────────────────────────────
   # C++ — build + test on all platforms
   # ──────────────────────────────────────────────────
-  # NOTE: System protobuf is NOT installed. FetchContent pulls the
-  # exact version (BALL_PROTOBUF_TAG) that matches buf.gen.cpp.yaml.
-  # This avoids version mismatch between generated code and runtime.
   cpp:
     name: C++ (${{ matrix.os }})
     strategy:
@@ -81,9 +87,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bufbuild/buf-setup-action@v1
+      - uses: bufbuild/buf-action@v1
         with:
-          github_token: ${{ github.token }}
+          setup_only: true
 
       - name: Install nlohmann-json (Ubuntu)
         if: runner.os == 'Linux'
@@ -93,19 +99,37 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install nlohmann-json
 
-      # Windows: nlohmann-json is fetched by CMake FetchContent (no vcpkg needed)
+      # Windows: nlohmann-json is fetched by CMake FetchContent
 
       - name: Configure CMake
         run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
-
-      - name: Buf lint (via CMake)
-        run: cmake --build cpp/build --target buf_lint --config Release
-
-      - name: Buf format check (via CMake)
-        run: cmake --build cpp/build --target buf_format --config Release
 
       - name: Build all targets
         run: cmake --build cpp/build --config Release
 
       - name: Run tests
         run: ctest --test-dir cpp/build --output-on-failure -C Release
+
+  # ──────────────────────────────────────────────────
+  # TypeScript — build + test
+  # ──────────────────────────────────────────────────
+  typescript:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ts/engine/package-lock.json
+
+      - name: Install dependencies
+        run: cd ts/engine && npm ci
+
+      - name: Build
+        run: cd ts/engine && npm run build
+
+      - name: Test
+        run: cd ts/engine && npm test

@@ -6,6 +6,10 @@ resolution: workspace
 dependencies:
   ball_base:
     path: ../shared
+  yaml: ^3.1.0
+  pub_semver: ^2.1.0
+  http: ^1.2.0
+  archive: ^4.0.0
 
 dev_dependencies:
   ball_engine:

@@ -14,6 +14,7 @@ import 'package:analyzer/dart/ast/ast.dart' as ast;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 
 import 'encoder.dart';
+import 'pub_client.dart';
 import 'pubspec_manifest.dart';
 import 'pubspec_parser.dart';
 
@@ -71,11 +72,38 @@ class PackageEncoder {
   /// Whether to also scan `test/` files.  Defaults to `false`.
   final bool includeTests;
 
+  /// When true, external `package:` imports are resolved via the pub API,
+  /// downloaded, and recursively encoded instead of being stubbed.
+  final bool resolveExternalDeps;
+
+  /// Pub API client for downloading package sources.
+  final PubClient? _pubClient;
+
+  /// Shared cache of already-encoded packages (packageName → Program).
+  /// Passed through recursive calls to avoid re-encoding the same package.
+  final Map<String, Program> _encodedCache;
+
+  /// Packages currently being encoded (cycle detection).
+  final Set<String> _inProgress;
+
+  /// Maximum transitive dependency depth.
+  final int maxDepth;
+
   /// `relPath → moduleName` for every discovered `.dart` file.
   late final Map<String, String> _fileToModule;
 
-  PackageEncoder(this.packageDir, {this.includeTests = false})
-    : manifest = PubspecParser.fromDirectory(packageDir) {
+  PackageEncoder(
+    this.packageDir, {
+    this.includeTests = false,
+    this.resolveExternalDeps = false,
+    PubClient? pubClient,
+    Map<String, Program>? encodedCache,
+    Set<String>? inProgress,
+    this.maxDepth = 10,
+  })  : _pubClient = pubClient,
+        _encodedCache = encodedCache ?? {},
+        _inProgress = inProgress ?? {},
+        manifest = PubspecParser.fromDirectory(packageDir) {
     _fileToModule = _buildFileMap();
   }
 
@@ -170,6 +198,143 @@ class PackageEncoder {
         ...userModules,
         ?resourceModule,
       ]);
+  }
+
+  /// Resolve external package stubs by downloading and encoding them.
+  Future<List<Module>> _resolveExternalDeps(Set<String> stubNames) async {
+    final pubClient = _pubClient;
+    if (pubClient == null) return [];
+    final modules = <Module>[];
+    for (final stubName in stubNames) {
+      // stub names are module names like "package.http" or "http" —
+      // extract the pub package name (first segment, or the name itself).
+      final packageName = _moduleNameToPackageName(stubName);
+      if (packageName == null) continue;
+
+      // Check cache first.
+      if (_encodedCache.containsKey(packageName)) {
+        final cached = _encodedCache[packageName]!;
+        for (final m in cached.modules) {
+          if (!m.functions.every((f) => f.isBase) || m.functions.isEmpty) {
+            modules.add(m);
+          }
+        }
+        continue;
+      }
+
+      // Cycle detection.
+      if (_inProgress.contains(packageName)) continue;
+      _inProgress.add(packageName);
+
+      // Depth limit.
+      if (_inProgress.length > maxDepth) {
+        _inProgress.remove(packageName);
+        continue;
+      }
+
+      try {
+        // Resolve version from manifest or lock file.
+        final constraint = _getVersionConstraint(packageName);
+        final versionInfo = await pubClient.resolveVersion(
+          packageName,
+          constraint,
+        );
+
+        // Download and extract.
+        final pkgDir = await pubClient.downloadPackage(
+          packageName,
+          versionInfo.version,
+          archiveUrl: versionInfo.archiveUrl,
+        );
+
+        // Recursively encode.
+        final subEncoder = PackageEncoder(
+          pkgDir,
+          resolveExternalDeps: resolveExternalDeps,
+          pubClient: _pubClient,
+          encodedCache: _encodedCache,
+          inProgress: _inProgress,
+          maxDepth: maxDepth,
+        );
+        final subProgram = await subEncoder.encodeAsync();
+        _encodedCache[packageName] = subProgram;
+
+        // Collect non-base modules from the sub-program.
+        for (final m in subProgram.modules) {
+          if (!m.functions.every((f) => f.isBase) || m.functions.isEmpty) {
+            modules.add(m);
+          }
+        }
+      } catch (e) {
+        // If resolution fails, silently skip — the stub remains.
+      } finally {
+        _inProgress.remove(packageName);
+      }
+    }
+    return modules;
+  }
+
+  String? _moduleNameToPackageName(String moduleName) {
+    // Module names from external imports look like "package.http.src.client"
+    // or just "http". Try matching against manifest dependencies.
+    for (final depName in manifest.dependencies.keys) {
+      if (moduleName == depName || moduleName.startsWith('$depName.')) {
+        return depName;
+      }
+    }
+    // Fallback: the module name itself might be the package name.
+    if (manifest.dependencies.containsKey(moduleName)) return moduleName;
+    return moduleName.split('.').first;
+  }
+
+  String _getVersionConstraint(String packageName) {
+    // Prefer exact version from lock file.
+    final locked = manifest.resolvedVersions[packageName];
+    if (locked != null) return locked;
+    // Fall back to constraint from pubspec.yaml.
+    final dep = manifest.dependencies[packageName];
+    if (dep is String) return dep;
+    return 'any';
+  }
+
+  /// Async variant of [encode] that supports dependency resolution.
+  ///
+  /// When [resolveExternalDeps] is true and a [PubClient] was provided,
+  /// external `package:` imports are downloaded, recursively encoded, and
+  /// merged into the program instead of being left as empty stubs.
+  Future<Program> encodeAsync({
+    String? entryFile,
+    String entryFunction = 'main',
+  }) async {
+    final program = encode(entryFile: entryFile, entryFunction: entryFunction);
+    if (!resolveExternalDeps || _pubClient == null) return program;
+
+    // Collect stub module names (modules with zero functions = stubs).
+    final stubNames = <String>{};
+    for (final m in program.modules) {
+      if (m.functions.isEmpty && m.name != '__assets__') {
+        stubNames.add(m.name);
+      }
+    }
+    if (stubNames.isEmpty) return program;
+
+    final resolved = await _resolveExternalDeps(stubNames);
+    if (resolved.isEmpty) return program;
+
+    // Replace stubs with resolved modules.
+    final modules = <Module>[];
+    for (final m in program.modules) {
+      if (stubNames.contains(m.name)) continue;
+      modules.add(m);
+    }
+    modules.addAll(resolved);
+
+    return Program()
+      ..name = program.name
+      ..version = program.version
+      ..entryModule = program.entryModule
+      ..entryFunction = program.entryFunction
+      ..modules.addAll(modules);
   }
 
   // ── File map ─────────────────────────────────────────────────────────────

@@ -15,11 +15,16 @@ class PackageManifest {
   /// Package description from pubspec.yaml.
   final String description;
 
+  /// Exact resolved versions from `pubspec.lock` (packageName → version).
+  /// Empty if no lock file was found.
+  final Map<String, String> resolvedVersions;
+
   const PackageManifest({
     required this.name,
     this.version = '0.0.0',
     this.dependencies = const {},
     this.devDependencies = const {},
     this.description = '',
+    this.resolvedVersions = const {},
   });
 }

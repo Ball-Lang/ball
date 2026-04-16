@@ -15,6 +15,26 @@ import 'dart:convert' as $convert;
 import 'dart:core' as $core;
 import 'dart:typed_data' as $typed_data;
 
+@$core.Deprecated('Use registryDescriptor instead')
+const Registry$json = {
+  '1': 'Registry',
+  '2': [
+    {'1': 'REGISTRY_UNSPECIFIED', '2': 0},
+    {'1': 'REGISTRY_PUB', '2': 1},
+    {'1': 'REGISTRY_NPM', '2': 2},
+    {'1': 'REGISTRY_NUGET', '2': 3},
+    {'1': 'REGISTRY_CARGO', '2': 4},
+    {'1': 'REGISTRY_PYPI', '2': 5},
+    {'1': 'REGISTRY_MAVEN', '2': 6},
+  ],
+};
+
+/// Descriptor for `Registry`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List registryDescriptor = $convert.base64Decode(
+    'CghSZWdpc3RyeRIYChRSRUdJU1RSWV9VTlNQRUNJRklFRBAAEhAKDFJFR0lTVFJZX1BVQhABEh'
+    'AKDFJFR0lTVFJZX05QTRACEhIKDlJFR0lTVFJZX05VR0VUEAMSEgoOUkVHSVNUUllfQ0FSR08Q'
+    'BBIRCg1SRUdJU1RSWV9QWVBJEAUSEgoOUkVHSVNUUllfTUFWRU4QBg==');
+
 @$core.Deprecated('Use moduleEncodingDescriptor instead')
 const ModuleEncoding$json = {
   '1': 'ModuleEncoding',
@@ -234,6 +254,15 @@ const ModuleImport$json = {
       '9': 0,
       '10': 'git'
     },
+    {
+      '1': 'registry',
+      '3': 8,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.RegistrySource',
+      '9': 0,
+      '10': 'registry'
+    },
   ],
   '8': [
     {'1': 'source'},
@@ -247,7 +276,8 @@ final $typed_data.Uint8List moduleImportDescriptor = $convert.base64Decode(
     'dGFkYXRhEikKBGh0dHAYBCABKAsyEy5iYWxsLnYxLkh0dHBTb3VyY2VIAFIEaHR0cBIpCgRmaW'
     'xlGAUgASgLMhMuYmFsbC52MS5GaWxlU291cmNlSABSBGZpbGUSLwoGaW5saW5lGAYgASgLMhUu'
     'YmFsbC52MS5JbmxpbmVTb3VyY2VIAFIGaW5saW5lEiYKA2dpdBgHIAEoCzISLmJhbGwudjEuR2'
-    'l0U291cmNlSABSA2dpdEIICgZzb3VyY2U=');
+    'l0U291cmNlSABSA2dpdBI1CghyZWdpc3RyeRgIIAEoCzIXLmJhbGwudjEuUmVnaXN0cnlTb3Vy'
+    'Y2VIAFIIcmVnaXN0cnlCCAoGc291cmNl');
 
 @$core.Deprecated('Use httpSourceDescriptor instead')
 const HttpSource$json = {
@@ -352,6 +382,41 @@ final $typed_data.Uint8List gitSourceDescriptor = $convert.base64Decode(
     'CglHaXRTb3VyY2USEAoDdXJsGAEgASgJUgN1cmwSEAoDcmVmGAIgASgJUgNyZWYSEgoEcGF0aB'
     'gDIAEoCVIEcGF0aBIzCghlbmNvZGluZxgEIAEoDjIXLmJhbGwudjEuTW9kdWxlRW5jb2RpbmdS'
     'CGVuY29kaW5n');
+
+@$core.Deprecated('Use registrySourceDescriptor instead')
+const RegistrySource$json = {
+  '1': 'RegistrySource',
+  '2': [
+    {
+      '1': 'registry',
+      '3': 1,
+      '4': 1,
+      '5': 14,
+      '6': '.ball.v1.Registry',
+      '10': 'registry'
+    },
+    {'1': 'package', '3': 2, '4': 1, '5': 9, '10': 'package'},
+    {'1': 'version', '3': 3, '4': 1, '5': 9, '10': 'version'},
+    {'1': 'module_path', '3': 4, '4': 1, '5': 9, '10': 'modulePath'},
+    {
+      '1': 'encoding',
+      '3': 5,
+      '4': 1,
+      '5': 14,
+      '6': '.ball.v1.ModuleEncoding',
+      '10': 'encoding'
+    },
+    {'1': 'registry_url', '3': 6, '4': 1, '5': 9, '10': 'registryUrl'},
+  ],
+};
+
+/// Descriptor for `RegistrySource`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List registrySourceDescriptor = $convert.base64Decode(
+    'Cg5SZWdpc3RyeVNvdXJjZRItCghyZWdpc3RyeRgBIAEoDjIRLmJhbGwudjEuUmVnaXN0cnlSCH'
+    'JlZ2lzdHJ5EhgKB3BhY2thZ2UYAiABKAlSB3BhY2thZ2USGAoHdmVyc2lvbhgDIAEoCVIHdmVy'
+    'c2lvbhIfCgttb2R1bGVfcGF0aBgEIAEoCVIKbW9kdWxlUGF0aBIzCghlbmNvZGluZxgFIAEoDj'
+    'IXLmJhbGwudjEuTW9kdWxlRW5jb2RpbmdSCGVuY29kaW5nEiEKDHJlZ2lzdHJ5X3VybBgGIAEo'
+    'CVILcmVnaXN0cnlVcmw=');
 
 @$core.Deprecated('Use typeParameterDescriptor instead')
 const TypeParameter$json = {
@@ -838,3 +903,282 @@ final $typed_data.Uint8List letBindingDescriptor = $convert.base64Decode(
     'CgpMZXRCaW5kaW5nEhIKBG5hbWUYASABKAlSBG5hbWUSKQoFdmFsdWUYAiABKAsyEy5iYWxsLn'
     'YxLkV4cHJlc3Npb25SBXZhbHVlEjMKCG1ldGFkYXRhGAMgASgLMhcuZ29vZ2xlLnByb3RvYnVm'
     'LlN0cnVjdFIIbWV0YWRhdGE=');
+
+@$core.Deprecated('Use ballManifestDescriptor instead')
+const BallManifest$json = {
+  '1': 'BallManifest',
+  '2': [
+    {'1': 'name', '3': 1, '4': 1, '5': 9, '10': 'name'},
+    {'1': 'version', '3': 2, '4': 1, '5': 9, '10': 'version'},
+    {'1': 'description', '3': 3, '4': 1, '5': 9, '10': 'description'},
+    {'1': 'entry_module', '3': 4, '4': 1, '5': 9, '10': 'entryModule'},
+    {'1': 'entry_function', '3': 5, '4': 1, '5': 9, '10': 'entryFunction'},
+    {
+      '1': 'dependencies',
+      '3': 6,
+      '4': 3,
+      '5': 11,
+      '6': '.ball.v1.ModuleImport',
+      '10': 'dependencies'
+    },
+    {
+      '1': 'dev_dependencies',
+      '3': 7,
+      '4': 3,
+      '5': 11,
+      '6': '.ball.v1.ModuleImport',
+      '10': 'devDependencies'
+    },
+    {
+      '1': 'metadata',
+      '3': 8,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Struct',
+      '10': 'metadata'
+    },
+  ],
+};
+
+/// Descriptor for `BallManifest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List ballManifestDescriptor = $convert.base64Decode(
+    'CgxCYWxsTWFuaWZlc3QSEgoEbmFtZRgBIAEoCVIEbmFtZRIYCgd2ZXJzaW9uGAIgASgJUgd2ZX'
+    'JzaW9uEiAKC2Rlc2NyaXB0aW9uGAMgASgJUgtkZXNjcmlwdGlvbhIhCgxlbnRyeV9tb2R1bGUY'
+    'BCABKAlSC2VudHJ5TW9kdWxlEiUKDmVudHJ5X2Z1bmN0aW9uGAUgASgJUg1lbnRyeUZ1bmN0aW'
+    '9uEjkKDGRlcGVuZGVuY2llcxgGIAMoCzIVLmJhbGwudjEuTW9kdWxlSW1wb3J0UgxkZXBlbmRl'
+    'bmNpZXMSQAoQZGV2X2RlcGVuZGVuY2llcxgHIAMoCzIVLmJhbGwudjEuTW9kdWxlSW1wb3J0Ug'
+    '9kZXZEZXBlbmRlbmNpZXMSMwoIbWV0YWRhdGEYCCABKAsyFy5nb29nbGUucHJvdG9idWYuU3Ry'
+    'dWN0UghtZXRhZGF0YQ==');
+
+@$core.Deprecated('Use ballLockfileDescriptor instead')
+const BallLockfile$json = {
+  '1': 'BallLockfile',
+  '2': [
+    {
+      '1': 'packages',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.ball.v1.ResolvedDependency',
+      '10': 'packages'
+    },
+    {'1': 'lock_version', '3': 2, '4': 1, '5': 9, '10': 'lockVersion'},
+  ],
+};
+
+/// Descriptor for `BallLockfile`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List ballLockfileDescriptor = $convert.base64Decode(
+    'CgxCYWxsTG9ja2ZpbGUSNwoIcGFja2FnZXMYASADKAsyGy5iYWxsLnYxLlJlc29sdmVkRGVwZW'
+    '5kZW5jeVIIcGFja2FnZXMSIQoMbG9ja192ZXJzaW9uGAIgASgJUgtsb2NrVmVyc2lvbg==');
+
+@$core.Deprecated('Use resolvedDependencyDescriptor instead')
+const ResolvedDependency$json = {
+  '1': 'ResolvedDependency',
+  '2': [
+    {'1': 'name', '3': 1, '4': 1, '5': 9, '10': 'name'},
+    {'1': 'resolved_version', '3': 2, '4': 1, '5': 9, '10': 'resolvedVersion'},
+    {'1': 'integrity', '3': 3, '4': 1, '5': 9, '10': 'integrity'},
+    {
+      '1': 'http',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.HttpSource',
+      '9': 0,
+      '10': 'http'
+    },
+    {
+      '1': 'git',
+      '3': 5,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.GitSource',
+      '9': 0,
+      '10': 'git'
+    },
+    {
+      '1': 'file',
+      '3': 6,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.FileSource',
+      '9': 0,
+      '10': 'file'
+    },
+    {
+      '1': 'registry',
+      '3': 7,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.RegistrySource',
+      '9': 0,
+      '10': 'registry'
+    },
+    {'1': 'dependency_names', '3': 8, '4': 3, '5': 9, '10': 'dependencyNames'},
+  ],
+  '8': [
+    {'1': 'resolved_source'},
+  ],
+};
+
+/// Descriptor for `ResolvedDependency`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List resolvedDependencyDescriptor = $convert.base64Decode(
+    'ChJSZXNvbHZlZERlcGVuZGVuY3kSEgoEbmFtZRgBIAEoCVIEbmFtZRIpChByZXNvbHZlZF92ZX'
+    'JzaW9uGAIgASgJUg9yZXNvbHZlZFZlcnNpb24SHAoJaW50ZWdyaXR5GAMgASgJUglpbnRlZ3Jp'
+    'dHkSKQoEaHR0cBgEIAEoCzITLmJhbGwudjEuSHR0cFNvdXJjZUgAUgRodHRwEiYKA2dpdBgFIA'
+    'EoCzISLmJhbGwudjEuR2l0U291cmNlSABSA2dpdBIpCgRmaWxlGAYgASgLMhMuYmFsbC52MS5G'
+    'aWxlU291cmNlSABSBGZpbGUSNQoIcmVnaXN0cnkYByABKAsyFy5iYWxsLnYxLlJlZ2lzdHJ5U2'
+    '91cmNlSABSCHJlZ2lzdHJ5EikKEGRlcGVuZGVuY3lfbmFtZXMYCCADKAlSD2RlcGVuZGVuY3lO'
+    'YW1lc0IRCg9yZXNvbHZlZF9zb3VyY2U=');
+
+@$core.Deprecated('Use ballCapabilityReportDescriptor instead')
+const BallCapabilityReport$json = {
+  '1': 'BallCapabilityReport',
+  '2': [
+    {'1': 'program_name', '3': 1, '4': 1, '5': 9, '10': 'programName'},
+    {'1': 'program_version', '3': 2, '4': 1, '5': 9, '10': 'programVersion'},
+    {
+      '1': 'capabilities',
+      '3': 3,
+      '4': 3,
+      '5': 11,
+      '6': '.ball.v1.CapabilityEntry',
+      '10': 'capabilities'
+    },
+    {
+      '1': 'functions',
+      '3': 4,
+      '4': 3,
+      '5': 11,
+      '6': '.ball.v1.FunctionCapability',
+      '10': 'functions'
+    },
+    {
+      '1': 'summary',
+      '3': 5,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.CapabilitySummary',
+      '10': 'summary'
+    },
+  ],
+};
+
+/// Descriptor for `BallCapabilityReport`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List ballCapabilityReportDescriptor = $convert.base64Decode(
+    'ChRCYWxsQ2FwYWJpbGl0eVJlcG9ydBIhCgxwcm9ncmFtX25hbWUYASABKAlSC3Byb2dyYW1OYW'
+    '1lEicKD3Byb2dyYW1fdmVyc2lvbhgCIAEoCVIOcHJvZ3JhbVZlcnNpb24SPAoMY2FwYWJpbGl0'
+    'aWVzGAMgAygLMhguYmFsbC52MS5DYXBhYmlsaXR5RW50cnlSDGNhcGFiaWxpdGllcxI5CglmdW'
+    '5jdGlvbnMYBCADKAsyGy5iYWxsLnYxLkZ1bmN0aW9uQ2FwYWJpbGl0eVIJZnVuY3Rpb25zEjQK'
+    'B3N1bW1hcnkYBSABKAsyGi5iYWxsLnYxLkNhcGFiaWxpdHlTdW1tYXJ5UgdzdW1tYXJ5');
+
+@$core.Deprecated('Use capabilityEntryDescriptor instead')
+const CapabilityEntry$json = {
+  '1': 'CapabilityEntry',
+  '2': [
+    {'1': 'capability', '3': 1, '4': 1, '5': 9, '10': 'capability'},
+    {'1': 'risk_level', '3': 2, '4': 1, '5': 9, '10': 'riskLevel'},
+    {
+      '1': 'call_sites',
+      '3': 3,
+      '4': 3,
+      '5': 11,
+      '6': '.ball.v1.CallSite',
+      '10': 'callSites'
+    },
+  ],
+};
+
+/// Descriptor for `CapabilityEntry`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List capabilityEntryDescriptor = $convert.base64Decode(
+    'Cg9DYXBhYmlsaXR5RW50cnkSHgoKY2FwYWJpbGl0eRgBIAEoCVIKY2FwYWJpbGl0eRIdCgpyaX'
+    'NrX2xldmVsGAIgASgJUglyaXNrTGV2ZWwSMAoKY2FsbF9zaXRlcxgDIAMoCzIRLmJhbGwudjEu'
+    'Q2FsbFNpdGVSCWNhbGxTaXRlcw==');
+
+@$core.Deprecated('Use callSiteDescriptor instead')
+const CallSite$json = {
+  '1': 'CallSite',
+  '2': [
+    {'1': 'module', '3': 1, '4': 1, '5': 9, '10': 'module'},
+    {'1': 'function', '3': 2, '4': 1, '5': 9, '10': 'function'},
+    {'1': 'callee_module', '3': 3, '4': 1, '5': 9, '10': 'calleeModule'},
+    {'1': 'callee_function', '3': 4, '4': 1, '5': 9, '10': 'calleeFunction'},
+  ],
+};
+
+/// Descriptor for `CallSite`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List callSiteDescriptor = $convert.base64Decode(
+    'CghDYWxsU2l0ZRIWCgZtb2R1bGUYASABKAlSBm1vZHVsZRIaCghmdW5jdGlvbhgCIAEoCVIIZn'
+    'VuY3Rpb24SIwoNY2FsbGVlX21vZHVsZRgDIAEoCVIMY2FsbGVlTW9kdWxlEicKD2NhbGxlZV9m'
+    'dW5jdGlvbhgEIAEoCVIOY2FsbGVlRnVuY3Rpb24=');
+
+@$core.Deprecated('Use functionCapabilityDescriptor instead')
+const FunctionCapability$json = {
+  '1': 'FunctionCapability',
+  '2': [
+    {'1': 'module', '3': 1, '4': 1, '5': 9, '10': 'module'},
+    {'1': 'function', '3': 2, '4': 1, '5': 9, '10': 'function'},
+    {'1': 'capabilities', '3': 3, '4': 3, '5': 9, '10': 'capabilities'},
+  ],
+};
+
+/// Descriptor for `FunctionCapability`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List functionCapabilityDescriptor = $convert.base64Decode(
+    'ChJGdW5jdGlvbkNhcGFiaWxpdHkSFgoGbW9kdWxlGAEgASgJUgZtb2R1bGUSGgoIZnVuY3Rpb2'
+    '4YAiABKAlSCGZ1bmN0aW9uEiIKDGNhcGFiaWxpdGllcxgDIAMoCVIMY2FwYWJpbGl0aWVz');
+
+@$core.Deprecated('Use capabilitySummaryDescriptor instead')
+const CapabilitySummary$json = {
+  '1': 'CapabilitySummary',
+  '2': [
+    {'1': 'is_pure', '3': 1, '4': 1, '5': 8, '10': 'isPure'},
+    {'1': 'reads_filesystem', '3': 2, '4': 1, '5': 8, '10': 'readsFilesystem'},
+    {
+      '1': 'writes_filesystem',
+      '3': 3,
+      '4': 1,
+      '5': 8,
+      '10': 'writesFilesystem'
+    },
+    {'1': 'reads_stdin', '3': 4, '4': 1, '5': 8, '10': 'readsStdin'},
+    {'1': 'writes_stdout', '3': 5, '4': 1, '5': 8, '10': 'writesStdout'},
+    {'1': 'writes_stderr', '3': 6, '4': 1, '5': 8, '10': 'writesStderr'},
+    {
+      '1': 'reads_environment',
+      '3': 7,
+      '4': 1,
+      '5': 8,
+      '10': 'readsEnvironment'
+    },
+    {'1': 'controls_process', '3': 8, '4': 1, '5': 8, '10': 'controlsProcess'},
+    {'1': 'uses_memory', '3': 9, '4': 1, '5': 8, '10': 'usesMemory'},
+    {'1': 'uses_time', '3': 10, '4': 1, '5': 8, '10': 'usesTime'},
+    {'1': 'uses_random', '3': 11, '4': 1, '5': 8, '10': 'usesRandom'},
+    {'1': 'uses_concurrency', '3': 12, '4': 1, '5': 8, '10': 'usesConcurrency'},
+    {'1': 'uses_network', '3': 13, '4': 1, '5': 8, '10': 'usesNetwork'},
+    {'1': 'total_functions', '3': 14, '4': 1, '5': 5, '10': 'totalFunctions'},
+    {'1': 'pure_functions', '3': 15, '4': 1, '5': 5, '10': 'pureFunctions'},
+    {
+      '1': 'effectful_functions',
+      '3': 16,
+      '4': 1,
+      '5': 5,
+      '10': 'effectfulFunctions'
+    },
+  ],
+};
+
+/// Descriptor for `CapabilitySummary`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List capabilitySummaryDescriptor = $convert.base64Decode(
+    'ChFDYXBhYmlsaXR5U3VtbWFyeRIXCgdpc19wdXJlGAEgASgIUgZpc1B1cmUSKQoQcmVhZHNfZm'
+    'lsZXN5c3RlbRgCIAEoCFIPcmVhZHNGaWxlc3lzdGVtEisKEXdyaXRlc19maWxlc3lzdGVtGAMg'
+    'ASgIUhB3cml0ZXNGaWxlc3lzdGVtEh8KC3JlYWRzX3N0ZGluGAQgASgIUgpyZWFkc1N0ZGluEi'
+    'MKDXdyaXRlc19zdGRvdXQYBSABKAhSDHdyaXRlc1N0ZG91dBIjCg13cml0ZXNfc3RkZXJyGAYg'
+    'ASgIUgx3cml0ZXNTdGRlcnISKwoRcmVhZHNfZW52aXJvbm1lbnQYByABKAhSEHJlYWRzRW52aX'
+    'Jvbm1lbnQSKQoQY29udHJvbHNfcHJvY2VzcxgIIAEoCFIPY29udHJvbHNQcm9jZXNzEh8KC3Vz'
+    'ZXNfbWVtb3J5GAkgASgIUgp1c2VzTWVtb3J5EhsKCXVzZXNfdGltZRgKIAEoCFIIdXNlc1RpbW'
+    'USHwoLdXNlc19yYW5kb20YCyABKAhSCnVzZXNSYW5kb20SKQoQdXNlc19jb25jdXJyZW5jeRgM'
+    'IAEoCFIPdXNlc0NvbmN1cnJlbmN5EiEKDHVzZXNfbmV0d29yaxgNIAEoCFILdXNlc05ldHdvcm'
+    'sSJwoPdG90YWxfZnVuY3Rpb25zGA4gASgFUg50b3RhbEZ1bmN0aW9ucxIlCg5wdXJlX2Z1bmN0'
+    'aW9ucxgPIAEoBVINcHVyZUZ1bmN0aW9ucxIvChNlZmZlY3RmdWxfZnVuY3Rpb25zGBAgASgFUh'
+    'JlZmZlY3RmdWxGdW5jdGlvbnM=');

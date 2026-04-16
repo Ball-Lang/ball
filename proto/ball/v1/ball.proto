@@ -164,6 +164,9 @@ message ModuleImport {
 
     // Resolve from a git repository.
     GitSource git = 7;
+
+    // Resolve from a language-native package registry (pub, npm, nuget, etc.).
+    RegistrySource registry = 8;
   }
 }
 
@@ -251,6 +254,56 @@ message GitSource {
   // Expected serialization format of the file.
   // MODULE_ENCODING_UNSPECIFIED = auto-detect from file extension.
   ModuleEncoding encoding = 4;
+}
+
+// A language-native package registry source.
+//
+// Ball modules can be published inside native packages on any supported
+// registry. The resolver fetches the package archive, extracts the Ball
+// module file at `module_path`, and inlines it into the program.
+//
+// Example:
+//   registry: REGISTRY_PUB
+//   package: "ball_std_extended"
+//   version: "^1.0.0"
+//   module_path: "lib/module.ball.bin"
+message RegistrySource {
+  // Which registry to resolve from.
+  Registry registry = 1;
+
+  // Package name as it appears on the registry.
+  // Examples: "ball_math_utils" (pub), "@ball/my-module" (npm),
+  //           "Ball.MyModule" (nuget), "dev.ball:my-module" (maven).
+  string package = 2;
+
+  // Semver version constraint.
+  // Examples: "1.0.0", "^1.0.0", ">=1.0.0 <2.0.0"
+  // Empty = latest stable.
+  string version = 3;
+
+  // Path to the .ball.bin or .ball.json file inside the package archive.
+  // If empty, the resolver uses the registry-specific default path convention
+  // (e.g. "lib/module.ball.bin" for pub, "package/module.ball.bin" for npm).
+  string module_path = 4;
+
+  // Expected serialization format of the module file.
+  ModuleEncoding encoding = 5;
+
+  // Custom registry URL (overrides the default for the registry type).
+  // Use for private or self-hosted registries.
+  // Example: "https://pub.my-company.com"
+  string registry_url = 6;
+}
+
+// Supported package registries for RegistrySource.
+enum Registry {
+  REGISTRY_UNSPECIFIED = 0;
+  REGISTRY_PUB = 1;    // pub.dev (Dart/Flutter)
+  REGISTRY_NPM = 2;    // npmjs.com (JavaScript/TypeScript)
+  REGISTRY_NUGET = 3;  // nuget.org (C#/.NET)
+  REGISTRY_CARGO = 4;  // crates.io (Rust)
+  REGISTRY_PYPI = 5;   // pypi.org (Python)
+  REGISTRY_MAVEN = 6;  // Maven Central (Java/Kotlin)
 }
 
 // Serialization format for ball Module data.
@@ -540,4 +593,142 @@ message LetBinding {
 
   // Arbitrary metadata for language-specific info (var/final/const, type, etc.)
   google.protobuf.Struct metadata = 3;
+}
+
+// ============================================================
+// Package Management — manifest, lockfile, capability report
+// ============================================================
+
+// A manifest declares a Ball package's identity, entry point, and dependencies.
+// Analogous to pubspec.yaml, package.json, Cargo.toml.
+// Serialized as `ball.yaml` (human-friendly) or `ball.manifest.json` (proto JSON).
+message BallManifest {
+  string name = 1;
+  string version = 2;
+  string description = 3;
+  string entry_module = 4;
+  string entry_function = 5;
+
+  // Direct dependencies required at runtime.
+  repeated ModuleImport dependencies = 6;
+
+  // Dependencies only needed during development/testing.
+  repeated ModuleImport dev_dependencies = 7;
+
+  // Arbitrary metadata (authors, license, homepage, repository, etc.).
+  google.protobuf.Struct metadata = 8;
+}
+
+// A lockfile pins every transitive dependency to an exact resolved version
+// and content hash. Ensures reproducible builds across machines and time.
+// Serialized as `ball.lock.json` (proto3 JSON, human-readable and diffable).
+message BallLockfile {
+  repeated ResolvedDependency packages = 1;
+
+  // Lockfile format version (for forward compatibility).
+  string lock_version = 2;
+}
+
+// A single resolved dependency in the lockfile.
+message ResolvedDependency {
+  // Package name (matches ModuleImport.name).
+  string name = 1;
+
+  // Exact resolved version (not a constraint).
+  string resolved_version = 2;
+
+  // Content integrity hash: "sha256:<hex>".
+  string integrity = 3;
+
+  // How this dependency was resolved.
+  oneof resolved_source {
+    HttpSource http = 4;
+    GitSource git = 5;
+    FileSource file = 6;
+    RegistrySource registry = 7;
+  }
+
+  // Names of this package's own dependencies (for the dep graph).
+  repeated string dependency_names = 8;
+}
+
+// ============================================================
+// Capability Analysis — static audit of program side effects
+// ============================================================
+
+// The output of `ball audit`: a structured report of every side effect
+// a Ball program can perform. Since every side effect in Ball flows
+// through a named base function in a known module, this analysis is
+// provably complete — not heuristic.
+message BallCapabilityReport {
+  string program_name = 1;
+  string program_version = 2;
+
+  // One entry per capability category found in the program.
+  repeated CapabilityEntry capabilities = 3;
+
+  // Per-function capability breakdown.
+  repeated FunctionCapability functions = 4;
+
+  // Aggregate summary flags.
+  CapabilitySummary summary = 5;
+}
+
+// A single capability category (e.g. "fs", "io", "memory") with all
+// call sites in the program that trigger it.
+message CapabilityEntry {
+  // Category name: "pure", "io", "fs", "process", "time", "random",
+  //                "memory", "concurrency", "network".
+  string capability = 1;
+
+  // Risk level: "none", "low", "medium", "high".
+  string risk_level = 2;
+
+  // Every call site in the program that triggers this capability.
+  repeated CallSite call_sites = 3;
+}
+
+// A specific location in the program where a capability-bearing base
+// function is called.
+message CallSite {
+  // The user module containing the call.
+  string module = 1;
+
+  // The user function containing the call.
+  string function = 2;
+
+  // The base module being called (e.g. "std_fs").
+  string callee_module = 3;
+
+  // The base function being called (e.g. "file_read").
+  string callee_function = 4;
+}
+
+// The capabilities a single function transitively requires.
+message FunctionCapability {
+  string module = 1;
+  string function = 2;
+
+  // All capability categories this function (transitively) uses.
+  repeated string capabilities = 3;
+}
+
+// Aggregate boolean summary of a program's capabilities.
+message CapabilitySummary {
+  bool is_pure = 1;
+  bool reads_filesystem = 2;
+  bool writes_filesystem = 3;
+  bool reads_stdin = 4;
+  bool writes_stdout = 5;
+  bool writes_stderr = 6;
+  bool reads_environment = 7;
+  bool controls_process = 8;
+  bool uses_memory = 9;
+  bool uses_time = 10;
+  bool uses_random = 11;
+  bool uses_concurrency = 12;
+  bool uses_network = 13;
+  int32 total_functions = 14;
+  int32 pure_functions = 15;
+  int32 effectful_functions = 16;
 }

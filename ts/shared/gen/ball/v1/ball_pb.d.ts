@@ -129,7 +129,7 @@ export declare type Module = Message<"ball.v1.Module"> & {
 
   /**
    * Structured module imports with source resolution and integrity verification.
-   * 
+   *
    * Each ModuleImport specifies where to find the module (HTTP URL,
    * local file, inline bytes/JSON, or git repo) and an optional
    * content hash for integrity verification.
@@ -180,7 +180,7 @@ export declare const ModuleSchema: GenMessage<Module>;
 
 /**
  * An asset file embedded in a ball module.
- * 
+ *
  * Assets can be any file (images, JSON fixtures, templates, etc.) and are
  * stored as raw bytes alongside the module's code.  The path is relative to
  * the package root (e.g. "test/fixtures/users.json", "assets/logo.png").
@@ -242,15 +242,15 @@ export declare type ModuleImport = Message<"ball.v1.ModuleImport"> & {
 
   /**
    * Content integrity hash for verification.
-   * 
+   *
    * Format: "<algorithm>:<hex-encoded-hash>"
    * Example: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-   * 
+   *
    * When present, the resolver serializes the resolved Module to
    * canonical protobuf binary format and compares its SHA-256 hash.
    * A mismatch causes resolution failure, protecting against
    * supply-chain attacks and accidental corruption.
-   * 
+   *
    * When absent, no integrity check is performed.
    *
    * @generated from field: string integrity = 2;
@@ -301,6 +301,14 @@ export declare type ModuleImport = Message<"ball.v1.ModuleImport"> & {
      */
     value: GitSource;
     case: "git";
+  } | {
+    /**
+     * Resolve from a language-native package registry (pub, npm, nuget, etc.).
+     *
+     * @generated from field: ball.v1.RegistrySource registry = 8;
+     */
+    value: RegistrySource;
+    case: "registry";
   } | { case: undefined; value?: undefined };
 };
 
@@ -312,10 +320,10 @@ export declare const ModuleImportSchema: GenMessage<ModuleImport>;
 
 /**
  * An HTTP/HTTPS source for direct module download.
- * 
+ *
  * The URL must point to a valid serialized ball Module in either
  * protobuf binary or JSON format.
- * 
+ *
  * Example:
  *   url: "https://example.com/modules/my_lib/v1.0.0/module.ball.bin"
  *   encoding: MODULE_ENCODING_PROTO
@@ -355,11 +363,11 @@ export declare const HttpSourceSchema: GenMessage<HttpSource>;
 
 /**
  * A local filesystem source for development dependencies.
- * 
+ *
  * Paths can be absolute or relative to the importing module's location.
  * This source type is intended for local development — production
  * programs should use registry or HTTP sources.
- * 
+ *
  * Example:
  *   path: "../my_lib/module.ball.json"
  *   encoding: MODULE_ENCODING_JSON
@@ -392,7 +400,7 @@ export declare const FileSourceSchema: GenMessage<FileSource>;
 
 /**
  * An inline/embedded module source.
- * 
+ *
  * The entire module is embedded directly in the import, either as
  * raw protobuf binary bytes or as a JSON string. Useful for:
  *   - Self-contained programs (single-file distribution)
@@ -432,10 +440,10 @@ export declare const InlineSourceSchema: GenMessage<InlineSource>;
 
 /**
  * A git repository source for importing modules from version control.
- * 
+ *
  * The resolver clones (or shallow-fetches) the repository at the
  * specified ref and reads the module file at the given path.
- * 
+ *
  * Example:
  *   url: "https://github.com/ball-lang/std-extended.git"
  *   ref: "v1.2.0"
@@ -486,6 +494,79 @@ export declare type GitSource = Message<"ball.v1.GitSource"> & {
 export declare const GitSourceSchema: GenMessage<GitSource>;
 
 /**
+ * A language-native package registry source.
+ *
+ * Ball modules can be published inside native packages on any supported
+ * registry. The resolver fetches the package archive, extracts the Ball
+ * module file at `module_path`, and inlines it into the program.
+ *
+ * Example:
+ *   registry: REGISTRY_PUB
+ *   package: "ball_std_extended"
+ *   version: "^1.0.0"
+ *   module_path: "lib/module.ball.bin"
+ *
+ * @generated from message ball.v1.RegistrySource
+ */
+export declare type RegistrySource = Message<"ball.v1.RegistrySource"> & {
+  /**
+   * Which registry to resolve from.
+   *
+   * @generated from field: ball.v1.Registry registry = 1;
+   */
+  registry: Registry;
+
+  /**
+   * Package name as it appears on the registry.
+   * Examples: "ball_math_utils" (pub), "@ball/my-module" (npm),
+   *           "Ball.MyModule" (nuget), "dev.ball:my-module" (maven).
+   *
+   * @generated from field: string package = 2;
+   */
+  package: string;
+
+  /**
+   * Semver version constraint.
+   * Examples: "1.0.0", "^1.0.0", ">=1.0.0 <2.0.0"
+   * Empty = latest stable.
+   *
+   * @generated from field: string version = 3;
+   */
+  version: string;
+
+  /**
+   * Path to the .ball.bin or .ball.json file inside the package archive.
+   * If empty, the resolver uses the registry-specific default path convention
+   * (e.g. "lib/module.ball.bin" for pub, "package/module.ball.bin" for npm).
+   *
+   * @generated from field: string module_path = 4;
+   */
+  modulePath: string;
+
+  /**
+   * Expected serialization format of the module file.
+   *
+   * @generated from field: ball.v1.ModuleEncoding encoding = 5;
+   */
+  encoding: ModuleEncoding;
+
+  /**
+   * Custom registry URL (overrides the default for the registry type).
+   * Use for private or self-hosted registries.
+   * Example: "https://pub.my-company.com"
+   *
+   * @generated from field: string registry_url = 6;
+   */
+  registryUrl: string;
+};
+
+/**
+ * Describes the message ball.v1.RegistrySource.
+ * Use `create(RegistrySourceSchema)` to create a new message.
+ */
+export declare const RegistrySourceSchema: GenMessage<RegistrySource>;
+
+/**
  * A type parameter placeholder for generic types (e.g. T, K, V).
  * Bounds, variance, and other constraints are cosmetic hints in metadata.
  *
@@ -515,7 +596,7 @@ export declare const TypeParameterSchema: GenMessage<TypeParameter>;
 
 /**
  * Defines a named type, mirroring the structure of FunctionDefinition.
- * 
+ *
  * TypeDefinition replaces the `_meta_Foo` function convention with a
  * proper schema-level construct. All cosmetic hints (kind, superclass,
  * interfaces, mixins, visibility, annotations, etc.) go in metadata.
@@ -1109,6 +1190,473 @@ export declare type LetBinding = Message<"ball.v1.LetBinding"> & {
  * Use `create(LetBindingSchema)` to create a new message.
  */
 export declare const LetBindingSchema: GenMessage<LetBinding>;
+
+/**
+ * A manifest declares a Ball package's identity, entry point, and dependencies.
+ * Analogous to pubspec.yaml, package.json, Cargo.toml.
+ * Serialized as `ball.yaml` (human-friendly) or `ball.manifest.json` (proto JSON).
+ *
+ * @generated from message ball.v1.BallManifest
+ */
+export declare type BallManifest = Message<"ball.v1.BallManifest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string version = 2;
+   */
+  version: string;
+
+  /**
+   * @generated from field: string description = 3;
+   */
+  description: string;
+
+  /**
+   * @generated from field: string entry_module = 4;
+   */
+  entryModule: string;
+
+  /**
+   * @generated from field: string entry_function = 5;
+   */
+  entryFunction: string;
+
+  /**
+   * Direct dependencies required at runtime.
+   *
+   * @generated from field: repeated ball.v1.ModuleImport dependencies = 6;
+   */
+  dependencies: ModuleImport[];
+
+  /**
+   * Dependencies only needed during development/testing.
+   *
+   * @generated from field: repeated ball.v1.ModuleImport dev_dependencies = 7;
+   */
+  devDependencies: ModuleImport[];
+
+  /**
+   * Arbitrary metadata (authors, license, homepage, repository, etc.).
+   *
+   * @generated from field: google.protobuf.Struct metadata = 8;
+   */
+  metadata?: JsonObject;
+};
+
+/**
+ * Describes the message ball.v1.BallManifest.
+ * Use `create(BallManifestSchema)` to create a new message.
+ */
+export declare const BallManifestSchema: GenMessage<BallManifest>;
+
+/**
+ * A lockfile pins every transitive dependency to an exact resolved version
+ * and content hash. Ensures reproducible builds across machines and time.
+ * Serialized as `ball.lock.json` (proto3 JSON, human-readable and diffable).
+ *
+ * @generated from message ball.v1.BallLockfile
+ */
+export declare type BallLockfile = Message<"ball.v1.BallLockfile"> & {
+  /**
+   * @generated from field: repeated ball.v1.ResolvedDependency packages = 1;
+   */
+  packages: ResolvedDependency[];
+
+  /**
+   * Lockfile format version (for forward compatibility).
+   *
+   * @generated from field: string lock_version = 2;
+   */
+  lockVersion: string;
+};
+
+/**
+ * Describes the message ball.v1.BallLockfile.
+ * Use `create(BallLockfileSchema)` to create a new message.
+ */
+export declare const BallLockfileSchema: GenMessage<BallLockfile>;
+
+/**
+ * A single resolved dependency in the lockfile.
+ *
+ * @generated from message ball.v1.ResolvedDependency
+ */
+export declare type ResolvedDependency = Message<"ball.v1.ResolvedDependency"> & {
+  /**
+   * Package name (matches ModuleImport.name).
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * Exact resolved version (not a constraint).
+   *
+   * @generated from field: string resolved_version = 2;
+   */
+  resolvedVersion: string;
+
+  /**
+   * Content integrity hash: "sha256:<hex>".
+   *
+   * @generated from field: string integrity = 3;
+   */
+  integrity: string;
+
+  /**
+   * How this dependency was resolved.
+   *
+   * @generated from oneof ball.v1.ResolvedDependency.resolved_source
+   */
+  resolvedSource: {
+    /**
+     * @generated from field: ball.v1.HttpSource http = 4;
+     */
+    value: HttpSource;
+    case: "http";
+  } | {
+    /**
+     * @generated from field: ball.v1.GitSource git = 5;
+     */
+    value: GitSource;
+    case: "git";
+  } | {
+    /**
+     * @generated from field: ball.v1.FileSource file = 6;
+     */
+    value: FileSource;
+    case: "file";
+  } | {
+    /**
+     * @generated from field: ball.v1.RegistrySource registry = 7;
+     */
+    value: RegistrySource;
+    case: "registry";
+  } | { case: undefined; value?: undefined };
+
+  /**
+   * Names of this package's own dependencies (for the dep graph).
+   *
+   * @generated from field: repeated string dependency_names = 8;
+   */
+  dependencyNames: string[];
+};
+
+/**
+ * Describes the message ball.v1.ResolvedDependency.
+ * Use `create(ResolvedDependencySchema)` to create a new message.
+ */
+export declare const ResolvedDependencySchema: GenMessage<ResolvedDependency>;
+
+/**
+ * The output of `ball audit`: a structured report of every side effect
+ * a Ball program can perform. Since every side effect in Ball flows
+ * through a named base function in a known module, this analysis is
+ * provably complete — not heuristic.
+ *
+ * @generated from message ball.v1.BallCapabilityReport
+ */
+export declare type BallCapabilityReport = Message<"ball.v1.BallCapabilityReport"> & {
+  /**
+   * @generated from field: string program_name = 1;
+   */
+  programName: string;
+
+  /**
+   * @generated from field: string program_version = 2;
+   */
+  programVersion: string;
+
+  /**
+   * One entry per capability category found in the program.
+   *
+   * @generated from field: repeated ball.v1.CapabilityEntry capabilities = 3;
+   */
+  capabilities: CapabilityEntry[];
+
+  /**
+   * Per-function capability breakdown.
+   *
+   * @generated from field: repeated ball.v1.FunctionCapability functions = 4;
+   */
+  functions: FunctionCapability[];
+
+  /**
+   * Aggregate summary flags.
+   *
+   * @generated from field: ball.v1.CapabilitySummary summary = 5;
+   */
+  summary?: CapabilitySummary;
+};
+
+/**
+ * Describes the message ball.v1.BallCapabilityReport.
+ * Use `create(BallCapabilityReportSchema)` to create a new message.
+ */
+export declare const BallCapabilityReportSchema: GenMessage<BallCapabilityReport>;
+
+/**
+ * A single capability category (e.g. "fs", "io", "memory") with all
+ * call sites in the program that trigger it.
+ *
+ * @generated from message ball.v1.CapabilityEntry
+ */
+export declare type CapabilityEntry = Message<"ball.v1.CapabilityEntry"> & {
+  /**
+   * Category name: "pure", "io", "fs", "process", "time", "random",
+   *                "memory", "concurrency", "network".
+   *
+   * @generated from field: string capability = 1;
+   */
+  capability: string;
+
+  /**
+   * Risk level: "none", "low", "medium", "high".
+   *
+   * @generated from field: string risk_level = 2;
+   */
+  riskLevel: string;
+
+  /**
+   * Every call site in the program that triggers this capability.
+   *
+   * @generated from field: repeated ball.v1.CallSite call_sites = 3;
+   */
+  callSites: CallSite[];
+};
+
+/**
+ * Describes the message ball.v1.CapabilityEntry.
+ * Use `create(CapabilityEntrySchema)` to create a new message.
+ */
+export declare const CapabilityEntrySchema: GenMessage<CapabilityEntry>;
+
+/**
+ * A specific location in the program where a capability-bearing base
+ * function is called.
+ *
+ * @generated from message ball.v1.CallSite
+ */
+export declare type CallSite = Message<"ball.v1.CallSite"> & {
+  /**
+   * The user module containing the call.
+   *
+   * @generated from field: string module = 1;
+   */
+  module: string;
+
+  /**
+   * The user function containing the call.
+   *
+   * @generated from field: string function = 2;
+   */
+  function: string;
+
+  /**
+   * The base module being called (e.g. "std_fs").
+   *
+   * @generated from field: string callee_module = 3;
+   */
+  calleeModule: string;
+
+  /**
+   * The base function being called (e.g. "file_read").
+   *
+   * @generated from field: string callee_function = 4;
+   */
+  calleeFunction: string;
+};
+
+/**
+ * Describes the message ball.v1.CallSite.
+ * Use `create(CallSiteSchema)` to create a new message.
+ */
+export declare const CallSiteSchema: GenMessage<CallSite>;
+
+/**
+ * The capabilities a single function transitively requires.
+ *
+ * @generated from message ball.v1.FunctionCapability
+ */
+export declare type FunctionCapability = Message<"ball.v1.FunctionCapability"> & {
+  /**
+   * @generated from field: string module = 1;
+   */
+  module: string;
+
+  /**
+   * @generated from field: string function = 2;
+   */
+  function: string;
+
+  /**
+   * All capability categories this function (transitively) uses.
+   *
+   * @generated from field: repeated string capabilities = 3;
+   */
+  capabilities: string[];
+};
+
+/**
+ * Describes the message ball.v1.FunctionCapability.
+ * Use `create(FunctionCapabilitySchema)` to create a new message.
+ */
+export declare const FunctionCapabilitySchema: GenMessage<FunctionCapability>;
+
+/**
+ * Aggregate boolean summary of a program's capabilities.
+ *
+ * @generated from message ball.v1.CapabilitySummary
+ */
+export declare type CapabilitySummary = Message<"ball.v1.CapabilitySummary"> & {
+  /**
+   * @generated from field: bool is_pure = 1;
+   */
+  isPure: boolean;
+
+  /**
+   * @generated from field: bool reads_filesystem = 2;
+   */
+  readsFilesystem: boolean;
+
+  /**
+   * @generated from field: bool writes_filesystem = 3;
+   */
+  writesFilesystem: boolean;
+
+  /**
+   * @generated from field: bool reads_stdin = 4;
+   */
+  readsStdin: boolean;
+
+  /**
+   * @generated from field: bool writes_stdout = 5;
+   */
+  writesStdout: boolean;
+
+  /**
+   * @generated from field: bool writes_stderr = 6;
+   */
+  writesStderr: boolean;
+
+  /**
+   * @generated from field: bool reads_environment = 7;
+   */
+  readsEnvironment: boolean;
+
+  /**
+   * @generated from field: bool controls_process = 8;
+   */
+  controlsProcess: boolean;
+
+  /**
+   * @generated from field: bool uses_memory = 9;
+   */
+  usesMemory: boolean;
+
+  /**
+   * @generated from field: bool uses_time = 10;
+   */
+  usesTime: boolean;
+
+  /**
+   * @generated from field: bool uses_random = 11;
+   */
+  usesRandom: boolean;
+
+  /**
+   * @generated from field: bool uses_concurrency = 12;
+   */
+  usesConcurrency: boolean;
+
+  /**
+   * @generated from field: bool uses_network = 13;
+   */
+  usesNetwork: boolean;
+
+  /**
+   * @generated from field: int32 total_functions = 14;
+   */
+  totalFunctions: number;
+
+  /**
+   * @generated from field: int32 pure_functions = 15;
+   */
+  pureFunctions: number;
+
+  /**
+   * @generated from field: int32 effectful_functions = 16;
+   */
+  effectfulFunctions: number;
+};
+
+/**
+ * Describes the message ball.v1.CapabilitySummary.
+ * Use `create(CapabilitySummarySchema)` to create a new message.
+ */
+export declare const CapabilitySummarySchema: GenMessage<CapabilitySummary>;
+
+/**
+ * Supported package registries for RegistrySource.
+ *
+ * @generated from enum ball.v1.Registry
+ */
+export enum Registry {
+  /**
+   * @generated from enum value: REGISTRY_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * pub.dev (Dart/Flutter)
+   *
+   * @generated from enum value: REGISTRY_PUB = 1;
+   */
+  PUB = 1,
+
+  /**
+   * npmjs.com (JavaScript/TypeScript)
+   *
+   * @generated from enum value: REGISTRY_NPM = 2;
+   */
+  NPM = 2,
+
+  /**
+   * nuget.org (C#/.NET)
+   *
+   * @generated from enum value: REGISTRY_NUGET = 3;
+   */
+  NUGET = 3,
+
+  /**
+   * crates.io (Rust)
+   *
+   * @generated from enum value: REGISTRY_CARGO = 4;
+   */
+  CARGO = 4,
+
+  /**
+   * pypi.org (Python)
+   *
+   * @generated from enum value: REGISTRY_PYPI = 5;
+   */
+  PYPI = 5,
+
+  /**
+   * Maven Central (Java/Kotlin)
+   *
+   * @generated from enum value: REGISTRY_MAVEN = 6;
+   */
+  MAVEN = 6,
+}
+
+/**
+ * Describes the enum ball.v1.Registry.
+ */
+export declare const RegistrySchema: GenEnum<Registry>;
 
 /**
  * Serialization format for ball Module data.

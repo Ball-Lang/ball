@@ -14,6 +14,41 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
+/// Supported package registries for RegistrySource.
+class Registry extends $pb.ProtobufEnum {
+  static const Registry REGISTRY_UNSPECIFIED =
+      Registry._(0, _omitEnumNames ? '' : 'REGISTRY_UNSPECIFIED');
+  static const Registry REGISTRY_PUB =
+      Registry._(1, _omitEnumNames ? '' : 'REGISTRY_PUB');
+  static const Registry REGISTRY_NPM =
+      Registry._(2, _omitEnumNames ? '' : 'REGISTRY_NPM');
+  static const Registry REGISTRY_NUGET =
+      Registry._(3, _omitEnumNames ? '' : 'REGISTRY_NUGET');
+  static const Registry REGISTRY_CARGO =
+      Registry._(4, _omitEnumNames ? '' : 'REGISTRY_CARGO');
+  static const Registry REGISTRY_PYPI =
+      Registry._(5, _omitEnumNames ? '' : 'REGISTRY_PYPI');
+  static const Registry REGISTRY_MAVEN =
+      Registry._(6, _omitEnumNames ? '' : 'REGISTRY_MAVEN');
+
+  static const $core.List<Registry> values = <Registry>[
+    REGISTRY_UNSPECIFIED,
+    REGISTRY_PUB,
+    REGISTRY_NPM,
+    REGISTRY_NUGET,
+    REGISTRY_CARGO,
+    REGISTRY_PYPI,
+    REGISTRY_MAVEN,
+  ];
+
+  static final $core.List<Registry?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 6);
+  static Registry? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const Registry._(super.value, super.name);
+}
+
 /// Serialization format for ball Module data.
 class ModuleEncoding extends $pb.ProtobufEnum {
   /// Auto-detect from file extension, Content-Type header, or content.

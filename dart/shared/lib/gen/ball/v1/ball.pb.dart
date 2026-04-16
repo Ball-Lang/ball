@@ -407,7 +407,7 @@ class ModuleAsset extends $pb.GeneratedMessage {
   $0.Struct ensureMetadata() => $_ensure(3);
 }
 
-enum ModuleImport_Source { http, file, inline, git, notSet }
+enum ModuleImport_Source { http, file, inline, git, registry, notSet }
 
 /// Specifies how to resolve and load a module dependency.
 class ModuleImport extends $pb.GeneratedMessage {
@@ -419,6 +419,7 @@ class ModuleImport extends $pb.GeneratedMessage {
     FileSource? file,
     InlineSource? inline,
     GitSource? git,
+    RegistrySource? registry,
   }) {
     final result = create();
     if (name != null) result.name = name;
@@ -428,6 +429,7 @@ class ModuleImport extends $pb.GeneratedMessage {
     if (file != null) result.file = file;
     if (inline != null) result.inline = inline;
     if (git != null) result.git = git;
+    if (registry != null) result.registry = registry;
     return result;
   }
 
@@ -446,13 +448,14 @@ class ModuleImport extends $pb.GeneratedMessage {
     5: ModuleImport_Source.file,
     6: ModuleImport_Source.inline,
     7: ModuleImport_Source.git,
+    8: ModuleImport_Source.registry,
     0: ModuleImport_Source.notSet
   };
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(
       _omitMessageNames ? '' : 'ModuleImport',
       package: const $pb.PackageName(_omitMessageNames ? '' : 'ball.v1'),
       createEmptyInstance: create)
-    ..oo(0, [4, 5, 6, 7])
+    ..oo(0, [4, 5, 6, 7, 8])
     ..aOS(1, _omitFieldNames ? '' : 'name')
     ..aOS(2, _omitFieldNames ? '' : 'integrity')
     ..aOM<$0.Struct>(3, _omitFieldNames ? '' : 'metadata',
@@ -465,6 +468,8 @@ class ModuleImport extends $pb.GeneratedMessage {
         subBuilder: InlineSource.create)
     ..aOM<GitSource>(7, _omitFieldNames ? '' : 'git',
         subBuilder: GitSource.create)
+    ..aOM<RegistrySource>(8, _omitFieldNames ? '' : 'registry',
+        subBuilder: RegistrySource.create)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -490,12 +495,14 @@ class ModuleImport extends $pb.GeneratedMessage {
   @$pb.TagNumber(5)
   @$pb.TagNumber(6)
   @$pb.TagNumber(7)
+  @$pb.TagNumber(8)
   ModuleImport_Source whichSource() =>
       _ModuleImport_SourceByTag[$_whichOneof(0)]!;
   @$pb.TagNumber(4)
   @$pb.TagNumber(5)
   @$pb.TagNumber(6)
   @$pb.TagNumber(7)
+  @$pb.TagNumber(8)
   void clearSource() => $_clearField($_whichOneof(0));
 
   /// Local alias used to reference this module in FunctionCall.module.
@@ -589,6 +596,18 @@ class ModuleImport extends $pb.GeneratedMessage {
   void clearGit() => $_clearField(7);
   @$pb.TagNumber(7)
   GitSource ensureGit() => $_ensure(6);
+
+  /// Resolve from a language-native package registry (pub, npm, nuget, etc.).
+  @$pb.TagNumber(8)
+  RegistrySource get registry => $_getN(7);
+  @$pb.TagNumber(8)
+  set registry(RegistrySource value) => $_setField(8, value);
+  @$pb.TagNumber(8)
+  $core.bool hasRegistry() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearRegistry() => $_clearField(8);
+  @$pb.TagNumber(8)
+  RegistrySource ensureRegistry() => $_ensure(7);
 }
 
 /// An HTTP/HTTPS source for direct module download.
@@ -959,6 +978,147 @@ class GitSource extends $pb.GeneratedMessage {
   $core.bool hasEncoding() => $_has(3);
   @$pb.TagNumber(4)
   void clearEncoding() => $_clearField(4);
+}
+
+/// A language-native package registry source.
+///
+/// Ball modules can be published inside native packages on any supported
+/// registry. The resolver fetches the package archive, extracts the Ball
+/// module file at `module_path`, and inlines it into the program.
+///
+/// Example:
+///   registry: REGISTRY_PUB
+///   package: "ball_std_extended"
+///   version: "^1.0.0"
+///   module_path: "lib/module.ball.bin"
+class RegistrySource extends $pb.GeneratedMessage {
+  factory RegistrySource({
+    Registry? registry,
+    $core.String? package,
+    $core.String? version,
+    $core.String? modulePath,
+    ModuleEncoding? encoding,
+    $core.String? registryUrl,
+  }) {
+    final result = create();
+    if (registry != null) result.registry = registry;
+    if (package != null) result.package = package;
+    if (version != null) result.version = version;
+    if (modulePath != null) result.modulePath = modulePath;
+    if (encoding != null) result.encoding = encoding;
+    if (registryUrl != null) result.registryUrl = registryUrl;
+    return result;
+  }
+
+  RegistrySource._();
+
+  factory RegistrySource.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory RegistrySource.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RegistrySource',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'ball.v1'),
+      createEmptyInstance: create)
+    ..aE<Registry>(1, _omitFieldNames ? '' : 'registry',
+        enumValues: Registry.values)
+    ..aOS(2, _omitFieldNames ? '' : 'package')
+    ..aOS(3, _omitFieldNames ? '' : 'version')
+    ..aOS(4, _omitFieldNames ? '' : 'modulePath')
+    ..aE<ModuleEncoding>(5, _omitFieldNames ? '' : 'encoding',
+        enumValues: ModuleEncoding.values)
+    ..aOS(6, _omitFieldNames ? '' : 'registryUrl')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RegistrySource clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RegistrySource copyWith(void Function(RegistrySource) updates) =>
+      super.copyWith((message) => updates(message as RegistrySource))
+          as RegistrySource;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static RegistrySource create() => RegistrySource._();
+  @$core.override
+  RegistrySource createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static RegistrySource getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RegistrySource>(create);
+  static RegistrySource? _defaultInstance;
+
+  /// Which registry to resolve from.
+  @$pb.TagNumber(1)
+  Registry get registry => $_getN(0);
+  @$pb.TagNumber(1)
+  set registry(Registry value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasRegistry() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearRegistry() => $_clearField(1);
+
+  /// Package name as it appears on the registry.
+  /// Examples: "ball_math_utils" (pub), "@ball/my-module" (npm),
+  ///           "Ball.MyModule" (nuget), "dev.ball:my-module" (maven).
+  @$pb.TagNumber(2)
+  $core.String get package => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set package($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPackage() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPackage() => $_clearField(2);
+
+  /// Semver version constraint.
+  /// Examples: "1.0.0", "^1.0.0", ">=1.0.0 <2.0.0"
+  /// Empty = latest stable.
+  @$pb.TagNumber(3)
+  $core.String get version => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set version($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasVersion() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearVersion() => $_clearField(3);
+
+  /// Path to the .ball.bin or .ball.json file inside the package archive.
+  /// If empty, the resolver uses the registry-specific default path convention
+  /// (e.g. "lib/module.ball.bin" for pub, "package/module.ball.bin" for npm).
+  @$pb.TagNumber(4)
+  $core.String get modulePath => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set modulePath($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasModulePath() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearModulePath() => $_clearField(4);
+
+  /// Expected serialization format of the module file.
+  @$pb.TagNumber(5)
+  ModuleEncoding get encoding => $_getN(4);
+  @$pb.TagNumber(5)
+  set encoding(ModuleEncoding value) => $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasEncoding() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearEncoding() => $_clearField(5);
+
+  /// Custom registry URL (overrides the default for the registry type).
+  /// Use for private or self-hosted registries.
+  /// Example: "https://pub.my-company.com"
+  @$pb.TagNumber(6)
+  $core.String get registryUrl => $_getSZ(5);
+  @$pb.TagNumber(6)
+  set registryUrl($core.String value) => $_setString(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasRegistryUrl() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearRegistryUrl() => $_clearField(6);
 }
 
 /// A type parameter placeholder for generic types (e.g. T, K, V).
@@ -2481,6 +2641,966 @@ class LetBinding extends $pb.GeneratedMessage {
   void clearMetadata() => $_clearField(3);
   @$pb.TagNumber(3)
   $0.Struct ensureMetadata() => $_ensure(2);
+}
+
+/// A manifest declares a Ball package's identity, entry point, and dependencies.
+/// Analogous to pubspec.yaml, package.json, Cargo.toml.
+/// Serialized as `ball.yaml` (human-friendly) or `ball.manifest.json` (proto JSON).
+class BallManifest extends $pb.GeneratedMessage {
+  factory BallManifest({
+    $core.String? name,
+    $core.String? version,
+    $core.String? description,
+    $core.String? entryModule,
+    $core.String? entryFunction,
+    $core.Iterable<ModuleImport>? dependencies,
+    $core.Iterable<ModuleImport>? devDependencies,
+    $0.Struct? metadata,
+  }) {
+    final result = create();
+    if (name != null) result.name = name;
+    if (version != null) result.version = version;
+    if (description != null) result.description = description;
+    if (entryModule != null) result.entryModule = entryModule;
+    if (entryFunction != null) result.entryFunction = entryFunction;
+    if (dependencies != null) result.dependencies.addAll(dependencies);
+    if (devDependencies != null) result.devDependencies.addAll(devDependencies);
+    if (metadata != null) result.metadata = metadata;
+    return result;
+  }
+
+  BallManifest._();
+
+  factory BallManifest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory BallManifest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'BallManifest',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'ball.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'name')
+    ..aOS(2, _omitFieldNames ? '' : 'version')
+    ..aOS(3, _omitFieldNames ? '' : 'description')
+    ..aOS(4, _omitFieldNames ? '' : 'entryModule')
+    ..aOS(5, _omitFieldNames ? '' : 'entryFunction')
+    ..pPM<ModuleImport>(6, _omitFieldNames ? '' : 'dependencies',
+        subBuilder: ModuleImport.create)
+    ..pPM<ModuleImport>(7, _omitFieldNames ? '' : 'devDependencies',
+        subBuilder: ModuleImport.create)
+    ..aOM<$0.Struct>(8, _omitFieldNames ? '' : 'metadata',
+        subBuilder: $0.Struct.create)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  BallManifest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  BallManifest copyWith(void Function(BallManifest) updates) =>
+      super.copyWith((message) => updates(message as BallManifest))
+          as BallManifest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static BallManifest create() => BallManifest._();
+  @$core.override
+  BallManifest createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static BallManifest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<BallManifest>(create);
+  static BallManifest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get name => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set name($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasName() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearName() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get version => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set version($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasVersion() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearVersion() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get description => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set description($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasDescription() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearDescription() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get entryModule => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set entryModule($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasEntryModule() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearEntryModule() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.String get entryFunction => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set entryFunction($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasEntryFunction() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearEntryFunction() => $_clearField(5);
+
+  /// Direct dependencies required at runtime.
+  @$pb.TagNumber(6)
+  $pb.PbList<ModuleImport> get dependencies => $_getList(5);
+
+  /// Dependencies only needed during development/testing.
+  @$pb.TagNumber(7)
+  $pb.PbList<ModuleImport> get devDependencies => $_getList(6);
+
+  /// Arbitrary metadata (authors, license, homepage, repository, etc.).
+  @$pb.TagNumber(8)
+  $0.Struct get metadata => $_getN(7);
+  @$pb.TagNumber(8)
+  set metadata($0.Struct value) => $_setField(8, value);
+  @$pb.TagNumber(8)
+  $core.bool hasMetadata() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearMetadata() => $_clearField(8);
+  @$pb.TagNumber(8)
+  $0.Struct ensureMetadata() => $_ensure(7);
+}
+
+/// A lockfile pins every transitive dependency to an exact resolved version
+/// and content hash. Ensures reproducible builds across machines and time.
+/// Serialized as `ball.lock.json` (proto3 JSON, human-readable and diffable).
+class BallLockfile extends $pb.GeneratedMessage {
+  factory BallLockfile({
+    $core.Iterable<ResolvedDependency>? packages,
+    $core.String? lockVersion,
+  }) {
+    final result = create();
+    if (packages != null) result.packages.addAll(packages);
+    if (lockVersion != null) result.lockVersion = lockVersion;
+    return result;
+  }
+
+  BallLockfile._();
+
+  factory BallLockfile.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory BallLockfile.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'BallLockfile',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'ball.v1'),
+      createEmptyInstance: create)
+    ..pPM<ResolvedDependency>(1, _omitFieldNames ? '' : 'packages',
+        subBuilder: ResolvedDependency.create)
+    ..aOS(2, _omitFieldNames ? '' : 'lockVersion')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  BallLockfile clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  BallLockfile copyWith(void Function(BallLockfile) updates) =>
+      super.copyWith((message) => updates(message as BallLockfile))
+          as BallLockfile;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static BallLockfile create() => BallLockfile._();
+  @$core.override
+  BallLockfile createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static BallLockfile getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<BallLockfile>(create);
+  static BallLockfile? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $pb.PbList<ResolvedDependency> get packages => $_getList(0);
+
+  /// Lockfile format version (for forward compatibility).
+  @$pb.TagNumber(2)
+  $core.String get lockVersion => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set lockVersion($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasLockVersion() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearLockVersion() => $_clearField(2);
+}
+
+enum ResolvedDependency_ResolvedSource { http, git, file, registry, notSet }
+
+/// A single resolved dependency in the lockfile.
+class ResolvedDependency extends $pb.GeneratedMessage {
+  factory ResolvedDependency({
+    $core.String? name,
+    $core.String? resolvedVersion,
+    $core.String? integrity,
+    HttpSource? http,
+    GitSource? git,
+    FileSource? file,
+    RegistrySource? registry,
+    $core.Iterable<$core.String>? dependencyNames,
+  }) {
+    final result = create();
+    if (name != null) result.name = name;
+    if (resolvedVersion != null) result.resolvedVersion = resolvedVersion;
+    if (integrity != null) result.integrity = integrity;
+    if (http != null) result.http = http;
+    if (git != null) result.git = git;
+    if (file != null) result.file = file;
+    if (registry != null) result.registry = registry;
+    if (dependencyNames != null) result.dependencyNames.addAll(dependencyNames);
+    return result;
+  }
+
+  ResolvedDependency._();
+
+  factory ResolvedDependency.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory ResolvedDependency.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static const $core.Map<$core.int, ResolvedDependency_ResolvedSource>
+      _ResolvedDependency_ResolvedSourceByTag = {
+    4: ResolvedDependency_ResolvedSource.http,
+    5: ResolvedDependency_ResolvedSource.git,
+    6: ResolvedDependency_ResolvedSource.file,
+    7: ResolvedDependency_ResolvedSource.registry,
+    0: ResolvedDependency_ResolvedSource.notSet
+  };
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ResolvedDependency',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'ball.v1'),
+      createEmptyInstance: create)
+    ..oo(0, [4, 5, 6, 7])
+    ..aOS(1, _omitFieldNames ? '' : 'name')
+    ..aOS(2, _omitFieldNames ? '' : 'resolvedVersion')
+    ..aOS(3, _omitFieldNames ? '' : 'integrity')
+    ..aOM<HttpSource>(4, _omitFieldNames ? '' : 'http',
+        subBuilder: HttpSource.create)
+    ..aOM<GitSource>(5, _omitFieldNames ? '' : 'git',
+        subBuilder: GitSource.create)
+    ..aOM<FileSource>(6, _omitFieldNames ? '' : 'file',
+        subBuilder: FileSource.create)
+    ..aOM<RegistrySource>(7, _omitFieldNames ? '' : 'registry',
+        subBuilder: RegistrySource.create)
+    ..pPS(8, _omitFieldNames ? '' : 'dependencyNames')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ResolvedDependency clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ResolvedDependency copyWith(void Function(ResolvedDependency) updates) =>
+      super.copyWith((message) => updates(message as ResolvedDependency))
+          as ResolvedDependency;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static ResolvedDependency create() => ResolvedDependency._();
+  @$core.override
+  ResolvedDependency createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static ResolvedDependency getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ResolvedDependency>(create);
+  static ResolvedDependency? _defaultInstance;
+
+  @$pb.TagNumber(4)
+  @$pb.TagNumber(5)
+  @$pb.TagNumber(6)
+  @$pb.TagNumber(7)
+  ResolvedDependency_ResolvedSource whichResolvedSource() =>
+      _ResolvedDependency_ResolvedSourceByTag[$_whichOneof(0)]!;
+  @$pb.TagNumber(4)
+  @$pb.TagNumber(5)
+  @$pb.TagNumber(6)
+  @$pb.TagNumber(7)
+  void clearResolvedSource() => $_clearField($_whichOneof(0));
+
+  /// Package name (matches ModuleImport.name).
+  @$pb.TagNumber(1)
+  $core.String get name => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set name($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasName() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearName() => $_clearField(1);
+
+  /// Exact resolved version (not a constraint).
+  @$pb.TagNumber(2)
+  $core.String get resolvedVersion => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set resolvedVersion($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasResolvedVersion() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearResolvedVersion() => $_clearField(2);
+
+  /// Content integrity hash: "sha256:<hex>".
+  @$pb.TagNumber(3)
+  $core.String get integrity => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set integrity($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasIntegrity() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearIntegrity() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  HttpSource get http => $_getN(3);
+  @$pb.TagNumber(4)
+  set http(HttpSource value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasHttp() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearHttp() => $_clearField(4);
+  @$pb.TagNumber(4)
+  HttpSource ensureHttp() => $_ensure(3);
+
+  @$pb.TagNumber(5)
+  GitSource get git => $_getN(4);
+  @$pb.TagNumber(5)
+  set git(GitSource value) => $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasGit() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearGit() => $_clearField(5);
+  @$pb.TagNumber(5)
+  GitSource ensureGit() => $_ensure(4);
+
+  @$pb.TagNumber(6)
+  FileSource get file => $_getN(5);
+  @$pb.TagNumber(6)
+  set file(FileSource value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasFile() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearFile() => $_clearField(6);
+  @$pb.TagNumber(6)
+  FileSource ensureFile() => $_ensure(5);
+
+  @$pb.TagNumber(7)
+  RegistrySource get registry => $_getN(6);
+  @$pb.TagNumber(7)
+  set registry(RegistrySource value) => $_setField(7, value);
+  @$pb.TagNumber(7)
+  $core.bool hasRegistry() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearRegistry() => $_clearField(7);
+  @$pb.TagNumber(7)
+  RegistrySource ensureRegistry() => $_ensure(6);
+
+  /// Names of this package's own dependencies (for the dep graph).
+  @$pb.TagNumber(8)
+  $pb.PbList<$core.String> get dependencyNames => $_getList(7);
+}
+
+/// The output of `ball audit`: a structured report of every side effect
+/// a Ball program can perform. Since every side effect in Ball flows
+/// through a named base function in a known module, this analysis is
+/// provably complete — not heuristic.
+class BallCapabilityReport extends $pb.GeneratedMessage {
+  factory BallCapabilityReport({
+    $core.String? programName,
+    $core.String? programVersion,
+    $core.Iterable<CapabilityEntry>? capabilities,
+    $core.Iterable<FunctionCapability>? functions,
+    CapabilitySummary? summary,
+  }) {
+    final result = create();
+    if (programName != null) result.programName = programName;
+    if (programVersion != null) result.programVersion = programVersion;
+    if (capabilities != null) result.capabilities.addAll(capabilities);
+    if (functions != null) result.functions.addAll(functions);
+    if (summary != null) result.summary = summary;
+    return result;
+  }
+
+  BallCapabilityReport._();
+
+  factory BallCapabilityReport.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory BallCapabilityReport.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'BallCapabilityReport',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'ball.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'programName')
+    ..aOS(2, _omitFieldNames ? '' : 'programVersion')
+    ..pPM<CapabilityEntry>(3, _omitFieldNames ? '' : 'capabilities',
+        subBuilder: CapabilityEntry.create)
+    ..pPM<FunctionCapability>(4, _omitFieldNames ? '' : 'functions',
+        subBuilder: FunctionCapability.create)
+    ..aOM<CapabilitySummary>(5, _omitFieldNames ? '' : 'summary',
+        subBuilder: CapabilitySummary.create)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  BallCapabilityReport clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  BallCapabilityReport copyWith(void Function(BallCapabilityReport) updates) =>
+      super.copyWith((message) => updates(message as BallCapabilityReport))
+          as BallCapabilityReport;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static BallCapabilityReport create() => BallCapabilityReport._();
+  @$core.override
+  BallCapabilityReport createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static BallCapabilityReport getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<BallCapabilityReport>(create);
+  static BallCapabilityReport? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get programName => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set programName($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasProgramName() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearProgramName() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get programVersion => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set programVersion($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasProgramVersion() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearProgramVersion() => $_clearField(2);
+
+  /// One entry per capability category found in the program.
+  @$pb.TagNumber(3)
+  $pb.PbList<CapabilityEntry> get capabilities => $_getList(2);
+
+  /// Per-function capability breakdown.
+  @$pb.TagNumber(4)
+  $pb.PbList<FunctionCapability> get functions => $_getList(3);
+
+  /// Aggregate summary flags.
+  @$pb.TagNumber(5)
+  CapabilitySummary get summary => $_getN(4);
+  @$pb.TagNumber(5)
+  set summary(CapabilitySummary value) => $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasSummary() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearSummary() => $_clearField(5);
+  @$pb.TagNumber(5)
+  CapabilitySummary ensureSummary() => $_ensure(4);
+}
+
+/// A single capability category (e.g. "fs", "io", "memory") with all
+/// call sites in the program that trigger it.
+class CapabilityEntry extends $pb.GeneratedMessage {
+  factory CapabilityEntry({
+    $core.String? capability,
+    $core.String? riskLevel,
+    $core.Iterable<CallSite>? callSites,
+  }) {
+    final result = create();
+    if (capability != null) result.capability = capability;
+    if (riskLevel != null) result.riskLevel = riskLevel;
+    if (callSites != null) result.callSites.addAll(callSites);
+    return result;
+  }
+
+  CapabilityEntry._();
+
+  factory CapabilityEntry.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory CapabilityEntry.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CapabilityEntry',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'ball.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'capability')
+    ..aOS(2, _omitFieldNames ? '' : 'riskLevel')
+    ..pPM<CallSite>(3, _omitFieldNames ? '' : 'callSites',
+        subBuilder: CallSite.create)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CapabilityEntry clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CapabilityEntry copyWith(void Function(CapabilityEntry) updates) =>
+      super.copyWith((message) => updates(message as CapabilityEntry))
+          as CapabilityEntry;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static CapabilityEntry create() => CapabilityEntry._();
+  @$core.override
+  CapabilityEntry createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static CapabilityEntry getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<CapabilityEntry>(create);
+  static CapabilityEntry? _defaultInstance;
+
+  /// Category name: "pure", "io", "fs", "process", "time", "random",
+  ///                "memory", "concurrency", "network".
+  @$pb.TagNumber(1)
+  $core.String get capability => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set capability($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasCapability() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearCapability() => $_clearField(1);
+
+  /// Risk level: "none", "low", "medium", "high".
+  @$pb.TagNumber(2)
+  $core.String get riskLevel => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set riskLevel($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasRiskLevel() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRiskLevel() => $_clearField(2);
+
+  /// Every call site in the program that triggers this capability.
+  @$pb.TagNumber(3)
+  $pb.PbList<CallSite> get callSites => $_getList(2);
+}
+
+/// A specific location in the program where a capability-bearing base
+/// function is called.
+class CallSite extends $pb.GeneratedMessage {
+  factory CallSite({
+    $core.String? module,
+    $core.String? function,
+    $core.String? calleeModule,
+    $core.String? calleeFunction,
+  }) {
+    final result = create();
+    if (module != null) result.module = module;
+    if (function != null) result.function = function;
+    if (calleeModule != null) result.calleeModule = calleeModule;
+    if (calleeFunction != null) result.calleeFunction = calleeFunction;
+    return result;
+  }
+
+  CallSite._();
+
+  factory CallSite.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory CallSite.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CallSite',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'ball.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'module')
+    ..aOS(2, _omitFieldNames ? '' : 'function')
+    ..aOS(3, _omitFieldNames ? '' : 'calleeModule')
+    ..aOS(4, _omitFieldNames ? '' : 'calleeFunction')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CallSite clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CallSite copyWith(void Function(CallSite) updates) =>
+      super.copyWith((message) => updates(message as CallSite)) as CallSite;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static CallSite create() => CallSite._();
+  @$core.override
+  CallSite createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static CallSite getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<CallSite>(create);
+  static CallSite? _defaultInstance;
+
+  /// The user module containing the call.
+  @$pb.TagNumber(1)
+  $core.String get module => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set module($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasModule() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearModule() => $_clearField(1);
+
+  /// The user function containing the call.
+  @$pb.TagNumber(2)
+  $core.String get function => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set function($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasFunction() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearFunction() => $_clearField(2);
+
+  /// The base module being called (e.g. "std_fs").
+  @$pb.TagNumber(3)
+  $core.String get calleeModule => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set calleeModule($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasCalleeModule() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearCalleeModule() => $_clearField(3);
+
+  /// The base function being called (e.g. "file_read").
+  @$pb.TagNumber(4)
+  $core.String get calleeFunction => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set calleeFunction($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasCalleeFunction() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearCalleeFunction() => $_clearField(4);
+}
+
+/// The capabilities a single function transitively requires.
+class FunctionCapability extends $pb.GeneratedMessage {
+  factory FunctionCapability({
+    $core.String? module,
+    $core.String? function,
+    $core.Iterable<$core.String>? capabilities,
+  }) {
+    final result = create();
+    if (module != null) result.module = module;
+    if (function != null) result.function = function;
+    if (capabilities != null) result.capabilities.addAll(capabilities);
+    return result;
+  }
+
+  FunctionCapability._();
+
+  factory FunctionCapability.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory FunctionCapability.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'FunctionCapability',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'ball.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'module')
+    ..aOS(2, _omitFieldNames ? '' : 'function')
+    ..pPS(3, _omitFieldNames ? '' : 'capabilities')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FunctionCapability clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FunctionCapability copyWith(void Function(FunctionCapability) updates) =>
+      super.copyWith((message) => updates(message as FunctionCapability))
+          as FunctionCapability;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static FunctionCapability create() => FunctionCapability._();
+  @$core.override
+  FunctionCapability createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static FunctionCapability getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<FunctionCapability>(create);
+  static FunctionCapability? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get module => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set module($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasModule() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearModule() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get function => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set function($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasFunction() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearFunction() => $_clearField(2);
+
+  /// All capability categories this function (transitively) uses.
+  @$pb.TagNumber(3)
+  $pb.PbList<$core.String> get capabilities => $_getList(2);
+}
+
+/// Aggregate boolean summary of a program's capabilities.
+class CapabilitySummary extends $pb.GeneratedMessage {
+  factory CapabilitySummary({
+    $core.bool? isPure,
+    $core.bool? readsFilesystem,
+    $core.bool? writesFilesystem,
+    $core.bool? readsStdin,
+    $core.bool? writesStdout,
+    $core.bool? writesStderr,
+    $core.bool? readsEnvironment,
+    $core.bool? controlsProcess,
+    $core.bool? usesMemory,
+    $core.bool? usesTime,
+    $core.bool? usesRandom,
+    $core.bool? usesConcurrency,
+    $core.bool? usesNetwork,
+    $core.int? totalFunctions,
+    $core.int? pureFunctions,
+    $core.int? effectfulFunctions,
+  }) {
+    final result = create();
+    if (isPure != null) result.isPure = isPure;
+    if (readsFilesystem != null) result.readsFilesystem = readsFilesystem;
+    if (writesFilesystem != null) result.writesFilesystem = writesFilesystem;
+    if (readsStdin != null) result.readsStdin = readsStdin;
+    if (writesStdout != null) result.writesStdout = writesStdout;
+    if (writesStderr != null) result.writesStderr = writesStderr;
+    if (readsEnvironment != null) result.readsEnvironment = readsEnvironment;
+    if (controlsProcess != null) result.controlsProcess = controlsProcess;
+    if (usesMemory != null) result.usesMemory = usesMemory;
+    if (usesTime != null) result.usesTime = usesTime;
+    if (usesRandom != null) result.usesRandom = usesRandom;
+    if (usesConcurrency != null) result.usesConcurrency = usesConcurrency;
+    if (usesNetwork != null) result.usesNetwork = usesNetwork;
+    if (totalFunctions != null) result.totalFunctions = totalFunctions;
+    if (pureFunctions != null) result.pureFunctions = pureFunctions;
+    if (effectfulFunctions != null)
+      result.effectfulFunctions = effectfulFunctions;
+    return result;
+  }
+
+  CapabilitySummary._();
+
+  factory CapabilitySummary.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory CapabilitySummary.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CapabilitySummary',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'ball.v1'),
+      createEmptyInstance: create)
+    ..aOB(1, _omitFieldNames ? '' : 'isPure')
+    ..aOB(2, _omitFieldNames ? '' : 'readsFilesystem')
+    ..aOB(3, _omitFieldNames ? '' : 'writesFilesystem')
+    ..aOB(4, _omitFieldNames ? '' : 'readsStdin')
+    ..aOB(5, _omitFieldNames ? '' : 'writesStdout')
+    ..aOB(6, _omitFieldNames ? '' : 'writesStderr')
+    ..aOB(7, _omitFieldNames ? '' : 'readsEnvironment')
+    ..aOB(8, _omitFieldNames ? '' : 'controlsProcess')
+    ..aOB(9, _omitFieldNames ? '' : 'usesMemory')
+    ..aOB(10, _omitFieldNames ? '' : 'usesTime')
+    ..aOB(11, _omitFieldNames ? '' : 'usesRandom')
+    ..aOB(12, _omitFieldNames ? '' : 'usesConcurrency')
+    ..aOB(13, _omitFieldNames ? '' : 'usesNetwork')
+    ..aI(14, _omitFieldNames ? '' : 'totalFunctions')
+    ..aI(15, _omitFieldNames ? '' : 'pureFunctions')
+    ..aI(16, _omitFieldNames ? '' : 'effectfulFunctions')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CapabilitySummary clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CapabilitySummary copyWith(void Function(CapabilitySummary) updates) =>
+      super.copyWith((message) => updates(message as CapabilitySummary))
+          as CapabilitySummary;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static CapabilitySummary create() => CapabilitySummary._();
+  @$core.override
+  CapabilitySummary createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static CapabilitySummary getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<CapabilitySummary>(create);
+  static CapabilitySummary? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.bool get isPure => $_getBF(0);
+  @$pb.TagNumber(1)
+  set isPure($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIsPure() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIsPure() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.bool get readsFilesystem => $_getBF(1);
+  @$pb.TagNumber(2)
+  set readsFilesystem($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasReadsFilesystem() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearReadsFilesystem() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.bool get writesFilesystem => $_getBF(2);
+  @$pb.TagNumber(3)
+  set writesFilesystem($core.bool value) => $_setBool(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasWritesFilesystem() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearWritesFilesystem() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.bool get readsStdin => $_getBF(3);
+  @$pb.TagNumber(4)
+  set readsStdin($core.bool value) => $_setBool(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasReadsStdin() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearReadsStdin() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.bool get writesStdout => $_getBF(4);
+  @$pb.TagNumber(5)
+  set writesStdout($core.bool value) => $_setBool(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasWritesStdout() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearWritesStdout() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.bool get writesStderr => $_getBF(5);
+  @$pb.TagNumber(6)
+  set writesStderr($core.bool value) => $_setBool(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasWritesStderr() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearWritesStderr() => $_clearField(6);
+
+  @$pb.TagNumber(7)
+  $core.bool get readsEnvironment => $_getBF(6);
+  @$pb.TagNumber(7)
+  set readsEnvironment($core.bool value) => $_setBool(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasReadsEnvironment() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearReadsEnvironment() => $_clearField(7);
+
+  @$pb.TagNumber(8)
+  $core.bool get controlsProcess => $_getBF(7);
+  @$pb.TagNumber(8)
+  set controlsProcess($core.bool value) => $_setBool(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasControlsProcess() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearControlsProcess() => $_clearField(8);
+
+  @$pb.TagNumber(9)
+  $core.bool get usesMemory => $_getBF(8);
+  @$pb.TagNumber(9)
+  set usesMemory($core.bool value) => $_setBool(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasUsesMemory() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearUsesMemory() => $_clearField(9);
+
+  @$pb.TagNumber(10)
+  $core.bool get usesTime => $_getBF(9);
+  @$pb.TagNumber(10)
+  set usesTime($core.bool value) => $_setBool(9, value);
+  @$pb.TagNumber(10)
+  $core.bool hasUsesTime() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearUsesTime() => $_clearField(10);
+
+  @$pb.TagNumber(11)
+  $core.bool get usesRandom => $_getBF(10);
+  @$pb.TagNumber(11)
+  set usesRandom($core.bool value) => $_setBool(10, value);
+  @$pb.TagNumber(11)
+  $core.bool hasUsesRandom() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearUsesRandom() => $_clearField(11);
+
+  @$pb.TagNumber(12)
+  $core.bool get usesConcurrency => $_getBF(11);
+  @$pb.TagNumber(12)
+  set usesConcurrency($core.bool value) => $_setBool(11, value);
+  @$pb.TagNumber(12)
+  $core.bool hasUsesConcurrency() => $_has(11);
+  @$pb.TagNumber(12)
+  void clearUsesConcurrency() => $_clearField(12);
+
+  @$pb.TagNumber(13)
+  $core.bool get usesNetwork => $_getBF(12);
+  @$pb.TagNumber(13)
+  set usesNetwork($core.bool value) => $_setBool(12, value);
+  @$pb.TagNumber(13)
+  $core.bool hasUsesNetwork() => $_has(12);
+  @$pb.TagNumber(13)
+  void clearUsesNetwork() => $_clearField(13);
+
+  @$pb.TagNumber(14)
+  $core.int get totalFunctions => $_getIZ(13);
+  @$pb.TagNumber(14)
+  set totalFunctions($core.int value) => $_setSignedInt32(13, value);
+  @$pb.TagNumber(14)
+  $core.bool hasTotalFunctions() => $_has(13);
+  @$pb.TagNumber(14)
+  void clearTotalFunctions() => $_clearField(14);
+
+  @$pb.TagNumber(15)
+  $core.int get pureFunctions => $_getIZ(14);
+  @$pb.TagNumber(15)
+  set pureFunctions($core.int value) => $_setSignedInt32(14, value);
+  @$pb.TagNumber(15)
+  $core.bool hasPureFunctions() => $_has(14);
+  @$pb.TagNumber(15)
+  void clearPureFunctions() => $_clearField(15);
+
+  @$pb.TagNumber(16)
+  $core.int get effectfulFunctions => $_getIZ(15);
+  @$pb.TagNumber(16)
+  set effectfulFunctions($core.int value) => $_setSignedInt32(15, value);
+  @$pb.TagNumber(16)
+  $core.bool hasEffectfulFunctions() => $_has(15);
+  @$pb.TagNumber(16)
+  void clearEffectfulFunctions() => $_clearField(16);
 }
 
 const $core.bool _omitFieldNames =

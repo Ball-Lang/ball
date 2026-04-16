@@ -89,6 +89,12 @@ class PackageEncoder {
   /// Maximum transitive dependency depth.
   final int maxDepth;
 
+  /// Current recursion depth for dependency resolution.
+  final int _currentDepth;
+
+  /// Warnings accumulated during dependency resolution.
+  final List<String> warnings = [];
+
   /// `relPath → moduleName` for every discovered `.dart` file.
   late final Map<String, String> _fileToModule;
 
@@ -100,9 +106,11 @@ class PackageEncoder {
     Map<String, Program>? encodedCache,
     Set<String>? inProgress,
     this.maxDepth = 10,
+    int currentDepth = 0,
   })  : _pubClient = pubClient,
         _encodedCache = encodedCache ?? {},
         _inProgress = inProgress ?? {},
+        _currentDepth = currentDepth,
         manifest = PubspecParser.fromDirectory(packageDir) {
     _fileToModule = _buildFileMap();
   }
@@ -226,8 +234,12 @@ class PackageEncoder {
       if (_inProgress.contains(packageName)) continue;
       _inProgress.add(packageName);
 
-      // Depth limit.
-      if (_inProgress.length > maxDepth) {
+      // Depth limit based on actual recursion depth, not in-progress count.
+      if (_currentDepth >= maxDepth) {
+        warnings.add(
+          'Skipping "$packageName": max depth $maxDepth reached '
+          '(current depth: $_currentDepth).',
+        );
         _inProgress.remove(packageName);
         continue;
       }
@@ -247,7 +259,7 @@ class PackageEncoder {
           archiveUrl: versionInfo.archiveUrl,
         );
 
-        // Recursively encode.
+        // Recursively encode with incremented depth.
         final subEncoder = PackageEncoder(
           pkgDir,
           resolveExternalDeps: resolveExternalDeps,
@@ -255,9 +267,13 @@ class PackageEncoder {
           encodedCache: _encodedCache,
           inProgress: _inProgress,
           maxDepth: maxDepth,
+          currentDepth: _currentDepth + 1,
         );
         final subProgram = await subEncoder.encodeAsync();
         _encodedCache[packageName] = subProgram;
+
+        // Propagate warnings from sub-encoder.
+        warnings.addAll(subEncoder.warnings);
 
         // Collect non-base modules from the sub-program.
         for (final m in subProgram.modules) {
@@ -266,7 +282,12 @@ class PackageEncoder {
           }
         }
       } catch (e) {
-        // If resolution fails, silently skip — the stub remains.
+        // Log the failure so users can diagnose why a dependency wasn't resolved.
+        final msg =
+            'Warning: failed to resolve dependency "$packageName" '
+            '(from stub "$stubName"): $e';
+        warnings.add(msg);
+        stderr.writeln(msg);
       } finally {
         _inProgress.remove(packageName);
       }
@@ -275,16 +296,32 @@ class PackageEncoder {
   }
 
   String? _moduleNameToPackageName(String moduleName) {
+    // Stubs from `dart:` imports (e.g. "dart.async", "dart.collection") are
+    // SDK libraries, not pub packages — skip them entirely.
+    if (moduleName.startsWith('dart.') || moduleName == 'dart') {
+      return null;
+    }
+
     // Module names from external imports look like "package.http.src.client"
-    // or just "http". Try matching against manifest dependencies.
+    // or just "http". Try exact match against manifest dependencies first.
+    if (manifest.dependencies.containsKey(moduleName)) return moduleName;
+
+    // Try prefix match: module "http.src.client" → dep "http".
     for (final depName in manifest.dependencies.keys) {
       if (moduleName == depName || moduleName.startsWith('$depName.')) {
         return depName;
       }
     }
-    // Fallback: the module name itself might be the package name.
-    if (manifest.dependencies.containsKey(moduleName)) return moduleName;
-    return moduleName.split('.').first;
+
+    // Try extracting the first segment and matching against dependencies.
+    final firstSegment = moduleName.split('.').first;
+    if (manifest.dependencies.containsKey(firstSegment)) return firstSegment;
+
+    // No matching dependency found — return null instead of guessing.
+    warnings.add(
+      'Could not map module "$moduleName" to any known dependency; skipping.',
+    );
+    return null;
   }
 
   String _getVersionConstraint(String packageName) {

@@ -3,6 +3,23 @@
 // Faithful port of the Dart BallEngine: expression tree walking,
 // lexical scoping, lazy control flow, full std dispatch, and
 // linear memory simulation.
+//
+// ----------------------------------------------------------------
+// Async status
+// ----------------------------------------------------------------
+// This C++ engine is fully synchronous — no coroutines, no event
+// loop, no microtask queue. The Dart engine now has true async
+// (every eval method returns Future<BallValue>), but the C++
+// engine has not been ported.
+//
+//  - `await` is a no-op that unwraps BallFuture markers; it does
+//    NOT yield or suspend execution.
+//  - `sleep_ms` blocks the calling thread via std::this_thread::
+//    sleep_for; there is no async delay.
+//
+// For programs that require real async behavior, use `ball build`
+// to resolve dependencies, then run via the Dart engine.
+// ----------------------------------------------------------------
 
 #include "engine.h"
 
@@ -106,7 +123,9 @@ void Engine::validate_no_unresolved_imports() {
                 "Module \"" + imp.name() + "\" has an unresolved import "
                 "(source type: " + std::to_string(imp.source_case()) + "). "
                 "Run `ball build` to resolve all imports before running "
-                "with the C++ engine.");
+                "with the C++ engine. Note: the Dart engine supports "
+                "true async resolution; the C++ engine is synchronous "
+                "and cannot resolve imports at runtime.");
         }
     }
 }

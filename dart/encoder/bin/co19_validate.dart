@@ -278,7 +278,7 @@ Future<void> main(List<String> args) async {
         stdout: lines.add,
         stderr: (_) {}, // suppress engine stderr
       );
-      engine.run();
+      await engine.run();
       sw.stop();
       engineTime = sw.elapsed;
       engineOutput = _norm(lines.join('\n'));

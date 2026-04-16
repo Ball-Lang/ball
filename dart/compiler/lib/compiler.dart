@@ -1207,12 +1207,20 @@ class DartCompiler {
       }
 
       if (!b.external && func.hasBody() && !_isEmptyBody(func.body)) {
-        if (isExpressionBody) {
+        // If `_addParameters` stashed renames (e.g. original param `n`
+        // became `input`), we can't use `=> expr` form since the
+        // expression references `n` which no longer exists. Demote to
+        // block form so `_generateFunctionBody` emits the alias prologue.
+        final mustUseBlockForm = _pendingParamAliases.isNotEmpty;
+        final isFactory = meta['is_factory'] == true;
+        if (isExpressionBody && !mustUseBlockForm) {
           b.lambda = true;
           b.body = _compileExpression(func.body).code;
         } else {
           b.body = cb.Code(
-            _captureBody(() => _generateFunctionBody(func.body, false)),
+            _captureBody(
+              () => _generateFunctionBody(func.body, isFactory),
+            ),
           );
         }
       }

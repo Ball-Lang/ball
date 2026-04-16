@@ -167,6 +167,34 @@ class DartCompiler {
     return noFormat ? _emitRaw(lib) : _format(lib);
   }
 
+  /// Compile every non-base module in the program, returning a map
+  /// of `moduleName → dartSource`.
+  ///
+  /// Use for library packages that have no entry point.  Base modules
+  /// (std, dart_std, etc.) are skipped.  Each module is compiled
+  /// independently, so the result can be written to separate files.
+  Map<String, String> compileAllModules() {
+    final result = <String, String>{};
+    for (final module in program.modules) {
+      // Skip base modules and empty stubs.
+      final allBase = module.functions.every((f) => f.isBase);
+      if (allBase && module.functions.isNotEmpty) continue;
+      if (module.functions.isEmpty && module.typeDefs.isEmpty &&
+          module.types.isEmpty && module.name != program.entryModule) continue;
+      try {
+        result[module.name] = compileModule(module.name);
+      } catch (e) {
+        // If formatting fails, try raw.
+        try {
+          result[module.name] = compileModuleRaw(module.name);
+        } catch (_) {
+          // Skip modules that fail to compile.
+        }
+      }
+    }
+    return result;
+  }
+
   /// Compile a single module to raw (unformatted) Dart source.
   ///
   /// Useful for diagnostics when formatting fails due to parser errors.

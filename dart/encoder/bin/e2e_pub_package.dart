@@ -57,16 +57,46 @@ Future<void> main(List<String> args) async {
   stdout.writeln(formatCapabilityReport(report));
 
   stdout.writeln('5. Compiling back to Dart...');
+  final compiler = DartCompiler(program);
+
+  // Try entry-point compile first (for executable packages).
   try {
-    final compiler = DartCompiler(program);
     final dartSource = compiler.compile();
     final outPath = '/tmp/ball_e2e_${name}.dart';
     File(outPath).writeAsStringSync(dartSource);
-    stdout.writeln('   Dart output: $outPath (${dartSource.length} chars)');
-    stdout.writeln('   First 500 chars:');
-    stdout.writeln(dartSource.substring(0, dartSource.length.clamp(0, 500)));
-  } catch (e) {
-    stderr.writeln('   Compile failed: $e');
+    stdout.writeln('   Entry-point compile: $outPath (${dartSource.length} chars)');
+  } catch (_) {
+    stdout.writeln('   No entry point (library package) — using compileAllModules');
+  }
+
+  // Always compile all modules for library packages.
+  final allModules = compiler.compileAllModules();
+  final outDir = Directory('/tmp/ball_e2e_${name}_modules');
+  if (outDir.existsSync()) outDir.deleteSync(recursive: true);
+  outDir.createSync(recursive: true);
+
+  var totalChars = 0;
+  var compiledCount = 0;
+  for (final entry in allModules.entries) {
+    final fileName = '${entry.key.replaceAll('.', '_')}.dart';
+    File('${outDir.path}/$fileName').writeAsStringSync(entry.value);
+    totalChars += entry.value.length;
+    compiledCount++;
+  }
+
+  // Count modules that were skipped (base, empty stubs).
+  final skipped = program.modules.length - compiledCount - program.modules.where(
+    (m) => m.functions.every((f) => f.isBase) && m.functions.isNotEmpty,
+  ).length;
+
+  stdout.writeln('   Compiled $compiledCount modules to ${outDir.path}/ ($totalChars total chars)');
+  if (skipped > 0) stdout.writeln('   Skipped $skipped empty/stub modules');
+
+  // Show a sample of the first compiled module.
+  if (allModules.isNotEmpty) {
+    final first = allModules.entries.first;
+    stdout.writeln('   Sample (${first.key}):');
+    stdout.writeln(first.value.substring(0, first.value.length.clamp(0, 400)));
   }
 
   // Write Ball JSON

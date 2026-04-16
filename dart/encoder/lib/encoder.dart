@@ -16,6 +16,7 @@
 /// in google.protobuf.Struct metadata fields for lossless round-tripping.
 library;
 
+import 'package:analyzer/dart/analysis/features.dart';
 import 'package:analyzer/dart/analysis/utilities.dart' show parseString;
 import 'package:analyzer/dart/ast/ast.dart' as ast;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
@@ -139,7 +140,11 @@ class DartEncoder {
     // The encoded output always uses a single module named 'main'.
     _moduleName = 'main';
 
-    final result = parseString(content: source);
+    final result = parseString(
+      content: source,
+      throwIfDiagnostics: false,
+      featureSet: FeatureSet.latestLanguageVersion(),
+    );
     final unit = result.unit;
 
     _resolveImports(unit);
@@ -170,7 +175,11 @@ class DartEncoder {
     required String moduleName,
     Map<String, String> uriToModuleOverrides = const {},
   }) {
-    final result = parseString(content: source, throwIfDiagnostics: false);
+    final result = parseString(
+      content: source,
+      throwIfDiagnostics: false,
+      featureSet: FeatureSet.latestLanguageVersion(),
+    );
     return encodeModuleFromUnit(
       result.unit,
       moduleName: moduleName,

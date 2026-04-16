@@ -9,6 +9,7 @@ library;
 
 import 'dart:io';
 
+import 'package:analyzer/dart/analysis/features.dart';
 import 'package:analyzer/dart/analysis/utilities.dart' show parseString;
 import 'package:analyzer/dart/ast/ast.dart' as ast;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
@@ -160,6 +161,7 @@ class PackageEncoder {
       final parseResult = parseString(
         content: source,
         throwIfDiagnostics: false,
+        featureSet: FeatureSet.latestLanguageVersion(),
       );
       final uriOverrides = _computeUriOverridesFromUnit(
         relPath,
@@ -406,7 +408,11 @@ class PackageEncoder {
   static bool _isPartFile(File file) {
     try {
       final source = file.readAsStringSync();
-      final result = parseString(content: source, throwIfDiagnostics: false);
+      final result = parseString(
+        content: source,
+        throwIfDiagnostics: false,
+        featureSet: FeatureSet.latestLanguageVersion(),
+      );
       return result.unit.directives.any((d) => d is ast.PartOfDirective);
     } catch (_) {
       return false;

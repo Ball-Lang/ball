@@ -16,11 +16,6 @@ topics:
 environment:
   sdk: ^3.9.0
 
-
-executables:
-  gen_std:
-    gen_std
-
 dependencies:
   fixnum: ^1.1.1
   protobuf: ^6.0.0

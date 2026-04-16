@@ -757,6 +757,16 @@ class BallEngine {
 
     // Eager evaluation for all other calls
     final input = call.hasInput() ? _evalExpression(call.input, scope) : null;
+
+    // Hot-path fast dispatch: explicitly-qualified std/dart_std calls are
+    // always base functions. Skip the `$module.$function` string alloc
+    // and the _functions map probe — go straight to the module handler.
+    // Only fires when call.module is set explicitly (empty-module calls
+    // still flow through the scope-closure check below).
+    if (call.module == 'std' || call.module == 'dart_std') {
+      return _callBaseFunction(call.module, call.function, input);
+    }
+
     final key = '$moduleName.${call.function}';
     final func = _functions[key];
     if (func != null && func.isBase) {

@@ -103,15 +103,226 @@ bool _shouldSkipContent(String source) {
   for (final marker in _skipMarkers) {
     if (source.contains(marker)) return true;
   }
-  // Skip files that import non-core libraries (co19's Expect, etc.)
-  // which Ball can't resolve.
+  // Skip files that import non-core libraries which Ball can't resolve,
+  // but allow imports we can inline (expect.dart, static_type_helper.dart,
+  // dynamic_check.dart).
   if (source.contains("import '") || source.contains('import "')) {
-    // Allow dart: imports but skip relative/package imports.
-    final importPattern = RegExp(r'''import\s+['"](?!dart:)''');
-    if (importPattern.hasMatch(source)) return true;
+    final importPattern = RegExp(r'''import\s+['"](?!dart:)([^'"]+)['"]''');
+    for (final match in importPattern.allMatches(source)) {
+      final importPath = match.group(1)!;
+      // Allow imports we know how to inline.
+      if (_isInlineableImport(importPath)) continue;
+      // Any other non-dart: import means skip.
+      return true;
+    }
   }
   return false;
 }
+
+/// Returns true if this relative import path can be inlined.
+bool _isInlineableImport(String importPath) {
+  final basename = importPath.split('/').last;
+  return basename == 'expect.dart' ||
+      basename == 'static_type_helper.dart' ||
+      basename == 'dynamic_check.dart';
+}
+
+/// Regex matching any import of Utils/expect.dart (with varying ../
+/// prefixes, single or double quotes).
+final _expectImportRe =
+    RegExp(r'''import\s+['"][\./]*Utils/expect\.dart['"];?''');
+
+/// Regex matching any import of Utils/static_type_helper.dart.
+final _staticTypeHelperImportRe =
+    RegExp(r'''import\s+['"][\./]*Utils/static_type_helper\.dart['"];?''');
+
+/// Regex matching any import of Utils/dynamic_check.dart or just
+/// dynamic_check.dart.
+final _dynamicCheckImportRe =
+    RegExp(r'''import\s+['"][\./]*(?:Utils/)?dynamic_check\.dart['"];?''');
+
+/// Replace co19 helper imports with inlined class definitions.
+String _inlineHelpers(String source) {
+  // Order matters: dynamic_check depends on expect, so inline expect first.
+  if (_expectImportRe.hasMatch(source)) {
+    source = source.replaceAll(_expectImportRe, _inlinedExpectClass);
+  }
+  if (_staticTypeHelperImportRe.hasMatch(source)) {
+    source =
+        source.replaceAll(_staticTypeHelperImportRe, _inlinedStaticTypeHelper);
+  }
+  if (_dynamicCheckImportRe.hasMatch(source)) {
+    source = source.replaceAll(_dynamicCheckImportRe, _inlinedDynamicCheck);
+  }
+  return source;
+}
+
+/// Minimal inlined Expect class covering the most-used co19 methods.
+/// Derived from co19/Utils/expect_common.dart + async_utils.dart.
+const _inlinedExpectClass = r'''
+// --- Inlined co19 Expect class ---
+class Expect {
+  static void equals(dynamic expected, dynamic actual, [String reason = '']) {
+    if ((expected != actual) &&
+        !((expected is double) && (actual is double) &&
+          (expected.isNaN) && (actual.isNaN))) {
+      _fail('Expect.equals(expected: <$expected>, actual: <$actual>$reason) fails.');
+    }
+  }
+  static void isTrue(dynamic actual, [String reason = '']) {
+    if (!identical(actual, true)) {
+      _fail('Expect.isTrue($actual$reason) fails.');
+    }
+  }
+  static void isFalse(dynamic actual, [String reason = '']) {
+    if (!identical(actual, false)) {
+      _fail('Expect.isFalse($actual$reason) fails.');
+    }
+  }
+  static void isNull(dynamic actual, [String reason = '']) {
+    if (null != actual) _fail('Expect.isNull(actual: <$actual>$reason) fails.');
+  }
+  static void isNotNull(dynamic actual, [String reason = '']) {
+    if (null == actual) _fail('Expect.isNotNull(actual: <$actual>$reason) fails.');
+  }
+  static void identical(dynamic expected, dynamic actual, [String reason = '']) {
+    if (!_identical(expected, actual)) {
+      _fail('Expect.identical(expected: <$expected>, actual: <$actual>$reason) fails.');
+    }
+  }
+  static void notIdentical(dynamic expected, dynamic actual, [String reason = '']) {
+    if (_identical(expected, actual)) {
+      _fail('Expect.notIdentical(expected: <$expected>, actual: <$actual>$reason) fails.');
+    }
+  }
+  static void fail(String reason) { _fail('Expect.fail($reason)'); }
+  static void approxEquals(num expected, num actual,
+      [num? tolerance, String reason = '']) {
+    tolerance ??= (expected / 1e4).abs();
+    if (!((expected - actual).abs() <= tolerance)) {
+      _fail('Expect.approxEquals(expected:<$expected>, actual:<$actual>, '
+          'tolerance:<$tolerance>$reason) fails');
+    }
+  }
+  static void notEquals(dynamic unexpected, dynamic actual, [String reason = '']) {
+    if (unexpected == actual) {
+      _fail('Expect.notEquals(unexpected: <$unexpected>, actual:<$actual>$reason) fails.');
+    }
+  }
+  static void stringEquals(String? expected, String? actual, [String reason = '']) {
+    if (expected == actual) return;
+    _fail('Expect.stringEquals(expected: <$expected>, <$actual>$reason) fails');
+  }
+  static void setEquals(Iterable<Object?> expected, Iterable<Object?> actual,
+      [String reason = '']) {
+    final missingSet = Set.from(expected)..removeAll(actual);
+    final extraSet = Set.from(actual)..removeAll(expected);
+    if (extraSet.isNotEmpty || missingSet.isNotEmpty) {
+      _fail('Expect.setEquals($reason) fails');
+    }
+  }
+  static void throws(void Function() func,
+      [bool Function(dynamic)? check, String reason = '']) {
+    try { func(); } catch (e) {
+      if (check != null && !check(e)) {
+        _fail('Expect.throws($reason): Unexpected ${e.runtimeType}($e)');
+      }
+      return;
+    }
+    _fail('Expect.throws($reason) fails');
+  }
+  static void listEquals(dynamic expected, dynamic actual, [String reason = '']) {
+    if (expected is! List) { Expect.fail('expected is not a List:$expected'); return; }
+    if (actual is! List) { Expect.fail('actual is not a List:$actual'); return; }
+    Expect.equals(expected.length, actual.length, reason);
+    for (int i = 0; i < expected.length; i++) {
+      Expect.equals(expected[i], actual[i], reason);
+    }
+  }
+  static void mapEquals(dynamic expected, dynamic actual, [String reason = '']) {
+    if (expected is! Map || actual is! Map) { Expect.fail('not a Map'); return; }
+    Expect.equals(expected.length, actual.length, reason);
+    for (final key in expected.keys) {
+      Expect.equals(expected[key], actual[key], reason);
+    }
+  }
+  static void iterableEquals(Iterable expected, Iterable actual) {
+    Iterator expIt = expected.iterator;
+    Iterator actIt = actual.iterator;
+    while (expIt.moveNext()) {
+      Expect.isTrue(actIt.moveNext());
+      Expect.equals(expIt.current, actIt.current);
+    }
+    Expect.isFalse(actIt.moveNext());
+  }
+  static void _checkIs<T>(bool expected, Object? obj) {
+    Expect.equals(expected, obj is T);
+  }
+  @pragma('dart2js:noInline')
+  static void _checkType(void Function(bool, Object?) checker, bool expected, Object? o) {
+    checker(expected, o);
+  }
+  static void runtimeIsType<T>(Object? o) { _checkType(_checkIs<T>, true, o); }
+  static void runtimeIsNotType<T>(Object? o) { _checkType(_checkIs<T>, false, o); }
+}
+
+bool _identical(dynamic a, dynamic b) => identical(a, b);
+typedef _CheckExceptionFn = bool Function(dynamic);
+
+class ExpectException implements Exception {
+  String? message;
+  ExpectException([this.message]);
+  @override
+  String toString() => message ?? "";
+}
+
+void _fail(String message) { throw ExpectException(message); }
+
+bool _initialized = false;
+int _asyncLevel = 0;
+void asyncStart([int count = 1]) {
+  if (count <= 0) return;
+  if (!_initialized) { print('unittest-suite-wait-for-done'); _initialized = true; }
+  _asyncLevel += count;
+}
+void asyncEnd() {
+  _asyncLevel--;
+  if (_asyncLevel == 0) print('unittest-suite-success');
+}
+
+final bool assertStatementsEnabled = (() { bool r = false; assert(r = true); return r; })();
+// --- End inlined co19 Expect class ---
+''';
+
+/// Minimal inlined StaticType helper from co19/Utils/static_type_helper.dart.
+const _inlinedStaticTypeHelper = r'''
+// --- Inlined co19 static_type_helper ---
+Type typeOf<T>() => T;
+Object? context<T>(T x) => x;
+T contextType<T>(Object? result) => result as T;
+extension StaticType<T> on T {
+  T expectStaticType<R extends Exactly<T>>() => this;
+  T captureStaticType(void Function<X>() callback) { callback<T>(); return this; }
+}
+void captureStaticType2<T>(T value, void Function<X>(X value) callback) { callback<T>(value); }
+typedef Exactly<T> = T Function(T);
+typedef SubtypeOf<T> = Never Function(T);
+typedef SupertypeOf<T> = T Function(Object?);
+void checkIntersectionType<T1, T2>(T1 v1, T2 v2, Object v3) {}
+// --- End inlined static_type_helper ---
+''';
+
+/// Minimal inlined dynamic_check from co19/Utils/dynamic_check.dart.
+const _inlinedDynamicCheck = r'''
+// --- Inlined co19 dynamic_check ---
+void checkTypeError(void Function() f) {
+  Expect.throws(f, (e) => e is TypeError, "Type error should be thrown");
+}
+void checkDynamicError(void Function() f) {
+  Expect.throws(f, (e) => e is Error, "Dynamic Error should be thrown");
+}
+// --- End inlined dynamic_check ---
+''';
 
 Future<String?> _runDartNative(File dartFile) async {
   // Run in an isolate so we can enforce a hard timeout even if
@@ -234,10 +445,13 @@ Future<void> main(List<String> args) async {
       results.add(_Result(
         path: relPath,
         skipped: true,
-        skipReason: 'negative test or has imports',
+        skipReason: 'negative test or non-inlineable imports',
       ));
       continue;
     }
+
+    // Pre-process: inline co19 helper imports (Expect, etc.)
+    final processedSource = _inlineHelpers(source);
 
     // Step 1: Try encoding.
     Program? program;
@@ -245,7 +459,7 @@ Future<void> main(List<String> args) async {
     String? encodeError;
     try {
       final sw = Stopwatch()..start();
-      program = DartEncoder().encode(source, name: relPath);
+      program = DartEncoder().encode(processedSource, name: relPath);
       sw.stop();
       encodeTime = sw.elapsed;
     } catch (e) {

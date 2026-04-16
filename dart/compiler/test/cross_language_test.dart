@@ -18,7 +18,12 @@
 /// The C++ pipelines are skipped (not failed) when the binaries aren't
 /// on disk, so the harness works on contributors who haven't built the
 /// C++ tree yet.
+/// Tag this whole suite `slow` — each fixture spawns 2+ `dart run`
+/// processes and the C++ pipelines shell out to cmake. Contributors
+/// run `dart test -x slow` pre-commit and reserve the full matrix for
+/// CI or explicit `dart test -t slow`.
 @TestOn('vm')
+@Tags(['slow'])
 library;
 
 import 'dart:convert';
@@ -26,6 +31,7 @@ import 'dart:io';
 
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_compiler/compiler.dart';
+import 'package:ball_compiler/ts_compiler.dart';
 import 'package:ball_encoder/encoder.dart';
 import 'package:ball_engine/engine.dart';
 import 'package:test/test.dart';
@@ -33,19 +39,14 @@ import 'package:test/test.dart';
 // ─── Pipeline-specific knobs ─────────────────────────────────────
 // Fixtures whose emitted C++ wouldn't run (e.g. uses a feature the C++
 // compiler doesn't fully support yet). Each entry is {fixture: reason}.
-const _skipCppCompile = <String, String>{
-  '09_string': 'string.toUpperCase is a method call on std::string; '
-      'compiler emits .toUpperCase() which C++ does not have',
-  '13_list_ops': 'list[i] indexing and list.length not yet emitted by C++ compiler',
-  '26_list_iterate': 'list[i] returns std::any which does not support arithmetic',
-  '15_closure': 'Function return types (int Function(int)) need template '
-      'conversion for C++17 — not yet supported',
-  '25_nested_closure': 'Function types as parameters (int Function(int)) '
-      'need template conversion for C++17 — not yet supported',
-};
+const _skipCppCompile = <String, String>{};
 
 // Fixtures skipped for every C++ pipeline (including engine and runner).
 const _skipCppAny = <String, String>{};
+
+// Fixtures skipped for the TypeScript pipeline. Populate with a reason
+// string as gaps are discovered; empty set = no skips.
+const _skipTs = <String, String>{};
 
 String _norm(String s) =>
     s.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trimRight();
@@ -78,6 +79,42 @@ String _runRecompiledDart(Program program, Directory scratch, String name) {
   final out = File('${scratch.path}/$name.regen.dart');
   out.writeAsStringSync(dartSource);
   return _runDartNative(out);
+}
+
+/// Compile Ball → TypeScript, run via `node --experimental-strip-types`.
+/// Returns null if `node` isn't on PATH. The emitted .ts file is always
+/// written so a failing test leaves something to inspect.
+String? _runTsCompiled(Program program, Directory scratch, String name) {
+  // Build the source: runtime preamble + compiled program.
+  final tsSource = tsRuntimePreamble + '\n' + TsCompiler(program).compile();
+  final out = File('${scratch.path}/$name.regen.ts');
+  out.writeAsStringSync(tsSource);
+
+  // Node 22+ can run TypeScript directly via --experimental-strip-types.
+  // If node isn't on PATH, the test skips the pipeline.
+  final nodeExe = Platform.isWindows ? 'node.exe' : 'node';
+  try {
+    final r = Process.runSync(
+      nodeExe,
+      [
+        '--experimental-strip-types',
+        '--disable-warning=ExperimentalWarning',
+        out.absolute.path,
+      ],
+      stdoutEncoding: utf8,
+      stderrEncoding: utf8,
+    );
+    if (r.exitCode != 0) {
+      throw StateError(
+        'node run failed (rc=${r.exitCode})\n'
+        'stderr:\n${r.stderr}\n'
+        '--- generated ts ---\n$tsSource',
+      );
+    }
+    return _norm(r.stdout as String);
+  } on ProcessException {
+    return null;
+  }
 }
 
 /// Returns null if the ball_cpp_runner binary isn't present.
@@ -294,6 +331,18 @@ void main() {
           equals(baseline),
           reason: 'Recompiled Dart diverged from `dart run`',
         );
+
+        // ── 4b. TsCompiler → node --experimental-strip-types.
+        if (!_skipTs.containsKey(name)) {
+          final tsOut = _runTsCompiled(program, scratch, name);
+          if (tsOut != null) {
+            expect(
+              tsOut,
+              equals(baseline),
+              reason: 'Recompiled TypeScript diverged from `dart run`',
+            );
+          }
+        }
 
         // ── 5. C++ engine via ball_cpp_runner.
         if (runnerBin != null && !_skipCppAny.containsKey(name)) {

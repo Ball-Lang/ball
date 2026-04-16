@@ -1,0 +1,73 @@
+name: Ball Security Audit
+
+on:
+  pull_request:
+    paths:
+      - '**.ball.json'
+      - '**.ball.bin'
+  workflow_dispatch:
+    inputs:
+      program:
+        description: 'Path to Ball program to audit'
+        required: true
+      deny:
+        description: 'Comma-separated capabilities to deny (e.g. fs,memory,process)'
+        required: false
+        default: ''
+
+jobs:
+  audit:
+    name: Capability Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        working-directory: dart
+        run: dart pub get
+
+      - name: Audit changed Ball programs
+        if: github.event_name == 'pull_request'
+        working-directory: dart
+        run: |
+          echo "## Ball Security Audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Find all .ball.json files changed in this PR
+          CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD -- '*.ball.json' '*.ball.bin')
+
+          if [ -z "$CHANGED" ]; then
+            echo "No Ball programs changed in this PR." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          FAILED=0
+          for f in $CHANGED; do
+            echo "### Auditing \`$f\`" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            if dart run ball_cli:ball audit "../$f" >> $GITHUB_STEP_SUMMARY 2>&1; then
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "✅ Passed" >> $GITHUB_STEP_SUMMARY
+            else
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "❌ Failed" >> $GITHUB_STEP_SUMMARY
+              FAILED=1
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+          done
+
+          exit $FAILED
+
+      - name: Audit specific program
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: dart
+        run: |
+          DENY_FLAG=""
+          if [ -n "${{ inputs.deny }}" ]; then
+            DENY_FLAG="--deny ${{ inputs.deny }} --exit-code"
+          fi
+          dart run ball_cli:ball audit "../${{ inputs.program }}" $DENY_FLAG

@@ -1,0 +1,83 @@
+name: 'Ball Security Audit'
+description: 'Static capability analysis for Ball programs. Reports I/O, filesystem, network, memory, and process access with exact call sites.'
+author: 'Ball-Lang'
+
+inputs:
+  program:
+    description: 'Path to the Ball program (.ball.json or .ball.bin) to audit'
+    required: true
+  deny:
+    description: 'Comma-separated capabilities to deny (e.g. fs,memory,process,network). Fails the step if any denied capability is found.'
+    required: false
+    default: ''
+  output:
+    description: 'Path to write the structured JSON report'
+    required: false
+    default: ''
+  reachable-only:
+    description: 'Only analyze code reachable from the entry point'
+    required: false
+    default: 'false'
+
+outputs:
+  is-pure:
+    description: 'Whether the program is pure (no side effects)'
+    value: ${{ steps.audit.outputs.is-pure }}
+  capabilities:
+    description: 'Comma-separated list of capabilities found'
+    value: ${{ steps.audit.outputs.capabilities }}
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: dart-lang/setup-dart@v1
+      with:
+        sdk: stable
+
+    - name: Clone Ball toolchain
+      shell: bash
+      run: |
+        if [ ! -d "${{ github.action_path }}/../../../dart/shared" ]; then
+          git clone --depth 1 https://github.com/Ball-Lang/ball.git /tmp/ball-toolchain
+          cd /tmp/ball-toolchain/dart && dart pub get
+          echo "BALL_DIR=/tmp/ball-toolchain" >> $GITHUB_ENV
+        else
+          echo "BALL_DIR=${{ github.action_path }}/../../.." >> $GITHUB_ENV
+        fi
+
+    - name: Install Ball dependencies
+      shell: bash
+      run: cd $BALL_DIR/dart && dart pub get
+
+    - name: Run audit
+      id: audit
+      shell: bash
+      run: |
+        ARGS="${{ inputs.program }}"
+        if [ -n "${{ inputs.deny }}" ]; then
+          ARGS="$ARGS --deny ${{ inputs.deny }} --exit-code"
+        fi
+        if [ "${{ inputs.reachable-only }}" = "true" ]; then
+          ARGS="$ARGS --reachable-only"
+        fi
+        if [ -n "${{ inputs.output }}" ]; then
+          ARGS="$ARGS --output ${{ inputs.output }}"
+        fi
+
+        cd $BALL_DIR/dart
+        OUTPUT=$(dart run ball_cli:ball audit $ARGS 2>&1) || EXIT_CODE=$?
+
+        echo "$OUTPUT"
+        echo "$OUTPUT" >> $GITHUB_STEP_SUMMARY
+
+        # Extract capabilities for output
+        if echo "$OUTPUT" | grep -q "NO RISK"; then
+          echo "is-pure=true" >> $GITHUB_OUTPUT
+          echo "capabilities=" >> $GITHUB_OUTPUT
+        else
+          echo "is-pure=false" >> $GITHUB_OUTPUT
+          CAPS=$(echo "$OUTPUT" | grep "⚠" | sed 's/.*⚠ //' | sed 's/ .*//' | tr '\n' ',' | sed 's/,$//')
+          echo "capabilities=$CAPS" >> $GITHUB_OUTPUT
+        fi
+
+        exit ${EXIT_CODE:-0}

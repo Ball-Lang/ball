@@ -1,0 +1,23 @@
+{
+  "name": "@ball-lang/engine",
+  "version": "0.1.0",
+  "description": "Ball language engine — interprets Ball programs in TypeScript/JavaScript. Runs in Node.js and browsers.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-strip-types test/engine_test.ts"
+  },
+  "keywords": ["ball", "interpreter", "polyglot", "protobuf"],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

@@ -4246,9 +4246,551 @@ void main() {
       );
       expect(await runAndCapture(p), ['42']);
     });
+
+    test('is on class instance — true', () async {
+      // class Foo {} main() { print(Foo() is Foo); }
+      // Foo() creates a message with typeName "Foo", is check with type "Foo".
+      final p = buildProgram(
+        stdFunctions: typeFns,
+        functions: [
+          {
+            'name': 'Foo.new',
+            'body': {
+              'messageCreation': {'typeName': 'Foo', 'fields': []},
+            },
+            'metadata': {'kind': 'constructor', 'class': 'Foo'},
+          },
+          mainFn([
+            letStmt('x', msg([], typeName: 'Foo')),
+            stmt(
+              printToString(
+                stdCall('is', msg([
+                  field('value', ref('x')),
+                  field('type', literal('Foo')),
+                ])),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(p), ['true']);
+    });
+
+    test('is on class instance — false for wrong type', () async {
+      final p = buildProgram(
+        stdFunctions: typeFns,
+        functions: [
+          mainFn([
+            letStmt('x', msg([], typeName: 'Foo')),
+            stmt(
+              printToString(
+                stdCall('is', msg([
+                  field('value', ref('x')),
+                  field('type', literal('Bar')),
+                ])),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(p), ['false']);
+    });
+
+    test('is with module-qualified type name', () async {
+      // __type__ is stored as "main:Foo", check against "Foo".
+      final p = buildProgram(
+        stdFunctions: typeFns,
+        functions: [
+          mainFn([
+            letStmt('x', msg([], typeName: 'main:Foo')),
+            stmt(
+              printToString(
+                stdCall('is', msg([
+                  field('value', ref('x')),
+                  field('type', literal('Foo')),
+                ])),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(p), ['true']);
+    });
+
+    test('is with inheritance — child is parent', () async {
+      // class A {} class B extends A {} main() { print(B() is A); }
+      final json = {
+        'name': 'test',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+              {'name': 'is', 'isBase': true},
+              {'name': 'is_not', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'typeDefs': [
+              {
+                'name': 'A',
+                'descriptor': {'name': 'A', 'field': []},
+              },
+              {
+                'name': 'B',
+                'descriptor': {'name': 'B', 'field': []},
+                'metadata': {'superclass': 'A'},
+              },
+            ],
+            'functions': [
+              {
+                'name': 'main',
+                'body': {
+                  'block': {
+                    'statements': [
+                      {
+                        'let': {
+                          'name': 'b',
+                          'value': {
+                            'messageCreation': {
+                              'typeName': 'B',
+                              'fields': [],
+                            },
+                          },
+                        },
+                      },
+                      {
+                        'expression': {
+                          'call': {
+                            'module': 'std',
+                            'function': 'print',
+                            'input': {
+                              'messageCreation': {
+                                'fields': [
+                                  {
+                                    'name': 'message',
+                                    'value': {
+                                      'call': {
+                                        'module': 'std',
+                                        'function': 'to_string',
+                                        'input': {
+                                          'messageCreation': {
+                                            'fields': [
+                                              {
+                                                'name': 'value',
+                                                'value': {
+                                                  'call': {
+                                                    'module': 'std',
+                                                    'function': 'is',
+                                                    'input': {
+                                                      'messageCreation': {
+                                                        'fields': [
+                                                          {
+                                                            'name': 'value',
+                                                            'value': {
+                                                              'reference': {
+                                                                'name': 'b',
+                                                              },
+                                                            },
+                                                          },
+                                                          {
+                                                            'name': 'type',
+                                                            'value': {
+                                                              'literal': {
+                                                                'stringValue':
+                                                                    'A',
+                                                              },
+                                                            },
+                                                          },
+                                                        ],
+                                                      },
+                                                    },
+                                                  },
+                                                },
+                                              },
+                                            ],
+                                          },
+                                        },
+                                      },
+                                    },
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                      // Also test is_not: B() is_not A → false
+                      {
+                        'expression': {
+                          'call': {
+                            'module': 'std',
+                            'function': 'print',
+                            'input': {
+                              'messageCreation': {
+                                'fields': [
+                                  {
+                                    'name': 'message',
+                                    'value': {
+                                      'call': {
+                                        'module': 'std',
+                                        'function': 'to_string',
+                                        'input': {
+                                          'messageCreation': {
+                                            'fields': [
+                                              {
+                                                'name': 'value',
+                                                'value': {
+                                                  'call': {
+                                                    'module': 'std',
+                                                    'function': 'is_not',
+                                                    'input': {
+                                                      'messageCreation': {
+                                                        'fields': [
+                                                          {
+                                                            'name': 'value',
+                                                            'value': {
+                                                              'reference': {
+                                                                'name': 'b',
+                                                              },
+                                                            },
+                                                          },
+                                                          {
+                                                            'name': 'type',
+                                                            'value': {
+                                                              'literal': {
+                                                                'stringValue':
+                                                                    'A',
+                                                              },
+                                                            },
+                                                          },
+                                                        ],
+                                                      },
+                                                    },
+                                                  },
+                                                },
+                                              },
+                                            ],
+                                          },
+                                        },
+                                      },
+                                    },
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+      final p = Program()..mergeFromProto3Json(json);
+      expect(await runAndCapture(p), ['true', 'false']);
+    });
+
+    test('enum value access and comparison', () async {
+      // enum Color { red, green, blue }
+      // main() { print(Color.red.name); print(Color.green.index); print(Color.red == Color.red); }
+      final json = {
+        'name': 'test',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+              {'name': 'equals', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'enums': [
+              {
+                'name': 'main:Color',
+                'value': [
+                  {'name': 'red', 'number': 0},
+                  {'name': 'green', 'number': 1},
+                  {'name': 'blue', 'number': 2},
+                ],
+              },
+            ],
+            'functions': [
+              {
+                'name': 'main',
+                'body': {
+                  'block': {
+                    'statements': [
+                      // print(Color.red.name) → "red"
+                      {
+                        'expression': {
+                          'call': {
+                            'module': 'std',
+                            'function': 'print',
+                            'input': {
+                              'messageCreation': {
+                                'fields': [
+                                  {
+                                    'name': 'message',
+                                    'value': {
+                                      'fieldAccess': {
+                                        'object': {
+                                          'fieldAccess': {
+                                            'object': {
+                                              'reference': {'name': 'Color'},
+                                            },
+                                            'field': 'red',
+                                          },
+                                        },
+                                        'field': 'name',
+                                      },
+                                    },
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                      // print(Color.green.index) → "1"
+                      {
+                        'expression': {
+                          'call': {
+                            'module': 'std',
+                            'function': 'print',
+                            'input': {
+                              'messageCreation': {
+                                'fields': [
+                                  {
+                                    'name': 'message',
+                                    'value': {
+                                      'call': {
+                                        'module': 'std',
+                                        'function': 'to_string',
+                                        'input': {
+                                          'messageCreation': {
+                                            'fields': [
+                                              {
+                                                'name': 'value',
+                                                'value': {
+                                                  'fieldAccess': {
+                                                    'object': {
+                                                      'fieldAccess': {
+                                                        'object': {
+                                                          'reference': {
+                                                            'name': 'Color',
+                                                          },
+                                                        },
+                                                        'field': 'green',
+                                                      },
+                                                    },
+                                                    'field': 'index',
+                                                  },
+                                                },
+                                              },
+                                            ],
+                                          },
+                                        },
+                                      },
+                                    },
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                      // print(Color.red == Color.red) → "true"
+                      {
+                        'expression': {
+                          'call': {
+                            'module': 'std',
+                            'function': 'print',
+                            'input': {
+                              'messageCreation': {
+                                'fields': [
+                                  {
+                                    'name': 'message',
+                                    'value': {
+                                      'call': {
+                                        'module': 'std',
+                                        'function': 'to_string',
+                                        'input': {
+                                          'messageCreation': {
+                                            'fields': [
+                                              {
+                                                'name': 'value',
+                                                'value': {
+                                                  'call': {
+                                                    'module': 'std',
+                                                    'function': 'equals',
+                                                    'input': {
+                                                      'messageCreation': {
+                                                        'fields': [
+                                                          {
+                                                            'name': 'left',
+                                                            'value': {
+                                                              'fieldAccess': {
+                                                                'object': {
+                                                                  'reference': {
+                                                                    'name':
+                                                                        'Color',
+                                                                  },
+                                                                },
+                                                                'field': 'red',
+                                                              },
+                                                            },
+                                                          },
+                                                          {
+                                                            'name': 'right',
+                                                            'value': {
+                                                              'fieldAccess': {
+                                                                'object': {
+                                                                  'reference': {
+                                                                    'name':
+                                                                        'Color',
+                                                                  },
+                                                                },
+                                                                'field': 'red',
+                                                              },
+                                                            },
+                                                          },
+                                                        ],
+                                                      },
+                                                    },
+                                                  },
+                                                },
+                                              },
+                                            ],
+                                          },
+                                        },
+                                      },
+                                    },
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+      final p = Program()..mergeFromProto3Json(json);
+      expect(await runAndCapture(p), ['red', '1', 'true']);
+    });
+
+    test('enum values property returns all values', () async {
+      final json = {
+        'name': 'test',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'enums': [
+              {
+                'name': 'main:Color',
+                'value': [
+                  {'name': 'red', 'number': 0},
+                  {'name': 'green', 'number': 1},
+                ],
+              },
+            ],
+            'functions': [
+              {
+                'name': 'main',
+                'body': {
+                  'block': {
+                    'statements': [
+                      // print(Color.values.length) → "2"
+                      {
+                        'expression': {
+                          'call': {
+                            'module': 'std',
+                            'function': 'print',
+                            'input': {
+                              'messageCreation': {
+                                'fields': [
+                                  {
+                                    'name': 'message',
+                                    'value': {
+                                      'call': {
+                                        'module': 'std',
+                                        'function': 'to_string',
+                                        'input': {
+                                          'messageCreation': {
+                                            'fields': [
+                                              {
+                                                'name': 'value',
+                                                'value': {
+                                                  'fieldAccess': {
+                                                    'object': {
+                                                      'fieldAccess': {
+                                                        'object': {
+                                                          'reference': {
+                                                            'name': 'Color',
+                                                          },
+                                                        },
+                                                        'field': 'values',
+                                                      },
+                                                    },
+                                                    'field': 'length',
+                                                  },
+                                                },
+                                              },
+                                            ],
+                                          },
+                                        },
+                                      },
+                                    },
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+      final p = Program()..mergeFromProto3Json(json);
+      expect(await runAndCapture(p), ['2']);
+    });
   });
 
-  // ── map / set creation ────────────────────────────────────────────────────
+  // ── map / set creation ──────��───────────��─────────────────────────────────
 
   group('engine: map and set creation', () {
     final collFns = [

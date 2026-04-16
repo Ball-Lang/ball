@@ -10,6 +10,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_encoder/encoder.dart';
@@ -112,16 +113,20 @@ bool _shouldSkipContent(String source) {
   return false;
 }
 
-String? _runDartNative(File dartFile) {
+Future<String?> _runDartNative(File dartFile) async {
+  // Run in an isolate so we can enforce a hard timeout even if
+  // the child process hangs (e.g. reading stdin).
   try {
-    final r = Process.runSync(
-      Platform.resolvedExecutable,
-      ['run', dartFile.absolute.path],
-      stdoutEncoding: utf8,
-      stderrEncoding: utf8,
-    );
-    if (r.exitCode != 0) return null;
-    return _norm(r.stdout as String);
+    return await Isolate.run(() {
+      final r = Process.runSync(
+        Platform.resolvedExecutable,
+        ['run', dartFile.absolute.path],
+        stdoutEncoding: utf8,
+        stderrEncoding: utf8,
+      );
+      if (r.exitCode != 0) return null;
+      return r.stdout as String;
+    }).timeout(const Duration(seconds: 20));
   } catch (_) {
     return null;
   }
@@ -255,7 +260,7 @@ Future<void> main(List<String> args) async {
     }
 
     // Step 2: Run dart natively to get baseline output.
-    final dartOutput = _runDartNative(file);
+    final dartOutput = await _runDartNative(file);
     if (dartOutput == null) {
       // If dart itself can't run it, skip (runtime error test, etc.)
       results.add(_Result(
@@ -266,22 +271,28 @@ Future<void> main(List<String> args) async {
       continue;
     }
 
-    // Step 3: Try running through BallEngine.
+    // Step 3: Try running through BallEngine in a separate isolate
+    // so we can kill it on timeout (engine may infinite-loop).
     String? engineOutput;
     String? engineError;
     Duration engineTime = Duration.zero;
     try {
-      final lines = <String>[];
+      final programBytes = program.writeToBuffer();
       final sw = Stopwatch()..start();
-      final engine = BallEngine(
-        program,
-        stdout: lines.add,
-        stderr: (_) {}, // suppress engine stderr
-      );
-      await engine.run();
+      final isolateResult = await Isolate.run(() async {
+        final p = Program.fromBuffer(programBytes);
+        final lines = <String>[];
+        final engine = BallEngine(
+          p,
+          stdout: lines.add,
+          stderr: (_) {},
+        );
+        await engine.run();
+        return lines.join('\n');
+      }).timeout(const Duration(seconds: 10));
       sw.stop();
       engineTime = sw.elapsed;
-      engineOutput = _norm(lines.join('\n'));
+      engineOutput = _norm(isolateResult);
     } catch (e) {
       engineError = e.toString().split('\n').first;
     }

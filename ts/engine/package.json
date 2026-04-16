@@ -7,16 +7,44 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
     }
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --experimental-strip-types test/engine_test.ts"
+    "test": "node --experimental-strip-types test/engine_test.ts",
+    "prepublishOnly": "npm run build"
   },
-  "keywords": ["ball", "interpreter", "polyglot", "protobuf"],
+  "keywords": [
+    "ball",
+    "interpreter",
+    "polyglot",
+    "protobuf",
+    "programming-language",
+    "tree-walking",
+    "engine"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ball-lang/ball.git",
+    "directory": "ts/engine"
+  },
+  "homepage": "https://github.com/ball-lang/ball/tree/main/ts/engine#readme",
+  "bugs": {
+    "url": "https://github.com/ball-lang/ball/issues"
+  },
+  "files": [
+    "src/",
+    "dist/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "devDependencies": {
     "typescript": "^5.8.0"
   }

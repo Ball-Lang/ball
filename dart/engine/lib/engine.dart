@@ -548,6 +548,14 @@ class BallEngine {
     }
   }
 
+  /// Execute the program asynchronously.
+  ///
+  /// This wraps [run] in a [Future] so callers that need an async API
+  /// (e.g. Flutter, server frameworks) can `await` it. The underlying
+  /// execution is still synchronous — true non-blocking evaluation
+  /// requires the Phase 3 async engine rewrite.
+  Future<BallValue> runAsync() async => run();
+
   /// Execute the program starting from the entry point.
   BallValue run() {
     final key = '${program.entryModule}.${program.entryFunction}';
@@ -2333,7 +2341,12 @@ class BallEngine {
         throw _ExitSignal(1);
       },
       'sleep_ms': (i) {
-        // No-op in synchronous interpreter
+        // Phase 2 async: actually sleep using dart:io synchronous sleep.
+        // True non-blocking async requires the Phase 3 engine rewrite.
+        final ms = (i is num) ? i.toInt() : 0;
+        if (ms > 0) {
+          io.sleep(Duration(milliseconds: ms));
+        }
         return null;
       },
       'timestamp_ms': (_) => DateTime.now().millisecondsSinceEpoch,

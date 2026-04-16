@@ -1,0 +1,1343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ball Language Playground</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #1a1b26;
+    --surface: #24283b;
+    --surface2: #1e2030;
+    --border: #3b4261;
+    --text: #c0caf5;
+    --text-dim: #565f89;
+    --accent: #7aa2f7;
+    --accent-hover: #89b4fa;
+    --green: #9ece6a;
+    --red: #f7768e;
+    --yellow: #e0af68;
+    --orange: #ff9e64;
+    --cyan: #7dcfff;
+    --radius: 8px;
+  }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: -0.3px;
+  }
+
+  header h1 span { color: var(--text-dim); font-weight: 400; }
+
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 7px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    background: var(--surface2);
+    color: var(--text);
+    transition: all 0.15s;
+  }
+
+  button:hover { border-color: var(--accent); color: var(--accent); }
+
+  .btn-run {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+
+  .btn-run:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+  .btn-audit { border-color: var(--yellow); color: var(--yellow); }
+  .btn-audit:hover { background: var(--yellow); color: var(--bg); }
+
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  .divider {
+    width: 4px;
+    background: var(--border);
+    cursor: col-resize;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+
+  .divider:hover, .divider.dragging { background: var(--accent); }
+
+  #editor {
+    flex: 1;
+    width: 100%;
+    resize: none;
+    background: var(--bg);
+    color: var(--text);
+    border: none;
+    padding: 16px;
+    font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    tab-size: 2;
+    outline: none;
+  }
+
+  #output {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    background: var(--bg);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .out-line { color: var(--text); }
+  .out-error { color: var(--red); }
+  .out-info { color: var(--text-dim); font-style: italic; }
+
+  .audit-section { margin-bottom: 16px; }
+  .audit-title {
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 6px;
+    font-size: 14px;
+  }
+
+  .audit-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .audit-table th {
+    text-align: left;
+    padding: 4px 10px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+  }
+
+  .audit-table td {
+    padding: 4px 10px;
+    border-bottom: 1px solid var(--surface);
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .badge-io { background: rgba(247,118,142,0.15); color: var(--red); }
+  .badge-math { background: rgba(122,162,247,0.15); color: var(--accent); }
+  .badge-control { background: rgba(224,175,104,0.15); color: var(--yellow); }
+  .badge-string { background: rgba(158,206,106,0.15); color: var(--green); }
+  .badge-collection { background: rgba(125,207,255,0.15); color: var(--cyan); }
+  .badge-logic { background: rgba(255,158,100,0.15); color: var(--orange); }
+  .badge-error { background: rgba(247,118,142,0.15); color: var(--red); }
+  .badge-other { background: rgba(192,202,245,0.1); color: var(--text-dim); }
+
+  .status {
+    padding: 6px 16px;
+    font-size: 12px;
+    color: var(--text-dim);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 700px) {
+    .main { flex-direction: column; }
+    .divider { width: auto; height: 4px; cursor: row-resize; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Ball Playground <span>/ browser interpreter</span></h1>
+  <div class="toolbar">
+    <button class="btn-run" onclick="runProgram()" title="Ctrl+Enter">Run</button>
+    <button class="btn-audit" onclick="auditProgram()">Audit</button>
+    <button onclick="formatEditor()">Format</button>
+    <button onclick="loadSample()">Reset Sample</button>
+  </div>
+</header>
+
+<div class="main">
+  <div class="pane" id="editorPane">
+    <div class="pane-header">Program (JSON)</div>
+    <textarea id="editor" spellcheck="false"></textarea>
+  </div>
+  <div class="divider" id="divider"></div>
+  <div class="pane" id="outputPane">
+    <div class="pane-header"><span>Output</span><span id="outputTimer"></span></div>
+    <div id="output"><span class="out-info">Press Run or Ctrl+Enter to execute the program.</span></div>
+  </div>
+</div>
+
+<div class="status" id="status">Ready</div>
+
+<script>
+// ── Ball Engine (TypeScript types stripped) ────────────────────────────────
+
+class FlowSignal {
+  constructor(kind, value, label) {
+    this.kind = kind;
+    this.value = value;
+    this.label = label;
+  }
+}
+
+class BallException {
+  constructor(typeName, value) {
+    this.typeName = typeName;
+    this.value = value;
+  }
+}
+
+class BallRuntimeError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'BallRuntimeError';
+  }
+}
+
+class Scope {
+  constructor(parent) {
+    this._bindings = new Map();
+    this._parent = parent;
+  }
+  bind(name, value) { this._bindings.set(name, value); }
+  has(name) { return this._bindings.has(name) || (this._parent?.has(name) ?? false); }
+  lookup(name) {
+    if (this._bindings.has(name)) return this._bindings.get(name);
+    if (this._parent) return this._parent.lookup(name);
+    throw new BallRuntimeError(`Undefined variable: "${name}"`);
+  }
+  assign(name, value) {
+    if (this._bindings.has(name)) { this._bindings.set(name, value); return; }
+    if (this._parent) { this._parent.assign(name, value); return; }
+    throw new BallRuntimeError(`Cannot assign to undefined variable: "${name}"`);
+  }
+  child() { return new Scope(this); }
+}
+
+class BallEngine {
+  constructor(program, options = {}) {
+    this.program = typeof program === 'string' ? JSON.parse(program) : program;
+    this.stdout = options.stdout ?? ((msg) => this.output.push(msg));
+    this.stderr = options.stderr ?? (() => {});
+    this.functions = new Map();
+    this.currentModule = '';
+    this.activeException = null;
+    this.output = [];
+    this._buildLookupTables();
+  }
+
+  _buildLookupTables() {
+    for (const mod of this.program.modules) {
+      for (const fn of mod.functions) {
+        this.functions.set(`${mod.name}.${fn.name}`, fn);
+      }
+    }
+  }
+
+  run() {
+    const key = `${this.program.entryModule}.${this.program.entryFunction}`;
+    const fn = this.functions.get(key);
+    if (!fn) throw new BallRuntimeError(`Entry function "${key}" not found`);
+    const scope = new Scope();
+    this.currentModule = this.program.entryModule;
+    this._callFunction(this.program.entryModule, fn, null, scope);
+    return this.output;
+  }
+
+  getOutput() { return this.output; }
+
+  _evalExpr(expr, scope) {
+    if (expr.call) return this._evalCall(expr.call, scope);
+    if (expr.literal) return this._evalLiteral(expr.literal, scope);
+    if (expr.reference) return this._evalReference(expr.reference, scope);
+    if (expr.fieldAccess) return this._evalFieldAccess(expr.fieldAccess, scope);
+    if (expr.messageCreation) return this._evalMessageCreation(expr.messageCreation, scope);
+    if (expr.block) return this._evalBlock(expr.block, scope);
+    if (expr.lambda) return this._evalLambda(expr.lambda, scope);
+    return null;
+  }
+
+  _evalCall(call, scope) {
+    const moduleName = call.module || this.currentModule;
+    if (moduleName === 'std' || moduleName === 'dart_std') {
+      switch (call.function) {
+        case 'if': return this._evalLazyIf(call, scope);
+        case 'for': return this._evalLazyFor(call, scope);
+        case 'for_in': return this._evalLazyForIn(call, scope);
+        case 'while': return this._evalLazyWhile(call, scope);
+        case 'do_while': return this._evalLazyDoWhile(call, scope);
+        case 'switch': return this._evalLazySwitch(call, scope);
+        case 'try': return this._evalLazyTry(call, scope);
+        case 'and': return this._evalShortCircuitAnd(call, scope);
+        case 'or': return this._evalShortCircuitOr(call, scope);
+        case 'return': return this._evalReturn(call, scope);
+        case 'break': return new FlowSignal('break', undefined, this._lazyStringField(call, 'label'));
+        case 'continue': return new FlowSignal('continue', undefined, this._lazyStringField(call, 'label'));
+        case 'assign': return this._evalAssign(call, scope);
+        case 'labeled': return this._evalLabeled(call, scope);
+        case 'pre_increment': case 'post_increment':
+        case 'pre_decrement': case 'post_decrement':
+          return this._evalIncDec(call, scope);
+      }
+    }
+    const input = call.input ? this._evalExpr(call.input, scope) : null;
+    if (call.module === 'std' || call.module === 'dart_std') {
+      return this._callBaseFunction(call.module, call.function, input);
+    }
+    const key = `${moduleName}.${call.function}`;
+    const fn = this.functions.get(key);
+    if (fn?.isBase) return this._callBaseFunction(moduleName, call.function, input);
+    if (!call.module && scope.has(call.function)) {
+      const bound = scope.lookup(call.function);
+      if (typeof bound === 'function') return bound(input);
+    }
+    if (fn) return this._callFunction(moduleName, fn, input, scope);
+    for (const mod of this.program.modules) {
+      for (const f of mod.functions) {
+        if (f.name === call.function) return this._callFunction(mod.name, f, input, scope);
+      }
+    }
+    throw new BallRuntimeError(`Function "${key}" not found`);
+  }
+
+  _callFunction(moduleName, fn, input, parentScope) {
+    if (fn.isBase) return this._callBaseFunction(moduleName, fn.name, input);
+    if (!fn.body) return null;
+    const prevModule = this.currentModule;
+    this.currentModule = moduleName;
+    const fnScope = parentScope.child();
+    fnScope.bind('input', input);
+    const params = fn.metadata?.params;
+    if (params && Array.isArray(params)) {
+      if (params.length === 1 && (input === null || input === undefined || typeof input !== 'object' || Array.isArray(input))) {
+        const name = typeof params[0] === 'string' ? params[0] : params[0].name;
+        if (name) fnScope.bind(name, input);
+      } else if (input && typeof input === 'object' && !Array.isArray(input)) {
+        for (let i = 0; i < params.length; i++) {
+          const p = params[i];
+          const name = typeof p === 'string' ? p : p.name;
+          if (!name) continue;
+          if (name in input) fnScope.bind(name, input[name]);
+          else if (`arg${i}` in input) fnScope.bind(name, input[`arg${i}`]);
+        }
+      }
+    }
+    let result = this._evalExpr(fn.body, fnScope);
+    this.currentModule = prevModule;
+    if (result instanceof FlowSignal && result.kind === 'return') return result.value;
+    return result;
+  }
+
+  _evalLiteral(lit, scope) {
+    if (lit.intValue !== undefined) return typeof lit.intValue === 'string' ? parseInt(lit.intValue) : lit.intValue;
+    if (lit.doubleValue !== undefined) return lit.doubleValue;
+    if (lit.stringValue !== undefined) return lit.stringValue;
+    if (lit.boolValue !== undefined) return lit.boolValue;
+    if (lit.listValue) return lit.listValue.elements.map(e => this._evalExpr(e, scope));
+    return null;
+  }
+
+  _evalReference(ref, scope) { return scope.lookup(ref.name); }
+
+  _evalFieldAccess(fa, scope) {
+    const obj = this._evalExpr(fa.object, scope);
+    if (typeof obj === 'string') { if (fa.field === 'length') return obj.length; return null; }
+    if (Array.isArray(obj)) { if (fa.field === 'length') return obj.length; return null; }
+    if (obj && typeof obj === 'object' && fa.field in obj) return obj[fa.field];
+    return null;
+  }
+
+  _evalMessageCreation(mc, scope) {
+    const result = {};
+    for (const f of mc.fields) result[f.name] = this._evalExpr(f.value, scope);
+    return result;
+  }
+
+  _evalBlock(block, scope) {
+    const blockScope = scope.child();
+    let lastResult = null;
+    for (const stmt of block.statements) {
+      if (stmt.let) {
+        const val = this._evalExpr(stmt.let.value, blockScope);
+        if (val instanceof FlowSignal) return val;
+        blockScope.bind(stmt.let.name, val);
+      }
+      if (stmt.expression) {
+        lastResult = this._evalExpr(stmt.expression, blockScope);
+        if (lastResult instanceof FlowSignal) return lastResult;
+      }
+    }
+    if (block.result) lastResult = this._evalExpr(block.result, blockScope);
+    return lastResult;
+  }
+
+  _evalLambda(lambda, scope) {
+    return (input) => {
+      const lambdaScope = scope.child();
+      lambdaScope.bind('input', input);
+      const params = lambda.metadata?.params;
+      if (params && Array.isArray(params)) {
+        if (params.length === 1 && (input === null || input === undefined || typeof input !== 'object' || Array.isArray(input))) {
+          const name = typeof params[0] === 'string' ? params[0] : params[0].name;
+          if (name) lambdaScope.bind(name, input);
+        } else if (input && typeof input === 'object' && !Array.isArray(input)) {
+          for (let i = 0; i < params.length; i++) {
+            const p = params[i];
+            const name = typeof p === 'string' ? p : p.name;
+            if (!name) continue;
+            if (name in input) lambdaScope.bind(name, input[name]);
+            else if (`arg${i}` in input) lambdaScope.bind(name, input[`arg${i}`]);
+          }
+        }
+      }
+      const result = this._evalExpr(lambda.body, lambdaScope);
+      if (result instanceof FlowSignal && result.kind === 'return') return result.value;
+      return result;
+    };
+  }
+
+  // Lazy control flow helpers
+  _lazyFields(call) {
+    if (!call.input?.messageCreation) return {};
+    const result = {};
+    for (const f of call.input.messageCreation.fields) result[f.name] = f.value;
+    return result;
+  }
+
+  _lazyStringField(call, name) {
+    const fields = this._lazyFields(call);
+    const expr = fields[name];
+    if (!expr?.literal?.stringValue) return undefined;
+    return expr.literal.stringValue;
+  }
+
+  _evalLazyIf(call, scope) {
+    const fields = this._lazyFields(call);
+    if (!fields.condition) return null;
+    const cond = this._evalExpr(fields.condition, scope);
+    if (this._toBool(cond)) return fields.then ? this._evalExpr(fields.then, scope) : null;
+    return fields.else ? this._evalExpr(fields.else, scope) : null;
+  }
+
+  _evalLazyWhile(call, scope) {
+    const fields = this._lazyFields(call);
+    while (true) {
+      if (fields.condition) { if (!this._toBool(this._evalExpr(fields.condition, scope))) break; }
+      if (fields.body) {
+        const result = this._evalExpr(fields.body, scope);
+        if (result instanceof FlowSignal) {
+          if (result.kind === 'return') return result;
+          if (result.label) return result;
+          if (result.kind === 'break') break;
+          if (result.kind === 'continue') continue;
+        }
+      }
+    }
+    return null;
+  }
+
+  _evalLazyDoWhile(call, scope) {
+    const fields = this._lazyFields(call);
+    do {
+      if (fields.body) {
+        const result = this._evalExpr(fields.body, scope);
+        if (result instanceof FlowSignal) {
+          if (result.kind === 'return') return result;
+          if (result.kind === 'break') break;
+        }
+      }
+      if (fields.condition) { if (!this._toBool(this._evalExpr(fields.condition, scope))) break; }
+      else break;
+    } while (true);
+    return null;
+  }
+
+  _evalLazyFor(call, scope) {
+    const fields = this._lazyFields(call);
+    const forScope = scope.child();
+    if (fields.init) {
+      if (fields.init.literal?.stringValue) {
+        const match = fields.init.literal.stringValue.match(/^(?:var|final|int|double|String)\s+(\w+)\s*=\s*(.+)$/);
+        if (match) {
+          const varName = match[1];
+          const rawVal = match[2].trim();
+          const parsed = rawVal === 'true' ? true : rawVal === 'false' ? false : (isNaN(Number(rawVal)) ? rawVal : Number(rawVal));
+          forScope.bind(varName, parsed);
+        }
+      } else if (fields.init.block) {
+        this._evalBlock(fields.init.block, forScope);
+      } else {
+        this._evalExpr(fields.init, forScope);
+      }
+    }
+    while (true) {
+      if (fields.condition) { if (!this._toBool(this._evalExpr(fields.condition, forScope))) break; }
+      if (fields.body) {
+        const result = this._evalExpr(fields.body, forScope);
+        if (result instanceof FlowSignal) {
+          if (result.kind === 'return') return result;
+          if (result.label) return result;
+          if (result.kind === 'break') break;
+          if (result.kind === 'continue') { if (fields.update) this._evalExpr(fields.update, forScope); continue; }
+        }
+      }
+      if (fields.update) this._evalExpr(fields.update, forScope);
+    }
+    return null;
+  }
+
+  _evalLazyForIn(call, scope) {
+    const fields = this._lazyFields(call);
+    const varName = fields.variable?.literal?.stringValue ?? 'item';
+    if (!fields.iterable || !fields.body) return null;
+    const iterable = this._evalExpr(fields.iterable, scope);
+    if (!Array.isArray(iterable)) throw new BallRuntimeError('for_in: iterable is not a List');
+    for (const item of iterable) {
+      const loopScope = scope.child();
+      loopScope.bind(varName, item);
+      const result = this._evalExpr(fields.body, loopScope);
+      if (result instanceof FlowSignal) {
+        if (result.kind === 'return') return result;
+        if (result.label) return result;
+        if (result.kind === 'break') break;
+        if (result.kind === 'continue') continue;
+      }
+    }
+    return null;
+  }
+
+  _evalLazySwitch(call, scope) {
+    const fields = this._lazyFields(call);
+    if (!fields.subject || !fields.cases) return null;
+    const subject = this._evalExpr(fields.subject, scope);
+    const cases = fields.cases.literal?.listValue?.elements ?? [];
+    let defaultBody;
+    for (const c of cases) {
+      if (!c.messageCreation) continue;
+      const cf = {};
+      for (const f of c.messageCreation.fields) cf[f.name] = f.value;
+      if (cf.is_default?.literal?.boolValue) { defaultBody = cf.body; continue; }
+      if (cf.value) {
+        const caseVal = this._evalExpr(cf.value, scope);
+        if (caseVal === subject && cf.body) return this._evalExpr(cf.body, scope);
+      }
+    }
+    if (defaultBody) return this._evalExpr(defaultBody, scope);
+    return null;
+  }
+
+  _evalLazyTry(call, scope) {
+    const fields = this._lazyFields(call);
+    let result = null;
+    try {
+      result = fields.body ? this._evalExpr(fields.body, scope) : null;
+    } catch (e) {
+      result = null;
+      const catches = fields.catches?.literal?.listValue?.elements ?? [];
+      let caught = false;
+      for (const c of catches) {
+        if (!c.messageCreation) continue;
+        const cf = {};
+        for (const f of c.messageCreation.fields) cf[f.name] = f.value;
+        const catchType = cf.type?.literal?.stringValue;
+        if (catchType) {
+          const matches = e instanceof BallException ? e.typeName === catchType : e.constructor?.name === catchType;
+          if (!matches) continue;
+        }
+        const variable = cf.variable?.literal?.stringValue ?? 'e';
+        if (cf.body) {
+          const catchScope = scope.child();
+          catchScope.bind(variable, e instanceof BallException ? e.value : (e instanceof Error ? e.message : String(e)));
+          const prev = this.activeException;
+          this.activeException = e;
+          try { result = this._evalExpr(cf.body, catchScope); }
+          finally { this.activeException = prev; }
+          caught = true;
+          break;
+        }
+      }
+      if (!caught) throw e;
+    } finally {
+      if (fields.finally) this._evalExpr(fields.finally, scope);
+    }
+    return result;
+  }
+
+  _evalShortCircuitAnd(call, scope) {
+    const fields = this._lazyFields(call);
+    if (!fields.left || !fields.right) return false;
+    if (!this._toBool(this._evalExpr(fields.left, scope))) return false;
+    return this._toBool(this._evalExpr(fields.right, scope));
+  }
+
+  _evalShortCircuitOr(call, scope) {
+    const fields = this._lazyFields(call);
+    if (!fields.left || !fields.right) return false;
+    if (this._toBool(this._evalExpr(fields.left, scope))) return true;
+    return this._toBool(this._evalExpr(fields.right, scope));
+  }
+
+  _evalReturn(call, scope) {
+    const fields = this._lazyFields(call);
+    const val = fields.value ? this._evalExpr(fields.value, scope) : null;
+    return new FlowSignal('return', val);
+  }
+
+  _evalAssign(call, scope) {
+    const fields = this._lazyFields(call);
+    if (!fields.value) return null;
+    const val = this._evalExpr(fields.value, scope);
+    const target = fields.target ?? fields.name ?? fields.variable;
+    if (!target) return null;
+    let name;
+    if (target.reference) name = target.reference.name;
+    else if (target.literal?.stringValue) name = target.literal.stringValue;
+    if (!name) return null;
+    const op = fields.op?.literal?.stringValue;
+    if (op && op !== '=') {
+      const current = scope.lookup(name);
+      const computed = this._applyCompoundOp(op, current, val);
+      try { scope.assign(name, computed); } catch { scope.bind(name, computed); }
+      return computed;
+    }
+    try { scope.assign(name, val); } catch { scope.bind(name, val); }
+    return val;
+  }
+
+  _applyCompoundOp(op, current, val) {
+    const a = this._toNum(current), b = this._toNum(val);
+    switch (op) {
+      case '+=': return a + b; case '-=': return a - b;
+      case '*=': return a * b; case '/=': return Math.trunc(a / b);
+      case '%=': return a % b; case '&=': return (a|0)&(b|0);
+      case '|=': return (a|0)|(b|0); case '^=': return (a|0)^(b|0);
+      case '<<=': return (a|0)<<(b|0); case '>>=': return (a|0)>>(b|0);
+      default: return val;
+    }
+  }
+
+  _evalIncDec(call, scope) {
+    const fields = this._lazyFields(call);
+    const valueExpr = fields.value;
+    if (!valueExpr) return null;
+    if (valueExpr.reference) {
+      const name = valueExpr.reference.name;
+      const current = this._toNum(scope.lookup(name));
+      const isInc = call.function.includes('increment');
+      const isPre = call.function.startsWith('pre');
+      const updated = isInc ? current + 1 : current - 1;
+      scope.assign(name, updated);
+      return isPre ? updated : current;
+    }
+    const val = this._toNum(this._evalExpr(valueExpr, scope));
+    const isInc = call.function.includes('increment');
+    return isInc ? val + 1 : val - 1;
+  }
+
+  _evalLabeled(call, scope) {
+    const fields = this._lazyFields(call);
+    const label = fields.label?.literal?.stringValue;
+    if (!fields.body) return null;
+    const result = this._evalExpr(fields.body, scope);
+    if (result instanceof FlowSignal && result.label === label) {
+      if (result.kind === 'break') return null;
+    }
+    return result;
+  }
+
+  // Base function dispatch
+  _callBaseFunction(module, fn, input) {
+    const left = input?.left, right = input?.right, value = input?.value;
+    switch (fn) {
+      case 'print': this.stdout(this._ballToString(value ?? input?.message ?? input)); return null;
+      case 'add': {
+        if (typeof left === 'string' || typeof right === 'string') return String(left ?? '') + String(right ?? '');
+        return this._numOp(left, right, (a,b) => a+b);
+      }
+      case 'subtract': return this._numOp(left, right, (a,b) => a-b);
+      case 'multiply': return this._numOp(left, right, (a,b) => a*b);
+      case 'divide': return Math.trunc(this._toNum(left) / this._toNum(right));
+      case 'divide_double': return this._toNum(left) / this._toNum(right);
+      case 'modulo': return this._numOp(left, right, (a,b) => a%b);
+      case 'negate': return -this._toNum(value ?? input);
+      case 'equals': return left === right;
+      case 'not_equals': return left !== right;
+      case 'less_than': return this._toNum(left) < this._toNum(right);
+      case 'greater_than': return this._toNum(left) > this._toNum(right);
+      case 'lte': return this._toNum(left) <= this._toNum(right);
+      case 'gte': return this._toNum(left) >= this._toNum(right);
+      case 'not': return !this._toBool(value ?? input);
+      case 'concat': return String(left ?? '') + String(right ?? '');
+      case 'to_string': return this._ballToString(value ?? input);
+      case 'string_length': return String(value ?? input).length;
+      case 'string_contains': return String(input?.string ?? '').includes(String(input?.substring ?? ''));
+      case 'string_substring': return String(input?.string ?? '').substring(input?.start ?? 0, input?.end);
+      case 'string_to_upper': return String(value ?? input).toUpperCase();
+      case 'string_to_lower': return String(value ?? input).toLowerCase();
+      case 'string_trim': return String(value ?? input).trim();
+      case 'string_split': return String(input?.string ?? '').split(String(input?.delimiter ?? ''));
+      case 'string_replace': return String(input?.string ?? '').replace(String(input?.from ?? ''), String(input?.to ?? ''));
+      case 'string_replace_all': return String(input?.string ?? '').replaceAll(String(input?.from ?? ''), String(input?.to ?? ''));
+      case 'string_starts_with': return String(input?.string ?? '').startsWith(String(input?.prefix ?? ''));
+      case 'string_ends_with': return String(input?.string ?? '').endsWith(String(input?.suffix ?? ''));
+      case 'string_index_of': return String(input?.string ?? '').indexOf(String(input?.substring ?? ''));
+      case 'is': return typeof input?.value === input?.type;
+      case 'as': return input?.value;
+      case 'math_abs': return Math.abs(this._toNum(value ?? input));
+      case 'math_floor': return Math.floor(this._toNum(value ?? input));
+      case 'math_ceil': return Math.ceil(this._toNum(value ?? input));
+      case 'math_round': return Math.round(this._toNum(value ?? input));
+      case 'math_sqrt': return Math.sqrt(this._toNum(value ?? input));
+      case 'math_pow': return Math.pow(this._toNum(input?.base ?? left), this._toNum(input?.exponent ?? right));
+      case 'math_min': return Math.min(this._toNum(left), this._toNum(right));
+      case 'math_max': return Math.max(this._toNum(left), this._toNum(right));
+      case 'math_pi': return Math.PI;
+      case 'throw': {
+        const rawVal = input?.value ?? input?.message ?? input;
+        const typeName = input?.type ?? rawVal?.__type ?? 'Exception';
+        throw new BallException(typeName, rawVal);
+      }
+      case 'rethrow': {
+        if (this.activeException) throw this.activeException;
+        throw new BallRuntimeError('rethrow outside of catch');
+      }
+      case 'assert': {
+        if (!this._toBool(input?.condition ?? input)) throw new BallRuntimeError(`Assertion failed: ${input?.message ?? ''}`);
+        return null;
+      }
+      case 'list_push': { const l = [...(input?.list ?? [])]; l.push(input?.value); return l; }
+      case 'list_length': return (input?.list ?? input ?? []).length;
+      case 'list_get': return (input?.list ?? [])[input?.index ?? 0];
+      case 'list_map': {
+        const list = input?.list ?? [];
+        const fn = input?.function;
+        if (typeof fn === 'function') return list.map(item => fn(item));
+        return list;
+      }
+      case 'list_filter': {
+        const list = input?.list ?? [];
+        const fn = input?.function;
+        if (typeof fn === 'function') return list.filter(item => fn(item));
+        return list;
+      }
+      case 'map_get': return (input?.map ?? {})[input?.key];
+      case 'map_set': { const m = {...(input?.map ?? {})}; m[input?.key] = input?.value; return m; }
+      case 'map_keys': return Object.keys(input?.map ?? input ?? {});
+      case 'pre_increment': case 'post_increment': return this._toNum(value ?? input) + 1;
+      case 'pre_decrement': case 'post_decrement': return this._toNum(value ?? input) - 1;
+      case 'index': {
+        const target = input?.target ?? input?.list;
+        const idx = input?.index ?? input?.key;
+        if (Array.isArray(target)) return target[idx];
+        if (target && typeof target === 'object') return target[idx];
+        if (typeof target === 'string') return target[idx];
+        return null;
+      }
+      case 'bitwise_and': return (this._toNum(left)|0) & (this._toNum(right)|0);
+      case 'bitwise_or': return (this._toNum(left)|0) | (this._toNum(right)|0);
+      case 'bitwise_xor': return (this._toNum(left)|0) ^ (this._toNum(right)|0);
+      case 'bitwise_not': return ~(this._toNum(value ?? input)|0);
+      case 'left_shift': return (this._toNum(left)|0) << (this._toNum(right)|0);
+      case 'right_shift': return (this._toNum(left)|0) >> (this._toNum(right)|0);
+      case 'null_coalesce': return left ?? right;
+      case 'paren': return value ?? input;
+      case 'string_interpolation': return String(value ?? input);
+      case 'int_to_string': return String(Math.trunc(this._toNum(value ?? input)));
+      case 'double_to_string': return String(this._toNum(value ?? input));
+      case 'string_to_int': return parseInt(String(value ?? input));
+      case 'string_to_double': return parseFloat(String(value ?? input));
+      case 'length': return (value ?? input)?.length ?? 0;
+      default: throw new BallRuntimeError(`Unknown base function: ${module}.${fn}`);
+    }
+  }
+
+  _toBool(v) { return !(v === null || v === undefined || v === false || v === 0 || v === ''); }
+  _toNum(v) {
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string') return Number(v) || 0;
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    return 0;
+  }
+  _numOp(left, right, op) { return op(this._toNum(left), this._toNum(right)); }
+  _ballToString(v) {
+    if (v === null || v === undefined) return 'null';
+    if (typeof v === 'number') return v.toString();
+    if (typeof v === 'boolean') return v.toString();
+    if (Array.isArray(v)) return `[${v.map(x => this._ballToString(x)).join(', ')}]`;
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  }
+}
+
+// ── Audit: walk the expression tree and classify capabilities ──────────
+
+const CAPABILITY_CATEGORIES = {
+  io:         { label: 'I/O',          fns: ['print','read_line','read_file','write_file','exit','sleep','random','time_now','time_millis'] },
+  math:       { label: 'Arithmetic',   fns: ['add','subtract','multiply','divide','divide_double','modulo','negate','math_abs','math_floor','math_ceil','math_round','math_sqrt','math_pow','math_min','math_max','math_pi'] },
+  comparison: { label: 'Comparison',   fns: ['equals','not_equals','less_than','greater_than','lte','gte'] },
+  logic:      { label: 'Logic',        fns: ['and','or','not'] },
+  control:    { label: 'Control Flow', fns: ['if','for','for_in','while','do_while','switch','try','return','break','continue','labeled','assign','pre_increment','post_increment','pre_decrement','post_decrement'] },
+  string:     { label: 'String',       fns: ['concat','to_string','string_length','string_contains','string_substring','string_to_upper','string_to_lower','string_trim','string_split','string_replace','string_replace_all','string_starts_with','string_ends_with','string_index_of','string_interpolation','int_to_string','double_to_string','string_to_int','string_to_double'] },
+  collection: { label: 'Collections',  fns: ['list_push','list_length','list_get','list_map','list_filter','map_get','map_set','map_keys','index','length'] },
+  error:      { label: 'Error',        fns: ['throw','rethrow','assert'] },
+  bitwise:    { label: 'Bitwise',      fns: ['bitwise_and','bitwise_or','bitwise_xor','bitwise_not','left_shift','right_shift'] },
+};
+
+function classifyFn(name) {
+  for (const [cat, info] of Object.entries(CAPABILITY_CATEGORIES)) {
+    if (info.fns.includes(name)) return cat;
+  }
+  return 'other';
+}
+
+function badgeClass(cat) {
+  const map = { io:'badge-io', math:'badge-math', comparison:'badge-logic', logic:'badge-logic',
+    control:'badge-control', string:'badge-string', collection:'badge-collection',
+    error:'badge-error', bitwise:'badge-math' };
+  return map[cat] || 'badge-other';
+}
+
+function walkExpr(expr, calls) {
+  if (!expr) return;
+  if (expr.call) {
+    const c = expr.call;
+    const mod = c.module || '(local)';
+    const key = `${mod}.${c.function}`;
+    calls[key] = (calls[key] || 0) + 1;
+    if (c.input) walkExpr(c.input, calls);
+  }
+  if (expr.literal?.listValue) expr.literal.listValue.elements.forEach(e => walkExpr(e, calls));
+  if (expr.fieldAccess) walkExpr(expr.fieldAccess.object, calls);
+  if (expr.messageCreation) expr.messageCreation.fields.forEach(f => walkExpr(f.value, calls));
+  if (expr.block) {
+    expr.block.statements.forEach(s => { if (s.let) walkExpr(s.let.value, calls); if (s.expression) walkExpr(s.expression, calls); });
+    if (expr.block.result) walkExpr(expr.block.result, calls);
+  }
+  if (expr.lambda) walkExpr(expr.lambda.body, calls);
+}
+
+function auditProgram() {
+  const out = document.getElementById('output');
+  const status = document.getElementById('status');
+  let program;
+  try {
+    program = JSON.parse(document.getElementById('editor').value);
+  } catch (e) {
+    out.innerHTML = `<span class="out-error">JSON parse error: ${escapeHtml(e.message)}</span>`;
+    status.textContent = 'Audit failed: invalid JSON';
+    return;
+  }
+
+  // Collect all function calls across all modules
+  const calls = {};
+  const userFns = [];
+  const baseFns = [];
+
+  for (const mod of (program.modules || [])) {
+    for (const fn of (mod.functions || [])) {
+      if (fn.isBase) { baseFns.push({ module: mod.name, name: fn.name }); }
+      else { userFns.push({ module: mod.name, name: fn.name, hasBody: !!fn.body }); }
+      if (fn.body) walkExpr(fn.body, calls);
+    }
+  }
+
+  // Group calls by category
+  const grouped = {};
+  for (const [key, count] of Object.entries(calls)) {
+    const fnName = key.split('.').pop();
+    const cat = classifyFn(fnName);
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push({ key, fnName, count });
+  }
+
+  let html = '';
+
+  // Program info
+  html += `<div class="audit-section"><div class="audit-title">Program Info</div>`;
+  html += `<table class="audit-table">`;
+  html += `<tr><td>Name</td><td>${escapeHtml(program.name || '(unnamed)')}</td></tr>`;
+  html += `<tr><td>Version</td><td>${escapeHtml(program.version || '(none)')}</td></tr>`;
+  html += `<tr><td>Entry</td><td>${escapeHtml(program.entryModule || '?')}.${escapeHtml(program.entryFunction || '?')}</td></tr>`;
+  html += `<tr><td>Modules</td><td>${(program.modules || []).length}</td></tr>`;
+  html += `<tr><td>User functions</td><td>${userFns.length}</td></tr>`;
+  html += `<tr><td>Base functions used</td><td>${baseFns.length}</td></tr>`;
+  html += `</table></div>`;
+
+  // Capabilities table
+  html += `<div class="audit-section"><div class="audit-title">Capabilities Used</div>`;
+  const cats = Object.keys(grouped).sort();
+  if (cats.length === 0) {
+    html += `<span class="out-info">No function calls found.</span>`;
+  } else {
+    html += `<table class="audit-table"><tr><th>Category</th><th>Function</th><th>Calls</th></tr>`;
+    for (const cat of cats) {
+      const label = CAPABILITY_CATEGORIES[cat]?.label || 'Other';
+      const items = grouped[cat].sort((a,b) => b.count - a.count);
+      for (let i = 0; i < items.length; i++) {
+        html += `<tr>`;
+        html += i === 0 ? `<td><span class="badge ${badgeClass(cat)}">${escapeHtml(label)}</span></td>` : `<td></td>`;
+        html += `<td>${escapeHtml(items[i].key)}</td><td>${items[i].count}</td></tr>`;
+      }
+    }
+    html += `</table>`;
+  }
+  html += `</div>`;
+
+  // User functions
+  if (userFns.length > 0) {
+    html += `<div class="audit-section"><div class="audit-title">User Functions</div>`;
+    html += `<table class="audit-table"><tr><th>Module</th><th>Function</th><th>Has Body</th></tr>`;
+    for (const f of userFns) {
+      html += `<tr><td>${escapeHtml(f.module)}</td><td>${escapeHtml(f.name)}</td><td>${f.hasBody ? 'yes' : 'no'}</td></tr>`;
+    }
+    html += `</table></div>`;
+  }
+
+  out.innerHTML = html;
+  status.textContent = `Audit complete: ${Object.keys(calls).length} distinct calls across ${cats.length} categories`;
+}
+
+// ── Run ────────────────────────────────────────────────────────────────
+
+function runProgram() {
+  const out = document.getElementById('output');
+  const status = document.getElementById('status');
+  const timer = document.getElementById('outputTimer');
+  out.innerHTML = '';
+  timer.textContent = '';
+
+  let program;
+  try {
+    program = JSON.parse(document.getElementById('editor').value);
+  } catch (e) {
+    out.innerHTML = `<span class="out-error">JSON parse error: ${escapeHtml(e.message)}</span>`;
+    status.textContent = 'Parse error';
+    return;
+  }
+
+  const lines = [];
+  const t0 = performance.now();
+  try {
+    const engine = new BallEngine(program, {
+      stdout: (msg) => lines.push(msg),
+      stderr: (msg) => lines.push(`[stderr] ${msg}`),
+    });
+    engine.run();
+    const elapsed = (performance.now() - t0).toFixed(1);
+    if (lines.length === 0) {
+      out.innerHTML = `<span class="out-info">(no output)</span>`;
+    } else {
+      out.innerHTML = lines.map(l => `<span class="out-line">${escapeHtml(l)}</span>`).join('\n');
+    }
+    timer.textContent = `${elapsed} ms`;
+    status.textContent = `Finished in ${elapsed} ms -- ${lines.length} line(s)`;
+  } catch (e) {
+    const elapsed = (performance.now() - t0).toFixed(1);
+    const prev = lines.map(l => `<span class="out-line">${escapeHtml(l)}</span>`).join('\n');
+    const errHtml = `<span class="out-error">${escapeHtml(e.name || 'Error')}: ${escapeHtml(e.message)}</span>`;
+    out.innerHTML = prev + (prev ? '\n' : '') + errHtml;
+    timer.textContent = `${elapsed} ms`;
+    status.textContent = `Runtime error after ${elapsed} ms`;
+  }
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function formatEditor() {
+  const editor = document.getElementById('editor');
+  try {
+    const obj = JSON.parse(editor.value);
+    editor.value = JSON.stringify(obj, null, 2);
+    document.getElementById('status').textContent = 'Formatted';
+  } catch (e) {
+    document.getElementById('status').textContent = 'Cannot format: invalid JSON';
+  }
+}
+
+// ── Sample program ────────────────────────────────────────────────────
+
+const SAMPLE_PROGRAM = {
+  "name": "fibonacci",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        { "name": "if", "isBase": true },
+        { "name": "lte", "isBase": true },
+        { "name": "return", "isBase": true },
+        { "name": "add", "isBase": true },
+        { "name": "subtract", "isBase": true },
+        { "name": "for", "isBase": true },
+        { "name": "less_than", "isBase": true },
+        { "name": "post_increment", "isBase": true },
+        { "name": "to_string", "isBase": true },
+        { "name": "print", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "fib",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "if",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "condition",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "lte",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        { "name": "left", "value": { "reference": { "name": "n" } } },
+                                        { "name": "right", "value": { "literal": { "intValue": "1" } } }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "then",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "return",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        { "name": "value", "value": { "reference": { "name": "n" } } }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "result": {
+                "call": {
+                  "module": "std",
+                  "function": "add",
+                  "input": {
+                    "messageCreation": {
+                      "fields": [
+                        {
+                          "name": "left",
+                          "value": {
+                            "call": {
+                              "function": "fib",
+                              "input": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "subtract",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        { "name": "left", "value": { "reference": { "name": "n" } } },
+                                        { "name": "right", "value": { "literal": { "intValue": "1" } } }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "name": "right",
+                          "value": {
+                            "call": {
+                              "function": "fib",
+                              "input": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "subtract",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        { "name": "left", "value": { "reference": { "name": "n" } } },
+                                        { "name": "right", "value": { "literal": { "intValue": "2" } } }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "metadata": { "kind": "function", "params": [{ "name": "n", "type": "int" }] }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "for",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            { "name": "init", "value": { "literal": { "stringValue": "int i = 0" } } },
+                            {
+                              "name": "condition",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "less_than",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        { "name": "left", "value": { "reference": { "name": "i" } } },
+                                        { "name": "right", "value": { "literal": { "intValue": "8" } } }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "update",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "post_increment",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        { "name": "value", "value": { "reference": { "name": "i" } } }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "body",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "print",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "message",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "to_string",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "call": {
+                                                          "function": "fib",
+                                                          "input": { "reference": { "name": "i" } }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": { "kind": "function" }
+        }
+      ],
+      "moduleImports": [{ "name": "std" }]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+};
+
+function loadSample() {
+  document.getElementById('editor').value = JSON.stringify(SAMPLE_PROGRAM, null, 2);
+  document.getElementById('output').innerHTML = '<span class="out-info">Press Run or Ctrl+Enter to execute the program.</span>';
+  document.getElementById('status').textContent = 'Sample loaded: Fibonacci (prints fib(0)..fib(7))';
+}
+
+// ── Resizable divider ─────────────────────────────────────────────────
+
+(function() {
+  const divider = document.getElementById('divider');
+  const editorPane = document.getElementById('editorPane');
+  const outputPane = document.getElementById('outputPane');
+  let dragging = false;
+
+  divider.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragging = true;
+    divider.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const container = editorPane.parentElement;
+    const rect = container.getBoundingClientRect();
+    const pct = ((e.clientX - rect.left) / rect.width) * 100;
+    const clamped = Math.min(80, Math.max(20, pct));
+    editorPane.style.flex = 'none';
+    editorPane.style.width = clamped + '%';
+    outputPane.style.flex = '1';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    divider.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+})();
+
+// ── Keyboard shortcut ─────────────────────────────────────────────────
+
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runProgram(); }
+});
+
+// ── Tab key in editor ─────────────────────────────────────────────────
+
+document.getElementById('editor').addEventListener('keydown', (e) => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const ta = e.target;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    ta.value = ta.value.substring(0, start) + '  ' + ta.value.substring(end);
+    ta.selectionStart = ta.selectionEnd = start + 2;
+  }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────
+
+loadSample();
+</script>
+</body>
+</html>

@@ -7,6 +7,7 @@
 /// Supports all 73 std base functions.
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io' as io;
 import 'dart:math' as math;
@@ -34,7 +35,7 @@ typedef BallValue = Object?;
 /// [BallModuleHandler.call] so handlers can compose other modules
 /// without holding a direct [BallEngine] reference.
 typedef BallCallable =
-    BallValue Function(String module, String function, BallValue input);
+    FutureOr<BallValue> Function(String module, String function, BallValue input);
 
 /// Sentinel for break/continue/return flow control.
 class _FlowSignal {
@@ -228,7 +229,7 @@ abstract class BallModuleHandler {
   /// ```
   ///
   /// Throws [BallRuntimeError] when [function] is not supported.
-  BallValue call(String function, BallValue input, BallCallable engine);
+  FutureOr<BallValue> call(String function, BallValue input, BallCallable engine);
 
   /// Called once by [BallEngine] during construction, before any program
   /// statements are evaluated. Override to capture engine state (e.g.
@@ -259,11 +260,11 @@ class StdModuleHandler extends BallModuleHandler {
   /// Live dispatch table: function name → handler closure.
   /// Populated during [init]; can be extended/trimmed via [register] /
   /// [unregister] either before or after engine construction.
-  final Map<String, BallValue Function(BallValue)> _dispatch = {};
+  final Map<String, FutureOr<BallValue> Function(BallValue)> _dispatch = {};
 
   /// Composition-aware dispatch table for closures that need [BallCallable].
   /// Checked before [_dispatch] so [registerComposer] can override built-ins.
-  final Map<String, BallValue Function(BallValue, BallCallable)>
+  final Map<String, FutureOr<BallValue> Function(BallValue, BallCallable)>
   _composedDispatch = {};
 
   /// Optional allow-list for [StdModuleHandler.subset]; `null` = all.
@@ -320,7 +321,7 @@ class StdModuleHandler extends BallModuleHandler {
   ///
   /// Safe to call before or after engine construction. Pre-construction calls
   /// take precedence over built-in defaults; [init] will not overwrite them.
-  void register(String function, BallValue Function(BallValue) handler) {
+  void register(String function, FutureOr<BallValue> Function(BallValue) handler) {
     _tombstones.remove(function);
     _composedDispatch.remove(function);
     _dispatch[function] = handler;
@@ -342,7 +343,7 @@ class StdModuleHandler extends BallModuleHandler {
   /// ```
   void registerComposer(
     String function,
-    BallValue Function(BallValue, BallCallable) handler,
+    FutureOr<BallValue> Function(BallValue, BallCallable) handler,
   ) {
     _tombstones.remove(function);
     _dispatch.remove(function);
@@ -364,7 +365,7 @@ class StdModuleHandler extends BallModuleHandler {
       Set.unmodifiable({..._dispatch.keys, ..._composedDispatch.keys});
 
   @override
-  BallValue call(String function, BallValue input, BallCallable engine) {
+  FutureOr<BallValue> call(String function, BallValue input, BallCallable engine) {
     final composed = _composedDispatch[function];
     if (composed != null) return composed(input, engine);
     final handler = _dispatch[function];
@@ -441,6 +442,9 @@ class BallEngine {
   /// lookup tables, the engine checks `module_imports` and resolves on demand.
   final ModuleResolver? _resolver;
 
+  /// Completes when top-level variable initialisation is done.
+  late final Future<void> _initialized;
+
   BallEngine(
     this.program, {
     void Function(String)? stdout,
@@ -462,7 +466,7 @@ class BallEngine {
       handler.init(this);
     }
     _buildLookupTables();
-    _initTopLevelVariables();
+    _initialized = _initTopLevelVariables();
   }
 
   /// Returns an unmodifiable snapshot of profiling call counts.
@@ -498,7 +502,7 @@ class BallEngine {
   ///   }
   /// }
   /// ```
-  BallValue callFunction(String module, String function, BallValue input) =>
+  Future<BallValue> callFunction(String module, String function, BallValue input) =>
       _resolveAndCallFunction(module, function, input);
 
   void _buildLookupTables() {
@@ -532,7 +536,7 @@ class BallEngine {
   }
 
   /// Initialize top-level variables by evaluating their body expressions.
-  void _initTopLevelVariables() {
+  Future<void> _initTopLevelVariables() async {
     for (final module in program.modules) {
       if (module.name == 'std' || module.name == 'dart_std') continue;
       for (final func in module.functions) {
@@ -541,23 +545,19 @@ class BallEngine {
         if (kindValue?.stringValue != 'top_level_variable') continue;
         _currentModule = module.name;
         final value = func.hasBody()
-            ? _evalExpression(func.body, _globalScope)
+            ? await _evalExpression(func.body, _globalScope)
             : null;
         _globalScope.bind(func.name, value);
       }
     }
   }
 
-  /// Execute the program asynchronously.
-  ///
-  /// This wraps [run] in a [Future] so callers that need an async API
-  /// (e.g. Flutter, server frameworks) can `await` it. The underlying
-  /// execution is still synchronous — true non-blocking evaluation
-  /// requires the Phase 3 async engine rewrite.
-  Future<BallValue> runAsync() async => run();
-
   /// Execute the program starting from the entry point.
-  BallValue run() {
+  ///
+  /// All expression evaluation is truly async — `await` suspends execution
+  /// and Dart's runtime optimises synchronous Future completions.
+  Future<BallValue> run() async {
+    await _initialized;
     final key = '${program.entryModule}.${program.entryFunction}';
     final entryFunc = _functions[key];
     if (entryFunc == null) {
@@ -574,11 +574,11 @@ class BallEngine {
   // Function Invocation
   // ============================================================
 
-  BallValue _callFunction(
+  Future<BallValue> _callFunction(
     String moduleName,
     FunctionDefinition func,
     BallValue input,
-  ) {
+  ) async {
     if (func.isBase) {
       return _callBaseFunction(moduleName, func.name, input);
     }
@@ -617,7 +617,7 @@ class BallEngine {
     if (func.inputType.isNotEmpty && input != null) {
       scope.bind('input', input);
     }
-    final result = _evalExpression(func.body, scope);
+    final result = await _evalExpression(func.body, scope);
     _currentModule = prevModule;
 
     BallValue finalResult;
@@ -669,11 +669,11 @@ class BallEngine {
         .toList();
   }
 
-  BallValue _resolveAndCallFunction(
+  Future<BallValue> _resolveAndCallFunction(
     String module,
     String function,
     BallValue input,
-  ) {
+  ) async {
     final moduleName = module.isEmpty ? _currentModule : module;
     final key = '$moduleName.$function';
     final func = _functions[key];
@@ -696,7 +696,7 @@ class BallEngine {
     // Lazy module loading: if a resolver is available, check whether any
     // module declares an import for the missing module and resolve it.
     if (_resolver != null) {
-      final resolved = _tryLazyResolve(moduleName);
+      final resolved = await _tryLazyResolve(moduleName);
       if (resolved != null) {
         _indexModule(resolved);
         final resolvedFunc = _functions['$moduleName.$function'];
@@ -709,21 +709,12 @@ class BallEngine {
     throw BallRuntimeError('Function "$key" not found');
   }
 
-  Module? _tryLazyResolve(String moduleName) {
+  Future<Module?> _tryLazyResolve(String moduleName) async {
     for (final m in program.modules) {
       for (final import_ in m.moduleImports) {
         if (import_.name == moduleName && import_.whichSource() != ModuleImport_Source.notSet) {
           try {
-            // Synchronous wait — acceptable for lazy loading since module
-            // resolution is typically cached after first fetch.
-            // ignore: discarded_futures
-            final future = _resolver!.resolve(import_);
-            // Use a zone-based sync wait if possible; fallback to blocking.
-            Module? result;
-            bool done = false;
-            future.then((m) { result = m; done = true; });
-            // If the future completed synchronously (cache hit), use it.
-            if (done && result != null) return result;
+            return await _resolver!.resolve(import_);
           } catch (_) {}
         }
       }
@@ -753,17 +744,17 @@ class BallEngine {
   // Expression Evaluation
   // ============================================================
 
-  BallValue _evalExpression(Expression expr, _Scope scope) {
+  Future<BallValue> _evalExpression(Expression expr, _Scope scope) async {
     return switch (expr.whichExpr()) {
-      Expression_Expr.call => _evalCall(expr.call, scope),
-      Expression_Expr.literal => _evalLiteral(expr.literal, scope),
+      Expression_Expr.call => await _evalCall(expr.call, scope),
+      Expression_Expr.literal => await _evalLiteral(expr.literal, scope),
       Expression_Expr.reference => _evalReference(expr.reference, scope),
-      Expression_Expr.fieldAccess => _evalFieldAccess(expr.fieldAccess, scope),
-      Expression_Expr.messageCreation => _evalMessageCreation(
+      Expression_Expr.fieldAccess => await _evalFieldAccess(expr.fieldAccess, scope),
+      Expression_Expr.messageCreation => await _evalMessageCreation(
         expr.messageCreation,
         scope,
       ),
-      Expression_Expr.block => _evalBlock(expr.block, scope),
+      Expression_Expr.block => await _evalBlock(expr.block, scope),
       Expression_Expr.lambda => _evalLambda(expr.lambda, scope),
       Expression_Expr.notSet => null,
     };
@@ -771,7 +762,7 @@ class BallEngine {
 
   // ---- Function Calls ----
 
-  BallValue _evalCall(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalCall(FunctionCall call, _Scope scope) async {
     final moduleName = call.module.isEmpty ? _currentModule : call.module;
 
     // Lazy-evaluated std/dart_std functions (control flow)
@@ -826,7 +817,7 @@ class BallEngine {
     }
 
     // Eager evaluation for all other calls
-    final input = call.hasInput() ? _evalExpression(call.input, scope) : null;
+    final input = call.hasInput() ? await _evalExpression(call.input, scope) : null;
 
     // Hot-path fast dispatch: explicitly-qualified std/dart_std calls are
     // always base functions. Skip the `$module.$function` string alloc
@@ -850,8 +841,10 @@ class BallEngine {
     // "call function F in module M".
     if (call.module.isEmpty && scope.has(call.function)) {
       final bound = scope.lookup(call.function);
-      if (bound is BallValue Function(BallValue)) {
-        return bound(input);
+      if (bound is Function) {
+        final result = bound(input);
+        if (result is Future) return await result;
+        return result;
       }
     }
 
@@ -866,20 +859,20 @@ class BallEngine {
 
   // ---- Literals ----
 
-  BallValue _evalLiteral(Literal lit, _Scope scope) {
+  Future<BallValue> _evalLiteral(Literal lit, _Scope scope) async {
     return switch (lit.whichValue()) {
       Literal_Value.intValue => lit.intValue.toInt(),
       Literal_Value.doubleValue => lit.doubleValue,
       Literal_Value.stringValue => lit.stringValue,
       Literal_Value.boolValue => lit.boolValue,
       Literal_Value.bytesValue => lit.bytesValue.toList(),
-      Literal_Value.listValue => _evalListLiteral(lit.listValue, scope),
+      Literal_Value.listValue => await _evalListLiteral(lit.listValue, scope),
       Literal_Value.notSet => null,
     };
   }
 
   /// Evaluates a list literal, handling collection_if and collection_for.
-  List<Object?> _evalListLiteral(ListLiteral listVal, _Scope scope) {
+  Future<List<Object?>> _evalListLiteral(ListLiteral listVal, _Scope scope) async {
     final result = <Object?>[];
     for (final element in listVal.elements) {
       if (element.hasCall()) {
@@ -887,84 +880,84 @@ class BallEngine {
         final fn = call.function;
         if ((call.module == 'dart_std' || call.module == 'std') &&
             fn == 'collection_if') {
-          _evalCollectionIf(call, scope, result);
+          await _evalCollectionIf(call, scope, result);
           continue;
         }
         if ((call.module == 'dart_std' || call.module == 'std') &&
             fn == 'collection_for') {
-          _evalCollectionFor(call, scope, result);
+          await _evalCollectionFor(call, scope, result);
           continue;
         }
       }
-      result.add(_evalExpression(element, scope));
+      result.add(await _evalExpression(element, scope));
     }
     return result;
   }
 
   /// Evaluates collection_if: if (condition) value [else elseValue]
-  void _evalCollectionIf(
+  Future<void> _evalCollectionIf(
     FunctionCall call,
     _Scope scope,
     List<Object?> result,
-  ) {
+  ) async {
     final fields = _lazyFields(call);
     final condExpr = fields['condition'];
     if (condExpr == null) return;
-    final cond = _toBool(_evalExpression(condExpr, scope));
+    final cond = _toBool(await _evalExpression(condExpr, scope));
     if (cond) {
       final thenExpr = fields['then'];
       if (thenExpr != null) {
-        _addCollectionElement(thenExpr, scope, result);
+        await _addCollectionElement(thenExpr, scope, result);
       }
     } else {
       final elseExpr = fields['else'];
       if (elseExpr != null) {
-        _addCollectionElement(elseExpr, scope, result);
+        await _addCollectionElement(elseExpr, scope, result);
       }
     }
   }
 
   /// Evaluates collection_for: for (var in iterable) body
-  void _evalCollectionFor(
+  Future<void> _evalCollectionFor(
     FunctionCall call,
     _Scope scope,
     List<Object?> result,
-  ) {
+  ) async {
     final fields = _lazyFields(call);
     final variable = _stringFieldVal(fields, 'variable');
     final iterableExpr = fields['iterable'];
     final bodyExpr = fields['body'];
     if (iterableExpr == null || bodyExpr == null) return;
-    final iterable = _evalExpression(iterableExpr, scope);
+    final iterable = await _evalExpression(iterableExpr, scope);
     if (iterable is! List) return;
     for (final item in iterable) {
       final loopScope = scope.child();
       loopScope.bind((variable ?? '').isEmpty ? 'item' : variable!, item);
-      _addCollectionElement(bodyExpr, loopScope, result);
+      await _addCollectionElement(bodyExpr, loopScope, result);
     }
   }
 
   /// Adds a collection element, recursively handling nested collection_if/for.
-  void _addCollectionElement(
+  Future<void> _addCollectionElement(
     Expression expr,
     _Scope scope,
     List<Object?> result,
-  ) {
+  ) async {
     if (expr.hasCall()) {
       final call = expr.call;
       final fn = call.function;
       if ((call.module == 'dart_std' || call.module == 'std') &&
           fn == 'collection_if') {
-        _evalCollectionIf(call, scope, result);
+        await _evalCollectionIf(call, scope, result);
         return;
       }
       if ((call.module == 'dart_std' || call.module == 'std') &&
           fn == 'collection_for') {
-        _evalCollectionFor(call, scope, result);
+        await _evalCollectionFor(call, scope, result);
         return;
       }
     }
-    result.add(_evalExpression(expr, scope));
+    result.add(await _evalExpression(expr, scope));
   }
 
   // ---- References ----
@@ -975,8 +968,8 @@ class BallEngine {
 
   // ---- Field Access ----
 
-  BallValue _evalFieldAccess(FieldAccess access, _Scope scope) {
-    final object = _evalExpression(access.object, scope);
+  Future<BallValue> _evalFieldAccess(FieldAccess access, _Scope scope) async {
+    final object = await _evalExpression(access.object, scope);
     final fieldName = access.field_2;
 
     // ── Map / message field access ─────────────────────────────
@@ -1087,10 +1080,10 @@ class BallEngine {
 
   // ---- Message Creation ----
 
-  BallValue _evalMessageCreation(MessageCreation msg, _Scope scope) {
+  Future<BallValue> _evalMessageCreation(MessageCreation msg, _Scope scope) async {
     final fields = <String, Object?>{};
     for (final pair in msg.fields) {
-      fields[pair.name] = _evalExpression(pair.value, scope);
+      fields[pair.name] = await _evalExpression(pair.value, scope);
     }
     if (msg.typeName.isNotEmpty) {
       fields['__type__'] = msg.typeName;
@@ -1169,7 +1162,7 @@ class BallEngine {
               className.hasStringValue() &&
               className.stringValue == typeName &&
               func.hasBody()) {
-            methods[func.name] = (BallValue input) {
+            methods[func.name] = (BallValue input) async {
               return _callFunction(module.name, func, input);
             };
           }
@@ -1181,43 +1174,43 @@ class BallEngine {
 
   // ---- Block ----
 
-  BallValue _evalBlock(Block block, _Scope scope) {
+  Future<BallValue> _evalBlock(Block block, _Scope scope) async {
     final blockScope = scope.child();
     BallValue flowResult;
     for (final stmt in block.statements) {
-      final result = _evalStatement(stmt, blockScope);
+      final result = await _evalStatement(stmt, blockScope);
       if (result is _FlowSignal) {
         // Run scope-exits in LIFO order before propagating the signal.
-        _runScopeExits(blockScope);
+        await _runScopeExits(blockScope);
         return result;
       }
     }
     if (block.hasResult()) {
-      flowResult = _evalExpression(block.result, blockScope);
+      flowResult = await _evalExpression(block.result, blockScope);
     } else {
       flowResult = null;
     }
     // Run scope-exits in LIFO order (normal exit).
-    _runScopeExits(blockScope);
+    await _runScopeExits(blockScope);
     return flowResult;
   }
 
   /// Execute all registered scope-exit cleanups in LIFO order.
-  void _runScopeExits(_Scope blockScope) {
+  Future<void> _runScopeExits(_Scope blockScope) async {
     if (blockScope._scopeExits.isEmpty) return;
     for (final (expr, evalScope) in blockScope._scopeExits.reversed) {
       try {
-        _evalExpression(expr, evalScope);
+        await _evalExpression(expr, evalScope);
       } catch (_) {
         // Scope-exit cleanup errors are swallowed (RAII destructor semantics).
       }
     }
   }
 
-  BallValue _evalStatement(Statement stmt, _Scope scope) {
+  Future<BallValue> _evalStatement(Statement stmt, _Scope scope) async {
     switch (stmt.whichStmt()) {
       case Statement_Stmt.let:
-        final value = _evalExpression(stmt.let.value, scope);
+        final value = await _evalExpression(stmt.let.value, scope);
         if (value is _FlowSignal) return value;
         scope.bind(stmt.let.name, value);
         return null;
@@ -1232,7 +1225,7 @@ class BallEngine {
 
   BallValue _evalLambda(FunctionDefinition func, _Scope scope) {
     // Capture the scope for closures.
-    return (BallValue input) {
+    return (BallValue input) async {
       final lambdaScope = scope.child();
       // Always bind `input` so body code referencing the Ball convention
       // name resolves.
@@ -1258,7 +1251,7 @@ class BallEngine {
         }
       }
       if (!func.hasBody()) return null;
-      final result = _evalExpression(func.body, lambdaScope);
+      final result = await _evalExpression(func.body, lambdaScope);
       if (result is _FlowSignal && result.kind == 'return') {
         return result.value;
       }
@@ -1283,7 +1276,7 @@ class BallEngine {
     return result;
   }
 
-  BallValue _evalLazyIf(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalLazyIf(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final condition = fields['condition'];
     final thenBranch = fields['then'];
@@ -1291,7 +1284,7 @@ class BallEngine {
     if (condition == null || thenBranch == null) {
       throw BallRuntimeError('std.if missing condition or then');
     }
-    final condVal = _evalExpression(condition, scope);
+    final condVal = await _evalExpression(condition, scope);
     if (_toBool(condVal)) {
       return _evalExpression(thenBranch, scope);
     } else if (elseBranch != null) {
@@ -1300,7 +1293,7 @@ class BallEngine {
     return null;
   }
 
-  BallValue _evalLazyFor(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalLazyFor(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final initExpr = fields['init'];
     final condition = fields['condition'];
@@ -1318,7 +1311,7 @@ class BallEngine {
       //   3. Anything else — evaluate normally
       if (initExpr.whichExpr() == Expression_Expr.block) {
         for (final stmt in initExpr.block.statements) {
-          _evalStatement(stmt, forScope);
+          await _evalStatement(stmt, forScope);
         }
       } else if (initExpr.whichExpr() == Expression_Expr.literal &&
           initExpr.literal.hasStringValue()) {
@@ -1341,17 +1334,17 @@ class BallEngine {
           forScope.bind(varName, parsed);
         }
       } else {
-        _evalExpression(initExpr, forScope);
+        await _evalExpression(initExpr, forScope);
       }
     }
 
     while (true) {
       if (condition != null) {
-        final condVal = _evalExpression(condition, forScope);
+        final condVal = await _evalExpression(condition, forScope);
         if (!_toBool(condVal)) break;
       }
       if (body != null) {
-        final result = _evalExpression(body, forScope);
+        final result = await _evalExpression(body, forScope);
         if (result is _FlowSignal) {
           // Labeled break/continue propagate upward to the enclosing
           // `labeled` wrapper. Only unlabeled signals are consumed by
@@ -1364,26 +1357,26 @@ class BallEngine {
           // unlabeled continue: fall through to update
         }
       }
-      if (update != null) _evalExpression(update, forScope);
+      if (update != null) await _evalExpression(update, forScope);
     }
     return null;
   }
 
-  BallValue _evalLazyForIn(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalLazyForIn(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final variable = _stringFieldVal(fields, 'variable') ?? 'item';
     final iterable = fields['iterable'];
     final body = fields['body'];
     if (iterable == null || body == null) return null;
 
-    final iterVal = _evalExpression(iterable, scope);
+    final iterVal = await _evalExpression(iterable, scope);
     if (iterVal is! List) {
       throw BallRuntimeError('std.for_in: iterable is not a List');
     }
     for (final item in iterVal) {
       final loopScope = scope.child();
       loopScope.bind(variable, item);
-      final result = _evalExpression(body, loopScope);
+      final result = await _evalExpression(body, loopScope);
       if (result is _FlowSignal) {
         if (result.kind == 'return') return result;
         if (result.label != null && result.label!.isNotEmpty) {
@@ -1395,17 +1388,17 @@ class BallEngine {
     return null;
   }
 
-  BallValue _evalLazyWhile(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalLazyWhile(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final condition = fields['condition'];
     final body = fields['body'];
     while (true) {
       if (condition != null) {
-        final condVal = _evalExpression(condition, scope);
+        final condVal = await _evalExpression(condition, scope);
         if (!_toBool(condVal)) break;
       }
       if (body != null) {
-        final result = _evalExpression(body, scope);
+        final result = await _evalExpression(body, scope);
         if (result is _FlowSignal) {
           if (result.kind == 'return') return result;
           if (result.label != null && result.label!.isNotEmpty) {
@@ -1418,13 +1411,13 @@ class BallEngine {
     return null;
   }
 
-  BallValue _evalLazyDoWhile(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalLazyDoWhile(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final body = fields['body'];
     final condition = fields['condition'];
     do {
       if (body != null) {
-        final result = _evalExpression(body, scope);
+        final result = await _evalExpression(body, scope);
         if (result is _FlowSignal) {
           if (result.kind == 'return') return result;
           if (result.label != null && result.label!.isNotEmpty) {
@@ -1434,7 +1427,7 @@ class BallEngine {
         }
       }
       if (condition != null) {
-        final condVal = _evalExpression(condition, scope);
+        final condVal = await _evalExpression(condition, scope);
         if (!_toBool(condVal)) break;
       } else {
         break;
@@ -1443,13 +1436,13 @@ class BallEngine {
     return null;
   }
 
-  BallValue _evalLazySwitch(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalLazySwitch(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final subject = fields['subject'];
     final cases = fields['cases'];
     if (subject == null || cases == null) return null;
 
-    final subjectVal = _evalExpression(subject, scope);
+    final subjectVal = await _evalExpression(subject, scope);
     if (cases.whichExpr() != Expression_Expr.literal ||
         cases.literal.whichValue() != Literal_Value.listValue) {
       return null;
@@ -1470,7 +1463,7 @@ class BallEngine {
       }
       final value = cf['value'];
       if (value != null) {
-        final caseVal = _evalExpression(value, scope);
+        final caseVal = await _evalExpression(value, scope);
         if (caseVal == subjectVal) {
           final body = cf['body'];
           if (body != null) return _evalExpression(body, scope);
@@ -1483,7 +1476,7 @@ class BallEngine {
     return null;
   }
 
-  BallValue _evalLazyTry(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalLazyTry(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final body = fields['body'];
     final catches = fields['catches'];
@@ -1491,7 +1484,7 @@ class BallEngine {
 
     BallValue result;
     try {
-      result = body != null ? _evalExpression(body, scope) : null;
+      result = body != null ? await _evalExpression(body, scope) : null;
     } catch (e) {
       result = null;
       if (catches != null &&
@@ -1531,7 +1524,7 @@ class BallEngine {
             final previousActive = _activeException;
             _activeException = e;
             try {
-              result = _evalExpression(catchBody, catchScope);
+              result = await _evalExpression(catchBody, catchScope);
             } finally {
               _activeException = previousActive;
             }
@@ -1545,58 +1538,58 @@ class BallEngine {
       }
     } finally {
       if (finallyBlock != null) {
-        _evalExpression(finallyBlock, scope);
+        await _evalExpression(finallyBlock, scope);
       }
     }
     return result;
   }
 
-  BallValue _evalShortCircuitAnd(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalShortCircuitAnd(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final left = fields['left'];
     final right = fields['right'];
     if (left == null || right == null) return false;
-    final leftVal = _evalExpression(left, scope);
+    final leftVal = await _evalExpression(left, scope);
     if (!_toBool(leftVal)) return false;
-    return _toBool(_evalExpression(right, scope));
+    return _toBool(await _evalExpression(right, scope));
   }
 
-  BallValue _evalShortCircuitOr(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalShortCircuitOr(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final left = fields['left'];
     final right = fields['right'];
     if (left == null || right == null) return false;
-    final leftVal = _evalExpression(left, scope);
+    final leftVal = await _evalExpression(left, scope);
     if (_toBool(leftVal)) return true;
-    return _toBool(_evalExpression(right, scope));
+    return _toBool(await _evalExpression(right, scope));
   }
 
-  BallValue _evalReturn(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalReturn(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final value = fields['value'];
-    final val = value != null ? _evalExpression(value, scope) : null;
+    final val = value != null ? await _evalExpression(value, scope) : null;
     return _FlowSignal('return', value: val);
   }
 
-  BallValue _evalBreak(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalBreak(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'label');
     return _FlowSignal('break', label: label);
   }
 
-  BallValue _evalContinue(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalContinue(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'label');
     return _FlowSignal('continue', label: label);
   }
 
-  BallValue _evalAssign(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalAssign(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final target = fields['target'];
     final value = fields['value'];
     if (target == null || value == null) return null;
 
-    final val = _evalExpression(value, scope);
+    final val = await _evalExpression(value, scope);
     final op = _stringFieldVal(fields, 'op');
 
     // Simple reference assignment
@@ -1614,7 +1607,7 @@ class BallEngine {
 
     // Field access assignment (obj.field = val)
     if (target.whichExpr() == Expression_Expr.fieldAccess) {
-      final obj = _evalExpression(target.fieldAccess.object, scope);
+      final obj = await _evalExpression(target.fieldAccess.object, scope);
       if (obj is Map<String, Object?>) {
         obj[target.fieldAccess.field_2] = val;
         return val;
@@ -1629,8 +1622,8 @@ class BallEngine {
       final indexTarget = indexFields['target'];
       final indexExpr = indexFields['index'];
       if (indexTarget != null && indexExpr != null) {
-        final list = _evalExpression(indexTarget, scope);
-        final idx = _evalExpression(indexExpr, scope);
+        final list = await _evalExpression(indexTarget, scope);
+        final idx = await _evalExpression(indexExpr, scope);
         if (list is List && idx is int) {
           list[idx] = val;
           return val;
@@ -1646,7 +1639,7 @@ class BallEngine {
   }
 
   /// Handle ++/-- as lazy scope-mutating operations.
-  BallValue _evalIncDec(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalIncDec(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final valueExpr = fields['value'];
     if (valueExpr == null) return null;
@@ -1663,7 +1656,7 @@ class BallEngine {
     }
 
     // Fallback: just compute
-    final val = _evalExpression(valueExpr, scope) as num;
+    final val = (await _evalExpression(valueExpr, scope)) as num;
     final isInc = call.function.contains('increment');
     return isInc ? val + 1 : val - 1;
   }
@@ -1692,12 +1685,12 @@ class BallEngine {
   int _intOp(BallValue a, BallValue b, int Function(int, int) op) =>
       op(_toInt(a), _toInt(b));
 
-  BallValue _evalLabeled(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalLabeled(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'label');
     final body = fields['body'];
     if (body == null) return null;
-    final result = _evalExpression(body, scope);
+    final result = await _evalExpression(body, scope);
     if (result is _FlowSignal &&
         (result.kind == 'break' || result.kind == 'continue') &&
         result.label == label) {
@@ -1706,13 +1699,13 @@ class BallEngine {
     return result;
   }
 
-  BallValue _evalGoto(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalGoto(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'label');
     throw _FlowSignal('goto', label: label);
   }
 
-  BallValue _evalLabel(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalLabel(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'name');
     final body = fields['body'];
@@ -1722,7 +1715,7 @@ class BallEngine {
     // propagates up until the matching label handler catches it.
     BallValue result;
     do {
-      result = _evalExpression(body, scope);
+      result = await _evalExpression(body, scope);
       if (result is _FlowSignal &&
           result.kind == 'goto' &&
           result.label == label) {
@@ -1735,8 +1728,8 @@ class BallEngine {
 
   /// `dart_await_for` — in a single-threaded engine this is just `for_in`
   /// over a list (streams aren't real).
-  BallValue _evalAwaitFor(FunctionCall call, _Scope scope) {
-    // Reuse for_in logic — single-threaded simulation.
+  Future<BallValue> _evalAwaitFor(FunctionCall call, _Scope scope) {
+    // Reuse for_in logic.
     return _evalLazyForIn(call, scope);
   }
 
@@ -1768,10 +1761,10 @@ class BallEngine {
   // Base Functions (std + dart_std modules)
   // ============================================================
 
-  BallValue _callBaseFunction(String module, String function, BallValue input) {
+  Future<BallValue> _callBaseFunction(String module, String function, BallValue input) async {
     for (final handler in moduleHandlers) {
       if (handler.handles(module)) {
-        final result = handler.call(function, input, callFunction);
+        final result = await handler.call(function, input, callFunction);
         // Profiling: track call counts per function name.
         _callCounts?[function] = (_callCounts![function] ?? 0) + 1;
         return result;
@@ -1785,7 +1778,7 @@ class BallEngine {
   // Lives here so the closures can close over engine instance methods
   // (same Dart library → library-private access is fine).
   // Inspired by V8 Ignition's kInterpreterDispatchTableRegister.
-  Map<String, BallValue Function(BallValue)> _buildStdDispatch() {
+  Map<String, FutureOr<BallValue> Function(BallValue)> _buildStdDispatch() {
     return {
       // I/O
       'print': _stdPrint,
@@ -1880,11 +1873,17 @@ class BallEngine {
         if (i is Map<String, Object?>) return i['callback'] ?? i['method'];
         return i;
       },
-      'dart_list_generate': (i) {
+      'dart_list_generate': (i) async {
         final m = i as Map<String, Object?>;
         final count = _toInt(m['count']);
         final gen = m['generator'] as Function;
-        return List.generate(count, (idx) => gen(idx));
+        final result = <Object?>[];
+        for (var idx = 0; idx < count; idx++) {
+          var v = gen(idx);
+          if (v is Future) v = await v;
+          result.add(v);
+        }
+        return result;
       },
       'dart_list_filled': (i) {
         final m = i as Map<String, Object?>;
@@ -1950,72 +1949,121 @@ class BallEngine {
         final m = i as Map<String, Object?>;
         return (m['list'] as List).indexOf(m['value']);
       },
-      'list_map': (i) {
+      'list_map': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
         final cb = m['callback'] as Function;
-        return list.map((e) => cb(e)).toList();
+        final result = <Object?>[];
+        for (final e in list) {
+          var v = cb(e);
+          if (v is Future) v = await v;
+          result.add(v);
+        }
+        return result;
       },
-      'list_filter': (i) {
+      'list_filter': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
         final cb = m['callback'] as Function;
-        return list.where((e) => cb(e) == true).toList();
+        final result = <Object?>[];
+        for (final e in list) {
+          var v = cb(e);
+          if (v is Future) v = await v;
+          if (v == true) result.add(e);
+        }
+        return result;
       },
-      'list_reduce': (i) {
+      'list_reduce': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
         final cb = m['callback'];
         var acc = m['initial'];
         for (final e in list) {
-          acc = (cb as Function)(<String, Object?>{'left': acc, 'right': e});
+          var v = (cb as Function)(<String, Object?>{'left': acc, 'right': e});
+          if (v is Future) v = await v;
+          acc = v;
         }
         return acc;
       },
-      'list_find': (i) {
+      'list_find': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
         final cb = m['callback'] as Function;
-        return list.firstWhere((e) => cb(e) == true);
+        for (final e in list) {
+          var v = cb(e);
+          if (v is Future) v = await v;
+          if (v == true) return e;
+        }
+        throw StateError('No element');
       },
-      'list_any': (i) {
+      'list_any': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
         final cb = m['callback'] as Function;
-        return list.any((e) => cb(e) == true);
+        for (final e in list) {
+          var v = cb(e);
+          if (v is Future) v = await v;
+          if (v == true) return true;
+        }
+        return false;
       },
-      'list_all': (i) {
+      'list_all': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
         final cb = m['callback'] as Function;
-        return list.every((e) => cb(e) == true);
+        for (final e in list) {
+          var v = cb(e);
+          if (v is Future) v = await v;
+          if (v != true) return false;
+        }
+        return true;
       },
-      'list_none': (i) {
+      'list_none': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
         final cb = m['callback'] as Function;
-        return !list.any((e) => cb(e) == true);
+        for (final e in list) {
+          var v = cb(e);
+          if (v is Future) v = await v;
+          if (v == true) return false;
+        }
+        return true;
       },
-      'list_sort': (i) {
+      'list_sort': (i) async {
         final m = i as Map<String, Object?>;
         final sorted = (m['list'] as List).toList();
         final cb = m['callback'];
-        sorted.sort((a, b) {
-          final r = (cb as Function)(<String, Object?>{'left': a, 'right': b});
-          return (r is int) ? r : (r as num).toInt();
-        });
+        // Use insertion sort to support async comparators.
+        for (var j = 1; j < sorted.length; j++) {
+          final key = sorted[j];
+          var k = j - 1;
+          while (k >= 0) {
+            var r = (cb as Function)(<String, Object?>{'left': sorted[k], 'right': key});
+            if (r is Future) r = await r;
+            final cmp = (r is int) ? r : (r as num).toInt();
+            if (cmp <= 0) break;
+            sorted[k + 1] = sorted[k];
+            k--;
+          }
+          sorted[k + 1] = key;
+        }
         return sorted;
       },
-      'list_sort_by': (i) {
+      'list_sort_by': (i) async {
         final m = i as Map<String, Object?>;
-        final sorted = (m['list'] as List).toList();
+        final list = (m['list'] as List).toList();
         final cb = m['callback'];
-        sorted.sort((a, b) {
-          final ka = (cb as Function)(a) as Comparable;
-          final kb = (cb as Function)(b) as Comparable;
-          return ka.compareTo(kb);
-        });
-        return sorted;
+        // Pre-compute keys with await support.
+        final keys = <Comparable>[];
+        for (final e in list) {
+          var k = (cb as Function)(e);
+          if (k is Future) k = await k;
+          keys.add(k as Comparable);
+        }
+        // Build index list and sort by keys.
+        final indices = List.generate(list.length, (i) => i);
+        indices.sort((a, b) => keys[a].compareTo(keys[b]));
+        return [for (final idx in indices) list[idx]];
       },
       'list_reverse': (i) =>
           ((i as Map<String, Object?>)['list'] as List).reversed.toList(),
@@ -2026,14 +2074,21 @@ class BallEngine {
         final end = m['end'] != null ? _toInt(m['end']) : list.length;
         return list.sublist(start, end);
       },
-      'list_flat_map': (i) {
+      'list_flat_map': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
         final cb = m['callback'] as Function;
-        return list.expand((e) {
-          final r = cb(e);
-          return r is List ? r : [r];
-        }).toList();
+        final result = <Object?>[];
+        for (final e in list) {
+          var r = cb(e);
+          if (r is Future) r = await r;
+          if (r is List) {
+            result.addAll(r);
+          } else {
+            result.add(r);
+          }
+        }
+        return result;
       },
       'list_zip': (i) {
         final m = i as Map<String, Object?>;
@@ -2100,16 +2155,17 @@ class BallEngine {
           ...(m['value'] as Map).cast<String, Object?>(),
         };
       },
-      'map_map': (i) {
+      'map_map': (i) async {
         final m = i as Map<String, Object?>;
         final map = m['map'] as Map;
         final cb = m['callback'];
         final result = <String, Object?>{};
         for (final entry in map.entries) {
-          final r = (cb as Function)(<String, Object?>{
+          var r = (cb as Function)(<String, Object?>{
             'key': entry.key,
             'value': entry.value,
           });
+          if (r is Future) r = await r;
           if (r is Map<String, Object?>) {
             result[r['key'] as String] = r['value'];
           } else {
@@ -2118,17 +2174,18 @@ class BallEngine {
         }
         return result;
       },
-      'map_filter': (i) {
+      'map_filter': (i) async {
         final m = i as Map<String, Object?>;
         final map = m['map'] as Map;
         final cb = m['callback'];
         final result = <String, Object?>{};
         for (final entry in map.entries) {
-          if ((cb as Function)(<String, Object?>{
+          var v = (cb as Function)(<String, Object?>{
                 'key': entry.key,
                 'value': entry.value,
-              }) ==
-              true) {
+              });
+          if (v is Future) v = await v;
+          if (v == true) {
             result[entry.key as String] = entry.value;
           }
         }
@@ -2210,9 +2267,11 @@ class BallEngine {
       'assert': _stdAssert,
 
       // Async — synchronous simulation via BallFuture/BallGenerator
-      'await': (i) {
-        final val = _extractUnaryArg(i);
-        // Unwrap BallFuture; pass through anything else.
+      'await': (i) async {
+        var val = _extractUnaryArg(i);
+        // Unwrap real Dart Futures (from async lambda bodies).
+        if (val is Future) val = await val;
+        // Unwrap BallFuture (legacy synchronous simulation).
         if (val is BallFuture) return val.value;
         return val;
       },
@@ -2340,12 +2399,10 @@ class BallEngine {
         stderr(msg);
         throw _ExitSignal(1);
       },
-      'sleep_ms': (i) {
-        // Phase 2 async: actually sleep using dart:io synchronous sleep.
-        // True non-blocking async requires the Phase 3 engine rewrite.
+      'sleep_ms': (i) async {
         final ms = (i is num) ? i.toInt() : 0;
         if (ms > 0) {
-          io.sleep(Duration(milliseconds: ms));
+          await Future.delayed(Duration(milliseconds: ms));
         }
         return null;
       },
@@ -2437,22 +2494,29 @@ class BallEngine {
       'dir_exists': _stdDirExists,
 
       // ── std_concurrency (single-threaded simulation) ──────────
-      'thread_spawn': (i) {
-        // Single-threaded: execute body synchronously, return 0 as handle.
+      'thread_spawn': (i) async {
+        // Single-threaded: execute body, return 0 as handle.
         final m = i as Map<String, Object?>;
         final body = m['body'];
-        if (body is Function) body(null);
+        if (body is Function) {
+          var v = body(null);
+          if (v is Future) await v;
+        }
         return 0;
       },
       'thread_join': (_) => null, // no-op in single-threaded mode
       'mutex_create': (_) => _nextMutexId++,
       'mutex_lock': (_) => null, // no-op
       'mutex_unlock': (_) => null, // no-op
-      'scoped_lock': (i) {
+      'scoped_lock': (i) async {
         // Execute body directly (no actual locking).
         final m = i as Map<String, Object?>;
         final body = m['body'];
-        if (body is Function) return body(null);
+        if (body is Function) {
+          var v = body(null);
+          if (v is Future) v = await v;
+          return v;
+        }
         return null;
       },
       'atomic_load': (i) {
@@ -2583,7 +2647,7 @@ class BallEngine {
     return target;
   }
 
-  BallValue _stdInvoke(BallValue input) {
+  FutureOr<BallValue> _stdInvoke(BallValue input) async {
     if (input is! Map<String, Object?>) {
       throw BallRuntimeError('std.invoke: expected message');
     }
@@ -2597,11 +2661,16 @@ class BallEngine {
       ..remove('__type__');
     // Single positional argument: unwrap the sole value so lambdas that
     // take a single param receive the value directly (not wrapped in a map).
-    if (args.length == 1) return Function.apply(callee, [args.values.first]);
-    // No arguments: pass null.
-    if (args.isEmpty) return Function.apply(callee, [null]);
-    // Multiple / named arguments: pass the full args map.
-    return Function.apply(callee, [args]);
+    Object? result;
+    if (args.length == 1) {
+      result = Function.apply(callee, [args.values.first]);
+    } else if (args.isEmpty) {
+      result = Function.apply(callee, [null]);
+    } else {
+      result = Function.apply(callee, [args]);
+    }
+    if (result is Future) result = await result;
+    return result;
   }
 
   BallValue _stdNullAwareAccess(BallValue input) {
@@ -2747,7 +2816,7 @@ class BallEngine {
     return input['fields'] ?? input;
   }
 
-  BallValue _stdSwitchExpr(BallValue input) {
+  FutureOr<BallValue> _stdSwitchExpr(BallValue input) async {
     if (input is! Map<String, Object?>) return null;
     final subject = input['subject'];
     final cases = input['cases'];
@@ -2768,10 +2837,16 @@ class BallEngine {
       if (_matchPattern(subject, pattern, bindings)) {
         // Check guard condition if present.
         if (guard != null && guard is Function) {
-          if (guard(bindings) != true) continue;
+          var guardResult = guard(bindings);
+          if (guardResult is Future) guardResult = await guardResult;
+          if (guardResult != true) continue;
         }
         // If body is a function, call it with bindings to inject destructured vars.
-        if (body is Function) return body(bindings);
+        if (body is Function) {
+          var result = body(bindings);
+          if (result is Future) result = await result;
+          return result;
+        }
         return body;
       }
     }

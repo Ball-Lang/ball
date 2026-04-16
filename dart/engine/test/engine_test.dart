@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -13,17 +14,17 @@ Program loadProgram(String path) {
 }
 
 /// Run a program through the engine and capture stdout lines.
-List<String> runAndCapture(
+Future<List<String>> runAndCapture(
   Program program, {
   List<BallModuleHandler>? handlers,
-}) {
+}) async {
   final lines = <String>[];
   final engine = BallEngine(
     program,
     stdout: lines.add,
     moduleHandlers: handlers,
   );
-  engine.run();
+  await engine.run();
   return lines;
 }
 
@@ -284,14 +285,14 @@ void main() {
       program = loadProgram('../../examples/hello_world/hello_world.ball.json');
     });
 
-    test('loads program metadata', () {
+    test('loads program metadata', () async {
       expect(program.name, 'hello_world');
       expect(program.version, '1.0.0');
       expect(program.entryFunction, 'main');
     });
 
-    test('engine produces correct output', () {
-      final lines = runAndCapture(program);
+    test('engine produces correct output', () async {
+      final lines = await runAndCapture(program);
       expect(lines, ['Hello, World!']);
     });
   });
@@ -303,13 +304,13 @@ void main() {
       program = loadProgram('../../examples/fibonacci/fibonacci.ball.json');
     });
 
-    test('loads program metadata', () {
+    test('loads program metadata', () async {
       expect(program.name, 'fibonacci');
       expect(program.modules.length, 2);
     });
 
-    test('engine computes fib(10) = 55', () {
-      final lines = runAndCapture(program);
+    test('engine computes fib(10) = 55', () async {
+      final lines = await runAndCapture(program);
       expect(lines, ['55']);
     });
   });
@@ -318,32 +319,32 @@ void main() {
     late Program program;
     late List<String> lines;
 
-    setUpAll(() {
+    setUpAll(() async {
       program = loadProgram(
         '../../examples/all_constructs/all_constructs.ball.json',
       );
-      lines = runAndCapture(program);
+      lines = await runAndCapture(program);
     });
 
-    test('arithmetic operations', () {
+    test('arithmetic operations', () async {
       // add(3,4)=7, subtract(10,3)=7, multiply(5,6)=30
       expect(lines[0], '7');
       expect(lines[1], '7');
       expect(lines[2], '30');
     });
 
-    test('division operations', () {
+    test('division operations', () async {
       // divide(10.0,3.0), intDivide(10,3), modulo(10,3)
       expect(lines[3], '3.3333333333333335');
       expect(lines[4], '3');
       expect(lines[5], '1');
     });
 
-    test('negation', () {
+    test('negation', () async {
       expect(lines[6], '-5');
     });
 
-    test('comparison operations', () {
+    test('comparison operations', () async {
       expect(lines[7], 'true'); // lessThan(1,2)
       expect(lines[8], 'true'); // greaterThan(3,2)
       expect(lines[9], 'true'); // lessOrEqual(2,2)
@@ -352,13 +353,13 @@ void main() {
       expect(lines[12], 'true'); // isNotEqual(5,3)
     });
 
-    test('logical operations', () {
+    test('logical operations', () async {
       expect(lines[13], 'false'); // and(true,false)
       expect(lines[14], 'true'); // or(true,false)
       expect(lines[15], 'true'); // not(false)
     });
 
-    test('bitwise operations', () {
+    test('bitwise operations', () async {
       expect(lines[16], '2'); // bitwiseAnd(6,3)
       expect(lines[17], '7'); // bitwiseOr(6,3)
       expect(lines[18], '5'); // bitwiseXor(6,3)
@@ -367,34 +368,34 @@ void main() {
       expect(lines[21], '-1'); // bitwiseNot(0)
     });
 
-    test('string concatenation', () {
+    test('string concatenation', () async {
       expect(lines[22], 'Hello, World!');
     });
 
-    test('control flow (if/else)', () {
+    test('control flow (if/else)', () async {
       expect(lines[23], 'negative'); // classify(-5)
       expect(lines[24], 'zero'); // classify(0)
       expect(lines[25], 'positive'); // classify(7)
     });
 
-    test('ternary', () {
+    test('ternary', () async {
       expect(lines[26], 'yes'); // ternary(true)
       expect(lines[27], 'no'); // ternary(false)
     });
 
-    test('for loop (sumRange)', () {
+    test('for loop (sumRange)', () async {
       expect(lines[28], '10'); // sumRange(5) = 0+1+2+3+4 = 10
     });
 
-    test('while loop (whileLoop)', () {
+    test('while loop (whileLoop)', () async {
       expect(lines[29], '3'); // whileLoop(3)
     });
 
-    test('recursion (factorial)', () {
+    test('recursion (factorial)', () async {
       expect(lines[30], '720'); // factorial(6) = 720
     });
 
-    test('local vars and nested calls', () {
+    test('local vars and nested calls', () async {
       expect(lines[31], '19'); // localVars(10) = 10*2 - 1 = 19
       expect(
         lines[32],
@@ -403,7 +404,7 @@ void main() {
       expect(lines[33], 'Result: 42'); // multiStep(21) = "Result: 42"
     });
 
-    test('produces exactly 34 output lines', () {
+    test('produces exactly 34 output lines', () async {
       // 32 lines expected from the Dart source — but engine exits normally
       // after producing all lines (no remaining errors)
       expect(lines.length, 34);
@@ -413,45 +414,45 @@ void main() {
   // ── Inline program unit tests ────────────────────────────
 
   group('engine: literals and print', () {
-    test('prints a string literal', () {
+    test('prints a string literal', () async {
       final program = buildProgram(
         functions: [
           mainFn([stmt(printStr('hello'))]),
         ],
       );
-      expect(runAndCapture(program), ['hello']);
+      expect(await runAndCapture(program), ['hello']);
     });
 
-    test('prints an integer via to_string', () {
+    test('prints an integer via to_string', () async {
       final program = buildProgram(
         functions: [
           mainFn([stmt(printToString(literal(42)))]),
         ],
       );
-      expect(runAndCapture(program), ['42']);
+      expect(await runAndCapture(program), ['42']);
     });
 
-    test('prints a double via to_string', () {
+    test('prints a double via to_string', () async {
       final program = buildProgram(
         functions: [
           mainFn([stmt(printToString(literal(3.14)))]),
         ],
       );
-      expect(runAndCapture(program), ['3.14']);
+      expect(await runAndCapture(program), ['3.14']);
     });
 
-    test('prints a boolean via to_string', () {
+    test('prints a boolean via to_string', () async {
       final program = buildProgram(
         functions: [
           mainFn([stmt(printToString(literal(true)))]),
         ],
       );
-      expect(runAndCapture(program), ['true']);
+      expect(await runAndCapture(program), ['true']);
     });
   });
 
   group('engine: arithmetic', () {
-    test('add two integers', () {
+    test('add two integers', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -469,10 +470,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['30']);
+      expect(await runAndCapture(program), ['30']);
     });
 
-    test('subtract', () {
+    test('subtract', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -490,10 +491,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['63']);
+      expect(await runAndCapture(program), ['63']);
     });
 
-    test('multiply', () {
+    test('multiply', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -508,10 +509,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['56']);
+      expect(await runAndCapture(program), ['56']);
     });
 
-    test('negate', () {
+    test('negate', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -523,12 +524,12 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['-42']);
+      expect(await runAndCapture(program), ['-42']);
     });
   });
 
   group('engine: comparisons', () {
-    test('less_than true', () {
+    test('less_than true', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -543,10 +544,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['true']);
+      expect(await runAndCapture(program), ['true']);
     });
 
-    test('less_than false', () {
+    test('less_than false', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -561,10 +562,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['false']);
+      expect(await runAndCapture(program), ['false']);
     });
 
-    test('equals true', () {
+    test('equals true', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -579,21 +580,21 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['true']);
+      expect(await runAndCapture(program), ['true']);
     });
   });
 
   group('engine: let bindings and variables', () {
-    test('let binding and reference', () {
+    test('let binding and reference', () async {
       final program = buildProgram(
         functions: [
           mainFn([letStmt('x', literal(42)), stmt(printToString(ref('x')))]),
         ],
       );
-      expect(runAndCapture(program), ['42']);
+      expect(await runAndCapture(program), ['42']);
     });
 
-    test('multiple let bindings', () {
+    test('multiple let bindings', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -610,10 +611,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['30']);
+      expect(await runAndCapture(program), ['30']);
     });
 
-    test('let binding uses expression', () {
+    test('let binding uses expression', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -628,12 +629,12 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['7']);
+      expect(await runAndCapture(program), ['7']);
     });
   });
 
   group('engine: user-defined functions', () {
-    test('single-parameter function', () {
+    test('single-parameter function', () async {
       // Define: double(n) => n + n
       // Call: print(double(21))
       final program = buildProgram(
@@ -653,10 +654,10 @@ void main() {
           mainFn([stmt(printToString(call('double_it', input: literal(21))))]),
         ],
       );
-      expect(runAndCapture(program), ['42']);
+      expect(await runAndCapture(program), ['42']);
     });
 
-    test('two-parameter function with arg0/arg1', () {
+    test('two-parameter function with arg0/arg1', () async {
       // Define: myAdd(a, b) => a + b
       // Call: print(myAdd(3, 4))
       final program = buildProgram(
@@ -689,10 +690,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['7']);
+      expect(await runAndCapture(program), ['7']);
     });
 
-    test('recursive function (fibonacci)', () {
+    test('recursive function (fibonacci)', () async {
       // Fibonacci via recursive calls — same encoding as fibonacci.ball.json
       final program = buildProgram(
         functions: [
@@ -789,12 +790,12 @@ void main() {
           mainFn([stmt(printToString(call('fib', input: literal(10))))]),
         ],
       );
-      expect(runAndCapture(program), ['55']);
+      expect(await runAndCapture(program), ['55']);
     });
   });
 
   group('engine: control flow', () {
-    test('if-then-else (true branch)', () {
+    test('if-then-else (true branch)', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -819,10 +820,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['yes']);
+      expect(await runAndCapture(program), ['yes']);
     });
 
-    test('if-then-else (false branch)', () {
+    test('if-then-else (false branch)', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -847,10 +848,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['no']);
+      expect(await runAndCapture(program), ['no']);
     });
 
-    test('if without else', () {
+    test('if without else', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -870,10 +871,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['only if']);
+      expect(await runAndCapture(program), ['only if']);
     });
 
-    test('nested if', () {
+    test('nested if', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -940,12 +941,12 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['small positive']);
+      expect(await runAndCapture(program), ['small positive']);
     });
   });
 
   group('engine: top-level variables', () {
-    test('const top-level variable', () {
+    test('const top-level variable', () async {
       final program = buildProgram(
         functions: [
           {
@@ -956,10 +957,10 @@ void main() {
           mainFn([stmt(printToString(ref('myConst')))]),
         ],
       );
-      expect(runAndCapture(program), ['99']);
+      expect(await runAndCapture(program), ['99']);
     });
 
-    test('multiple top-level variables', () {
+    test('multiple top-level variables', () async {
       final program = buildProgram(
         functions: [
           {
@@ -984,12 +985,12 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['30']);
+      expect(await runAndCapture(program), ['30']);
     });
   });
 
   group('engine: while loop', () {
-    test('while loop with counter', () {
+    test('while loop with counter', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -1039,12 +1040,12 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['0', '1', '2']);
+      expect(await runAndCapture(program), ['0', '1', '2']);
     });
   });
 
   group('engine: for loop', () {
-    test('for loop counting', () {
+    test('for loop counting', () async {
       // The encoder declares the loop var outside the for and uses a
       // string literal for init (human-readable, effectively a no-op).
       final program = buildProgram(
@@ -1096,12 +1097,12 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['0', '1', '2']);
+      expect(await runAndCapture(program), ['0', '1', '2']);
     });
   });
 
   group('engine: string operations', () {
-    test('string concatenation via add', () {
+    test('string concatenation via add', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -1119,12 +1120,12 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['Hello, World!']);
+      expect(await runAndCapture(program), ['Hello, World!']);
     });
   });
 
   group('engine: multiple print statements', () {
-    test('sequence of prints', () {
+    test('sequence of prints', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -1134,21 +1135,21 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['line 1', 'line 2', 'line 3']);
+      expect(await runAndCapture(program), ['line 1', 'line 2', 'line 3']);
     });
   });
 
   group('engine: error handling', () {
-    test('throws on undefined variable', () {
+    test('throws on undefined variable', () async {
       final program = buildProgram(
         functions: [
           mainFn([stmt(printToString(ref('undefined_var')))]),
         ],
       );
-      expect(() => runAndCapture(program), throwsA(isA<BallRuntimeError>()));
+      await expectLater(runAndCapture(program), throwsA(isA<BallRuntimeError>()));
     });
 
-    test('throws on missing entry point', () {
+    test('throws on missing entry point', () async {
       final programJson = {
         'name': 'bad',
         'version': '1.0.0',
@@ -1159,12 +1160,12 @@ void main() {
         'entryFunction': 'nonexistent',
       };
       final program = Program()..mergeFromProto3Json(programJson);
-      expect(() => runAndCapture(program), throwsA(isA<BallRuntimeError>()));
+      await expectLater(runAndCapture(program), throwsA(isA<BallRuntimeError>()));
     });
   });
 
   group('engine: stdout capture', () {
-    test('custom stdout sink captures output', () {
+    test('custom stdout sink captures output', () async {
       final program = buildProgram(
         functions: [
           mainFn([stmt(printStr('captured'))]),
@@ -1172,11 +1173,11 @@ void main() {
       );
       final captured = <String>[];
       final engine = BallEngine(program, stdout: captured.add);
-      engine.run();
+      await engine.run();
       expect(captured, ['captured']);
     });
 
-    test('default stdout uses print (no crash)', () {
+    test('default stdout uses print (no crash)', () async {
       final program = buildProgram(functions: [mainFn([])]);
       // Just verify it doesn't throw with default stdout
       final engine = BallEngine(program);
@@ -1185,7 +1186,7 @@ void main() {
   });
 
   group('engine: protobuf deserialization', () {
-    test('Program round-trips through proto3 JSON', () {
+    test('Program round-trips through proto3 JSON', () async {
       final program = loadProgram(
         '../../examples/hello_world/hello_world.ball.json',
       );
@@ -1197,14 +1198,14 @@ void main() {
       expect(restored.modules.length, program.modules.length);
     });
 
-    test('Program round-trips through binary protobuf', () {
+    test('Program round-trips through binary protobuf', () async {
       final program = loadProgram(
         '../../examples/fibonacci/fibonacci.ball.json',
       );
       final bytes = program.writeToBuffer();
       final restored = Program.fromBuffer(bytes);
       expect(restored.name, 'fibonacci');
-      final lines = runAndCapture(restored);
+      final lines = await runAndCapture(restored);
       expect(lines, ['55']);
     });
   });
@@ -1214,7 +1215,7 @@ void main() {
   // ══════════════════════════════════════════════════════════════
 
   group('engine: string_interpolation', () {
-    test('interpolates a list of string parts', () {
+    test('interpolates a list of string parts', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -1235,10 +1236,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['Hello, World!']);
+      expect(await runAndCapture(program), ['Hello, World!']);
     });
 
-    test('interpolates mixed types', () {
+    test('interpolates mixed types', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -1256,10 +1257,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['n = 42']);
+      expect(await runAndCapture(program), ['n = 42']);
     });
 
-    test('single value field', () {
+    test('single value field', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -1274,52 +1275,52 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['direct']);
+      expect(await runAndCapture(program), ['direct']);
     });
   });
 
   // ── Virtual property field access ─────────────────────────────────────────
 
   group('engine: field access — virtual properties on String', () {
-    test('.length', () {
+    test('.length', () async {
       final program = buildProgram(
         functions: [
           mainFn([stmt(printToString(fieldAcc(literal('hello'), 'length')))]),
         ],
       );
-      expect(runAndCapture(program), ['5']);
+      expect(await runAndCapture(program), ['5']);
     });
 
-    test('.isEmpty on empty string', () {
+    test('.isEmpty on empty string', () async {
       final program = buildProgram(
         functions: [
           mainFn([stmt(printToString(fieldAcc(literal(''), 'isEmpty')))]),
         ],
       );
-      expect(runAndCapture(program), ['true']);
+      expect(await runAndCapture(program), ['true']);
     });
 
-    test('.isEmpty on non-empty string', () {
+    test('.isEmpty on non-empty string', () async {
       final program = buildProgram(
         functions: [
           mainFn([stmt(printToString(fieldAcc(literal('hi'), 'isEmpty')))]),
         ],
       );
-      expect(runAndCapture(program), ['false']);
+      expect(await runAndCapture(program), ['false']);
     });
 
-    test('.isNotEmpty', () {
+    test('.isNotEmpty', () async {
       final program = buildProgram(
         functions: [
           mainFn([stmt(printToString(fieldAcc(literal('abc'), 'isNotEmpty')))]),
         ],
       );
-      expect(runAndCapture(program), ['true']);
+      expect(await runAndCapture(program), ['true']);
     });
   });
 
   group('engine: field access — virtual properties on List', () {
-    test('.length', () {
+    test('.length', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -1334,19 +1335,19 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['3']);
+      expect(await runAndCapture(program), ['3']);
     });
 
-    test('.isEmpty on empty list', () {
+    test('.isEmpty on empty list', () async {
       final program = buildProgram(
         functions: [
           mainFn([stmt(printToString(fieldAcc(listLit([]), 'isEmpty')))]),
         ],
       );
-      expect(runAndCapture(program), ['true']);
+      expect(await runAndCapture(program), ['true']);
     });
 
-    test('.isNotEmpty on non-empty list', () {
+    test('.isNotEmpty on non-empty list', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -1354,10 +1355,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['true']);
+      expect(await runAndCapture(program), ['true']);
     });
 
-    test('.first', () {
+    test('.first', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -1372,10 +1373,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['10']);
+      expect(await runAndCapture(program), ['10']);
     });
 
-    test('.last', () {
+    test('.last', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -1390,10 +1391,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['30']);
+      expect(await runAndCapture(program), ['30']);
     });
 
-    test('.reversed', () {
+    test('.reversed', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -1409,12 +1410,12 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['3', '1']);
+      expect(await runAndCapture(program), ['3', '1']);
     });
   });
 
   group('engine: field access — message fields', () {
-    test('access typed message fields', () {
+    test('access typed message fields', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -1430,10 +1431,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['10', '20']);
+      expect(await runAndCapture(program), ['10', '20']);
     });
 
-    test('.isEmpty on empty message', () {
+    test('.isEmpty on empty message', () async {
       // A message with no fields (except __type__) is empty-ish;
       // keys/values/isEmpty work on the map backing.
       final program = buildProgram(
@@ -1445,7 +1446,7 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['true']);
+      expect(await runAndCapture(program), ['true']);
     });
   });
 
@@ -1462,7 +1463,7 @@ void main() {
       {'name': 'unsigned_right_shift', 'isBase': true},
     ];
 
-    test('bitwise AND', () {
+    test('bitwise AND', () async {
       final p = buildProgram(
         stdFunctions: bw,
         functions: [
@@ -1478,10 +1479,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['2']);
+      expect(await runAndCapture(p), ['2']);
     });
 
-    test('bitwise OR', () {
+    test('bitwise OR', () async {
       final p = buildProgram(
         stdFunctions: bw,
         functions: [
@@ -1497,10 +1498,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['7']);
+      expect(await runAndCapture(p), ['7']);
     });
 
-    test('bitwise XOR', () {
+    test('bitwise XOR', () async {
       final p = buildProgram(
         stdFunctions: bw,
         functions: [
@@ -1516,10 +1517,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['5']);
+      expect(await runAndCapture(p), ['5']);
     });
 
-    test('bitwise NOT', () {
+    test('bitwise NOT', () async {
       final p = buildProgram(
         stdFunctions: bw,
         functions: [
@@ -1532,10 +1533,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['-1']);
+      expect(await runAndCapture(p), ['-1']);
     });
 
-    test('left shift', () {
+    test('left shift', () async {
       final p = buildProgram(
         stdFunctions: bw,
         functions: [
@@ -1551,10 +1552,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['8']);
+      expect(await runAndCapture(p), ['8']);
     });
 
-    test('right shift', () {
+    test('right shift', () async {
       final p = buildProgram(
         stdFunctions: bw,
         functions: [
@@ -1570,7 +1571,7 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['2']);
+      expect(await runAndCapture(p), ['2']);
     });
   });
 
@@ -1603,7 +1604,7 @@ void main() {
       {'name': 'string_last_index_of', 'isBase': true},
     ];
 
-    test('string_length', () {
+    test('string_length', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1619,10 +1620,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['5']);
+      expect(await runAndCapture(p), ['5']);
     });
 
-    test('string_is_empty — true', () {
+    test('string_is_empty — true', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1635,10 +1636,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['true']);
+      expect(await runAndCapture(p), ['true']);
     });
 
-    test('string_is_empty — false', () {
+    test('string_is_empty — false', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1651,10 +1652,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['false']);
+      expect(await runAndCapture(p), ['false']);
     });
 
-    test('string_to_upper', () {
+    test('string_to_upper', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1670,10 +1671,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['HELLO']);
+      expect(await runAndCapture(p), ['HELLO']);
     });
 
-    test('string_to_lower', () {
+    test('string_to_lower', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1689,10 +1690,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['world']);
+      expect(await runAndCapture(p), ['world']);
     });
 
-    test('string_trim', () {
+    test('string_trim', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1708,10 +1709,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['hi']);
+      expect(await runAndCapture(p), ['hi']);
     });
 
-    test('string_trim_start', () {
+    test('string_trim_start', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1727,10 +1728,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['hi  ']);
+      expect(await runAndCapture(p), ['hi  ']);
     });
 
-    test('string_trim_end', () {
+    test('string_trim_end', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1746,10 +1747,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['  hi']);
+      expect(await runAndCapture(p), ['  hi']);
     });
 
-    test('string_contains — true', () {
+    test('string_contains — true', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1768,10 +1769,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['true']);
+      expect(await runAndCapture(p), ['true']);
     });
 
-    test('string_starts_with — true', () {
+    test('string_starts_with — true', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1790,10 +1791,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['true']);
+      expect(await runAndCapture(p), ['true']);
     });
 
-    test('string_ends_with — true', () {
+    test('string_ends_with — true', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1812,10 +1813,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['true']);
+      expect(await runAndCapture(p), ['true']);
     });
 
-    test('string_substring', () {
+    test('string_substring', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1835,10 +1836,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['world']);
+      expect(await runAndCapture(p), ['world']);
     });
 
-    test('string_split', () {
+    test('string_split', () async {
       final splitFns = [
         ...strFns,
         {'name': 'index', 'isBase': true},
@@ -1862,10 +1863,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['3', 'b']);
+      expect(await runAndCapture(p), ['3', 'b']);
     });
 
-    test('string_replace', () {
+    test('string_replace', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1885,10 +1886,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['aaXXcc']);
+      expect(await runAndCapture(p), ['aaXXcc']);
     });
 
-    test('string_replace_all', () {
+    test('string_replace_all', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1908,10 +1909,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['ZbZb']);
+      expect(await runAndCapture(p), ['ZbZb']);
     });
 
-    test('string_repeat', () {
+    test('string_repeat', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1930,10 +1931,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['ababab']);
+      expect(await runAndCapture(p), ['ababab']);
     });
 
-    test('string_pad_left', () {
+    test('string_pad_left', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1953,10 +1954,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['0005']);
+      expect(await runAndCapture(p), ['0005']);
     });
 
-    test('string_pad_right', () {
+    test('string_pad_right', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1976,10 +1977,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['hi---']);
+      expect(await runAndCapture(p), ['hi---']);
     });
 
-    test('string_char_at', () {
+    test('string_char_at', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -1998,10 +1999,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['e']);
+      expect(await runAndCapture(p), ['e']);
     });
 
-    test('string_char_code_at + string_from_char_code round-trip', () {
+    test('string_char_code_at + string_from_char_code round-trip', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -2027,10 +2028,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['A']);
+      expect(await runAndCapture(p), ['A']);
     });
 
-    test('string_index_of', () {
+    test('string_index_of', () async {
       final p = buildProgram(
         stdFunctions: strFns,
         functions: [
@@ -2049,7 +2050,7 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['2']);
+      expect(await runAndCapture(p), ['2']);
     });
   });
 
@@ -2082,7 +2083,7 @@ void main() {
       {'name': 'math_sign', 'isBase': true},
     ];
 
-    test('math_abs', () {
+    test('math_abs', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2095,10 +2096,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['7']);
+      expect(await runAndCapture(p), ['7']);
     });
 
-    test('math_floor', () {
+    test('math_floor', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2111,10 +2112,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['3']);
+      expect(await runAndCapture(p), ['3']);
     });
 
-    test('math_ceil', () {
+    test('math_ceil', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2127,10 +2128,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['4']);
+      expect(await runAndCapture(p), ['4']);
     });
 
-    test('math_round', () {
+    test('math_round', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2143,10 +2144,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['4']);
+      expect(await runAndCapture(p), ['4']);
     });
 
-    test('math_sqrt of 25', () {
+    test('math_sqrt of 25', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2159,10 +2160,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['5.0']);
+      expect(await runAndCapture(p), ['5.0']);
     });
 
-    test('math_pow', () {
+    test('math_pow', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2181,10 +2182,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['1024.0']);
+      expect(await runAndCapture(p), ['1024.0']);
     });
 
-    test('math_min', () {
+    test('math_min', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2200,10 +2201,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['3']);
+      expect(await runAndCapture(p), ['3']);
     });
 
-    test('math_max', () {
+    test('math_max', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2219,10 +2220,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['7']);
+      expect(await runAndCapture(p), ['7']);
     });
 
-    test('math_clamp', () {
+    test('math_clamp', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2242,10 +2243,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['10']);
+      expect(await runAndCapture(p), ['10']);
     });
 
-    test('math_pi is approximately 3.14', () {
+    test('math_pi is approximately 3.14', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2265,10 +2266,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['true']);
+      expect(await runAndCapture(p), ['true']);
     });
 
-    test('math_infinity', () {
+    test('math_infinity', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2284,10 +2285,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['true']);
+      expect(await runAndCapture(p), ['true']);
     });
 
-    test('math_nan', () {
+    test('math_nan', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2303,10 +2304,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['true']);
+      expect(await runAndCapture(p), ['true']);
     });
 
-    test('math_gcd', () {
+    test('math_gcd', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2322,10 +2323,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['4']);
+      expect(await runAndCapture(p), ['4']);
     });
 
-    test('math_sign positive', () {
+    test('math_sign positive', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2338,10 +2339,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['1']);
+      expect(await runAndCapture(p), ['1']);
     });
 
-    test('math_sign negative', () {
+    test('math_sign negative', () async {
       final p = buildProgram(
         stdFunctions: mathFns,
         functions: [
@@ -2354,14 +2355,14 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['-1']);
+      expect(await runAndCapture(p), ['-1']);
     });
   });
 
   // ── for_in loop ───────────────────────────────────────────────────────────
 
   group('engine: for_in loop', () {
-    test('iterates over a list', () {
+    test('iterates over a list', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -2383,10 +2384,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['10', '20', '30']);
+      expect(await runAndCapture(program), ['10', '20', '30']);
     });
 
-    test('break inside for_in', () {
+    test('break inside for_in', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -2437,10 +2438,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['1', '2']);
+      expect(await runAndCapture(program), ['1', '2']);
     });
 
-    test('accumulates sum via for_in', () {
+    test('accumulates sum via for_in', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -2491,14 +2492,14 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['15']);
+      expect(await runAndCapture(program), ['15']);
     });
   });
 
   // ── do_while loop ─────────────────────────────────────────────────────────
 
   group('engine: do_while loop', () {
-    test('runs body at least once', () {
+    test('runs body at least once', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -2548,10 +2549,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['0', '1', '2']);
+      expect(await runAndCapture(program), ['0', '1', '2']);
     });
 
-    test('runs body once even if condition false', () {
+    test('runs body once even if condition false', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -2571,14 +2572,14 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['once']);
+      expect(await runAndCapture(program), ['once']);
     });
   });
 
   // ── switch statement (lazy) ───────────────────────────────────────────────
 
   group('engine: switch statement', () {
-    test('matches a case', () {
+    test('matches a case', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -2623,10 +2624,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['two']);
+      expect(await runAndCapture(program), ['two']);
     });
 
-    test('falls through to default', () {
+    test('falls through to default', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -2663,10 +2664,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['default']);
+      expect(await runAndCapture(program), ['default']);
     });
 
-    test('no match and no default produces no output', () {
+    test('no match and no default produces no output', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -2696,7 +2697,7 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['done']);
+      expect(await runAndCapture(program), ['done']);
     });
   });
 
@@ -2707,7 +2708,7 @@ void main() {
       {'name': 'switch_expr', 'isBase': true},
     ];
 
-    test('matches string pattern', () {
+    test('matches string pattern', () async {
       final p = buildProgram(
         stdFunctions: switchFn,
         functions: [
@@ -2743,10 +2744,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['two']);
+      expect(await runAndCapture(p), ['two']);
     });
 
-    test('default wildcard _', () {
+    test('default wildcard _', () async {
       final p = buildProgram(
         stdFunctions: switchFn,
         functions: [
@@ -2778,10 +2779,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['default']);
+      expect(await runAndCapture(p), ['default']);
     });
 
-    test('type pattern — int', () {
+    test('type pattern — int', () async {
       final p = buildProgram(
         stdFunctions: switchFn,
         functions: [
@@ -2817,10 +2818,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['is int']);
+      expect(await runAndCapture(p), ['is int']);
     });
 
-    test('type pattern — String', () {
+    test('type pattern — String', () async {
       final p = buildProgram(
         stdFunctions: switchFn,
         functions: [
@@ -2852,10 +2853,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['is string']);
+      expect(await runAndCapture(p), ['is string']);
     });
 
-    test('exact value equality (int)', () {
+    test('exact value equality (int)', () async {
       final p = buildProgram(
         stdFunctions: switchFn,
         functions: [
@@ -2887,14 +2888,14 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['seven']);
+      expect(await runAndCapture(p), ['seven']);
     });
   });
 
   // ── try / catch / finally ────────────────────────────────────────────────
 
   group('engine: try/catch/finally', () {
-    test('finally runs even without throw', () {
+    test('finally runs even without throw', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -2918,10 +2919,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['try', 'finally']);
+      expect(await runAndCapture(program), ['try', 'finally']);
     });
 
-    test('catch handles thrown exception', () {
+    test('catch handles thrown exception', () async {
       final throwFns = [
         {'name': 'throw', 'isBase': true},
       ];
@@ -2965,10 +2966,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['caught', 'after']);
+      expect(await runAndCapture(program), ['caught', 'after']);
     });
 
-    test('catch + finally', () {
+    test('catch + finally', () async {
       final throwFns = [
         {'name': 'throw', 'isBase': true},
       ];
@@ -3016,10 +3017,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['caught', 'finally']);
+      expect(await runAndCapture(program), ['caught', 'finally']);
     });
 
-    test('uncaught throw propagates', () {
+    test('uncaught throw propagates', () async {
       final throwFns = [
         {'name': 'throw', 'isBase': true},
       ];
@@ -3031,10 +3032,10 @@ void main() {
           ]),
         ],
       );
-      expect(() => runAndCapture(program), throwsA(isA<BallException>()));
+      await expectLater(runAndCapture(program), throwsA(isA<BallException>()));
     });
 
-    test('rethrow re-raises caught exception', () {
+    test('rethrow re-raises caught exception', () async {
       final fns = [
         {'name': 'throw', 'isBase': true},
         {'name': 'rethrow', 'isBase': true},
@@ -3115,10 +3116,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['boom']);
+      expect(await runAndCapture(program), ['boom']);
     });
 
-    test('rethrow outside catch throws runtime error', () {
+    test('rethrow outside catch throws runtime error', () async {
       final fns = [
         {'name': 'rethrow', 'isBase': true},
       ];
@@ -3130,10 +3131,10 @@ void main() {
           ]),
         ],
       );
-      expect(() => runAndCapture(program), throwsA(isA<BallRuntimeError>()));
+      await expectLater(runAndCapture(program), throwsA(isA<BallRuntimeError>()));
     });
 
-    test('typed catch matches by exception type', () {
+    test('typed catch matches by exception type', () async {
       final fns = [
         {'name': 'throw', 'isBase': true},
       ];
@@ -3194,10 +3195,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['right']);
+      expect(await runAndCapture(program), ['right']);
     });
 
-    test('untyped catch catches all', () {
+    test('untyped catch catches all', () async {
       final fns = [
         {'name': 'throw', 'isBase': true},
       ];
@@ -3244,7 +3245,7 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['handled']);
+      expect(await runAndCapture(program), ['handled']);
     });
   });
 
@@ -3255,7 +3256,7 @@ void main() {
   // that contract so future changes can't silently regress the simulation.
 
   group('engine: async and await', () {
-    test('async function result wraps in BallFuture', () {
+    test('async function result wraps in BallFuture', () async {
       // function get42() is_async → returns 42; the caller observes a
       // BallFuture holding 42.
       final program = buildProgram(
@@ -3277,13 +3278,13 @@ void main() {
           ]),
         ],
       );
-      final out = runAndCapture(program);
+      final out = await runAndCapture(program);
       expect(out.length, 1);
       expect(out[0], contains('BallFuture'));
       expect(out[0], contains('42'));
     });
 
-    test('await unwraps a BallFuture', () {
+    test('await unwraps a BallFuture', () async {
       final program = buildProgram(
         stdFunctions: [{'name': 'await', 'isBase': true}],
         functions: [
@@ -3306,10 +3307,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['42']);
+      expect(await runAndCapture(program), ['42']);
     });
 
-    test('await recursively unwraps nested BallFutures', () {
+    test('await recursively unwraps nested BallFutures', () async {
       // inner() is_async returns 7 → BallFuture(7).
       // outer() is_async returns inner() → BallFuture(BallFuture(7)).
       // `await outer()` must yield 7, not BallFuture(7).
@@ -3345,10 +3346,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['7']);
+      expect(await runAndCapture(program), ['7']);
     });
 
-    test('await on a non-future value passes through', () {
+    test('await on a non-future value passes through', () async {
       final program = buildProgram(
         stdFunctions: [{'name': 'await', 'isBase': true}],
         functions: [
@@ -3361,10 +3362,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['99']);
+      expect(await runAndCapture(program), ['99']);
     });
 
-    test('async function throw propagates through await', () {
+    test('async function throw propagates through await', () async {
       // Even though the async wrapping happens on successful return, a
       // throw inside an async body must still escape the `await` site.
       final fns = [
@@ -3426,14 +3427,14 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['kapow']);
+      expect(await runAndCapture(program), ['kapow']);
     });
   });
 
   // ── break and continue ───────────────────────────────────────────────────
 
   group('engine: break and continue', () {
-    test('break exits for loop early', () {
+    test('break exits for loop early', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -3509,10 +3510,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['0', '1', '2']);
+      expect(await runAndCapture(program), ['0', '1', '2']);
     });
 
-    test('continue skips iteration', () {
+    test('continue skips iteration', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -3588,10 +3589,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['0', '1', '3', '4']);
+      expect(await runAndCapture(program), ['0', '1', '3', '4']);
     });
 
-    test('break in while loop', () {
+    test('break in while loop', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -3656,7 +3657,7 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['0', '1', '2']);
+      expect(await runAndCapture(program), ['0', '1', '2']);
     });
   });
 
@@ -3667,7 +3668,7 @@ void main() {
       {'name': 'invoke', 'isBase': true},
     ];
 
-    test('lambda with single input param', () {
+    test('lambda with single input param', () async {
       final p = buildProgram(
         stdFunctions: invokeFns,
         functions: [
@@ -3699,10 +3700,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['6']);
+      expect(await runAndCapture(p), ['6']);
     });
 
-    test('closure captures enclosing variable', () {
+    test('closure captures enclosing variable', () async {
       final p = buildProgram(
         stdFunctions: invokeFns,
         functions: [
@@ -3735,10 +3736,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['107']);
+      expect(await runAndCapture(p), ['107']);
     });
 
-    test('lambda with no arguments (null input)', () {
+    test('lambda with no arguments (null input)', () async {
       final p = buildProgram(
         stdFunctions: invokeFns,
         functions: [
@@ -3752,10 +3753,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['hello!']);
+      expect(await runAndCapture(p), ['hello!']);
     });
 
-    test('lambda returned from function', () {
+    test('lambda returned from function', () async {
       final p = buildProgram(
         stdFunctions: invokeFns,
         functions: [
@@ -3790,7 +3791,7 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['15']);
+      expect(await runAndCapture(p), ['15']);
     });
   });
 
@@ -3801,7 +3802,7 @@ void main() {
       {'name': 'index', 'isBase': true},
     ];
 
-    test('index into list', () {
+    test('index into list', () async {
       final p = buildProgram(
         stdFunctions: indexFns,
         functions: [
@@ -3811,20 +3812,20 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['20']);
+      expect(await runAndCapture(p), ['20']);
     });
 
-    test('index into string', () {
+    test('index into string', () async {
       final p = buildProgram(
         stdFunctions: indexFns,
         functions: [
           mainFn([stmt(printExpr(indexExpr(literal('hello'), literal(0))))]),
         ],
       );
-      expect(runAndCapture(p), ['h']);
+      expect(await runAndCapture(p), ['h']);
     });
 
-    test('index set (list mutation)', () {
+    test('index set (list mutation)', () async {
       final p = buildProgram(
         stdFunctions: indexFns,
         functions: [
@@ -3847,14 +3848,14 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['99']);
+      expect(await runAndCapture(p), ['99']);
     });
   });
 
   // ── compound assign ───────────────────────────────────────────────────────
 
   group('engine: compound assign', () {
-    test('+= operator', () {
+    test('+= operator', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -3873,10 +3874,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['15']);
+      expect(await runAndCapture(program), ['15']);
     });
 
-    test('-= operator', () {
+    test('-= operator', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -3895,10 +3896,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['7']);
+      expect(await runAndCapture(program), ['7']);
     });
 
-    test('*= operator', () {
+    test('*= operator', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -3917,10 +3918,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['12']);
+      expect(await runAndCapture(program), ['12']);
     });
 
-    test('??= operator — assigns when null', () {
+    test('??= operator — assigns when null', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -3939,14 +3940,14 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['42']);
+      expect(await runAndCapture(program), ['42']);
     });
   });
 
   // ── pre/post increment and decrement ──────────────────────────────────────
 
   group('engine: increment and decrement', () {
-    test('pre_increment returns new value and mutates', () {
+    test('pre_increment returns new value and mutates', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -3960,10 +3961,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['6', '6']);
+      expect(await runAndCapture(program), ['6', '6']);
     });
 
-    test('post_increment returns old value but mutates', () {
+    test('post_increment returns old value but mutates', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -3977,10 +3978,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['5', '6']);
+      expect(await runAndCapture(program), ['5', '6']);
     });
 
-    test('pre_decrement returns new value and mutates', () {
+    test('pre_decrement returns new value and mutates', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -3994,10 +3995,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['2', '2']);
+      expect(await runAndCapture(program), ['2', '2']);
     });
 
-    test('post_decrement returns old value but mutates', () {
+    test('post_decrement returns old value but mutates', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -4011,7 +4012,7 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['3', '2']);
+      expect(await runAndCapture(program), ['3', '2']);
     });
   });
 
@@ -4024,7 +4025,7 @@ void main() {
       {'name': 'null_aware_access', 'isBase': true},
     ];
 
-    test('null_coalesce returns right when left is null', () {
+    test('null_coalesce returns right when left is null', () async {
       final p = buildProgram(
         stdFunctions: nullFns,
         functions: [
@@ -4041,10 +4042,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['42']);
+      expect(await runAndCapture(p), ['42']);
     });
 
-    test('null_coalesce returns left when not null', () {
+    test('null_coalesce returns left when not null', () async {
       final p = buildProgram(
         stdFunctions: nullFns,
         functions: [
@@ -4061,10 +4062,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['7']);
+      expect(await runAndCapture(p), ['7']);
     });
 
-    test('null_check passes through non-null', () {
+    test('null_check passes through non-null', () async {
       final p = buildProgram(
         stdFunctions: nullFns,
         functions: [
@@ -4077,10 +4078,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['5']);
+      expect(await runAndCapture(p), ['5']);
     });
 
-    test('null_aware_access returns null on null target', () {
+    test('null_aware_access returns null on null target', () async {
       final p = buildProgram(
         stdFunctions: nullFns,
         functions: [
@@ -4109,7 +4110,7 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['-1']);
+      expect(await runAndCapture(p), ['-1']);
     });
   });
 
@@ -4122,7 +4123,7 @@ void main() {
       {'name': 'as', 'isBase': true},
     ];
 
-    test('is int — true', () {
+    test('is int — true', () async {
       final p = buildProgram(
         stdFunctions: typeFns,
         functions: [
@@ -4141,10 +4142,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['true']);
+      expect(await runAndCapture(p), ['true']);
     });
 
-    test('is String — false for int', () {
+    test('is String — false for int', () async {
       final p = buildProgram(
         stdFunctions: typeFns,
         functions: [
@@ -4163,10 +4164,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['false']);
+      expect(await runAndCapture(p), ['false']);
     });
 
-    test('is_not int — false for int', () {
+    test('is_not int — false for int', () async {
       final p = buildProgram(
         stdFunctions: typeFns,
         functions: [
@@ -4185,10 +4186,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['false']);
+      expect(await runAndCapture(p), ['false']);
     });
 
-    test('is bool — true', () {
+    test('is bool — true', () async {
       final p = buildProgram(
         stdFunctions: typeFns,
         functions: [
@@ -4207,10 +4208,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['true']);
+      expect(await runAndCapture(p), ['true']);
     });
 
-    test('is List — true', () {
+    test('is List — true', () async {
       final p = buildProgram(
         stdFunctions: typeFns,
         functions: [
@@ -4229,10 +4230,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['true']);
+      expect(await runAndCapture(p), ['true']);
     });
 
-    test('as is a no-op passthrough', () {
+    test('as is a no-op passthrough', () async {
       final p = buildProgram(
         stdFunctions: typeFns,
         functions: [
@@ -4243,7 +4244,7 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['42']);
+      expect(await runAndCapture(p), ['42']);
     });
   });
 
@@ -4256,7 +4257,7 @@ void main() {
       {'name': 'index', 'isBase': true},
     ];
 
-    test('map_create builds a map accessible by key', () {
+    test('map_create builds a map accessible by key', () async {
       final p = buildProgram(
         stdFunctions: collFns,
         functions: [
@@ -4287,10 +4288,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['1', '2']);
+      expect(await runAndCapture(p), ['1', '2']);
     });
 
-    test('set_create from list', () {
+    test('set_create from list', () async {
       final p = buildProgram(
         stdFunctions: collFns,
         functions: [
@@ -4311,14 +4312,14 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['3']); // duplicates removed
+      expect(await runAndCapture(p), ['3']); // duplicates removed
     });
   });
 
   // ── short-circuit logic ───────────────────────────────────────────────────
 
   group('engine: short-circuit and / or', () {
-    test('and: false && _ = false (does not eval right)', () {
+    test('and: false && _ = false (does not eval right)', () async {
       // If right side were evaluated it would throw (undefined var)
       // — short-circuit prevents that.
       final program = buildProgram(
@@ -4338,10 +4339,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['false']);
+      expect(await runAndCapture(program), ['false']);
     });
 
-    test('and: true && true = true', () {
+    test('and: true && true = true', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -4359,10 +4360,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['true']);
+      expect(await runAndCapture(program), ['true']);
     });
 
-    test('or: true || _ = true', () {
+    test('or: true || _ = true', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -4380,10 +4381,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['true']);
+      expect(await runAndCapture(program), ['true']);
     });
 
-    test('or: false || false = false', () {
+    test('or: false || false = false', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -4401,25 +4402,25 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['false']);
+      expect(await runAndCapture(program), ['false']);
     });
   });
 
   // ── profiling ─────────────────────────────────────────────────────────────
 
   group('engine: profiling', () {
-    test('profiling disabled by default — report is empty', () {
+    test('profiling disabled by default — report is empty', () async {
       final program = buildProgram(
         functions: [
           mainFn([stmt(printStr('x'))]),
         ],
       );
       final engine = BallEngine(program, stdout: (_) {});
-      engine.run();
+      await engine.run();
       expect(engine.profilingReport(), isEmpty);
     });
 
-    test('profiling enabled — counts std function calls', () {
+    test('profiling enabled — counts std function calls', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -4437,24 +4438,24 @@ void main() {
         ],
       );
       final engine = BallEngine(program, stdout: (_) {}, enableProfiling: true);
-      engine.run();
+      await engine.run();
       final report = engine.profilingReport();
       expect(report['print'], 3);
       expect(report['add'], 1);
       expect(report['to_string'], 1);
     });
 
-    test('profilingReport is unmodifiable', () {
+    test('profilingReport is unmodifiable', () async {
       final program = buildProgram(functions: [mainFn([])]);
       final engine = BallEngine(program, enableProfiling: true);
-      engine.run();
+      await engine.run();
       expect(
         () => engine.profilingReport()['x'] = 1,
         throwsA(isA<UnsupportedError>()),
       );
     });
 
-    test('profiling counts string ops correctly', () {
+    test('profiling counts string ops correctly', () async {
       final strFns = [
         {'name': 'string_to_upper', 'isBase': true},
         {'name': 'string_to_lower', 'isBase': true},
@@ -4488,7 +4489,7 @@ void main() {
         ],
       );
       final engine = BallEngine(program, stdout: (_) {}, enableProfiling: true);
-      engine.run();
+      await engine.run();
       final report = engine.profilingReport();
       expect(report['string_to_upper'], 2);
       expect(report['string_to_lower'], 1);
@@ -4498,7 +4499,7 @@ void main() {
   // ── call cache ────────────────────────────────────────────────────────────
 
   group('engine: call cache', () {
-    test('repeated calls to user function produce correct results', () {
+    test('repeated calls to user function produce correct results', () async {
       final program = buildProgram(
         functions: [
           functionDef(
@@ -4521,10 +4522,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['4', '9', '16', '100']);
+      expect(await runAndCapture(program), ['4', '9', '16', '100']);
     });
 
-    test('call cache handles multiple distinct functions', () {
+    test('call cache handles multiple distinct functions', () async {
       final program = buildProgram(
         functions: [
           functionDef(
@@ -4557,14 +4558,14 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['10', '15', '14', '21']);
+      expect(await runAndCapture(program), ['10', '15', '14', '21']);
     });
   });
 
   // ── block with result expression ──────────────────────────────────────────
 
   group('engine: block with result', () {
-    test('block evaluates result expression', () {
+    test('block evaluates result expression', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -4584,14 +4585,14 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['7']);
+      expect(await runAndCapture(program), ['7']);
     });
   });
 
   // ── list literal operations ───────────────────────────────────────────────
 
   group('engine: list literals', () {
-    test('creates and accesses list', () {
+    test('creates and accesses list', () async {
       final indexFns = [
         {'name': 'index', 'isBase': true},
       ];
@@ -4606,10 +4607,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['3', '10', '30']);
+      expect(await runAndCapture(program), ['3', '10', '30']);
     });
 
-    test('empty list has length 0 and isEmpty true', () {
+    test('empty list has length 0 and isEmpty true', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -4619,7 +4620,7 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(program), ['0', 'true']);
+      expect(await runAndCapture(program), ['0', 'true']);
     });
   });
 
@@ -4724,20 +4725,20 @@ void main() {
       return Program()..mergeFromProto3Json(json);
     }
 
-    test('composition-only module resolves cross-module calls correctly', () {
-      final lines = runAndCapture(buildCompositionProgram());
+    test('composition-only module resolves cross-module calls correctly', () async {
+      final lines = await runAndCapture(buildCompositionProgram());
       expect(lines[0], '5.0');
       expect(lines[1], '81.0');
     });
 
-    test('no handler registration required for composition-only module', () {
+    test('no handler registration required for composition-only module', () async {
       // Default engine — only StdModuleHandler registered.
       // geometry has no isBase functions, so no handler is needed for it.
       final engine = BallEngine(buildCompositionProgram(), stdout: (_) {});
       expect(engine.run, returnsNormally);
     });
 
-    test('composition-only module chains multiple levels deep', () {
+    test('composition-only module chains multiple levels deep', () async {
       // cube(n) = square(n) * n  — calls geometry.square which calls std.multiply
       final json = {
         'name': 'test',
@@ -4801,12 +4802,12 @@ void main() {
         'entryFunction': 'main',
       };
       final prog = Program()..mergeFromProto3Json(json);
-      expect(runAndCapture(prog), ['27']);
+      expect(await runAndCapture(prog), ['27']);
     });
   });
 
   group('engine: BallCallable — handler-to-handler composition', () {
-    test('custom handler delegates to std via BallCallable', () {
+    test('custom handler delegates to std via BallCallable', () async {
       // 'mymath' handler computes abs_diff(a,b) = std.abs(std.subtract(a,b))
       // using the BallCallable engine callback.
       final mymath = _ComposingHandler();
@@ -4865,11 +4866,11 @@ void main() {
         'entryFunction': 'main',
       };
       final prog = Program()..mergeFromProto3Json(json);
-      final lines = runAndCapture(prog, handlers: [StdModuleHandler(), mymath]);
+      final lines = await runAndCapture(prog, handlers: [StdModuleHandler(), mymath]);
       expect(lines, ['7', '7']);
     });
 
-    test('BallCallable can call user-defined functions too', () {
+    test('BallCallable can call user-defined functions too', () async {
       // userFn 'double_it' is user-defined; handler calls it via engine().
       final delegateHandler = _UserFnDelegateHandler();
       final json = {
@@ -4921,7 +4922,7 @@ void main() {
         'entryFunction': 'main',
       };
       final prog = Program()..mergeFromProto3Json(json);
-      final lines = runAndCapture(
+      final lines = await runAndCapture(
         prog,
         handlers: [StdModuleHandler(), delegateHandler],
       );
@@ -4930,14 +4931,14 @@ void main() {
   });
 
   group('engine: StdModuleHandler.registerComposer', () {
-    test('registerComposer can call back into std', () {
+    test('registerComposer can call back into std', () async {
       final std = StdModuleHandler()
-        ..registerComposer('sum_of_squares', (input, engine) {
+        ..registerComposer('sum_of_squares', (input, engine) async {
           final m = input as Map<String, Object?>;
           final a = m['a'] as num;
           final b = m['b'] as num;
-          final a2 = engine('std', 'multiply', {'left': a, 'right': a}) as num;
-          final b2 = engine('std', 'multiply', {'left': b, 'right': b}) as num;
+          final a2 = await engine('std', 'multiply', {'left': a, 'right': a}) as num;
+          final b2 = await engine('std', 'multiply', {'left': b, 'right': b}) as num;
           return a2 + b2;
         });
       final json = {
@@ -4974,11 +4975,11 @@ void main() {
       };
       final prog = Program()..mergeFromProto3Json(json);
       final lines = <String>[];
-      BallEngine(prog, stdout: lines.add, moduleHandlers: [std]).run();
+      await BallEngine(prog, stdout: lines.add, moduleHandlers: [std]).run();
       expect(lines, ['25']); // 3^2 + 4^2 = 25
     });
 
-    test('registerComposer overrides a built-in', () {
+    test('registerComposer overrides a built-in', () async {
       // Override 'add' to always sum via multiply (nonsensical but verifiable)
       final std = StdModuleHandler()
         ..registerComposer('add', (input, engine) {
@@ -5000,16 +5001,16 @@ void main() {
         ],
       );
       final lines = <String>[];
-      BallEngine(program, stdout: lines.add, moduleHandlers: [std]).run();
+      await BallEngine(program, stdout: lines.add, moduleHandlers: [std]).run();
       expect(lines, ['99']);
     });
 
-    test('registerComposer and register coexist', () {
+    test('registerComposer and register coexist', () async {
       final std = StdModuleHandler()
         ..register('my_const', (_) => 42)
         ..registerComposer(
           'my_doubled',
-          (input, engine) => (engine('std', 'my_const', null) as int) * 2,
+          (input, engine) async => (await engine('std', 'my_const', null) as int) * 2,
         );
       final json = {
         'name': 'test',
@@ -5039,13 +5040,13 @@ void main() {
       };
       final prog = Program()..mergeFromProto3Json(json);
       final lines = <String>[];
-      BallEngine(prog, stdout: lines.add, moduleHandlers: [std]).run();
+      await BallEngine(prog, stdout: lines.add, moduleHandlers: [std]).run();
       expect(lines, ['42', '84']);
     });
   });
 
   group('engine: callFunction() public bridge', () {
-    test('callFunction invokes a user-defined function', () {
+    test('callFunction invokes a user-defined function', () async {
       final program = buildProgram(
         functions: [
           functionDef(
@@ -5063,27 +5064,27 @@ void main() {
         ],
       );
       final engine = BallEngine(program, stdout: (_) {});
-      engine.run(); // initialise
-      expect(engine.callFunction('main', 'triple', 7), 21);
+      await engine.run(); // initialise
+      expect(await engine.callFunction('main', 'triple', 7), 21);
     });
 
-    test('callFunction invokes a std base function', () {
+    test('callFunction invokes a std base function', () async {
       final program = buildProgram(functions: [mainFn([])]);
       final engine = BallEngine(program, stdout: (_) {});
-      engine.run();
-      final result = engine.callFunction('std', 'add', {
+      await engine.run();
+      final result = await engine.callFunction('std', 'add', {
         'left': 10,
         'right': 32,
       });
       expect(result, 42);
     });
 
-    test('callFunction throws BallRuntimeError for unknown function', () {
+    test('callFunction throws BallRuntimeError for unknown function', () async {
       final program = buildProgram(functions: [mainFn([])]);
       final engine = BallEngine(program, stdout: (_) {});
-      engine.run();
-      expect(
-        () => engine.callFunction('main', 'nonexistent', null),
+      await engine.run();
+      await expectLater(
+        engine.callFunction('main', 'nonexistent', null),
         throwsA(isA<BallRuntimeError>()),
       );
     });
@@ -5145,7 +5146,7 @@ void main() {
       return Program()..mergeFromProto3Json(json);
     }
 
-    test('custom BallModuleHandler handles a new module', () {
+    test('custom BallModuleHandler handles a new module', () async {
       final math2 = _Math2Handler();
       final lines = <String>[];
       final engine = BallEngine(
@@ -5153,11 +5154,11 @@ void main() {
         stdout: lines.add,
         moduleHandlers: [StdModuleHandler(), math2],
       );
-      engine.run();
+      await engine.run();
       expect(lines, ['14', '25']);
     });
 
-    test('custom handler is queried before unknown-module error', () {
+    test('custom handler is queried before unknown-module error', () async {
       final math2 = _Math2Handler();
       // Add math2 module to the std module list so the program compiles:
       final json = {
@@ -5195,7 +5196,7 @@ void main() {
       };
       final prog = Program()..mergeFromProto3Json(json);
       final lines = <String>[];
-      BallEngine(
+      await BallEngine(
         prog,
         stdout: lines.add,
         moduleHandlers: [StdModuleHandler(), math2],
@@ -5203,7 +5204,7 @@ void main() {
       expect(lines, ['6']);
     });
 
-    test('throws BallRuntimeError when no handler matches the module', () {
+    test('throws BallRuntimeError when no handler matches the module', () async {
       final json = {
         'name': 'test',
         'version': '1.0.0',
@@ -5225,15 +5226,15 @@ void main() {
         'entryFunction': 'main',
       };
       final prog = Program()..mergeFromProto3Json(json);
-      expect(
-        () => BallEngine(prog, moduleHandlers: [StdModuleHandler()]).run(),
+      await expectLater(
+        BallEngine(prog, moduleHandlers: [StdModuleHandler()]).run(),
         throwsA(isA<BallRuntimeError>()),
       );
     });
   });
 
   group('engine: StdModuleHandler customisation', () {
-    test('register adds a new std function', () {
+    test('register adds a new std function', () async {
       final stdHandler = StdModuleHandler()
         ..register('double_str', (input) {
           final v = (input as Map<String, Object?>)['value'] as String;
@@ -5268,11 +5269,11 @@ void main() {
       };
       final prog = Program()..mergeFromProto3Json(json);
       final lines = <String>[];
-      BallEngine(prog, stdout: lines.add, moduleHandlers: [stdHandler]).run();
+      await BallEngine(prog, stdout: lines.add, moduleHandlers: [stdHandler]).run();
       expect(lines, ['hihi']);
     });
 
-    test('register overrides an existing function', () {
+    test('register overrides an existing function', () async {
       final stdHandler = StdModuleHandler()
         ..register('add', (_) => 999); // always returns 999
       final program = buildProgram(
@@ -5290,7 +5291,7 @@ void main() {
         ],
       );
       final lines = <String>[];
-      BallEngine(
+      await BallEngine(
         program,
         stdout: lines.add,
         moduleHandlers: [stdHandler],
@@ -5298,7 +5299,7 @@ void main() {
       expect(lines, ['999']);
     });
 
-    test('unregister removes a function — subsequent call throws', () {
+    test('unregister removes a function — subsequent call throws', () async {
       final stdHandler = StdModuleHandler()..unregister('negate');
       final program = buildProgram(
         functions: [
@@ -5307,13 +5308,13 @@ void main() {
           ]),
         ],
       );
-      expect(
-        () => BallEngine(program, moduleHandlers: [stdHandler]).run(),
+      await expectLater(
+        BallEngine(program, moduleHandlers: [stdHandler]).run(),
         throwsA(isA<BallRuntimeError>()),
       );
     });
 
-    test('StdModuleHandler.subset only exposes named functions', () {
+    test('StdModuleHandler.subset only exposes named functions', () async {
       final stdHandler = StdModuleHandler.subset({'print', 'add', 'to_string'});
       // Calling an excluded function should throw.
       final program = buildProgram(
@@ -5323,13 +5324,13 @@ void main() {
           ]),
         ],
       );
-      expect(
-        () => BallEngine(program, moduleHandlers: [stdHandler]).run(),
+      await expectLater(
+        BallEngine(program, moduleHandlers: [stdHandler]).run(),
         throwsA(isA<BallRuntimeError>()),
       );
     });
 
-    test('StdModuleHandler.subset allows included functions', () {
+    test('StdModuleHandler.subset allows included functions', () async {
       final stdHandler = StdModuleHandler.subset({'print', 'add', 'to_string'});
       final program = buildProgram(
         functions: [
@@ -5346,7 +5347,7 @@ void main() {
         ],
       );
       final lines = <String>[];
-      BallEngine(
+      await BallEngine(
         program,
         stdout: lines.add,
         moduleHandlers: [stdHandler],
@@ -5354,7 +5355,7 @@ void main() {
       expect(lines, ['7']);
     });
 
-    test('registeredFunctions returns current key set', () {
+    test('registeredFunctions returns current key set', () async {
       final h = StdModuleHandler.subset({'print', 'add'});
       final program = buildProgram(functions: [mainFn([])]);
       BallEngine(program, moduleHandlers: [h]); // triggers init
@@ -5362,7 +5363,7 @@ void main() {
       expect(h.registeredFunctions, isNot(contains('negate')));
     });
 
-    test('multiple handlers — first match wins', () {
+    test('multiple handlers — first match wins', () async {
       // Two handlers both claiming 'std'; the first one's result is used.
       // We prove this by having first return a constant for 'add' and
       // checking the output reflects that constant, not the real add result.
@@ -5384,7 +5385,7 @@ void main() {
         ],
       );
       final lines = <String>[];
-      BallEngine(
+      await BallEngine(
         program,
         stdout: lines.add,
         moduleHandlers: [overrideStd, normalStd], // overrideStd wins
@@ -5392,7 +5393,7 @@ void main() {
       expect(lines, ['999']); // first handler's result, not 3
     });
 
-    test('spy handler counts calls while forwarding to delegate', () {
+    test('spy handler counts calls while forwarding to delegate', () async {
       int calls = 0;
       final spy = _CountingHandler('std', () => calls++, StdModuleHandler());
       final program = buildProgram(
@@ -5405,7 +5406,7 @@ void main() {
         ],
       );
       final lines = <String>[];
-      BallEngine(program, stdout: lines.add, moduleHandlers: [spy]).run();
+      await BallEngine(program, stdout: lines.add, moduleHandlers: [spy]).run();
       expect(lines, ['a', 'b', 'c']); // delegation worked
       expect(
         calls,
@@ -5413,7 +5414,7 @@ void main() {
       ); // at minimum 3 print calls counted
     });
 
-    test('dart_std module also handled by StdModuleHandler', () {
+    test('dart_std module also handled by StdModuleHandler', () async {
       final json = {
         'name': 'test',
         'version': '1.0.0',
@@ -5444,7 +5445,7 @@ void main() {
       };
       final prog = Program()..mergeFromProto3Json(json);
       final lines = <String>[];
-      BallEngine(prog, stdout: lines.add).run();
+      await BallEngine(prog, stdout: lines.add).run();
       expect(lines, ['dart_std works!']);
     });
   });
@@ -5460,16 +5461,16 @@ void main() {
       );
     });
 
-    test('loads successfully', () {
+    test('loads successfully', () async {
       expect(program.name, isNotEmpty);
       expect(program.modules, isNotEmpty);
     });
 
-    test('engine runs or throws BallRuntimeError (no Dart errors)', () {
+    test('engine runs or throws BallRuntimeError (no Dart errors)', () async {
       // comprehensive.ball.json uses enums and advanced constructs that may
       // not yet be fully supported — we verify no Dart-level exception leaks.
       try {
-        runAndCapture(program);
+        await runAndCapture(program);
       } on BallRuntimeError {
         // Expected for unsupported constructs (e.g. enums, class instances).
       }
@@ -5509,7 +5510,7 @@ void main() {
       {'name': 'set_length', 'isBase': true},
     ];
 
-    test('list_push and list_length', () {
+    test('list_push and list_length', () async {
       final p = buildProgram(
         stdFunctions: collectionFns,
         functions: [
@@ -5532,10 +5533,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['3']);
+      expect(await runAndCapture(p), ['3']);
     });
 
-    test('list_pop returns last element', () {
+    test('list_pop returns last element', () async {
       final p = buildProgram(
         stdFunctions: collectionFns,
         functions: [
@@ -5556,10 +5557,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['6']);
+      expect(await runAndCapture(p), ['6']);
     });
 
-    test('list_get and list_set', () {
+    test('list_get and list_set', () async {
       final p = buildProgram(
         stdFunctions: collectionFns,
         functions: [
@@ -5592,10 +5593,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['99']);
+      expect(await runAndCapture(p), ['99']);
     });
 
-    test('list_map, list_filter, and list_reduce', () {
+    test('list_map, list_filter, and list_reduce', () async {
       final p = buildProgram(
         stdFunctions: collectionFns,
         functions: [
@@ -5685,10 +5686,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['6', '2', '10']);
+      expect(await runAndCapture(p), ['6', '2', '10']);
     });
 
-    test('list_any, list_all, and list_none', () {
+    test('list_any, list_all, and list_none', () async {
       final predicate = lambdaExpr(
         stdCall(
           'greater_than',
@@ -5745,10 +5746,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['true', 'true', 'true']);
+      expect(await runAndCapture(p), ['true', 'true', 'true']);
     });
 
-    test('map_get, map_set, map_delete, and map_length', () {
+    test('map_get, map_set, map_delete, and map_length', () async {
       final p = buildProgram(
         stdFunctions: collectionFns,
         functions: [
@@ -5796,10 +5797,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['3', 'true', '2']);
+      expect(await runAndCapture(p), ['3', 'true', '2']);
     });
 
-    test('map_keys, map_values, and string_join', () {
+    test('map_keys, map_values, and string_join', () async {
       final p = buildProgram(
         stdFunctions: collectionFns,
         functions: [
@@ -5826,10 +5827,10 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['2', '2', 'a-b']);
+      expect(await runAndCapture(p), ['2', '2', 'a-b']);
     });
 
-    test('set_create, set_add, set_union, and set_length', () {
+    test('set_create, set_add, set_union, and set_length', () async {
       final p = buildProgram(
         stdFunctions: collectionFns,
         functions: [
@@ -5888,7 +5889,7 @@ void main() {
           ]),
         ],
       );
-      expect(runAndCapture(p), ['true', '4']);
+      expect(await runAndCapture(p), ['true', '4']);
     });
   });
 
@@ -5897,7 +5898,7 @@ void main() {
   // ==========================================================================
 
   group('engine: std_io module', () {
-    test('print_error writes to stderr', () {
+    test('print_error writes to stderr', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -5916,11 +5917,11 @@ void main() {
       );
       final errLines = <String>[];
       final engine = BallEngine(program, stdout: (_) {}, stderr: errLines.add);
-      engine.run();
+      await engine.run();
       expect(errLines, contains('error msg'));
     });
 
-    test('timestamp_ms returns epoch ms', () {
+    test('timestamp_ms returns epoch ms', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -5932,13 +5933,13 @@ void main() {
           {'name': 'timestamp_ms', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       expect(lines, hasLength(1));
       final ts = int.parse(lines.first);
       expect(ts, greaterThan(1000000000000)); // after 2001
     });
 
-    test('random_int returns value in range', () {
+    test('random_int returns value in range', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -5960,12 +5961,12 @@ void main() {
           {'name': 'random_int', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       final val = int.parse(lines.first);
       expect(val, inInclusiveRange(1, 10));
     });
 
-    test('random_double returns value in [0, 1)', () {
+    test('random_double returns value in [0, 1)', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -5977,13 +5978,13 @@ void main() {
           {'name': 'random_double', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       final val = double.parse(lines.first);
       expect(val, greaterThanOrEqualTo(0.0));
       expect(val, lessThan(1.0));
     });
 
-    test('env_get reads environment variable', () {
+    test('env_get reads environment variable', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -6008,11 +6009,11 @@ void main() {
         stdout: lines.add,
         envGet: (name) => name == 'PATH' ? '/usr/bin' : '',
       );
-      engine.run();
+      await engine.run();
       expect(lines.first, equals('/usr/bin'));
     });
 
-    test('args_get returns provided args', () {
+    test('args_get returns provided args', () async {
       final program = buildProgram(
         functions: [
           mainFn([stmt(printToString(call('args_get', module: 'std')))]),
@@ -6027,7 +6028,7 @@ void main() {
         stdout: lines.add,
         args: ['--verbose', 'file.txt'],
       );
-      engine.run();
+      await engine.run();
       expect(lines.first, contains('--verbose'));
     });
   });
@@ -6037,7 +6038,7 @@ void main() {
   // ==========================================================================
 
   group('engine: std_convert module', () {
-    test('json_encode encodes a map', () {
+    test('json_encode encodes a map', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -6063,12 +6064,12 @@ void main() {
           {'name': 'json_encode', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       expect(lines.first, contains('"x"'));
       expect(lines.first, contains('42'));
     });
 
-    test('json_decode parses a string', () {
+    test('json_decode parses a string', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -6087,11 +6088,11 @@ void main() {
           {'name': 'json_decode', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       expect(lines.first, equals('42'));
     });
 
-    test('utf8 encode and decode roundtrip', () {
+    test('utf8 encode and decode roundtrip', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -6119,7 +6120,7 @@ void main() {
           {'name': 'utf8_decode', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       expect(lines.first, equals('abc'));
     });
   });
@@ -6129,7 +6130,7 @@ void main() {
   // ==========================================================================
 
   group('engine: std_time module', () {
-    test('now returns epoch ms', () {
+    test('now returns epoch ms', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -6141,12 +6142,12 @@ void main() {
           {'name': 'now', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       final ts = int.parse(lines.first);
       expect(ts, greaterThan(1000000000000));
     });
 
-    test('year returns valid year', () {
+    test('year returns valid year', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -6158,7 +6159,7 @@ void main() {
           {'name': 'year', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       final year = int.parse(lines.first);
       expect(year, greaterThanOrEqualTo(2024));
     });
@@ -6169,7 +6170,7 @@ void main() {
   // ==========================================================================
 
   group('engine: pattern matching', () {
-    test('type pattern matches int', () {
+    test('type pattern matches int', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -6208,11 +6209,11 @@ void main() {
           {'name': 'switch_expr', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       expect(lines.first, equals('was int'));
     });
 
-    test('wildcard pattern matches as default', () {
+    test('wildcard pattern matches as default', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -6247,11 +6248,11 @@ void main() {
           {'name': 'switch_expr', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       expect(lines.first, equals('default'));
     });
 
-    test('direct value equality match', () {
+    test('direct value equality match', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -6289,7 +6290,7 @@ void main() {
           {'name': 'switch_expr', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       expect(lines.first, equals('two'));
     });
   });
@@ -6299,7 +6300,7 @@ void main() {
   // ==========================================================================
 
   group('engine: inheritance via __super__', () {
-    test('field access walks __super__ chain', () {
+    test('field access walks __super__ chain', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -6321,11 +6322,11 @@ void main() {
           ]),
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       expect(lines.first, equals('bark'));
     });
 
-    test('own field shadows __super__', () {
+    test('own field shadows __super__', () async {
       final program = buildProgram(
         functions: [
           mainFn([
@@ -6347,7 +6348,7 @@ void main() {
           ]),
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       expect(lines.first, equals('woof'));
     });
   });
@@ -6367,7 +6368,7 @@ void main() {
       if (tmpDir.existsSync()) tmpDir.deleteSync(recursive: true);
     });
 
-    test('file_write and file_read roundtrip', () {
+    test('file_write and file_read roundtrip', () async {
       final path = '${tmpDir.path}/test.txt';
       final program = buildProgram(
         functions: [
@@ -6398,11 +6399,11 @@ void main() {
           {'name': 'file_read', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       expect(lines.first, equals('hello ball'));
     });
 
-    test('file_exists returns true for existing file', () {
+    test('file_exists returns true for existing file', () async {
       final path = '${tmpDir.path}/exists.txt';
       File(path).writeAsStringSync('data');
       final program = buildProgram(
@@ -6423,11 +6424,11 @@ void main() {
           {'name': 'file_exists', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       expect(lines.first, equals('true'));
     });
 
-    test('dir_create and dir_exists', () {
+    test('dir_create and dir_exists', () async {
       final dirPath = '${tmpDir.path}/sub/nested';
       final program = buildProgram(
         functions: [
@@ -6455,13 +6456,13 @@ void main() {
           {'name': 'dir_exists', 'isBase': true},
         ],
       );
-      final lines = runAndCapture(program);
+      final lines = await runAndCapture(program);
       expect(lines.first, equals('true'));
     });
   });
 
   group('engine: cpp_std scope_exit cleanup', () {
-    test('runs cleanup when block exits', () {
+    test('runs cleanup when block exits', () async {
       final json = {
         'name': 'test',
         'version': '1.0.0',
@@ -6510,10 +6511,10 @@ void main() {
         'entryFunction': 'main',
       };
       final program = Program()..mergeFromProto3Json(json);
-      expect(runAndCapture(program), ['2']);
+      expect(await runAndCapture(program), ['2']);
     });
 
-    test('runs multiple cleanups in LIFO order', () {
+    test('runs multiple cleanups in LIFO order', () async {
       final json = {
         'name': 'test',
         'version': '1.0.0',
@@ -6560,7 +6561,7 @@ void main() {
         'entryFunction': 'main',
       };
       final program = Program()..mergeFromProto3Json(json);
-      expect(runAndCapture(program), ['B', 'A']);
+      expect(await runAndCapture(program), ['B', 'A']);
     });
   });
 }
@@ -6600,7 +6601,7 @@ class _CountingHandler extends BallModuleHandler {
   void init(BallEngine engine) => _delegate.init(engine);
 
   @override
-  BallValue call(String function, BallValue input, BallCallable engine) {
+  FutureOr<BallValue> call(String function, BallValue input, BallCallable engine) {
     _onCall();
     return _delegate.call(function, input, engine);
   }
@@ -6612,10 +6613,10 @@ class _ComposingHandler extends BallModuleHandler {
   bool handles(String module) => module == 'mymath';
 
   @override
-  BallValue call(String function, BallValue input, BallCallable engine) {
+  FutureOr<BallValue> call(String function, BallValue input, BallCallable engine) async {
     if (function == 'abs_diff') {
       final m = input as Map<String, Object?>;
-      final diff = engine('std', 'subtract', {'left': m['a'], 'right': m['b']});
+      final diff = await engine('std', 'subtract', {'left': m['a'], 'right': m['b']});
       return engine('std', 'math_abs', {'value': diff});
     }
     throw BallRuntimeError('Unknown mymath function: "$function"');
@@ -6628,9 +6629,9 @@ class _UserFnDelegateHandler extends BallModuleHandler {
   bool handles(String module) => module == 'ops';
 
   @override
-  BallValue call(String function, BallValue input, BallCallable engine) {
+  FutureOr<BallValue> call(String function, BallValue input, BallCallable engine) async {
     if (function == 'quadruple') {
-      final once = engine('main', 'double_it', input);
+      final once = await engine('main', 'double_it', input);
       return engine('main', 'double_it', once);
     }
     throw BallRuntimeError('Unknown ops function: "$function"');

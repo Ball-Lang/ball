@@ -16,7 +16,7 @@ import 'dart:io';
 import 'package:ball_engine/engine.dart';
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 
-void main(List<String> args) {
+Future<void> main(List<String> args) async {
   final dir = args.contains('--dir')
       ? args[args.indexOf('--dir') + 1]
       : '../../tests/conformance';
@@ -63,7 +63,7 @@ void main(List<String> args) {
 
       final lines = <String>[];
       final engine = BallEngine(program, stdout: lines.add);
-      engine.run();
+      await engine.run();
       final output = lines.join('\n').trimRight();
       final expected = expectedFile.readAsStringSync().trimRight();
 

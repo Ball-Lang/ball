@@ -230,11 +230,11 @@ void main() {
 String _norm(String s) =>
     s.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trimRight();
 
-String _runViaEngine(String source) {
+Future<String> _runViaEngine(String source) async {
   final program = DartEncoder().encode(source);
   final lines = <String>[];
   final engine = BallEngine(program, stdout: lines.add);
-  engine.run();
+  await engine.run();
   return _norm(lines.join('\n'));
 }
 
@@ -269,8 +269,8 @@ void main() {
     });
 
     for (final p in _programs) {
-      test('${p.name}: engine matches expected', () {
-        final engineOutput = _runViaEngine(p.source);
+      test('${p.name}: engine matches expected', () async {
+        final engineOutput = await _runViaEngine(p.source);
         expect(
           engineOutput,
           equals(_norm(p.expected)),
@@ -278,8 +278,8 @@ void main() {
         );
       });
 
-      test('${p.name}: engine matches `dart run`', () {
-        final engineOutput = _runViaEngine(p.source);
+      test('${p.name}: engine matches `dart run`', () async {
+        final engineOutput = await _runViaEngine(p.source);
         final dartOutput = _runViaDart(p.source, scratch, p.name);
         expect(
           engineOutput,

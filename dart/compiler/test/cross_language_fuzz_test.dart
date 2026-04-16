@@ -267,9 +267,9 @@ String _runDartNative(File f) {
   return _norm(r.stdout as String);
 }
 
-String _runBallEngine(Program p) {
+Future<String> _runBallEngine(Program p) async {
   final lines = <String>[];
-  BallEngine(p, stdout: lines.add).run();
+  await BallEngine(p, stdout: lines.add).run();
   return _norm(lines.join('\n'));
 }
 
@@ -299,7 +299,7 @@ void main() {
     // seed invokes `dart run` twice (baseline + recompiled), which
     // dominates the runtime.
     for (var seed = 0; seed < 25; seed++) {
-      test('seed $seed', () {
+      test('seed $seed', () async {
         final source = _genProgram(seed);
         final fixture = File('${scratch.path}/fuzz$seed.dart');
         fixture.writeAsStringSync(source);
@@ -316,7 +316,7 @@ void main() {
         }
 
         // BallEngine (Dart).
-        final engineOut = _runBallEngine(program);
+        final engineOut = await _runBallEngine(program);
         expect(
           engineOut,
           equals(baseline),

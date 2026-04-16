@@ -64,7 +64,8 @@ Types are emitted from `typeDefs[]` (preferred) or the legacy `types[]` + `_meta
 ## Known Broken / Stubbed (don't assume these work)
 
 - **Dart encoder:** Permissive mode silently collects (non-fatal) warnings on malformed metadata. Use `DartEncoder(strict: true)` to surface them as errors.
-- **Both engines:** `async`/`await` is a synchronous simulation — `async` functions wrap their return value in `BallFuture`, `await` recursively unwraps, but there is no event loop, no microtask queue, and no deferred execution. A real scheduler would require rewriting every expression evaluator to be async.
+- **Dart engine:** `async`/`await` is now truly non-blocking — all expression evaluators are `async` and `await` suspends execution via Dart's native `Future` mechanism. `BallFuture` is retained for backward compatibility with programs that wrap return values explicitly. `sleep_ms` uses `Future.delayed` instead of blocking `dart:io` sleep.
+- **C++ engine:** `async`/`await` is still a synchronous simulation — `async` functions wrap their return value in `BallFuture`, `await` recursively unwraps, but there is no event loop, no microtask queue, and no deferred execution.
 
 C++ has a custom test framework (`TEST(name)` macros) at [cpp/test/test_engine.cpp](cpp/test/test_engine.cpp), [cpp/test/test_compiler.cpp](cpp/test/test_compiler.cpp), and [cpp/test/test_conformance.cpp](cpp/test/test_conformance.cpp) (the conformance harness runs every `tests/conformance/*.ball.json` through the C++ engine and diff-checks stdout against the matching `.expected_output.txt`). Build via `cmake --build build --target test_engine test_compiler test_conformance` and run the resulting binaries. Always add tests alongside C++ changes.
 

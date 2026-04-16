@@ -68,9 +68,9 @@ String _runDartNative(File dartFile) {
   return _norm(r.stdout as String);
 }
 
-String _runBallEngine(Program program) {
+Future<String> _runBallEngine(Program program) async {
   final lines = <String>[];
-  BallEngine(program, stdout: lines.add).run();
+  await BallEngine(program, stdout: lines.add).run();
   return _norm(lines.join('\n'));
 }
 
@@ -293,7 +293,7 @@ void main() {
 
     for (final fixture in fixtures) {
       final name = fixture.uri.pathSegments.last.replaceAll('.dart', '');
-      test(name, () {
+      test(name, () async {
         // ── 1. Baseline: dart run on the original source.
         final baseline = _runDartNative(fixture);
 
@@ -315,7 +315,7 @@ void main() {
             .writeAsStringSync('$baseline\n');
 
         // ── 3. Dart BallEngine.
-        final dartEngineOut = _runBallEngine(program);
+        final dartEngineOut = await _runBallEngine(program);
         expect(
           dartEngineOut,
           equals(baseline),

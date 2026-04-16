@@ -49,14 +49,14 @@ void main() {
       );
       if (!expectedFile.existsSync()) continue;
 
-      test(name, () {
+      test(name, () async {
         final jsonMap =
             jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
         final program = Program()
           ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
 
         final lines = <String>[];
-        BallEngine(program, stdout: lines.add).run();
+        await BallEngine(program, stdout: lines.add).run();
         final output = lines.join('\n').trimRight();
         final expected = expectedFile
             .readAsStringSync()
@@ -79,14 +79,14 @@ void main() {
       );
       if (!sourceFile.existsSync()) continue;
 
-      test(name, () {
+      test(name, () async {
         final jsonMap =
             jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
         final program = Program()
           ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
 
         final lines = <String>[];
-        BallEngine(program, stdout: lines.add).run();
+        await BallEngine(program, stdout: lines.add).run();
         final engineOut = lines.join('\n').trimRight();
 
         // Compare against `dart run` on the original source.

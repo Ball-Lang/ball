@@ -6564,6 +6564,9 @@ void main() {
       expect(await runAndCapture(program), ['B', 'A']);
     });
   });
+
+  // Constructor callable tests
+  _constructorCallableTests();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -6636,4 +6639,181 @@ class _UserFnDelegateHandler extends BallModuleHandler {
     }
     throw BallRuntimeError('Unknown ops function: "$function"');
   }
+}
+
+// ── Constructor callable tests ──────────────────────────────────
+
+/// Build a program with a class constructor and main function.
+/// The constructor is registered as "ClassName.new" with kind: "constructor".
+Program _buildConstructorProgram({
+  required String className,
+  required Map<String, dynamic> mainBody,
+  String ctorName = 'new',
+  Map<String, dynamic>? ctorBody,
+}) {
+  final ctorFunc = <String, dynamic>{
+    'name': '$className.$ctorName',
+    'inputType': '${className}Input',
+    'outputType': className,
+    'metadata': {
+      'kind': 'constructor',
+      'params': [
+        {'name': 'x'},
+      ],
+    },
+  };
+
+  // If a body is provided, add it; otherwise the constructor body
+  // builds a map with __type__ and the parameter x extracted from input.
+  if (ctorBody != null) {
+    ctorFunc['body'] = ctorBody;
+  } else {
+    ctorFunc['body'] = msg(
+      [
+        field('__type__', literal(className)),
+        field('x', ref('x')),
+      ],
+    );
+  }
+
+  final mainFunc = <String, dynamic>{
+    'name': 'main',
+    'body': mainBody,
+  };
+
+  final programJson = {
+    'name': 'test_ctor',
+    'version': '1.0.0',
+    'modules': [
+      {
+        'name': 'std',
+        'functions': [
+          {'name': 'print', 'isBase': true},
+          {'name': 'to_string', 'isBase': true},
+          {'name': 'string_interpolation', 'isBase': true},
+        ],
+      },
+      {
+        'name': 'main',
+        'functions': [ctorFunc, mainFunc],
+        'typeDefs': [
+          {
+            'name': 'main:$className',
+            'descriptor': {
+              'name': className,
+              'field': [
+                {
+                  'name': 'x',
+                  'number': 1,
+                  'label': 'LABEL_OPTIONAL',
+                  'type': 'TYPE_INT64',
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+    'entryModule': 'main',
+    'entryFunction': 'main',
+  };
+
+  return Program()..mergeFromProto3Json(programJson);
+}
+
+void _constructorCallableTests() {
+  // Helper to build an assign statement using the engine's expected format.
+  Map<String, dynamic> assignStmt(String name, Map<String, dynamic> value) {
+    return {
+      'expression': stdCall('assign', {
+        'messageCreation': {
+          'fields': [
+            field('target', ref(name)),
+            field('value', value),
+          ],
+        },
+      }),
+    };
+  }
+
+  Map<String, dynamic> printFieldStmt(String varName, String fieldName) {
+    return {
+      'expression': stdCall('print', {
+        'messageCreation': {
+          'fields': [
+            field('message', {
+              'fieldAccess': {
+                'object': ref(varName),
+                'field': fieldName,
+              },
+            }),
+          ],
+        },
+      }),
+    };
+  }
+
+  group('engine: constructor as callable', () {
+    test('constructor reference resolves to callable closure', () async {
+      // Simulates: var f = Foo; var obj = f(42); print(obj);
+      // Verify the constructor was actually invoked (body sets __type__).
+      final program = _buildConstructorProgram(
+        className: 'Foo',
+        mainBody: {
+          'block': {
+            'statements': [
+              assignStmt('f', ref('Foo')),
+              assignStmt('obj',
+                  call('f', input: msg([field('x', literal(42))]))),
+              printFieldStmt('obj', '__type__'),
+            ],
+          },
+        },
+      );
+
+      final lines = await runAndCapture(program);
+      // The constructor body sets __type__ to "Foo"
+      expect(lines, ['Foo']);
+    });
+
+    test('_resolveAndCallFunction finds ClassName.new via fallback', () async {
+      // Simulates: Bar(99) encoded as call(function: "Bar")
+      // The engine should resolve "Bar" → "Bar.new" constructor.
+      final program = _buildConstructorProgram(
+        className: 'Bar',
+        mainBody: {
+          'block': {
+            'statements': [
+              assignStmt('obj',
+                  call('Bar', input: msg([field('x', literal(99))]))),
+              printFieldStmt('obj', '__type__'),
+            ],
+          },
+        },
+      );
+
+      final lines = await runAndCapture(program);
+      expect(lines, ['Bar']);
+    });
+
+    test('constructor tear-off with .new suffix resolves', () async {
+      // Simulates: var f = Baz.new; var obj = f(7); print(obj.__type__);
+      final program = _buildConstructorProgram(
+        className: 'Baz',
+        mainBody: {
+          'block': {
+            'statements': [
+              assignStmt('f', ref('Baz.new')),
+              assignStmt('obj',
+                  call('f', input: msg([field('x', literal(7))]))),
+              printFieldStmt('obj', '__type__'),
+            ],
+          },
+        },
+      );
+
+      final lines = await runAndCapture(program);
+      expect(lines, ['Baz']);
+    });
+  });
 }

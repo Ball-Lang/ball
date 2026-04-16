@@ -403,6 +403,14 @@ class BallEngine {
   /// Eliminates O(n) linear scans through all modules on repeated calls.
   final Map<String, ({String module, FunctionDefinition func})> _callCache = {};
 
+  /// Constructor registry: maps bare class names (and "module:Class" qualified
+  /// names) to the default `.new` constructor function definition.  Populated
+  /// during [_buildLookupTables] for every function whose metadata has
+  /// `kind: "constructor"`.  Used by [_evalReference] to resolve constructor
+  /// tear-offs and by [_resolveAndCallFunction] as a fallback.
+  final Map<String, ({String module, FunctionDefinition func})> _constructors =
+      {};
+
   /// Optional per-function call counters. Enabled via [enableProfiling].
   /// Mirrors V8's bytecode dispatch counters (GetDispatchCountersObject).
   Map<String, int>? _callCounts;
@@ -530,6 +538,27 @@ class BallEngine {
         if (func.hasMetadata()) {
           final params = _extractParams(func.metadata);
           if (params.isNotEmpty) _paramCache[key] = params;
+
+          // Register constructors so class names resolve as callables.
+          final kindField = func.metadata.fields['kind'];
+          if (kindField?.stringValue == 'constructor') {
+            final entry = (module: module.name, func: func);
+            // func.name is "ClassName.new" or "ClassName.named".
+            // For the default constructor (.new), also register bare class name.
+            final dotIdx = func.name.indexOf('.');
+            if (dotIdx >= 0) {
+              final className = func.name.substring(0, dotIdx);
+              final ctorSuffix = func.name.substring(dotIdx + 1);
+              if (ctorSuffix == 'new') {
+                // Bare class name → default constructor
+                _constructors[className] = entry;
+                // "module:ClassName" qualified form
+                _constructors['${module.name}:$className'] = entry;
+              }
+              // Always register the full "ClassName.ctorName" form
+              _constructors[func.name] = entry;
+            }
+          }
         }
       }
     }
@@ -693,6 +722,17 @@ class BallEngine {
       }
     }
 
+    // Constructor fallback: try "function.new" (default constructor name).
+    final ctorKey = '$moduleName.$function.new';
+    final ctorFunc = _functions[ctorKey];
+    if (ctorFunc != null) return _callFunction(moduleName, ctorFunc, input);
+
+    // Also check the constructor registry by bare name.
+    final ctorEntry = _constructors[function];
+    if (ctorEntry != null) {
+      return _callFunction(ctorEntry.module, ctorEntry.func, input);
+    }
+
     // Lazy module loading: if a resolver is available, check whether any
     // module declares an import for the missing module and resolve it.
     if (_resolver != null) {
@@ -736,6 +776,22 @@ class BallEngine {
       if (func.hasMetadata()) {
         final params = _extractParams(func.metadata);
         if (params.isNotEmpty) _paramCache[key] = params;
+
+        // Mirror constructor registration from _buildLookupTables.
+        final kindField = func.metadata.fields['kind'];
+        if (kindField?.stringValue == 'constructor') {
+          final entry = (module: module.name, func: func);
+          final dotIdx = func.name.indexOf('.');
+          if (dotIdx >= 0) {
+            final className = func.name.substring(0, dotIdx);
+            final ctorSuffix = func.name.substring(dotIdx + 1);
+            if (ctorSuffix == 'new') {
+              _constructors[className] = entry;
+              _constructors['${module.name}:$className'] = entry;
+            }
+            _constructors[func.name] = entry;
+          }
+        }
       }
     }
   }
@@ -963,7 +1019,31 @@ class BallEngine {
   // ---- References ----
 
   BallValue _evalReference(Reference ref, _Scope scope) {
-    return scope.lookup(ref.name);
+    final name = ref.name;
+    if (scope.has(name)) return scope.lookup(name);
+
+    // Constructor tear-off: resolve class names and "Class.new" references
+    // to callable closures that invoke the constructor function.
+    final ctorEntry = _constructors[name];
+    if (ctorEntry != null) {
+      return (BallValue input) async {
+        return _callFunction(ctorEntry.module, ctorEntry.func, input);
+      };
+    }
+
+    // Try stripping module prefix (e.g. "main:Foo" → "Foo").
+    final colonIdx = name.indexOf(':');
+    if (colonIdx >= 0) {
+      final bare = name.substring(colonIdx + 1);
+      final bareEntry = _constructors[bare];
+      if (bareEntry != null) {
+        return (BallValue input) async {
+          return _callFunction(bareEntry.module, bareEntry.func, input);
+        };
+      }
+    }
+
+    return scope.lookup(name);
   }
 
   // ---- Field Access ----

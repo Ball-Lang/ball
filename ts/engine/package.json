@@ -7,16 +7,17 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      }
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
+  "sideEffects": false,
   "scripts": {
     "build": "tsc",
     "test": "node --experimental-strip-types test/engine_test.ts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "prepack": "npm run build"
   },
   "keywords": [
     "ball",
@@ -25,9 +26,12 @@
     "protobuf",
     "programming-language",
     "tree-walking",
-    "engine"
+    "engine",
+    "cross-language",
+    "code-as-data"
   ],
   "license": "MIT",
+  "author": "Ball-Lang <ahmednfwela@bdaya-dev.com>",
   "repository": {
     "type": "git",
     "url": "https://github.com/ball-lang/ball.git",
@@ -37,9 +41,14 @@
   "bugs": {
     "url": "https://github.com/ball-lang/ball/issues"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "files": [
-    "src/",
     "dist/",
+    "src/",
+    "LICENSE",
     "README.md"
   ],
   "engines": {

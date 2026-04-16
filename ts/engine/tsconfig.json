@@ -2,13 +2,16 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ES2022",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
     "outDir": "dist",
     "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "newLine": "lf"
   },
   "include": ["src/**/*.ts"]
 }

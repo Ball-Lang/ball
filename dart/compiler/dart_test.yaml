@@ -1,0 +1,15 @@
+# Test configuration for ball_compiler.
+#
+# Use `dart test -x slow` to run the fast, in-process-only tests (unit
+# + snapshot, roughly sub-second). Use `dart test -t slow` or plain
+# `dart test` for the full cross-language matrix (spawns dart run +
+# cmake build per fixture; multi-minute).
+#
+# CI runs the full suite; contributors usually only want -x slow.
+
+tags:
+  slow:
+    description: |
+      Tests that shell out to `dart run`, the C++ runner binary, or
+      `cmake --build`. Spawn multiple subprocesses per fixture and
+      take seconds to minutes each.

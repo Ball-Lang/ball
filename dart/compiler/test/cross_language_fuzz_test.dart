@@ -12,6 +12,7 @@
 /// and stay under the C++ runner's stack budget. Deterministic seed, so
 /// any failure reproduces exactly.
 @TestOn('vm')
+@Tags(['slow'])
 library;
 
 import 'dart:convert';
@@ -39,9 +40,10 @@ class _Gen {
   int _loopCounter = 0;
   _Gen(this.rng, this.vars, this.fns);
 
+  /// Integer-valued expression.
   String expr({int maxDepth = 3}) {
     if (depth >= maxDepth) return _atom();
-    final choice = rng.nextInt(6);
+    final choice = rng.nextInt(9);
     depth++;
     try {
       if (choice == 0) return _atom();
@@ -50,8 +52,8 @@ class _Gen {
         return '(${expr(maxDepth: maxDepth)} $op ${expr(maxDepth: maxDepth)})';
       }
       if (choice == 2) return '(-${expr(maxDepth: maxDepth)})';
-      // Division/modulo: generate a strictly positive divisor so we
-      // never produce IntegerDivisionByZeroException at runtime.
+      // Division/modulo: strictly positive divisor so we never throw
+      // IntegerDivisionByZeroException.
       if (choice == 3) {
         final div = 1 + rng.nextInt(10);
         return '(${expr(maxDepth: maxDepth)} ~/ $div)';
@@ -60,12 +62,80 @@ class _Gen {
         final mod = 1 + rng.nextInt(10);
         return '(${expr(maxDepth: maxDepth)} % $mod)';
       }
-      // Function call on a helper (only when we have helpers).
-      if (fns.isNotEmpty) {
+      // Function call on a helper.
+      if (choice == 5 && fns.isNotEmpty) {
         final fn = fns[rng.nextInt(fns.length)];
         return '$fn(${expr(maxDepth: maxDepth)})';
       }
+      // Ternary.
+      if (choice == 6) {
+        return '(${boolExpr(maxDepth: maxDepth - 1)} '
+            '? ${expr(maxDepth: maxDepth)} : ${expr(maxDepth: maxDepth)})';
+      }
+      // .abs() on an integer expression.
+      if (choice == 7) {
+        return '(${expr(maxDepth: maxDepth)}).abs()';
+      }
+      // List index: `[a, b, c][idx % 3]`. Modulo guarantees a valid
+      // index so we never hit RangeError.
+      if (choice == 8) {
+        final a = expr(maxDepth: maxDepth);
+        final b = expr(maxDepth: maxDepth);
+        final c = expr(maxDepth: maxDepth);
+        return '([$a, $b, $c])[(${expr(maxDepth: maxDepth)} % 3).abs()]';
+      }
       return _atom();
+    } finally {
+      depth--;
+    }
+  }
+
+  /// String-valued expression. Concats, method calls, interpolation.
+  String stringExpr({int maxDepth = 2}) {
+    if (depth >= maxDepth) return _stringAtom();
+    depth++;
+    try {
+      final choice = rng.nextInt(5);
+      if (choice == 0) return _stringAtom();
+      if (choice == 1) {
+        // Concat.
+        return '(${stringExpr(maxDepth: maxDepth)} + '
+            '${stringExpr(maxDepth: maxDepth)})';
+      }
+      if (choice == 2) {
+        // Integer stringification: `i.toString()`.
+        return '(${expr(maxDepth: maxDepth)}).toString()';
+      }
+      if (choice == 3) {
+        // Method call on string.
+        final m = ['toUpperCase', 'toLowerCase', 'trim'][rng.nextInt(3)];
+        return '(${stringExpr(maxDepth: maxDepth)}).$m()';
+      }
+      // String interpolation with a bool inside.
+      return "'v:\${${expr(maxDepth: maxDepth)}}'";
+    } finally {
+      depth--;
+    }
+  }
+
+  /// Boolean expression (for ternaries, conditions).
+  String boolExpr({int maxDepth = 2}) {
+    if (depth >= maxDepth) {
+      return condition();
+    }
+    depth++;
+    try {
+      final choice = rng.nextInt(4);
+      if (choice == 0) return condition();
+      if (choice == 1) {
+        return '(${boolExpr(maxDepth: maxDepth)} && '
+            '${boolExpr(maxDepth: maxDepth)})';
+      }
+      if (choice == 2) {
+        return '(${boolExpr(maxDepth: maxDepth)} || '
+            '${boolExpr(maxDepth: maxDepth)})';
+      }
+      return '(!${boolExpr(maxDepth: maxDepth)})';
     } finally {
       depth--;
     }
@@ -76,6 +146,11 @@ class _Gen {
     // helper function names — those can only appear at call sites.
     if (vars.isEmpty || rng.nextBool()) return rng.nextInt(20).toString();
     return vars[rng.nextInt(vars.length)];
+  }
+
+  String _stringAtom() {
+    const lits = ['hello', 'world', 'Ball', 'TEST', '  spaced  ', ''];
+    return "'${lits[rng.nextInt(lits.length)]}'";
   }
 
   String condition() {
@@ -91,22 +166,42 @@ class _Gen {
     // size each level and produce ~100KB single-line programs that
     // trip the Dart parser's nesting limit.
     if (_stmtDepth >= 2) {
-      return 'print((${expr()}).toString());';
+      return _leafStatement();
     }
     _stmtDepth++;
     try {
-      final choice = rng.nextInt(insideLoop ? 2 : 3);
-      if (choice == 0) {
-        return 'print((${expr()}).toString());';
-      }
+      // Pick among: leaf print, string print, if/else, while (outside
+      // loop), try/catch.
+      final choiceMax = insideLoop ? 4 : 5;
+      final choice = rng.nextInt(choiceMax);
+      if (choice == 0) return _leafStatement();
       if (choice == 1) {
-        return 'if (${condition()}) { ${statement()} } else { ${statement()} }';
+        return 'print(${stringExpr()});';
+      }
+      if (choice == 2) {
+        return 'if (${boolExpr()}) { ${statement()} } else { ${statement()} }';
+      }
+      if (choice == 3) {
+        // Try/catch that catches a guaranteed FormatException. Always
+        // prints a known value from the catch — uses a literal to
+        // avoid emitting diverging output on runtime values.
+        return "try { int.parse('not a number'); print('unreached'); } "
+            "on FormatException catch (e) { print('caught-format'); }";
       }
       final ivar = '_i${_loopCounter++}';
-      return 'var $ivar = 0; while ($ivar < 3) { ${statement(insideLoop: true)} $ivar = $ivar + 1; }';
+      return 'var $ivar = 0; while ($ivar < 3) { '
+          '${statement(insideLoop: true)} $ivar = $ivar + 1; }';
     } finally {
       _stmtDepth--;
     }
+  }
+
+  String _leafStatement() {
+    final choice = rng.nextInt(3);
+    if (choice == 0) return 'print((${expr()}).toString());';
+    if (choice == 1) return 'print(${stringExpr()});';
+    // Print a bool literal from a comparison.
+    return 'print((${boolExpr()}).toString());';
   }
 
   String function(String name) {

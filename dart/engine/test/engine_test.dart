@@ -6816,4 +6816,657 @@ void _constructorCallableTests() {
       expect(lines, ['Baz']);
     });
   });
+
+  // ── Inheritance resolution tests ─────────────────────────────
+  _inheritanceTests();
+}
+
+void _inheritanceTests() {
+  group('engine: inheritance resolution', () {
+    test('child instance accesses field inherited from parent class', () async {
+      // class Animal { name: string }
+      // class Dog extends Animal { breed: string }
+      // var d = Dog(name: "Rex", breed: "Lab"); print(d.name); print(d.breed);
+      //
+      // The child's __super__ should carry inherited fields accessible via
+      // the __super__ chain walk in _evalFieldAccess.
+      final programJson = {
+        'name': 'test',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'functions': [
+              {
+                'name': 'main',
+                'body': {
+                  'block': {
+                    'statements': [
+                      {
+                        'expression': stdCall('assign', {
+                          'messageCreation': {
+                            'fields': [
+                              field('target', ref('d')),
+                              field('value', {
+                                'messageCreation': {
+                                  'typeName': 'Dog',
+                                  'fields': [
+                                    field('name', literal('Rex')),
+                                    field('breed', literal('Lab')),
+                                  ],
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                      // print(d.name) — inherited from Animal via __super__
+                      {
+                        'expression': stdCall('print', {
+                          'messageCreation': {
+                            'fields': [
+                              field('message', {
+                                'fieldAccess': {
+                                  'object': ref('d'),
+                                  'field': 'name',
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                      // print(d.breed) — own field
+                      {
+                        'expression': stdCall('print', {
+                          'messageCreation': {
+                            'fields': [
+                              field('message', {
+                                'fieldAccess': {
+                                  'object': ref('d'),
+                                  'field': 'breed',
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+            'typeDefs': [
+              {
+                'name': 'main:Animal',
+                'descriptor': {
+                  'name': 'Animal',
+                  'field': [
+                    {
+                      'name': 'name',
+                      'number': 1,
+                      'label': 'LABEL_OPTIONAL',
+                      'type': 'TYPE_STRING',
+                    },
+                  ],
+                },
+              },
+              {
+                'name': 'main:Dog',
+                'descriptor': {
+                  'name': 'Dog',
+                  'field': [
+                    {
+                      'name': 'breed',
+                      'number': 1,
+                      'label': 'LABEL_OPTIONAL',
+                      'type': 'TYPE_STRING',
+                    },
+                  ],
+                },
+                'metadata': {
+                  'superclass': 'Animal',
+                },
+              },
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+
+      final program = Program()..mergeFromProto3Json(programJson);
+      final lines = await runAndCapture(program);
+      // 'name' is on the child map directly (set in constructor), so accessible.
+      // 'breed' is also on the child map directly.
+      expect(lines, ['Rex', 'Lab']);
+    });
+
+    test('child instance accesses parent method via type hierarchy', () async {
+      // class Animal { greet() => "I am an animal" }
+      // class Dog extends Animal { bark() => "Woof" }
+      // var d = Dog();
+      // var barkFn = d.bark; print(barkFn(null));
+      // var greetFn = d.greet; print(greetFn(null));
+      //
+      // d.greet should resolve through __methods__ inheritance.
+      final programJson = {
+        'name': 'test',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+              {'name': 'assign', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'functions': [
+              // Animal.greet method
+              {
+                'name': 'greet',
+                'metadata': {'class': 'Animal'},
+                'body': {
+                  'literal': {'stringValue': 'I am an animal'},
+                },
+              },
+              // Dog.bark method
+              {
+                'name': 'bark',
+                'metadata': {'class': 'Dog'},
+                'body': {
+                  'literal': {'stringValue': 'Woof'},
+                },
+              },
+              {
+                'name': 'main',
+                'body': {
+                  'block': {
+                    'statements': [
+                      // var d = Dog();
+                      {
+                        'expression': stdCall('assign', {
+                          'messageCreation': {
+                            'fields': [
+                              field('target', ref('d')),
+                              field('value', {
+                                'messageCreation': {
+                                  'typeName': 'Dog',
+                                  'fields': [],
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                      // var barkFn = d.bark;
+                      {
+                        'expression': stdCall('assign', {
+                          'messageCreation': {
+                            'fields': [
+                              field('target', ref('barkFn')),
+                              field('value', {
+                                'fieldAccess': {
+                                  'object': ref('d'),
+                                  'field': 'bark',
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                      // print(barkFn(null))
+                      {
+                        'expression': stdCall('print', {
+                          'messageCreation': {
+                            'fields': [
+                              field('message', {
+                                'call': {
+                                  'function': 'barkFn',
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                      // var greetFn = d.greet;  (inherited from Animal)
+                      {
+                        'expression': stdCall('assign', {
+                          'messageCreation': {
+                            'fields': [
+                              field('target', ref('greetFn')),
+                              field('value', {
+                                'fieldAccess': {
+                                  'object': ref('d'),
+                                  'field': 'greet',
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                      // print(greetFn(null))
+                      {
+                        'expression': stdCall('print', {
+                          'messageCreation': {
+                            'fields': [
+                              field('message', {
+                                'call': {
+                                  'function': 'greetFn',
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+            'typeDefs': [
+              {
+                'name': 'main:Animal',
+                'descriptor': {
+                  'name': 'Animal',
+                  'field': [],
+                },
+              },
+              {
+                'name': 'main:Dog',
+                'descriptor': {
+                  'name': 'Dog',
+                  'field': [],
+                },
+                'metadata': {
+                  'superclass': 'Animal',
+                },
+              },
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+
+      final program = Program()..mergeFromProto3Json(programJson);
+      final lines = await runAndCapture(program);
+      expect(lines, ['Woof', 'I am an animal']);
+    });
+
+    test('child overrides parent method', () async {
+      // class Animal { speak() => "..." }
+      // class Dog extends Animal { speak() => "Woof!" }
+      // Dog().speak should return "Woof!" (child override)
+      // Animal().speak should return "..." (parent original)
+      final programJson = {
+        'name': 'test',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'assign', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'functions': [
+              // Animal.speak method
+              {
+                'name': 'speak',
+                'metadata': {'class': 'Animal'},
+                'body': {
+                  'literal': {'stringValue': '...'},
+                },
+              },
+              // Dog.speak overrides Animal.speak
+              {
+                'name': 'speak',
+                'metadata': {'class': 'Dog'},
+                'body': {
+                  'literal': {'stringValue': 'Woof!'},
+                },
+              },
+              {
+                'name': 'main',
+                'body': {
+                  'block': {
+                    'statements': [
+                      // var d = Dog();
+                      {
+                        'expression': stdCall('assign', {
+                          'messageCreation': {
+                            'fields': [
+                              field('target', ref('d')),
+                              field('value', {
+                                'messageCreation': {
+                                  'typeName': 'Dog',
+                                  'fields': [],
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                      // var dogSpeak = d.speak;
+                      {
+                        'expression': stdCall('assign', {
+                          'messageCreation': {
+                            'fields': [
+                              field('target', ref('dogSpeak')),
+                              field('value', {
+                                'fieldAccess': {
+                                  'object': ref('d'),
+                                  'field': 'speak',
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                      // print(dogSpeak()) — should be Dog's override
+                      {
+                        'expression': stdCall('print', {
+                          'messageCreation': {
+                            'fields': [
+                              field('message', {
+                                'call': {
+                                  'function': 'dogSpeak',
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                      // var a = Animal();
+                      {
+                        'expression': stdCall('assign', {
+                          'messageCreation': {
+                            'fields': [
+                              field('target', ref('a')),
+                              field('value', {
+                                'messageCreation': {
+                                  'typeName': 'Animal',
+                                  'fields': [],
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                      // var animalSpeak = a.speak;
+                      {
+                        'expression': stdCall('assign', {
+                          'messageCreation': {
+                            'fields': [
+                              field('target', ref('animalSpeak')),
+                              field('value', {
+                                'fieldAccess': {
+                                  'object': ref('a'),
+                                  'field': 'speak',
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                      // print(animalSpeak()) — should be Animal's original
+                      {
+                        'expression': stdCall('print', {
+                          'messageCreation': {
+                            'fields': [
+                              field('message', {
+                                'call': {
+                                  'function': 'animalSpeak',
+                                },
+                              }),
+                            ],
+                          },
+                        }),
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+            'typeDefs': [
+              {
+                'name': 'main:Animal',
+                'descriptor': {
+                  'name': 'Animal',
+                  'field': [],
+                },
+              },
+              {
+                'name': 'main:Dog',
+                'descriptor': {
+                  'name': 'Dog',
+                  'field': [],
+                },
+                'metadata': {
+                  'superclass': 'Animal',
+                },
+              },
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+
+      final program = Program()..mergeFromProto3Json(programJson);
+      final lines = await runAndCapture(program);
+      expect(lines[0], 'Woof!'); // Dog's override
+      expect(lines[1], '...'); // Animal's original
+    });
+  });
+
+  // ── Instance method dispatch via self field ─────────────────────────────
+  group('instance method dispatch (self field)', () {
+    test('simple instance method call', () async {
+      // class Foo { int bar() => 42; }
+      // main() { print(Foo().bar()); }
+      final programJson = {
+        'name': 'test_method',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'functions': [
+              // Foo.bar method: returns 42
+              {
+                'name': 'main:Foo.bar',
+                'metadata': {'kind': 'method'},
+                'body': literal(42),
+              },
+              // main function
+              {
+                'name': 'main',
+                'body': {
+                  'block': {
+                    'statements': [
+                      // print(Foo().bar()) — method call with self
+                      stmt(printToString(
+                        call('bar', input: msg([
+                          field('self', msg([], typeName: 'main:Foo')),
+                        ])),
+                      )),
+                    ],
+                  },
+                },
+              },
+            ],
+            'typeDefs': [
+              {
+                'name': 'main:Foo',
+                'descriptor': {'name': 'Foo', 'field': []},
+              },
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+
+      final program = Program()..mergeFromProto3Json(programJson);
+      final lines = await runAndCapture(program);
+      expect(lines, ['42']);
+    });
+
+    test('method accessing instance field via self', () async {
+      // class Foo { int x; int double_() => x * 2; }
+      // main() { print(Foo(x: 5).double_()); }
+      final programJson = {
+        'name': 'test_method_field',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+              {'name': 'multiply', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'functions': [
+              // Foo.double_ method: self.x * 2
+              {
+                'name': 'main:Foo.double_',
+                'metadata': {'kind': 'method'},
+                'body': stdCall('multiply', msg([
+                  field('left', fieldAcc(ref('self'), 'x')),
+                  field('right', literal(2)),
+                ])),
+              },
+              // main function
+              {
+                'name': 'main',
+                'body': {
+                  'block': {
+                    'statements': [
+                      // print(Foo(x:5).double_())
+                      stmt(printToString(
+                        call('double_', input: msg([
+                          field('self', msg([
+                            field('x', literal(5)),
+                          ], typeName: 'main:Foo')),
+                        ])),
+                      )),
+                    ],
+                  },
+                },
+              },
+            ],
+            'typeDefs': [
+              {
+                'name': 'main:Foo',
+                'descriptor': {
+                  'name': 'Foo',
+                  'field': [
+                    {
+                      'name': 'x',
+                      'number': 1,
+                      'label': 'LABEL_OPTIONAL',
+                      'type': 'TYPE_INT64',
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+
+      final program = Program()..mergeFromProto3Json(programJson);
+      final lines = await runAndCapture(program);
+      expect(lines, ['10']);
+    });
+
+    test('inherited method via superclass chain', () async {
+      // class A { int val() => 1; }
+      // class B extends A {}
+      // main() { print(B().val()); }
+      final programJson = {
+        'name': 'test_inherited_method',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'functions': [
+              // A.val method: returns 1
+              {
+                'name': 'main:A.val',
+                'metadata': {'kind': 'method'},
+                'body': literal(1),
+              },
+              // main function
+              {
+                'name': 'main',
+                'body': {
+                  'block': {
+                    'statements': [
+                      // print(B().val()) — B inherits val from A
+                      stmt(printToString(
+                        call('val', input: msg([
+                          field('self', msg([], typeName: 'main:B')),
+                        ])),
+                      )),
+                    ],
+                  },
+                },
+              },
+            ],
+            'typeDefs': [
+              {
+                'name': 'main:A',
+                'descriptor': {'name': 'A', 'field': []},
+              },
+              {
+                'name': 'main:B',
+                'descriptor': {'name': 'B', 'field': []},
+                'metadata': {
+                  'superclass': 'A',
+                },
+              },
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+
+      final program = Program()..mergeFromProto3Json(programJson);
+      final lines = await runAndCapture(program);
+      expect(lines, ['1']);
+    });
+  });
 }

@@ -403,6 +403,11 @@ class BallEngine {
   /// Eliminates O(n) linear scans through all modules on repeated calls.
   final Map<String, ({String module, FunctionDefinition func})> _callCache = {};
 
+  /// Enum type registry: maps enum type names (both qualified "module:Enum"
+  /// and bare "Enum") to a map of value name → enum value object.
+  /// Each enum value is a Map with __type__, name, index.
+  final Map<String, Map<String, Map<String, Object?>>> _enumValues = {};
+
   /// Constructor registry: maps bare class names (and "module:Class" qualified
   /// names) to the default `.new` constructor function definition.  Populated
   /// during [_buildLookupTables] for every function whose metadata has
@@ -530,6 +535,23 @@ class BallEngine {
           if (tc >= 0) _types[td.name.substring(tc + 1)] = td.descriptor;
         }
       }
+      // Index enum types and their values.
+      for (final enumDesc in module.enums) {
+        final enumName = enumDesc.name; // e.g. "main:Color"
+        final values = <String, Map<String, Object?>>{};
+        for (final v in enumDesc.value) {
+          values[v.name] = <String, Object?>{
+            '__type__': enumName,
+            'name': v.name,
+            'index': v.number,
+          };
+        }
+        _enumValues[enumName] = values;
+        // Also index by bare name (strip "module:" prefix).
+        final ec = enumName.indexOf(':');
+        if (ec >= 0) _enumValues[enumName.substring(ec + 1)] = values;
+      }
+
       for (final func in module.functions) {
         final key = '${module.name}.${func.name}';
         _functions[key] = func;
@@ -641,6 +663,11 @@ class BallEngine {
           scope.bind(params[i], input[i]);
         }
       }
+    }
+
+    // Bind 'self' for instance method calls so `this` references resolve.
+    if (input is Map<String, Object?> && input.containsKey('self')) {
+      scope.bind('self', input['self']);
     }
 
     if (func.inputType.isNotEmpty && input != null) {
@@ -904,10 +931,41 @@ class BallEngine {
       }
     }
 
-    // Method call on object (has 'self' field)
+    // Method call on object (has 'self' field) — instance method dispatch.
     if (input is Map<String, Object?> && input.containsKey('self')) {
-      // This is how the encoder represents method calls
-      return _resolveAndCallFunction(call.module, call.function, input);
+      final self = input['self'];
+      if (self is Map<String, Object?>) {
+        final typeName = self['__type__'] as String?;
+        if (typeName != null) {
+          // typeName is e.g. "main:Foo". Module part = text before ':'.
+          final colonIdx = typeName.indexOf(':');
+          final modPart = colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
+          // Try ClassName.methodName in _functions (key: "module.typeName.method")
+          final methodKey = '$modPart.$typeName.${call.function}';
+          final method = _functions[methodKey];
+          if (method != null) {
+            return _callFunction(modPart, method, input);
+          }
+          // Walk superclass chain.
+          var super_ = self['__super__'];
+          while (super_ is Map<String, Object?>) {
+            final superType = super_['__type__'] as String?;
+            if (superType != null) {
+              // superType may be bare ("Animal") or qualified ("main:Animal").
+              final sColonIdx = superType.indexOf(':');
+              final sModPart = sColonIdx >= 0 ? superType.substring(0, sColonIdx) : modPart;
+              final sTypeName = sColonIdx >= 0 ? superType : '$sModPart:$superType';
+              final superMethodKey = '$sModPart.$sTypeName.${call.function}';
+              final superMethod = _functions[superMethodKey];
+              if (superMethod != null) {
+                return _callFunction(sModPart, superMethod, input);
+              }
+            }
+            super_ = super_['__super__'];
+          }
+        }
+      }
+      // Fall through to normal resolution if no method found on the type.
     }
 
     return _resolveAndCallFunction(call.module, call.function, input);
@@ -1042,6 +1100,11 @@ class BallEngine {
         };
       }
     }
+
+    // Enum type reference: resolve to a map of enum values so that
+    // field access (e.g. MyEnum.value1) works.
+    final enumVals = _enumValues[name];
+    if (enumVals != null) return enumVals;
 
     return scope.lookup(name);
   }
@@ -1181,15 +1244,12 @@ class BallEngine {
       if (typeDef != null) {
         final superclass = _getMetaString(typeDef, 'superclass');
         if (superclass != null && superclass.isNotEmpty) {
-          // Build super object with inherited fields.
-          final superFields = <String, Object?>{};
-          superFields['__type__'] = superclass;
-          // Copy fields that belong to the superclass into __super__.
-          fields['__super__'] = superFields;
+          // Recursively build the __super__ object with inherited fields & methods.
+          fields['__super__'] = _buildSuperObject(superclass, fields);
         }
 
-        // Resolve methods from the type's module.
-        final methods = _resolveTypeMethods(msg.typeName);
+        // Resolve methods from the type's module (includes inherited methods).
+        final methods = _resolveTypeMethodsWithInheritance(msg.typeName);
         if (methods.isNotEmpty) {
           fields['__methods__'] = methods;
         }
@@ -1199,7 +1259,7 @@ class BallEngine {
   }
 
   /// Find a TypeDefinition by name across all modules.
-  ({String? superclass, Map<String, FunctionDefinition> methods})? _findTypeDef(
+  ({String? superclass, List<String> fieldNames})? _findTypeDef(
     String typeName,
   ) {
     for (final module in program.modules) {
@@ -1212,10 +1272,13 @@ class BallEngine {
               superclass = sc.stringValue;
             }
           }
-          return (
-            superclass: superclass,
-            methods: <String, FunctionDefinition>{},
-          );
+          final fieldNames = <String>[];
+          if (td.hasDescriptor()) {
+            for (final f in td.descriptor.field) {
+              fieldNames.add(f.name);
+            }
+          }
+          return (superclass: superclass, fieldNames: fieldNames);
         }
       }
     }
@@ -1224,11 +1287,50 @@ class BallEngine {
 
   /// Get a string value from TypeDefinition metadata.
   String? _getMetaString(
-    ({String? superclass, Map<String, FunctionDefinition> methods}) typeDef,
+    ({String? superclass, List<String> fieldNames}) typeDef,
     String key,
   ) {
     if (key == 'superclass') return typeDef.superclass;
     return null;
+  }
+
+  /// Build a `__super__` object for the given superclass name.
+  ///
+  /// Populates the super object with:
+  /// - The parent's descriptor fields (defaults from the child if present)
+  /// - The parent's methods
+  /// - Recursively, the grandparent's `__super__` object
+  Map<String, Object?> _buildSuperObject(
+    String superclass,
+    Map<String, Object?> childFields,
+  ) {
+    final superFields = <String, Object?>{'__type__': superclass};
+
+    // Copy descriptor fields from the parent type into __super__.
+    final parentTypeDef = _findTypeDef(superclass);
+    if (parentTypeDef != null) {
+      for (final fname in parentTypeDef.fieldNames) {
+        // If the child already set this field, propagate it to super too.
+        if (childFields.containsKey(fname)) {
+          superFields[fname] = childFields[fname];
+        }
+        // Otherwise leave it absent (will be null on access).
+      }
+
+      // Attach methods belonging to the parent type.
+      final parentMethods = _resolveTypeMethods(superclass);
+      if (parentMethods.isNotEmpty) {
+        superFields['__methods__'] = parentMethods;
+      }
+
+      // Recurse: if the parent itself has a superclass, build its __super__.
+      final grandparent = parentTypeDef.superclass;
+      if (grandparent != null && grandparent.isNotEmpty) {
+        superFields['__super__'] = _buildSuperObject(grandparent, childFields);
+      }
+    }
+
+    return superFields;
   }
 
   /// Resolve methods associated with a type name from its module.
@@ -1249,6 +1351,24 @@ class BallEngine {
         }
       }
     }
+    return methods;
+  }
+
+  /// Resolve methods for a type including inherited methods from ancestors.
+  ///
+  /// Methods from the child type take precedence over parent methods
+  /// (method overriding).
+  Map<String, Function> _resolveTypeMethodsWithInheritance(String typeName) {
+    final methods = <String, Function>{};
+
+    // Collect ancestor methods first (so child overrides them).
+    final typeDef = _findTypeDef(typeName);
+    if (typeDef != null && typeDef.superclass != null && typeDef.superclass!.isNotEmpty) {
+      methods.addAll(_resolveTypeMethodsWithInheritance(typeDef.superclass!));
+    }
+
+    // Child methods override parent methods.
+    methods.addAll(_resolveTypeMethods(typeName));
     return methods;
   }
 
@@ -2811,7 +2931,7 @@ class BallEngine {
         return true;
       }
       // Check BallObject __type__ with __type_args__
-      if (value is Map<String, Object?> && value['__type__'] == baseType) {
+      if (value is Map<String, Object?> && _typeNameMatches(value['__type__'] as String?, baseType)) {
         final objArgs = value['__type_args__'];
         if (objArgs is List && objArgs.length == typeArgs.length) {
           for (var i = 0; i < typeArgs.length; i++) {
@@ -2842,12 +2962,30 @@ class BallEngine {
 
   bool _objectTypeMatches(Object? value, String type) {
     if (value is! Map<String, Object?>) return false;
-    if (value['__type__'] == type) return true;
+    if (_typeNameMatches(value['__type__'] as String?, type)) return true;
     // Walk __super__ chain
     var superObj = value['__super__'];
     while (superObj is Map<String, Object?>) {
-      if (superObj['__type__'] == type) return true;
+      if (_typeNameMatches(superObj['__type__'] as String?, type)) return true;
       superObj = superObj['__super__'];
+    }
+    return false;
+  }
+
+  /// Compare type names accounting for module-qualified forms.
+  /// "main:Foo" matches "Foo", "Foo" matches "main:Foo", and exact matches.
+  bool _typeNameMatches(String? objType, String checkType) {
+    if (objType == null) return false;
+    if (objType == checkType) return true;
+    // objType is "module:Foo", checkType is "Foo"
+    if (objType.endsWith(':$checkType')) return true;
+    // objType is "Foo", checkType is "module:Foo"
+    if (checkType.endsWith(':$objType')) return true;
+    // Both qualified but different modules — strip and compare bare names.
+    final objColon = objType.indexOf(':');
+    final checkColon = checkType.indexOf(':');
+    if (objColon >= 0 && checkColon >= 0) {
+      return objType.substring(objColon + 1) == checkType.substring(checkColon + 1);
     }
     return false;
   }

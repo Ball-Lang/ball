@@ -1277,6 +1277,37 @@ void main() {
       );
       expect(await runAndCapture(program), ['direct']);
     });
+
+    // The encoder emits concat + to_string chains for Dart string
+    // interpolation (e.g. 'Hello $name!').  Verify the engine handles that
+    // pattern end-to-end.
+    test('concat+to_string chain (encoder pattern)', () async {
+      final program = buildProgram(
+        functions: [
+          mainFn([
+            letStmt('name', literal('Ball')),
+            stmt(
+              printExpr(
+                stdCall('concat', msg([
+                  field(
+                    'left',
+                    stdCall('concat', msg([
+                      field('left', literal('Hello ')),
+                      field(
+                        'right',
+                        stdCall('to_string', msg([field('value', ref('name'))])),
+                      ),
+                    ])),
+                  ),
+                  field('right', literal('!')),
+                ])),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(program), ['Hello Ball!']);
+    });
   });
 
   // ── Virtual property field access ─────────────────────────────────────────
@@ -8009,6 +8040,314 @@ void _inheritanceTests() {
       final program = Program()..mergeFromProto3Json(programJson);
       final lines = await runAndCapture(program);
       expect(lines, ['1']);
+    });
+  });
+
+  // ── Getter / Setter dispatch ───────────────────────────────────────────
+
+  group('getter/setter dispatch', () {
+    test('instance getter on class — doubled', () async {
+      // class Foo { int _x = 5; int get doubled => _x * 2; }
+      // main() { print(Foo().doubled); }
+      final programJson = {
+        'name': 'test',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+              {'name': 'multiply', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'functions': [
+              // Constructor: Foo.new — creates {__type__: "main:Foo", _x: 5}
+              {
+                'name': 'main:Foo.new',
+                'body': {
+                  'messageCreation': {
+                    'typeName': 'main:Foo',
+                    'fields': [
+                      {
+                        'name': '_x',
+                        'value': {'literal': {'intValue': '5'}},
+                      },
+                    ],
+                  },
+                },
+                'metadata': {'kind': 'constructor', 'class': 'Foo'},
+              },
+              // Getter: main:Foo.doubled — returns self._x * 2
+              {
+                'name': 'main:Foo.doubled',
+                'body': {
+                  'call': {
+                    'module': 'std',
+                    'function': 'multiply',
+                    'input': {
+                      'messageCreation': {
+                        'fields': [
+                          {
+                            'name': 'left',
+                            'value': {
+                              'fieldAccess': {
+                                'object': {'reference': {'name': 'self'}},
+                                'field': '_x',
+                              },
+                            },
+                          },
+                          {
+                            'name': 'right',
+                            'value': {'literal': {'intValue': '2'}},
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+                'metadata': {'kind': 'method', 'is_getter': true},
+              },
+              // main — print(Foo().doubled)
+              {
+                'name': 'main',
+                'body': {
+                  'block': {
+                    'statements': [
+                      {
+                        'let': {
+                          'name': 'foo',
+                          'value': {
+                            'messageCreation': {
+                              'typeName': 'main:Foo',
+                              'fields': [
+                                {
+                                  'name': '_x',
+                                  'value': {'literal': {'intValue': '5'}},
+                                },
+                              ],
+                            },
+                          },
+                        },
+                      },
+                      stmt(printToString(
+                        fieldAcc(ref('foo'), 'doubled'),
+                      )),
+                    ],
+                  },
+                },
+              },
+            ],
+            'typeDefs': [
+              {
+                'name': 'main:Foo',
+                'descriptor': {'name': 'Foo', 'field': []},
+              },
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+
+      final program = Program()..mergeFromProto3Json(programJson);
+      final lines = await runAndCapture(program);
+      expect(lines, ['10']);
+    });
+
+    test('instance setter on class', () async {
+      // class Foo { int _x = 0; set x(int v) { _x = v; } int get x => _x; }
+      // main() { var f = Foo(); f.x = 42; print(f.x); }
+      final programJson = {
+        'name': 'test',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+              {'name': 'assign', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'functions': [
+              // Getter: main:Foo.x => self._x
+              {
+                'name': 'main:Foo.x',
+                'body': {
+                  'fieldAccess': {
+                    'object': {'reference': {'name': 'self'}},
+                    'field': '_x',
+                  },
+                },
+                'metadata': {'kind': 'method', 'is_getter': true},
+              },
+              // Setter: main:Foo.x= — sets self._x to input value
+              {
+                'name': 'main:Foo.x=',
+                'body': {
+                  'block': {
+                    'statements': [
+                      // self._x = value (direct map mutation via the engine)
+                      {
+                        'expression': {
+                          'call': {
+                            'module': 'std',
+                            'function': 'assign',
+                            'input': {
+                              'messageCreation': {
+                                'fields': [
+                                  {
+                                    'name': 'target',
+                                    'value': {
+                                      'fieldAccess': {
+                                        'object': {'reference': {'name': 'self'}},
+                                        'field': '_x',
+                                      },
+                                    },
+                                  },
+                                  {
+                                    'name': 'value',
+                                    'value': {'reference': {'name': 'value'}},
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+                'metadata': {
+                  'kind': 'method',
+                  'is_setter': true,
+                  'params': [{'name': 'value', 'type': 'int'}],
+                },
+              },
+              // main
+              {
+                'name': 'main',
+                'body': {
+                  'block': {
+                    'statements': [
+                      {
+                        'let': {
+                          'name': 'f',
+                          'value': {
+                            'messageCreation': {
+                              'typeName': 'main:Foo',
+                              'fields': [
+                                {
+                                  'name': '_x',
+                                  'value': {'literal': {'intValue': '0'}},
+                                },
+                              ],
+                            },
+                          },
+                          'metadata': {'keyword': 'var'},
+                        },
+                      },
+                      // f.x = 42
+                      {
+                        'expression': {
+                          'call': {
+                            'module': 'std',
+                            'function': 'assign',
+                            'input': {
+                              'messageCreation': {
+                                'fields': [
+                                  {
+                                    'name': 'target',
+                                    'value': {
+                                      'fieldAccess': {
+                                        'object': {'reference': {'name': 'f'}},
+                                        'field': 'x',
+                                      },
+                                    },
+                                  },
+                                  {
+                                    'name': 'value',
+                                    'value': {'literal': {'intValue': '42'}},
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                      // print(f.x)
+                      stmt(printToString(
+                        fieldAcc(ref('f'), 'x'),
+                      )),
+                    ],
+                  },
+                },
+              },
+            ],
+            'typeDefs': [
+              {
+                'name': 'main:Foo',
+                'descriptor': {'name': 'Foo', 'field': []},
+              },
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+
+      final program = Program()..mergeFromProto3Json(programJson);
+      final lines = await runAndCapture(program);
+      expect(lines, ['42']);
+    });
+
+    test('top-level getter', () async {
+      // int get answer => 42;
+      // main() { print(answer); }
+      final programJson = {
+        'name': 'test',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'functions': [
+              {
+                'name': 'answer',
+                'body': {'literal': {'intValue': '42'}},
+                'metadata': {'kind': 'function', 'is_getter': true},
+              },
+              {
+                'name': 'main',
+                'body': {
+                  'block': {
+                    'statements': [
+                      stmt(printToString(ref('answer'))),
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+
+      final program = Program()..mergeFromProto3Json(programJson);
+      final lines = await runAndCapture(program);
+      expect(lines, ['42']);
     });
   });
 }

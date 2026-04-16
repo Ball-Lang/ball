@@ -376,6 +376,10 @@ class StdModuleHandler extends BallModuleHandler {
   }
 }
 
+/// Sentinel value used to distinguish "getter not found" from a getter that
+/// returned null.
+const Object _sentinel = Object();
+
 /// Executes ball programs directly at runtime.
 class BallEngine {
   final Program program;
@@ -644,8 +648,10 @@ class BallEngine {
         _paramCache['$moduleName.${func.name}'] ??
         (func.hasMetadata() ? _extractParams(func.metadata) : const []);
     if (params.isNotEmpty) {
-      if (params.length == 1) {
-        // Single parameter — bind the input directly.
+      if (params.length == 1 &&
+          !(input is Map<String, Object?> && input.containsKey('self'))) {
+        // Single parameter — bind the input directly (but not for instance
+        // methods where `self` is mixed in; those use the map extraction path).
         scope.bind(params[0], input);
       } else if (input is Map<String, Object?>) {
         // Multiple parameters — named args or positional arg0/arg1.
@@ -831,7 +837,7 @@ class BallEngine {
     return switch (expr.whichExpr()) {
       Expression_Expr.call => await _evalCall(expr.call, scope),
       Expression_Expr.literal => await _evalLiteral(expr.literal, scope),
-      Expression_Expr.reference => _evalReference(expr.reference, scope),
+      Expression_Expr.reference => await _evalReference(expr.reference, scope),
       Expression_Expr.fieldAccess => await _evalFieldAccess(expr.fieldAccess, scope),
       Expression_Expr.messageCreation => await _evalMessageCreation(
         expr.messageCreation,
@@ -1076,7 +1082,7 @@ class BallEngine {
 
   // ---- References ----
 
-  BallValue _evalReference(Reference ref, _Scope scope) {
+  Future<BallValue> _evalReference(Reference ref, _Scope scope) async {
     final name = ref.name;
     if (scope.has(name)) return scope.lookup(name);
 
@@ -1105,6 +1111,14 @@ class BallEngine {
     // field access (e.g. MyEnum.value1) works.
     final enumVals = _enumValues[name];
     if (enumVals != null) return enumVals;
+
+    // Top-level getter: if a function with this name has is_getter metadata,
+    // invoke it as a zero-arg getter (no input needed).
+    final getterKey = '$_currentModule.$name';
+    final getterFunc = _functions[getterKey];
+    if (getterFunc != null && _isGetter(getterFunc)) {
+      return _callFunction(_currentModule, getterFunc, null);
+    }
 
     return scope.lookup(name);
   }
@@ -1160,6 +1174,12 @@ class BallEngine {
               .map((e) => <String, Object?>{'key': e.key, 'value': e.value})
               .toList();
       }
+
+      // Getter dispatch: if the field isn't a data field, check for a getter
+      // function on the object's type (metadata has is_getter: true).
+      final getterResult = await _tryGetterDispatch(object, fieldName);
+      if (getterResult != _sentinel) return getterResult;
+
       throw BallRuntimeError(
         'Field "$fieldName" not found. '
         'Available: ${object.keys.toList()}',
@@ -1219,6 +1239,121 @@ class BallEngine {
       'Cannot access field "$fieldName" on '
       '${object?.runtimeType ?? "null"}',
     );
+  }
+
+  /// Try to dispatch a getter function for [fieldName] on [object].
+  /// Returns [_sentinel] if no getter was found, otherwise the getter result.
+  Future<BallValue> _tryGetterDispatch(
+    Map<String, Object?> object,
+    String fieldName,
+  ) async {
+    final typeName = object['__type__'] as String?;
+    if (typeName == null) return _sentinel;
+
+    final colonIdx = typeName.indexOf(':');
+    final modPart =
+        colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
+
+    // Check "module.typeName.fieldName" as a getter.
+    final getterKey = '$modPart.$typeName.$fieldName';
+    final getterFunc = _functions[getterKey];
+    if (getterFunc != null && _isGetter(getterFunc)) {
+      return _callFunction(
+        modPart,
+        getterFunc,
+        <String, Object?>{'self': object},
+      );
+    }
+
+    // Walk __super__ chain for inherited getters.
+    var superObj = object['__super__'];
+    while (superObj is Map<String, Object?>) {
+      final superType = superObj['__type__'] as String?;
+      if (superType != null) {
+        final sColonIdx = superType.indexOf(':');
+        final sModPart =
+            sColonIdx >= 0 ? superType.substring(0, sColonIdx) : modPart;
+        final sTypeName =
+            sColonIdx >= 0 ? superType : '$sModPart:$superType';
+        final superGetterKey = '$sModPart.$sTypeName.$fieldName';
+        final superGetterFunc = _functions[superGetterKey];
+        if (superGetterFunc != null && _isGetter(superGetterFunc)) {
+          return _callFunction(
+            sModPart,
+            superGetterFunc,
+            <String, Object?>{'self': object},
+          );
+        }
+      }
+      superObj = superObj['__super__'];
+    }
+
+    return _sentinel;
+  }
+
+  /// Returns true if the function has `is_getter: true` in its metadata.
+  bool _isGetter(FunctionDefinition func) {
+    if (!func.hasMetadata()) return false;
+    final field = func.metadata.fields['is_getter'];
+    return field != null && field.boolValue;
+  }
+
+  /// Returns true if the function has `is_setter: true` in its metadata.
+  bool _isSetter(FunctionDefinition func) {
+    if (!func.hasMetadata()) return false;
+    final field = func.metadata.fields['is_setter'];
+    return field != null && field.boolValue;
+  }
+
+  /// Try to dispatch a setter function for [fieldName] on [object].
+  /// Returns [_sentinel] if no setter was found, otherwise the setter result.
+  Future<BallValue> _trySetterDispatch(
+    Map<String, Object?> object,
+    String fieldName,
+    BallValue value,
+  ) async {
+    final typeName = object['__type__'] as String?;
+    if (typeName == null) return _sentinel;
+
+    final colonIdx = typeName.indexOf(':');
+    final modPart =
+        colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
+
+    // Setter functions are named "TypeName.fieldName=" by convention.
+    final setterKey = '$modPart.$typeName.$fieldName=';
+    final setterFunc = _functions[setterKey];
+    if (setterFunc != null && _isSetter(setterFunc)) {
+      return _callFunction(
+        modPart,
+        setterFunc,
+        <String, Object?>{'self': object, 'value': value},
+      );
+    }
+
+    // Walk __super__ chain for inherited setters.
+    var superObj = object['__super__'];
+    while (superObj is Map<String, Object?>) {
+      final superType = superObj['__type__'] as String?;
+      if (superType != null) {
+        final sColonIdx = superType.indexOf(':');
+        final sModPart =
+            sColonIdx >= 0 ? superType.substring(0, sColonIdx) : modPart;
+        final sTypeName =
+            sColonIdx >= 0 ? superType : '$sModPart:$superType';
+        final superSetterKey = '$sModPart.$sTypeName.$fieldName=';
+        final superSetterFunc = _functions[superSetterKey];
+        if (superSetterFunc != null && _isSetter(superSetterFunc)) {
+          return _callFunction(
+            sModPart,
+            superSetterFunc,
+            <String, Object?>{'self': object, 'value': value},
+          );
+        }
+      }
+      superObj = superObj['__super__'];
+    }
+
+    return _sentinel;
   }
 
   // ---- Message Creation ----
@@ -1809,7 +1944,13 @@ class BallEngine {
     if (target.whichExpr() == Expression_Expr.fieldAccess) {
       final obj = await _evalExpression(target.fieldAccess.object, scope);
       if (obj is Map<String, Object?>) {
-        obj[target.fieldAccess.field_2] = val;
+        final fieldName = target.fieldAccess.field_2;
+
+        // Check for a setter function before falling back to map write.
+        final setterResult = await _trySetterDispatch(obj, fieldName, val);
+        if (setterResult != _sentinel) return setterResult;
+
+        obj[fieldName] = val;
         return val;
       }
     }

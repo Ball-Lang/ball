@@ -45,6 +45,52 @@ namespace ball {
 static thread_local std::exception_ptr g_active_exception;
 
 // ================================================================
+// OOP helpers — type name matching & __super__ chain walking
+// ================================================================
+
+/// Compare type names accounting for module-qualified forms.
+/// "main:Foo" matches "Foo", "Foo" matches "main:Foo", and exact matches.
+static bool type_name_matches(const std::string& obj_type, const std::string& check_type) {
+    if (obj_type == check_type) return true;
+    // obj_type is "module:Foo", check_type is "Foo"
+    auto colon1 = obj_type.find(':');
+    if (colon1 != std::string::npos && obj_type.substr(colon1 + 1) == check_type) return true;
+    // obj_type is "Foo", check_type is "module:Foo"
+    auto colon2 = check_type.find(':');
+    if (colon2 != std::string::npos && check_type.substr(colon2 + 1) == obj_type) return true;
+    // Both qualified but different modules — strip and compare bare names.
+    if (colon1 != std::string::npos && colon2 != std::string::npos) {
+        return obj_type.substr(colon1 + 1) == check_type.substr(colon2 + 1);
+    }
+    return false;
+}
+
+/// Check if a BallMap value's __type__ (or any __super__ in the chain)
+/// matches the given type name.
+static bool object_type_matches(const BallValue& value, const std::string& type) {
+    if (!is_map(value)) return false;
+    const auto& m = std::any_cast<const BallMap&>(value);
+    // Check __type__ on the value itself
+    auto it = m.find("__type__");
+    if (it != m.end() && is_string(it->second)) {
+        if (type_name_matches(std::any_cast<const std::string&>(it->second), type)) return true;
+    }
+    // Walk __super__ chain
+    auto sit = m.find("__super__");
+    BallValue super_obj = (sit != m.end()) ? sit->second : BallValue{};
+    while (is_map(super_obj)) {
+        const auto& sm = std::any_cast<const BallMap&>(super_obj);
+        auto st = sm.find("__type__");
+        if (st != sm.end() && is_string(st->second)) {
+            if (type_name_matches(std::any_cast<const std::string&>(st->second), type)) return true;
+        }
+        auto ss = sm.find("__super__");
+        super_obj = (ss != sm.end()) ? ss->second : BallValue{};
+    }
+    return false;
+}
+
+// ================================================================
 // Construction
 // ================================================================
 
@@ -234,6 +280,15 @@ BallValue Engine::call_function_internal(const std::string& module_name,
         scope->bind("input", input);
     }
 
+    // Bind 'self' for instance method calls so `this` references resolve.
+    if (is_map(input)) {
+        const auto& inp_map = std::any_cast<const BallMap&>(input);
+        auto self_it = inp_map.find("self");
+        if (self_it != inp_map.end()) {
+            scope->bind("self", self_it->second);
+        }
+    }
+
     auto result = eval_expr(func.body(), scope);
     current_module_ = prev_module;
     if (is_flow(result) && as_flow(result).kind == "return") {
@@ -393,6 +448,53 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
     }
 
     BallValue input = call.has_input() ? eval_expr(call.input(), scope) : BallValue{};
+
+    // Method call on object (has 'self' field) — instance method dispatch.
+    if (is_map(input)) {
+        const auto& inp_map = std::any_cast<const BallMap&>(input);
+        auto self_it = inp_map.find("self");
+        if (self_it != inp_map.end() && is_map(self_it->second)) {
+            const auto& self = std::any_cast<const BallMap&>(self_it->second);
+            auto type_it = self.find("__type__");
+            if (type_it != self.end() && is_string(type_it->second)) {
+                const auto& type_name = std::any_cast<const std::string&>(type_it->second);
+                // typeName is e.g. "main:Foo". Module part = text before ':'.
+                auto colon_idx = type_name.find(':');
+                std::string mod_part = (colon_idx != std::string::npos)
+                    ? type_name.substr(0, colon_idx)
+                    : current_module_;
+                // Try ClassName.methodName in functions_ (key: "module.typeName.method")
+                std::string method_key = mod_part + "." + type_name + "." + call.function();
+                auto fit = functions_.find(method_key);
+                if (fit != functions_.end()) {
+                    return call_function_internal(mod_part, *fit->second, std::move(input));
+                }
+                // Walk superclass chain.
+                auto super_it = self.find("__super__");
+                BallValue super_obj = (super_it != self.end()) ? super_it->second : BallValue{};
+                while (is_map(super_obj)) {
+                    const auto& sm = std::any_cast<const BallMap&>(super_obj);
+                    auto st = sm.find("__type__");
+                    if (st != sm.end() && is_string(st->second)) {
+                        const auto& super_type = std::any_cast<const std::string&>(st->second);
+                        auto s_colon = super_type.find(':');
+                        std::string s_mod = (s_colon != std::string::npos)
+                            ? super_type.substr(0, s_colon) : mod_part;
+                        std::string s_type = (s_colon != std::string::npos)
+                            ? super_type : (s_mod + ":" + super_type);
+                        std::string super_key = s_mod + "." + s_type + "." + call.function();
+                        auto sfit = functions_.find(super_key);
+                        if (sfit != functions_.end()) {
+                            return call_function_internal(s_mod, *sfit->second, std::move(input));
+                        }
+                    }
+                    auto ss = sm.find("__super__");
+                    super_obj = (ss != sm.end()) ? ss->second : BallValue{};
+                }
+            }
+            // Fall through to normal resolution if no method found on the type.
+        }
+    }
 
     return resolve_and_call(call.module(), call.function(), std::move(input));
 }
@@ -1379,15 +1481,38 @@ Engine::build_std_dispatch() {
         {"null_coalesce", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return l.has_value()?l:r; }},
         {"null_check", [](BallValue i) -> BallValue { return extract_unary(i); }},
         {"is", [](BallValue i) -> BallValue {
-            if(!is_map(i)) return false; auto v=extract_field(i,"value"); auto t=ball::to_string(extract_field(i,"type"));
-            if(t=="int") return is_int(v); if(t=="double") return is_double(v); if(t=="num") return is_int(v)||is_double(v);
-            if(t=="String") return is_string(v); if(t=="bool") return is_bool(v); if(t=="List") return is_list(v);
-            if(t=="Map") return is_map(v); if(t=="Null") return is_null(v);
-            if(is_map(v)){auto tv=extract_field(v,"__type__"); return is_string(tv)&&std::any_cast<std::string>(tv)==t;} return false;
+            if(!is_map(i)) return false;
+            auto v=extract_field(i,"value");
+            auto t=ball::to_string(extract_field(i,"type"));
+            if(t=="int") return is_int(v);
+            if(t=="double") return is_double(v);
+            if(t=="num") return is_int(v)||is_double(v);
+            if(t=="String") return is_string(v);
+            if(t=="bool") return is_bool(v);
+            if(t=="List") return is_list(v);
+            if(t=="Map") return is_map(v);
+            if(t=="Null"||t=="void") return is_null(v);
+            if(t=="Object"||t=="dynamic") return true;
+            if(t=="Function") return is_function(v);
+            // Check BallMap __type__ with __super__ chain walking
+            return object_type_matches(v, t);
         }},
         {"is_not", [](BallValue i) -> BallValue {
-            if(!is_map(i)) return true; auto v=extract_field(i,"value"); auto t=ball::to_string(extract_field(i,"type"));
-            if(t=="int") return !is_int(v); if(t=="double") return !is_double(v); if(t=="String") return !is_string(v); return true;
+            if(!is_map(i)) return true;
+            auto v=extract_field(i,"value");
+            auto t=ball::to_string(extract_field(i,"type"));
+            if(t=="int") return !is_int(v);
+            if(t=="double") return !is_double(v);
+            if(t=="num") return !(is_int(v)||is_double(v));
+            if(t=="String") return !is_string(v);
+            if(t=="bool") return !is_bool(v);
+            if(t=="List") return !is_list(v);
+            if(t=="Map") return !is_map(v);
+            if(t=="Null"||t=="void") return !is_null(v);
+            if(t=="Object"||t=="dynamic") return false;
+            if(t=="Function") return !is_function(v);
+            // Check BallMap __type__ with __super__ chain walking
+            return !object_type_matches(v, t);
         }},
         {"as", [](BallValue i) -> BallValue { return extract_unary(i); }},
         {"index", [](BallValue i) -> BallValue {

@@ -1,16 +1,18 @@
 name: Publish npm
 
+# Triggered by semantic-release creating a GitHub release,
+# or by manually publishing a release.
 on:
   release:
     types: [published]
 
 permissions:
+  id-token: write    # OIDC trusted publishing — no NPM_TOKEN needed
   contents: read
-  id-token: write
 
 jobs:
   publish:
-    name: Publish to npm
+    name: Publish @ball-lang/engine
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,16 +21,26 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-          cache: npm
-          cache-dependency-path: ts/engine/package-lock.json
+
+      # Ensure npm >= 11.5.1 for trusted publishing OIDC support
+      - name: Upgrade npm
+        run: npm install -g npm@latest
 
       - name: Install dependencies
-        run: cd ts/engine && npm ci
+        working-directory: ts/engine
+        run: npm ci
 
       - name: Build
-        run: cd ts/engine && npm run build
+        working-directory: ts/engine
+        run: npm run build
 
+      - name: Test
+        working-directory: ts/engine
+        run: npm test
+
+      # No NPM_TOKEN secret — OIDC handles auth.
+      # Configure trusted publisher at: npmjs.com/package/@ball-lang/engine/access
+      # Workflow filename must match: "publish-npm.yml"
       - name: Publish with provenance
-        run: cd ts/engine && npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        working-directory: ts/engine
+        run: npm publish --provenance --access public

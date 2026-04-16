@@ -4,7 +4,7 @@
     "@semantic-release/commit-analyzer",
     "@semantic-release/release-notes-generator",
     ["@semantic-release/changelog", { "changelogFile": "CHANGELOG.md" }],
-    ["@semantic-release/npm", { "pkgRoot": "ts/engine" }],
+    ["@semantic-release/npm", { "pkgRoot": "ts/engine", "npmPublish": false }],
     "@semantic-release/github",
     ["@semantic-release/git", {
       "assets": ["CHANGELOG.md", "ts/engine/package.json"],

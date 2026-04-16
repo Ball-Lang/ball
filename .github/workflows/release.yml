@@ -98,11 +98,11 @@ jobs:
           @semantic-release/release-notes-generator
           @semantic-release/changelog
           @semantic-release/github
-          @semantic-release/npm
           @semantic-release/git
 
+      # semantic-release creates the GitHub release + changelog.
+      # npm publishing is handled by publish-npm.yml (OIDC, no token).
       - name: Run semantic-release
         run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

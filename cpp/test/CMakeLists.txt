@@ -95,6 +95,12 @@ target_link_libraries(test_encoder
     ball_cpp_engine
     ball_shared
 )
+# Path to real clang AST fixtures. Checked in under
+# tests/fixtures/cpp_ast/ast/ so tests run without needing clang
+# on PATH; regenerate via the script in the same directory.
+target_compile_definitions(test_encoder PRIVATE
+    BALL_CLANG_AST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/fixtures/cpp_ast/ast"
+)
 # Match the encoder binary's 256 MB thread stack — encoder frames are
 # large and the kMaxEncodeDepth=512 guard assumes room to recurse.
 if(MSVC)

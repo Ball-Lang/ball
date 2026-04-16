@@ -121,6 +121,54 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
         return "std::unordered_map<std::string, std::any>";
     if (ball_type == "dynamic" || ball_type == "Object" || ball_type == "Object?")
         return "std::any";
+
+    // Dart function type syntax: `ReturnType Function(A, B, C)` →
+    // `std::function<ReturnType(A, B, C)>`. Split on ` Function(`;
+    // everything before is the return type, everything inside the
+    // parens is the comma-separated parameter list. Each sub-type is
+    // recursively mapped. Falls back to the generic `Function` bucket
+    // when the input doesn't match the full syntax.
+    {
+        auto pos = ball_type.find(" Function(");
+        if (pos != std::string::npos) {
+            auto rt_src = ball_type.substr(0, pos);
+            auto params_start = pos + std::string(" Function(").size();
+            auto params_end = ball_type.rfind(')');
+            if (params_end != std::string::npos && params_end >= params_start) {
+                auto params_src = ball_type.substr(params_start,
+                                                   params_end - params_start);
+                // Split params on top-level commas (ignore commas inside
+                // nested angle brackets / parens).
+                std::vector<std::string> parts;
+                std::string current;
+                int depth = 0;
+                for (char c : params_src) {
+                    if (c == '<' || c == '(' || c == '[') depth++;
+                    else if (c == '>' || c == ')' || c == ']') depth--;
+                    if (c == ',' && depth == 0) {
+                        parts.push_back(current);
+                        current.clear();
+                    } else {
+                        current.push_back(c);
+                    }
+                }
+                if (!current.empty()) parts.push_back(current);
+                std::string out = "std::function<" + map_type(rt_src) + "(";
+                for (size_t i = 0; i < parts.size(); i++) {
+                    if (i > 0) out += ", ";
+                    auto p = parts[i];
+                    // Trim leading/trailing whitespace.
+                    auto ls = p.find_first_not_of(" \t");
+                    auto le = p.find_last_not_of(" \t");
+                    if (ls != std::string::npos)
+                        p = p.substr(ls, le - ls + 1);
+                    out += map_type(p);
+                }
+                out += ")>";
+                return out;
+            }
+        }
+    }
     if (ball_type == "Function") return "std::function<std::any(std::any)>";
     if (ball_type == "Future" || ball_type.find("Future<") == 0) return "std::any /* future */";
     // User-defined type
@@ -217,11 +265,48 @@ std::string CppCompiler::compile_literal(const ball::v1::Literal& lit) {
         case ball::v1::Literal::kBoolValue:
             return lit.bool_value() ? "true" : "false";
         case ball::v1::Literal::kListValue: {
-            std::string result = "std::vector<std::any>{";
+            // Homogeneous lists emit a strongly typed std::vector so
+            // arithmetic, indexing, etc. don't have to cross a
+            // std::any_cast boundary. Detect the common case by
+            // inspecting every element literal and picking a single
+            // concrete element type when all elements agree. Mixed
+            // lists fall back to std::vector<std::any>.
+            std::string elem_type = "std::any";
+            bool homogeneous = true;
+            bool saw_any = false;
+            for (const auto& el : lit.list_value().elements()) {
+                if (el.expr_case() != ball::v1::Expression::kLiteral) {
+                    homogeneous = false;
+                    break;
+                }
+                std::string this_type;
+                switch (el.literal().value_case()) {
+                    case ball::v1::Literal::kIntValue:    this_type = "int64_t"; break;
+                    case ball::v1::Literal::kDoubleValue: this_type = "double"; break;
+                    case ball::v1::Literal::kStringValue: this_type = "std::string"; break;
+                    case ball::v1::Literal::kBoolValue:   this_type = "bool"; break;
+                    default: homogeneous = false; break;
+                }
+                if (!homogeneous) break;
+                if (!saw_any) {
+                    elem_type = this_type;
+                    saw_any = true;
+                } else if (this_type != elem_type) {
+                    homogeneous = false;
+                    break;
+                }
+            }
+            if (!homogeneous) elem_type = "std::any";
+
+            std::string result = "std::vector<" + elem_type + ">{";
             bool first = true;
             for (const auto& el : lit.list_value().elements()) {
                 if (!first) result += ", ";
-                result += "std::any(" + compile_expr(el) + ")";
+                if (elem_type == "std::any") {
+                    result += "std::any(" + compile_expr(el) + ")";
+                } else {
+                    result += compile_expr(el);
+                }
                 first = false;
             }
             result += "}";
@@ -309,7 +394,13 @@ std::string CppCompiler::compile_block(const ball::v1::Block& block) {
 }
 
 std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func) {
-    std::string result = "[&](";
+    // Capture by value by default. Lambdas that escape the enclosing
+    // function (returned as std::function, stored in a variable, etc.)
+    // need to own their captured state — `[&]` would dangle when the
+    // outer stack frame tears down. Lambdas used only synchronously
+    // (inside an immediately-invoked IIFE or a loop body) work fine
+    // under either capture mode, so `[=]` is the safe default.
+    std::string result = "[=](";
     // Parameters
     if (func.has_metadata()) {
         auto params = extract_params(func.metadata());

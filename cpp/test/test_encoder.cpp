@@ -1,21 +1,45 @@
 // Ball C++ Encoder Tests
 //
-// Exercises ball::CppEncoder::encode_from_clang_ast using hand-crafted
-// minimal Clang-AST JSON fixtures. Each fixture covers one encoder
-// responsibility: literals, binary ops, a function declaration, a typed
-// return, etc. Invoking real clang would make tests much heavier and
-// add a PATH dependency, so we construct the minimal JSON shapes that
-// each handler actually inspects (kind + value + inner).
+// Exercises ball::CppEncoder::encode_from_clang_ast through three
+// layers of fixtures:
+//
+//   1. Hand-crafted minimal ASTs — each covers one encoder
+//      responsibility (literal kinds, binary ops, if/for/while, etc.).
+//      Fast to write, targeted, easy to debug.
+//
+//   2. Clang-shaped ASTs — hand-crafted but include the
+//      ImplicitCastExpr / ParenExpr / CXXConstructExpr wrappers that
+//      real clang output contains. Exercises the encoder's unwrap
+//      paths without requiring clang on PATH.
+//
+//   3. Real clang output under tests/fixtures/cpp_ast/ast/*.ast.json —
+//      produced once by `clang -Xclang -ast-dump=json -fsyntax-only`
+//      and committed so tests run without needing the clang toolchain.
+//      Catches the irregular wrapper patterns real clang produces that
+//      we can't anticipate in hand-crafted fixtures.
+//
+// Regenerate the real clang fixtures with:
+//   cd tests/fixtures/cpp_ast
+//   for f in src/*.cpp; do
+//     name=$(basename "$f" .cpp)
+//     clang -Xclang -ast-dump=json -fsyntax-only "$f" > "ast/$name.ast.json"
+//   done
 
 #include "encoder.h"
 #include "engine.h"
 #include "ball_shared.h"
 
 #include <cassert>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#ifndef BALL_CLANG_AST_DIR
+#define BALL_CLANG_AST_DIR ""
+#endif
 
 using namespace ball;
 
@@ -972,6 +996,46 @@ TEST(clang_shape_nested_function_bodies) {
     ASSERT_TRUE(find_fn(prog, "square") != nullptr);
     ASSERT_TRUE(find_fn(prog, "caller") != nullptr);
 }
+
+// ================================================================
+// Real clang fixtures — loaded from tests/fixtures/cpp_ast/ast/*.ast.json.
+// Each test checks that encoding the full clang output doesn't crash,
+// produces a `main` function in the emitted program, and that the
+// engine can execute it without throwing. The directory path is baked
+// in via BALL_CLANG_AST_DIR at compile time.
+// ================================================================
+
+static std::string read_ast_file(const std::string& name) {
+    std::string path = std::string(BALL_CLANG_AST_DIR) + "/" + name + ".ast.json";
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return "";
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+#define CLANG_FIXTURE(name)                                               \
+    TEST(clang_fixture_##name) {                                          \
+        auto json = read_ast_file(#name);                                 \
+        if (json.empty()) {                                               \
+            std::cout << "SKIP (ast file missing)... ";                   \
+            return;                                                       \
+        }                                                                 \
+        CppEncoder encoder;                                               \
+        auto prog = encoder.encode_from_clang_ast(json);                  \
+        ASSERT_TRUE(find_fn(prog, "main") != nullptr);                    \
+        /* Engine smoke-test: run without throwing. We don't check  */    \
+        /* the return value because the sample programs return ints */    \
+        /* that change across fixtures.                             */    \
+        Engine engine(prog, [](const std::string&) {});                   \
+        engine.run();                                                     \
+    }
+
+CLANG_FIXTURE(01_hello)
+CLANG_FIXTURE(02_arithmetic)
+CLANG_FIXTURE(03_if_else)
+CLANG_FIXTURE(04_while)
+CLANG_FIXTURE(05_recursion)
 
 int main() {
     std::cout << "Ball C++ Encoder Tests\n"

@@ -855,6 +855,21 @@ ball::v1::Expression CppEncoder::encode_expression(const json& node) {
         return e;
     }
     if (kind == "CompoundStmt") return encode_compound_stmt(node);
+    if (kind == "ReturnStmt") {
+        // ReturnStmt can appear as the then/else branch of an IfStmt
+        // without being wrapped in a CompoundStmt (braceless
+        // `if (c) return x;`). Encode it as a bare `std.return` call
+        // so the return semantics survive into the expression tree.
+        auto inner = node.value("inner", json::array());
+        std::vector<std::pair<std::string, ball::v1::Expression>> fields;
+        if (!inner.empty() && inner[0].is_object())
+            fields.push_back({"value", encode_expression(inner[0])});
+        return make_std_call("return", std::move(fields));
+    }
+    if (kind == "IfStmt") return encode_if_stmt(node);
+    if (kind == "WhileStmt") return encode_while_stmt(node);
+    if (kind == "ForStmt") return encode_for_stmt(node);
+    if (kind == "DoStmt") return encode_do_while_stmt(node);
     if (kind == "ParenExpr") {
         auto inner = node.value("inner", json::array());
         if (!inner.empty() && inner[0].is_object())
@@ -900,14 +915,35 @@ ball::v1::Expression CppEncoder::encode_call_expr(const json& node) {
     auto inner = node.value("inner", json::array());
     if (inner.empty()) return null_expr();
 
-    auto& callee = inner[0];
+    // Clang wraps the callee in `ImplicitCastExpr` (typically
+    // FunctionToPointerDecay) before the `DeclRefExpr`. Walk through
+    // implicit-cast and paren wrappers until we reach the actual
+    // reference node.
+    auto resolve_callee = [](const json& start) -> const json* {
+        const json* cur = &start;
+        while (cur && cur->is_object()) {
+            auto k = cur->value("kind", "");
+            if (k == "ImplicitCastExpr" || k == "ParenExpr" ||
+                k == "CXXFunctionalCastExpr" || k == "CStyleCastExpr") {
+                auto it = cur->find("inner");
+                if (it == cur->end() || !it->is_array() || it->empty()) {
+                    return cur;
+                }
+                cur = &(*it)[0];
+                continue;
+            }
+            break;
+        }
+        return cur;
+    };
+    const json* callee = resolve_callee(inner[0]);
     std::string func_name;
-    if (callee.is_object() && callee.value("kind", "") == "DeclRefExpr") {
-        if (callee.contains("referencedDecl") &&
-            callee["referencedDecl"].contains("name"))
-            func_name = callee["referencedDecl"]["name"].get<std::string>();
-    } else if (callee.is_object()) {
-        func_name = callee.value("name", "");
+    if (callee && callee->is_object() && callee->value("kind", "") == "DeclRefExpr") {
+        if (callee->contains("referencedDecl") &&
+            (*callee)["referencedDecl"].contains("name"))
+            func_name = (*callee)["referencedDecl"]["name"].get<std::string>();
+    } else if (callee && callee->is_object()) {
+        func_name = callee->value("name", "");
     }
 
     ball::v1::Expression e;

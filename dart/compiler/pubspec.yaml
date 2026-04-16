@@ -10,5 +10,7 @@ dependencies:
     path: ../encoder
   ball_engine:
     path: ../engine
+  ball_resolver:
+    path: ../resolver
   code_builder: ^4.10.0
   dart_style: ^3.0.0

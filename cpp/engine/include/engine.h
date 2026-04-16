@@ -172,6 +172,7 @@ private:
     std::vector<size_t> stack_frames_;
 
     void build_lookup_tables();
+    void validate_no_unresolved_imports();
     void init_top_level_variables();
     std::vector<std::string> extract_params(const google::protobuf::Struct& metadata);
 

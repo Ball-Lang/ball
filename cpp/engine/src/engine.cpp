@@ -55,6 +55,7 @@ Engine::Engine(const ball::v1::Program& program,
     for (auto& h : handlers_) h->init(*this);
 
     build_lookup_tables();
+    validate_no_unresolved_imports();
     init_top_level_variables();
 }
 
@@ -87,6 +88,25 @@ void Engine::build_lookup_tables() {
                 auto params = extract_params(func.metadata());
                 if (!params.empty()) param_cache_[key] = std::move(params);
             }
+        }
+    }
+}
+
+void Engine::validate_no_unresolved_imports() {
+    std::set<std::string> known_modules;
+    for (const auto& mod : program_.modules()) {
+        known_modules.insert(mod.name());
+    }
+    for (const auto& mod : program_.modules()) {
+        for (const auto& imp : mod.module_imports()) {
+            if (known_modules.count(imp.name())) continue;
+            if (imp.source_case() == ball::v1::ModuleImport::SOURCE_NOT_SET) continue;
+            if (imp.has_inline_()) continue;
+            throw BallRuntimeError(
+                "Module \"" + imp.name() + "\" has an unresolved import "
+                "(source type: " + std::to_string(imp.source_case()) + "). "
+                "Run `ball build` to resolve all imports before running "
+                "with the C++ engine.");
         }
     }
 }

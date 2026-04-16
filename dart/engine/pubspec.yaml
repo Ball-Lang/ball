@@ -6,6 +6,8 @@ resolution: workspace
 dependencies:
   ball_base:
     path: ../shared
+  ball_resolver:
+    path: ../resolver
 
 dev_dependencies:
   ball_encoder:

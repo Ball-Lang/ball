@@ -9,6 +9,7 @@ library;
 
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_base/gen/google/protobuf/descriptor.pb.dart' as google;
+import 'package:ball_resolver/ball_resolver.dart';
 import 'package:code_builder/code_builder.dart' as cb;
 import 'package:dart_style/dart_style.dart';
 import 'package:protobuf/well_known_types/google/protobuf/struct.pb.dart'
@@ -17,6 +18,15 @@ import 'package:protobuf/well_known_types/google/protobuf/struct.pb.dart'
 /// Compiles a ball [Program] into formatted Dart source code.
 class DartCompiler {
   final Program program;
+
+  /// Pre-resolve all `ModuleImport` entries in [program], returning a
+  /// self-contained [Program] with every import inlined as a concrete module.
+  /// Compilers need full type/function signatures upfront — no lazy loading.
+  static Future<Program> resolveImports(
+    Program program,
+    ModuleResolver resolver,
+  ) =>
+      resolver.resolveAll(program);
 
   /// When `true`, the compiler skips the `dart_style` formatting step and
   /// returns raw (unformatted) Dart source.  Use this when the compiled output

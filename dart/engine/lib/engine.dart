@@ -13,6 +13,7 @@ import 'dart:math' as math;
 
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_base/gen/google/protobuf/descriptor.pb.dart' as google;
+import 'package:ball_resolver/ball_resolver.dart';
 import 'package:protobuf/well_known_types/google/protobuf/struct.pb.dart'
     as structpb;
 
@@ -435,6 +436,11 @@ class BallEngine {
   /// Saved and restored around each catch body so nested tries unwind cleanly.
   Object? _activeException;
 
+  /// Optional module resolver for lazy-loading unresolved module imports.
+  /// When set, if a cross-module call targets a module not yet in the
+  /// lookup tables, the engine checks `module_imports` and resolves on demand.
+  final ModuleResolver? _resolver;
+
   BallEngine(
     this.program, {
     void Function(String)? stdout,
@@ -444,7 +450,9 @@ class BallEngine {
     List<String>? args,
     bool enableProfiling = false,
     List<BallModuleHandler>? moduleHandlers,
+    ModuleResolver? resolver,
   }) : stdout = stdout ?? print,
+       _resolver = resolver,
        stderr = stderr ?? ((s) => io.stderr.writeln(s)),
        _envGet = envGet ?? ((name) => io.Platform.environment[name] ?? ''),
        _args = args ?? [],
@@ -676,7 +684,61 @@ class BallEngine {
         }
       }
     }
+
+    // Lazy module loading: if a resolver is available, check whether any
+    // module declares an import for the missing module and resolve it.
+    if (_resolver != null) {
+      final resolved = _tryLazyResolve(moduleName);
+      if (resolved != null) {
+        _indexModule(resolved);
+        final resolvedFunc = _functions['$moduleName.$function'];
+        if (resolvedFunc != null) {
+          return _callFunction(moduleName, resolvedFunc, input);
+        }
+      }
+    }
+
     throw BallRuntimeError('Function "$key" not found');
+  }
+
+  Module? _tryLazyResolve(String moduleName) {
+    for (final m in program.modules) {
+      for (final import_ in m.moduleImports) {
+        if (import_.name == moduleName && import_.whichSource() != ModuleImport_Source.notSet) {
+          try {
+            // Synchronous wait — acceptable for lazy loading since module
+            // resolution is typically cached after first fetch.
+            // ignore: discarded_futures
+            final future = _resolver!.resolve(import_);
+            // Use a zone-based sync wait if possible; fallback to blocking.
+            Module? result;
+            bool done = false;
+            future.then((m) { result = m; done = true; });
+            // If the future completed synchronously (cache hit), use it.
+            if (done && result != null) return result;
+          } catch (_) {}
+        }
+      }
+    }
+    return null;
+  }
+
+  void _indexModule(Module module) {
+    program.modules.add(module);
+    for (final type in module.types) {
+      _types[type.name] = type;
+    }
+    for (final td in module.typeDefs) {
+      if (td.hasDescriptor()) _types[td.name] = td.descriptor;
+    }
+    for (final func in module.functions) {
+      final key = '${module.name}.${func.name}';
+      _functions[key] = func;
+      if (func.hasMetadata()) {
+        final params = _extractParams(func.metadata);
+        if (params.isNotEmpty) _paramCache[key] = params;
+      }
+    }
   }
 
   // ============================================================

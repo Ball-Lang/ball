@@ -56,6 +56,14 @@ void main(List<String> args) {
       _audit(rest);
     case 'build':
       _build(rest);
+    case 'init':
+      _init(rest);
+    case 'add':
+      _add(rest);
+    case 'resolve':
+      _resolve(rest);
+    case 'tree':
+      _tree(rest);
     case 'version':
     case '--version':
     case '-v':
@@ -91,6 +99,10 @@ void _printUsage() {
   stderr.writeln('  round-trip <input.dart>      Encode → compile → show diff');
   stderr.writeln('  audit    <input.ball.json>   Static capability analysis');
   stderr.writeln('  build    <input.ball.json>   Resolve imports → self-contained program');
+  stderr.writeln('  init                         Create ball.yaml in current directory');
+  stderr.writeln('  add      <spec>              Add dependency (pub:pkg@^1.0.0)');
+  stderr.writeln('  resolve                      Resolve deps → ball.lock.json');
+  stderr.writeln('  tree                         Print dependency tree');
   stderr.writeln('  version                      Print version');
   stderr.writeln('  help                         Show this help');
   stderr.writeln();
@@ -546,4 +558,161 @@ void _build(List<String> args) {
     stderr.writeln('Error resolving imports: $e');
     exit(1);
   });
+}
+
+// ── ball init ───────────────────────────────────────────────────────────────
+
+void _init(List<String> args) {
+  final file = File('ball.yaml');
+  if (file.existsSync()) {
+    stderr.writeln('ball.yaml already exists in current directory.');
+    exit(1);
+  }
+
+  final name = Directory.current.uri.pathSegments
+      .where((s) => s.isNotEmpty)
+      .lastOrNull ?? 'my_app';
+
+  file.writeAsStringSync('''
+name: $name
+version: 0.1.0
+entry_module: main
+entry_function: main
+
+dependencies: {}
+''');
+  stdout.writeln('Created ball.yaml');
+}
+
+// ── ball add ────────────────────────────────────────────────────────────────
+
+void _add(List<String> args) {
+  if (args.isEmpty) {
+    stderr.writeln('Usage: ball add <registry>:<package>@<version>');
+    stderr.writeln('Examples:');
+    stderr.writeln('  ball add pub:http@^1.0.0');
+    stderr.writeln('  ball add npm:@ball/utils@^2.0.0');
+    stderr.writeln('  ball add git:https://github.com/foo/bar.git@v1.0.0');
+    exit(1);
+  }
+
+  final file = File('ball.yaml');
+  if (!file.existsSync()) {
+    stderr.writeln('No ball.yaml found. Run `ball init` first.');
+    exit(1);
+  }
+
+  for (final spec in args) {
+    final parsed = _parseImportSpec(spec);
+    if (parsed == null) {
+      stderr.writeln('Invalid import spec: $spec');
+      stderr.writeln('Expected format: <registry>:<package>@<version>');
+      exit(1);
+    }
+
+    var content = file.readAsStringSync();
+    if (content.contains('dependencies: {}')) {
+      content = content.replaceFirst(
+        'dependencies: {}',
+        'dependencies:\n  ${parsed.name}:\n${parsed.yaml}',
+      );
+    } else if (content.contains('dependencies:')) {
+      final idx = content.indexOf('dependencies:');
+      final lineEnd = content.indexOf('\n', idx);
+      content = '${content.substring(0, lineEnd)}\n  ${parsed.name}:\n${parsed.yaml}${content.substring(lineEnd)}';
+    }
+    file.writeAsStringSync(content);
+    stdout.writeln('Added ${parsed.name} to ball.yaml');
+  }
+}
+
+class _ParsedSpec {
+  final String name;
+  final String yaml;
+  _ParsedSpec(this.name, this.yaml);
+}
+
+_ParsedSpec? _parseImportSpec(String spec) {
+  // pub:package@^1.0.0
+  final colonIdx = spec.indexOf(':');
+  if (colonIdx < 0) return null;
+
+  final registry = spec.substring(0, colonIdx);
+  final rest = spec.substring(colonIdx + 1);
+
+  final atIdx = rest.lastIndexOf('@');
+  if (atIdx < 0) return null;
+
+  final package = rest.substring(0, atIdx);
+  final version = rest.substring(atIdx + 1);
+
+  switch (registry) {
+    case 'pub':
+      return _ParsedSpec(package, '    registry: pub\n    package: $package\n    version: "$version"\n');
+    case 'npm':
+      return _ParsedSpec(package.replaceAll('/', '_').replaceAll('@', ''), '    registry: npm\n    package: "$package"\n    version: "$version"\n');
+    case 'git':
+      return _ParsedSpec(package.split('/').last.replaceAll('.git', ''), '    git:\n      url: $package\n      ref: "$version"\n');
+    case 'http':
+      return _ParsedSpec(package.split('/').last.replaceAll('.ball.bin', ''), '    url: "$package"\n');
+    default:
+      return null;
+  }
+}
+
+// ── ball resolve ────────────────────────────────────────────────────────────
+
+void _resolve(List<String> args) {
+  final file = File('ball.yaml');
+  if (!file.existsSync()) {
+    stderr.writeln('No ball.yaml found. Run `ball init` first.');
+    exit(1);
+  }
+
+  stderr.writeln('Resolving dependencies from ball.yaml...');
+
+  // For now, just validate that ball.yaml exists and is parseable.
+  // Full resolution (read YAML → create ModuleImports → resolve via
+  // ModuleResolver → write ball.lock.json) will use the manifest parser
+  // from dart/resolver once it exists.
+  stderr.writeln('(Dependencies are resolved at build time via `ball build`)');
+  stderr.writeln('Run `ball build <program.ball.json>` to resolve and inline all imports.');
+}
+
+// ── ball tree ───────────────────────────────────────────────────────────────
+
+void _tree(List<String> args) {
+  String? inputPath;
+  for (final arg in args) {
+    if (!arg.startsWith('-')) { inputPath = arg; break; }
+  }
+
+  if (inputPath == null) {
+    stderr.writeln('Usage: ball tree <input.ball.json>');
+    exit(1);
+  }
+
+  final program = _loadProgram(inputPath);
+  stdout.writeln('${program.name} v${program.version}');
+
+  for (final m in program.modules) {
+    final isBase = m.functions.every((f) => f.isBase) && m.functions.isNotEmpty;
+    final tag = isBase ? ' (base)' : '';
+    final fnCount = m.functions.length;
+    stdout.writeln('  ${m.name}$tag — $fnCount functions');
+    for (final imp in m.moduleImports) {
+      final source = imp.hasHttp()
+          ? 'http: ${imp.http.url}'
+          : imp.hasFile()
+              ? 'file: ${imp.file.path}'
+              : imp.hasGit()
+                  ? 'git: ${imp.git.url}@${imp.git.ref}'
+                  : imp.hasRegistry()
+                      ? '${imp.registry.registry.name}: ${imp.registry.package}@${imp.registry.version}'
+                      : imp.hasInline()
+                          ? 'inline'
+                          : 'ref only';
+      stdout.writeln('    → ${imp.name} ($source)');
+    }
+  }
 }

@@ -237,6 +237,9 @@ export class BallEngine {
         case 'continue': return new FlowSignal('continue', undefined, this.lazyStringField(call, 'label'));
         case 'assign': return this.evalAssign(call, scope);
         case 'labeled': return this.evalLabeled(call, scope);
+        case 'pre_increment': case 'post_increment':
+        case 'pre_decrement': case 'post_decrement':
+          return this.evalIncDec(call, scope);
       }
     }
 
@@ -285,10 +288,22 @@ export class BallEngine {
 
     // Destructure input fields as named parameters
     const params = fn.metadata?.params;
-    if (params && Array.isArray(params) && input && typeof input === 'object' && !Array.isArray(input)) {
-      for (const p of params) {
-        const name = typeof p === 'string' ? p : p.name;
-        if (name && name in input) fnScope.bind(name, input[name]);
+    if (params && Array.isArray(params)) {
+      if (params.length === 1 && (input === null || input === undefined || typeof input !== 'object' || Array.isArray(input))) {
+        // Single-param function with non-object input: bind directly
+        const name = typeof params[0] === 'string' ? params[0] : params[0].name;
+        if (name) fnScope.bind(name, input);
+      } else if (input && typeof input === 'object' && !Array.isArray(input)) {
+        for (let i = 0; i < params.length; i++) {
+          const p = params[i];
+          const name = typeof p === 'string' ? p : p.name;
+          if (!name) continue;
+          if (name in input) {
+            fnScope.bind(name, input[name]);
+          } else if (`arg${i}` in input) {
+            fnScope.bind(name, input[`arg${i}`]);
+          }
+        }
       }
     }
 
@@ -318,6 +333,16 @@ export class BallEngine {
 
   private evalFieldAccess(fa: { object: Expression; field: string }, scope: Scope): BallValue {
     const obj = this.evalExpr(fa.object, scope);
+    // Handle string properties
+    if (typeof obj === 'string') {
+      if (fa.field === 'length') return obj.length;
+      return null;
+    }
+    // Handle array properties
+    if (Array.isArray(obj)) {
+      if (fa.field === 'length') return obj.length;
+      return null;
+    }
     if (obj && typeof obj === 'object' && fa.field in obj) return obj[fa.field];
     return null;
   }
@@ -357,10 +382,21 @@ export class BallEngine {
       const lambdaScope = scope.child();
       lambdaScope.bind('input', input);
       const params = lambda.metadata?.params;
-      if (params && Array.isArray(params) && input && typeof input === 'object') {
-        for (const p of params) {
-          const name = typeof p === 'string' ? p : p.name;
-          if (name && name in input) lambdaScope.bind(name, input[name]);
+      if (params && Array.isArray(params)) {
+        if (params.length === 1 && (input === null || input === undefined || typeof input !== 'object' || Array.isArray(input))) {
+          const name = typeof params[0] === 'string' ? params[0] : params[0].name;
+          if (name) lambdaScope.bind(name, input);
+        } else if (input && typeof input === 'object' && !Array.isArray(input)) {
+          for (let i = 0; i < params.length; i++) {
+            const p = params[i];
+            const name = typeof p === 'string' ? p : p.name;
+            if (!name) continue;
+            if (name in input) {
+              lambdaScope.bind(name, input[name]);
+            } else if (`arg${i}` in input) {
+              lambdaScope.bind(name, input[`arg${i}`]);
+            }
+          }
         }
       }
       const result = this.evalExpr(lambda.body, lambdaScope);
@@ -436,7 +472,22 @@ export class BallEngine {
   private evalLazyFor(call: FunctionCall, scope: Scope): BallValue {
     const fields = this.lazyFields(call);
     const forScope = scope.child();
-    if (fields.init) this.evalExpr(fields.init, forScope);
+    if (fields.init) {
+      // Handle init as string literal "var i = 0" (encoder format)
+      if (fields.init.literal?.stringValue) {
+        const match = fields.init.literal.stringValue.match(/^(?:var|final|int|double|String)\s+(\w+)\s*=\s*(.+)$/);
+        if (match) {
+          const varName = match[1];
+          const rawVal = match[2].trim();
+          const parsed = rawVal === 'true' ? true : rawVal === 'false' ? false : (isNaN(Number(rawVal)) ? rawVal : Number(rawVal));
+          forScope.bind(varName, parsed);
+        }
+      } else if (fields.init.block) {
+        this.evalBlock(fields.init.block, forScope);
+      } else {
+        this.evalExpr(fields.init, forScope);
+      }
+    }
     while (true) {
       if (fields.condition) {
         if (!this.toBool(this.evalExpr(fields.condition, forScope))) break;
@@ -598,6 +649,27 @@ export class BallEngine {
     }
   }
 
+  private evalIncDec(call: FunctionCall, scope: Scope): BallValue {
+    const fields = this.lazyFields(call);
+    const valueExpr = fields.value;
+    if (!valueExpr) return null;
+
+    if (valueExpr.reference) {
+      const name = valueExpr.reference.name;
+      const current = this.toNum(scope.lookup(name));
+      const isInc = call.function.includes('increment');
+      const isPre = call.function.startsWith('pre');
+      const updated = isInc ? current + 1 : current - 1;
+      scope.assign(name, updated);
+      return isPre ? updated : current;
+    }
+
+    // Fallback: just compute
+    const val = this.toNum(this.evalExpr(valueExpr, scope));
+    const isInc = call.function.includes('increment');
+    return isInc ? val + 1 : val - 1;
+  }
+
   private evalLabeled(call: FunctionCall, scope: Scope): BallValue {
     const fields = this.lazyFields(call);
     const label = fields.label?.literal?.stringValue;
@@ -621,7 +693,10 @@ export class BallEngine {
       case 'print': this.stdout(this.ballToString(value ?? input?.message ?? input)); return null;
 
       // Arithmetic
-      case 'add': return this.numOp(left, right, (a, b) => a + b);
+      case 'add': {
+        if (typeof left === 'string' || typeof right === 'string') return String(left ?? '') + String(right ?? '');
+        return this.numOp(left, right, (a, b) => a + b);
+      }
       case 'subtract': return this.numOp(left, right, (a, b) => a - b);
       case 'multiply': return this.numOp(left, right, (a, b) => a * b);
       case 'divide': return Math.trunc(this.toNum(left) / this.toNum(right));

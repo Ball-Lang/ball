@@ -5,93 +5,75 @@
 <h1 align="center">Ball Programming Language</h1>
 
 <p align="center">
-  <strong>Code is Data</strong> — A programming language where every program is a Protocol Buffer message
+  <strong>A polyglot programming language IR where every program is a Protocol Buffer message.</strong>
 </p>
 
 <p align="center">
-  <a href="https://ball-lang.dev">Website</a> •
-  <a href="docs/">Documentation</a> •
-  <a href="examples/">Examples</a> •
-  <a href="LICENSE">MIT License</a>
+  <a href="https://github.com/ball-lang/ball/actions/workflows/ci.yml"><img src="https://github.com/ball-lang/ball/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://www.npmjs.com/package/@ball-lang/engine"><img src="https://img.shields.io/npm/v/@ball-lang/engine" alt="npm"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+  <a href="https://buf.build/ball-lang/ball"><img src="https://img.shields.io/badge/proto-buf.build-blue" alt="Buf"></a>
+</p>
+
+<p align="center">
+  <a href="https://ball-lang.dev">Website</a> &middot;
+  <a href="https://ball-lang.dev/playground">Playground</a> &middot;
+  <a href="docs/">Documentation</a> &middot;
+  <a href="examples/">Examples</a>
 </p>
 
 ---
 
-**Ball** is a programming language represented entirely as [Protocol Buffer](https://protobuf.dev/) messages. Every program is a structured protobuf message that can be serialized, shared, inspected, and compiled to any target language.
-
 ## Why Ball?
 
-| Problem | How Ball Solves It |
+Programs are **structured data**, not text. A Ball program is a protobuf message that can be serialized, transmitted, stored in a database, and compiled to any target language — with zero parsing ambiguity.
+
+| Capability | Details |
 |---|---|
-| **Code sharing** | Programs are protobuf messages — send code over the wire, store in databases, share between platforms |
-| **Dynamic code generation** | Build and modify program ASTs at runtime using any language with protobuf support |
-| **Interoperability** | Compile Ball to Dart, C++, and more target languages |
-| **No syntax errors** | The protobuf schema enforces structural validity — if it deserializes, it's syntactically valid |
-| **Introspection** | Programs are data structures — inspect, transform, and optimize code programmatically |
-| **Language-agnostic types** | Uses protobuf's own descriptor types (`DescriptorProto`) — protobuf already defines type mappings for every target language |
+| **Programs are data** | Protobuf schema enforces structural validity. If it deserializes, it is syntactically valid. No parser, no syntax errors. |
+| **Provably complete security auditing** | `ball audit` statically reports every side effect. No `eval`, no FFI, no hidden capabilities — every I/O operation flows through a named base function. |
+| **Multi-language compilation** | Compile Ball to Dart, C++, and more. Encode Dart source back to Ball. Round-trip real-world code. |
+| **Three runtime engines** | Dart (true async), C++ (native), TypeScript (runs in the browser). |
+| **Package management** | Import modules from pub, npm, and more registries with `ball add pub:package@^1.0.0`. |
+| **Web playground** | Try Ball in your browser at [ball-lang.dev/playground](https://ball-lang.dev/playground). |
 
-## Core Concepts
+## Quick Start
 
-### Everything is a Function Call
+### Install the TypeScript engine (runs anywhere)
 
-Every Ball function has a **single input message** and a **single output message** (like gRPC):
-
-```
-Function: print
-  Input:  PrintInput { message: string }
-  Output: (void)
-  Base:   true  ← implementation provided by target language
+```bash
+npm install @ball-lang/engine
 ```
 
-### Base Functions
+```typescript
+import { BallEngine } from '@ball-lang/engine';
 
-Base functions have **no body** — their implementation is provided by each target language's compiler/engine. This is the extensibility mechanism:
-
-- `std` — arithmetic, comparisons, control flow, string ops, I/O
-- `std_collections` — list and map operations
-- `std_io` — console, process, time, random
-- `std_memory` — linear memory (C/C++ interop)
-- **Your own** — define any base module for your platform
-
-### Control Flow as Functions
-
-`if`, `while`, `for_each` are base functions, keeping the language uniform:
-
-```json
-{
-  "call": {
-    "module": "std",
-    "function": "if",
-    "input": {
-      "messageCreation": {
-        "fields": [
-          { "name": "condition", "value": { "...": "bool expression" } },
-          { "name": "then", "value": { "...": "then expression" } },
-          { "name": "else", "value": { "...": "else expression" } }
-        ]
-      }
-    }
-  }
-}
+const program = JSON.parse(fs.readFileSync('hello_world.ball.json', 'utf-8'));
+const engine = new BallEngine();
+await engine.run(program);
 ```
 
-### Expression Tree
+### Or use the Dart CLI
 
-Every Ball computation is one of seven node types:
+```bash
+cd dart && dart pub get
 
-| Node | Purpose | Example |
-|------|---------|---------|
-| `call` | Call a function | `std.add(left, right)` |
-| `literal` | Constant value | `42`, `"hello"`, `true` |
-| `reference` | Variable access | `input`, `x` |
-| `fieldAccess` | Field of a message | `input.name` |
-| `messageCreation` | Construct message | `Point{x: 1, y: 2}` |
-| `block` | Sequential statements | `let x = 1; let y = 2; x + y` |
-| `lambda` | Anonymous function | `(input) => input.x + 1` |
+# Run a program
+dart run ball_cli:ball run examples/hello_world/hello_world.ball.json
+
+# Compile Ball to Dart source
+dart run ball_cli:ball compile examples/hello_world/hello_world.ball.json
+
+# Encode Dart source back to Ball
+dart run ball_cli:ball encode my_app.dart
+
+# Security audit
+dart run ball_cli:ball audit examples/hello_world/hello_world.ball.json
+```
 
 ## Hello World
 
-**Ball program** (`examples/hello_world/hello_world.ball.json`):
+**Ball program** (`hello_world.ball.json`):
 
 ```json
 {
@@ -135,190 +117,165 @@ void main() {
 
 ```cpp
 #include <iostream>
-
 int main() {
   std::cout << "Hello, World!" << std::endl;
   return 0;
 }
 ```
 
-## Language Support
+## Architecture
 
-For a language to **fully support** Ball, three programs are needed:
+### The 7 Expression Types
 
-| Program | Direction | Purpose |
+Every Ball computation is exactly one of these nodes:
+
+| Node | Purpose | Example |
 |---|---|---|
-| **Compiler** | Ball → language | Generates target language source code |
-| **Encoder** | Language → Ball | Converts source code into Ball programs |
-| **Engine** | Ball → execution | Interprets Ball programs directly at runtime |
+| `call` | Invoke a function | `std.add(left, right)` |
+| `literal` | Constant value | `42`, `"hello"`, `true` |
+| `reference` | Variable access | `input`, `x` |
+| `fieldAccess` | Field of a message | `input.name` |
+| `messageCreation` | Construct a message | `Point{x: 1, y: 2}` |
+| `block` | Sequential statements | `let x = 1; x + 1` |
+| `lambda` | Anonymous function | `(input) => input.x + 1` |
 
-```mermaid
-flowchart LR
-    BP["Ball Program\n(protobuf)"] -- "compiler" --> SRC["Source Code"]
-    SRC -- "encoder" --> BP
-    BP -- "engine" --> RT["Runtime\nExecution"]
-```
+### Modules and Base Functions
+
+Every function takes **one input message** and returns **one output message** (gRPC-style). Base functions have no body — their implementation is provided per-platform:
+
+- **`std`** — ~73 functions: arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops
+- **`std_collections`** — ~43 functions: list/map operations
+- **`std_io`** — ~10 functions: console, process, time, random
+- **`std_memory`** — ~30 functions: linear memory for C/C++ interop
+- **`dart_std`** — ~18 functions: Dart-specific (cascade, null-aware access, spread)
+
+Control flow (`if`, `for`, `while`, `for_each`) is implemented as base function calls with lazy evaluation — keeping the language completely uniform.
+
+### Schema
+
+The single source of truth is [`proto/ball/v1/ball.proto`](proto/ball/v1/ball.proto). All implementations deserialize from this schema. Metadata fields are cosmetic — stripping all metadata never changes what a program computes.
+
+## CLI Commands
+
+| Command | Description |
+|---|---|
+| `ball run <program>` | Execute a Ball program |
+| `ball compile <program>` | Compile to target language source code |
+| `ball encode <source>` | Encode source code into a Ball program |
+| `ball round-trip <source>` | Encode then compile, show diff |
+| `ball audit <program>` | Static capability analysis (security) |
+| `ball info <program>` | Inspect program structure |
+| `ball validate <program>` | Check program validity |
+| `ball build <program>` | Resolve imports into self-contained program |
+| `ball init` | Create `ball.yaml` in current directory |
+| `ball add <spec>` | Add dependency (`pub:pkg@^1.0.0`) |
+| `ball resolve` | Resolve dependencies into `ball.lock.json` |
+| `ball tree` | Print dependency tree |
+
+## Ecosystem
 
 ### Implementation Status
 
-| Language | Compiler | Encoder | Engine |
-|----------|----------|---------|--------|
-| **Dart** | ✅ Full | ✅ Full | ✅ Full |
-| **C++** | ✅ Prototype | ✅ Prototype | ✅ Prototype |
-| Go | Proto bindings | — | — |
-| Python | Proto bindings | — | — |
-| TypeScript | Proto bindings | — | — |
-| Java | Proto bindings | — | — | — |
-| C# | Proto bindings | — | — | — |
+| Language | Proto Bindings | Compiler | Encoder | Engine |
+|---|---|---|---|---|
+| **Dart** | Yes | Full | Full | Full (true async) |
+| **C++** | Yes | Prototype | Prototype | Prototype |
+| **TypeScript** | Yes | -- | -- | Full (browser + Node) |
+| **Go** | Yes | -- | -- | -- |
+| **Python** | Yes | -- | -- | -- |
+| **Java** | Yes | -- | -- | -- |
+| **C#** | Yes | -- | -- | -- |
 
-## Getting Started
-
-### Prerequisites
-
-- [Dart SDK](https://dart.dev/get-dart) ≥ 3.9
-- [Buf CLI](https://buf.build/docs/installation) (optional — for regenerating protobuf bindings)
-
-### Run a Ball program
-
-```bash
-cd dart && dart pub get
-
-# Execute directly (engine)
-cd engine && dart run bin/engine.dart ../../examples/hello_world/hello_world.ball.json
-
-# Compile to Dart
-cd compiler && dart run bin/compile.dart ../../examples/hello_world/hello_world.ball.json
-
-# Run the engine tests
-cd engine && dart test
+```mermaid
+flowchart LR
+    BP["Ball Program\n(protobuf)"] -- compiler --> SRC["Source Code"]
+    SRC -- encoder --> BP
+    BP -- engine --> RT["Runtime\nExecution"]
 ```
 
-### Encode Dart to Ball
+### Extending Ball
 
-```bash
-cd dart/encoder
-dart run bin/encode.dart path/to/file.dart
-```
-
-### Build C++ (prototype)
-
-```bash
-cd cpp
-mkdir build && cd build
-cmake ..
-cmake --build .
-
-# Proto linting/formatting via buf (requires buf CLI)
-cmake --build . --target buf_lint
-cmake --build . --target buf_format
-cmake --build . --target buf_check   # lint + format
-```
-
-## Project Structure
-
-```
-ball/
-├── proto/ball/v1/ball.proto          # Language schema (source of truth)
-├── dart/                              # Dart implementation (most mature)
-│   ├── shared/                        # Protobuf types, std module definitions
-│   ├── compiler/                      # Ball → Dart code generator
-│   ├── encoder/                       # Dart → Ball encoder
-│   ├── engine/                        # Ball runtime interpreter
-│   └── cli/                           # Command-line interface
-├── cpp/                               # C++ implementation (prototype)
-│   ├── shared/                        # Protobuf types
-│   ├── compiler/                      # Ball → C++ code generator
-│   ├── encoder/                       # C++ Clang AST → Ball encoder
-│   └── engine/                        # Ball runtime interpreter
-├── examples/                          # Example Ball programs (.ball.json)
-├── tests/conformance/                 # Cross-implementation conformance tests
-├── website/                           # ball-lang.dev (Jaspr static site)
-├── docs/                              # Documentation
-│   ├── IMPLEMENTING_A_COMPILER.md     # Guide for new target languages
-│   ├── METADATA_SPEC.md              # Standard metadata keys
-│   ├── GAP_ANALYSIS.md               # Coverage vs C++17 and Dart 3.x
-│   ├── STD_COMPLETENESS.md           # Std library function matrix
-│   └── ROADMAP.md                    # Development roadmap
-└── {go,python,ts,java,csharp}/        # Proto bindings only
-```
-
-## Extending Ball
-
-### Custom Base Modules
-
-Define a platform-specific base module (e.g., Flutter):
+Define custom base modules for any platform (Flutter, Unity, embedded):
 
 ```json
 {
   "name": "flutter",
-  "types": [
-    { "name": "TextInput", "field": [
-      { "name": "data", "number": 1, "type": "TYPE_STRING" },
-      { "name": "fontSize", "number": 2, "type": "TYPE_DOUBLE" }
-    ]}
-  ],
   "functions": [
     { "name": "text", "inputType": "TextInput", "outputType": "Widget", "isBase": true }
   ]
 }
 ```
 
-Then implement the base function in your target compiler to generate the appropriate platform code.
+Then implement the base function in your target compiler or engine. See [docs/IMPLEMENTING_A_COMPILER.md](docs/IMPLEMENTING_A_COMPILER.md) for a complete guide.
 
-### Adding a New Target Language
+## Security Model
 
-See [docs/IMPLEMENTING_A_COMPILER.md](docs/IMPLEMENTING_A_COMPILER.md) for a complete guide.
+Ball programs have **provably complete** capability analysis because:
 
-```mermaid
-flowchart LR
-    subgraph step1["1. Compiler"]
-        S1["Deserialize Program"] --> S2["Walk expression tree"] --> S3["Generate source code"]
-    end
-    subgraph step2["2. Encoder"]
-        S4["Parse source code"] --> S5["Map to Ball AST"] --> S6["Serialize as Program"]
-    end
-    subgraph step3["3. Engine"]
-        S7["Deserialize Program"] --> S8["Interpret expressions"] --> S9["Call native functions"]
-    end
-```
+1. **No `eval`** — programs are data, not text. There is no way to construct and execute arbitrary code at runtime.
+2. **No FFI** — the only way to perform side effects is through base function calls with known names.
+3. **Static analysis is exhaustive** — `ball audit` walks the expression tree and reports every base function call, categorized by capability (I/O, network, filesystem, process, memory).
 
-## Design Decisions
-
-| Decision | Choice | Rationale |
-|---|---|---|
-| Serialization | proto3 | Better JSON mapping, simpler defaults |
-| Tooling | [Buf](https://buf.build/) | Module management, linting, breaking change detection |
-| Type system | `google.protobuf.DescriptorProto` | Language-agnostic — protobuf already maps types to every language |
-| Control flow | Base functions | Uniform — everything is a function call |
-| Function signature | Single input/output | gRPC pattern — simple, composable, serializable |
-| Metadata | Cosmetic only | Stripping metadata never changes computation |
-
-## Development
-
-```bash
-# Regenerate protobuf bindings
-buf generate
-
-# Lint the proto schema
-buf lint
-
-# Check for breaking changes
-buf breaking --against ".git#subdir=proto"
-
-# Run Dart engine tests
-cd dart/engine && dart test
-
-# Build C++
-cd cpp/build && cmake .. && cmake --build .
-```
+The [`ball-audit` GitHub Action](.github/actions/ball-audit/action.yml) runs automatically on PRs that modify `.ball.json` files, blocking merges that introduce unauthorized capabilities.
 
 ## Contributing
 
-Contributions are welcome! The biggest impact areas:
+### Build Commands
 
-1. **Implement a new target language** — pick one from Go, Python, TypeScript, Java, C#, Rust
-2. **Improve std library coverage** — see [docs/STD_COMPLETENESS.md](docs/STD_COMPLETENESS.md)
-3. **Fix known issues** — see [docs/ROADMAP.md](docs/ROADMAP.md)
+```bash
+# Dart
+cd dart && dart pub get
+cd dart/engine && dart test
+cd dart/encoder && dart test
+
+# C++
+cd cpp && mkdir -p build && cd build && cmake .. && cmake --build .
+
+# TypeScript
+cd ts/engine && npm install && npm test
+
+# Proto (regenerate all bindings)
+buf lint && buf generate
+```
+
+### Workflow
+
+1. Schema changes: edit `proto/ball/v1/ball.proto` then `buf lint` / `buf generate`
+2. New std functions: edit `dart/shared/lib/std.dart` then `dart run bin/gen_std.dart`
+3. Implement in compiler, engine, or both
+4. Add tests alongside changes
+5. If C++ is in scope, mirror changes in `cpp/`
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for planned work and [docs/STD_COMPLETENESS.md](docs/STD_COMPLETENESS.md) for standard library coverage.
+
+## Project Structure
+
+```
+ball/
+├── proto/ball/v1/ball.proto       # Language schema (single source of truth)
+├── dart/                           # Dart implementation (reference)
+│   ├── shared/                     # Protobuf types, std module, capability analyzer
+│   ├── compiler/                   # Ball -> Dart
+│   ├── encoder/                    # Dart -> Ball
+│   ├── engine/                     # Interpreter (true async)
+│   ├── resolver/                   # Package manager (pub/npm adapters)
+│   └── cli/                        # ball CLI
+├── cpp/                            # C++ implementation (prototype)
+├── ts/engine/                      # TypeScript engine (browser + Node)
+├── go/, python/, java/, csharp/    # Proto bindings
+├── examples/                       # Example Ball programs
+├── tests/conformance/              # Cross-implementation conformance tests
+├── website/                        # ball-lang.dev + playground
+└── docs/                           # Specs and guides
+```
+
+## Links
+
+- [ball-lang.dev](https://ball-lang.dev) — Website
+- [ball-lang.dev/playground](https://ball-lang.dev/playground) — Web playground
+- [@ball-lang/engine on npm](https://www.npmjs.com/package/@ball-lang/engine) — TypeScript engine
+- [buf.build/ball-lang/ball](https://buf.build/ball-lang/ball) — Proto schema on Buf registry
+- [docs/IMPLEMENTING_A_COMPILER.md](docs/IMPLEMENTING_A_COMPILER.md) — Guide for new target languages
 
 ## License
 

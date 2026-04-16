@@ -1,4 +1,18 @@
 name: ball_engine
+description: >-
+  Tree-walking interpreter for Ball programs that executes protobuf expression
+  trees directly, with full std library and custom module handler support.
+version: 0.1.0
+homepage: https://github.com/ball-lang/ball
+repository: https://github.com/ball-lang/ball
+issue_tracker: https://github.com/ball-lang/ball/issues
+topics:
+  - programming-language
+  - interpreter
+  - runtime
+  - protobuf
+  - ball
+
 environment:
   sdk: ^3.9.0
 resolution: workspace
@@ -8,6 +22,7 @@ dependencies:
     path: ../shared
   ball_resolver:
     path: ../resolver
+  protobuf: ^6.0.0
 
 dev_dependencies:
   ball_encoder:

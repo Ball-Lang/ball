@@ -1,5 +1,18 @@
 name: ball_resolver
-description: Module resolver for Ball programs — fetches, verifies, and caches modules from HTTP, file, git, inline, and registry sources.
+description: >-
+  Module resolver for Ball programs that fetches, verifies, and caches modules
+  from HTTP, file, git, inline, and registry sources with integrity checking.
+version: 0.1.0
+homepage: https://github.com/ball-lang/ball
+repository: https://github.com/ball-lang/ball
+issue_tracker: https://github.com/ball-lang/ball/issues
+topics:
+  - programming-language
+  - module-resolver
+  - dependency-management
+  - protobuf
+  - ball
+
 environment:
   sdk: ^3.9.0
 resolution: workspace

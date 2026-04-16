@@ -49,6 +49,11 @@ jobs:
       - name: Copy CNAME
         run: cp website/web/CNAME website/build/jaspr/CNAME
 
+      - name: Copy playground
+        run: |
+          mkdir -p website/build/jaspr/playground
+          cp website/playground/index.html website/build/jaspr/playground/index.html
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:

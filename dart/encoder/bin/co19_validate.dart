@@ -371,6 +371,45 @@ Future<void> main(List<String> args) async {
     }
   }
 
+  // ─── Top failure patterns ──────────────────────────────────────
+  // Aggregate encode errors by normalized pattern.
+  final encodeErrorCounts = <String, int>{};
+  final encodeErrorExamples = <String, String>{};
+  for (final r in results.where((r) => !r.skipped && !r.encodeSuccess && r.encodeError != null)) {
+    final key = _normalizeError(r.encodeError!);
+    encodeErrorCounts[key] = (encodeErrorCounts[key] ?? 0) + 1;
+    encodeErrorExamples.putIfAbsent(key, () => r.path);
+  }
+  if (encodeErrorCounts.isNotEmpty) {
+    final sorted = encodeErrorCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    stdout.writeln();
+    stdout.writeln('Top encode failure patterns:');
+    for (final e in sorted.take(20)) {
+      stdout.writeln('  [${e.value}x] ${e.key}');
+      stdout.writeln('         example: ${encodeErrorExamples[e.key]}');
+    }
+  }
+
+  // Aggregate engine errors by normalized pattern.
+  final engineErrorCounts = <String, int>{};
+  final engineErrorExamples = <String, String>{};
+  for (final r in results.where((r) => !r.skipped && r.encodeSuccess && !r.engineSuccess && r.engineError != null)) {
+    final key = _normalizeError(r.engineError!);
+    engineErrorCounts[key] = (engineErrorCounts[key] ?? 0) + 1;
+    engineErrorExamples.putIfAbsent(key, () => r.path);
+  }
+  if (engineErrorCounts.isNotEmpty) {
+    final sorted = engineErrorCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    stdout.writeln();
+    stdout.writeln('Top engine failure patterns:');
+    for (final e in sorted.take(20)) {
+      stdout.writeln('  [${e.value}x] ${e.key}');
+      stdout.writeln('         example: ${engineErrorExamples[e.key]}');
+    }
+  }
+
   // Timing summary.
   final encodeTimes =
       results.where((r) => !r.skipped && r.encodeSuccess).toList();
@@ -402,6 +441,19 @@ Future<void> main(List<String> args) async {
   } catch (e) {
     stdout.writeln('Warning: could not delete temp dir: $e');
   }
+}
+
+/// Normalize an error message to a short pattern key for aggregation.
+String _normalizeError(String error) {
+  // Remove file paths, line numbers, and specific identifiers.
+  var s = error.replaceAll(RegExp(r"'[^']*'"), "'...'");
+  s = s.replaceAll(RegExp(r'"[^"]*"'), '"..."');
+  s = s.replaceAll(RegExp(r'line \d+'), 'line N');
+  s = s.replaceAll(RegExp(r'column \d+'), 'column N');
+  s = s.replaceAll(RegExp(r'offset \d+'), 'offset N');
+  // Truncate long messages.
+  if (s.length > 120) s = '${s.substring(0, 117)}...';
+  return s;
 }
 
 String _truncate(String s, int maxLen) {

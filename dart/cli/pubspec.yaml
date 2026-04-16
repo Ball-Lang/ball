@@ -1,9 +1,17 @@
 name: ball_cli
 description: >-
-  CLI for the ball programming language.
-  Inspect and validate ball programs.
+  Command-line tool for the Ball programming language -- compile, encode,
+  run, and inspect Ball programs from the terminal.
 version: 0.1.0
-publish_to: none
+homepage: https://github.com/ball-lang/ball
+repository: https://github.com/ball-lang/ball
+issue_tracker: https://github.com/ball-lang/ball/issues
+topics:
+  - programming-language
+  - cli
+  - compiler
+  - interpreter
+  - ball
 
 environment:
   sdk: ^3.9.0

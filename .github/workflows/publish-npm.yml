@@ -15,10 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # IMPORTANT: do NOT pass `registry-url:` here — that makes setup-node
+      # write an .npmrc with `_authToken=${NODE_AUTH_TOKEN}` and export
+      # NPM_CONFIG_USERCONFIG. With an unset/empty token npm falls back to
+      # token-auth with an empty token instead of negotiating OIDC, producing
+      # ENEEDAUTH / E404. OIDC trusted publishing needs no .npmrc at all.
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         working-directory: ts/engine
@@ -32,8 +36,14 @@ jobs:
         working-directory: ts/engine
         run: npm test
 
-      - name: Publish with provenance
+      # Upgrade npm in place so `npm publish` (not npx) picks up >=11.5.1,
+      # which is required for trusted publishing / OIDC.
+      - name: Upgrade npm to >=11.5.1 for OIDC
+        run: npm install -g npm@latest
+
+      - name: Publish with provenance (OIDC trusted publishing)
         working-directory: ts/engine
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # No NODE_AUTH_TOKEN, no NPM_TOKEN — any token env var causes npm to
+        # use token auth instead of OIDC. id-token: write (set at job level)
+        # is what lets npm mint the OIDC token for registry.npmjs.org.
         run: npm publish --provenance --access public

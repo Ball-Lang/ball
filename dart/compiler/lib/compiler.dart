@@ -1260,6 +1260,15 @@ class DartCompiler {
     // and the function body's references to `input` resolve.
     final aliases = <({String name, String? type})>[];
 
+    // Bug fix: constructors with initializer lists or redirecting constructors
+    // store raw source references to original parameter names. Renaming the
+    // param to `input` would leave those references dangling (e.g.
+    // `MyClass(Foo input) : _foo = foo` where `foo` is undefined).
+    // Skip the rename entirely when initializers or redirects are present.
+    final hasInitializers =
+        (meta['initializers'] as List?)?.isNotEmpty == true;
+    final hasRedirect = meta['redirects_to'] != null;
+
     // Count positional (non-named, non-optional) params. If there's
     // exactly one, rename it to `input` so the Ball body's `input`
     // reference works; stash the original name so we can alias it
@@ -1273,7 +1282,8 @@ class DartCompiler {
       final isOptional = p['is_optional'] == true;
       if (!isNamed && !isOptional) positionalCount++;
     }
-    final renameSinglePositional = positionalCount == 1;
+    final renameSinglePositional =
+        positionalCount == 1 && !hasInitializers && !hasRedirect;
 
     for (final p in params) {
       if (p is! Map) continue;
@@ -1287,9 +1297,16 @@ class DartCompiler {
       final isRequiredNamed = p['is_required_named'] == true;
       final defaultValue = p['default'] as String?;
 
+      // Bug fix: never rename initializing formals (this.x) or super formals
+      // (super.x) to `input` — doing so emits `this.input` which references
+      // a non-existent field, causing initializing_formal_for_non_existent_field.
+      final isThis = p['is_this'] == true;
+      final isSuper = p['is_super'] == true;
       String paramName = rawName;
       if (!isNamed &&
           !isOptional &&
+          !isThis &&
+          !isSuper &&
           renameSinglePositional &&
           rawName != 'input') {
         paramName = 'input';
@@ -1401,16 +1418,19 @@ class DartCompiler {
   // ════════════════════════════════════════════════════════════
 
   void _generateFunctionBody(Expression body, bool hasReturn) {
-    // Emit `final <orig> = input;` aliases for any renamed positional
+    // Emit `<type> <orig> = input;` aliases for any renamed positional
     // parameters so the body's original-name references resolve. Consumed
     // on entry so nested lambdas don't inherit the parent's aliases.
+    // Bug fix: use the typed form (no keyword) instead of `final` so that
+    // the alias variable can be reassigned if the body mutates it. Using
+    // `final` caused assignment_to_final_local errors in round-trip output.
     final aliases = _pendingParamAliases;
     _pendingParamAliases = const [];
     for (final a in aliases) {
       if (a.type != null) {
-        _wl('final ${a.type} ${a.name} = input;');
+        _wl('${a.type} ${a.name} = input;');
       } else {
-        _wl('final ${a.name} = input;');
+        _wl('var ${a.name} = input;');
       }
     }
 
@@ -2822,8 +2842,13 @@ class DartCompiler {
     final v = f['value'];
     if (v == null) return '(throw null)';
     final valStr = _compileThrowValue(v);
-    if (valStr != null) return 'throw $valStr';
-    return _emit(_compileExpression(v).thrown);
+    // Bug fix: wrap throw-expression in parentheses so it's valid in
+    // expression positions (e.g. `x ?? (throw Error())`). Dart's grammar
+    // requires parens around `throw` when used as a sub-expression.
+    if (valStr != null) return '(throw $valStr)';
+    // code_builder's `.thrown` emits `throw expr` without parens, so we
+    // must wrap the result ourselves.
+    return '(${_emit(_compileExpression(v).thrown)})';
   }
 
   /// If [v] is an empty-typeName messageCreation, render it as a Dart
@@ -3354,7 +3379,13 @@ class DartCompiler {
   cb.Expression _compileLiteral(Literal lit) => switch (lit.whichValue()) {
     Literal_Value.intValue => cb.literalNum(lit.intValue.toInt()),
     Literal_Value.doubleValue => cb.literalNum(lit.doubleValue),
-    Literal_Value.stringValue => cb.literalString(lit.stringValue),
+    // Bug fix: code_builder's literalString only escapes single quotes and
+    // newlines, not backslashes. Pre-escape backslashes so that strings like
+    // `\d+` (from raw strings / regex patterns) don't produce unterminated
+    // string literals in the output.
+    Literal_Value.stringValue => cb.literalString(
+      lit.stringValue.replaceAll(r'\', r'\\'),
+    ),
     Literal_Value.boolValue => cb.literalBool(lit.boolValue),
     Literal_Value.bytesValue => _raw('${lit.bytesValue}'),
     Literal_Value.listValue => cb.literalList(

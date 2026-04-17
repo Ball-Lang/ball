@@ -3,7 +3,7 @@
 // Target: Dart
 
 int abs(int input) {
-  final int x = input;
+  int x = input;
   if ((x < 0)) {
     return -x;
   } else {
@@ -12,7 +12,7 @@ int abs(int input) {
 }
 
 String sign(int input) {
-  final int x = input;
+  int x = input;
   if ((x > 0)) {
     return 'pos';
   } else {

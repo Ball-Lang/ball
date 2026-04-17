@@ -3,7 +3,7 @@
 // Target: Dart
 
 int sumTo(int input) {
-  final int n = input;
+  int n = input;
   if ((n <= 0)) {
     return 0;
   }

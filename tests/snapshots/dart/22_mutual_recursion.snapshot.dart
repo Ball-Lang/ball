@@ -3,7 +3,7 @@
 // Target: Dart
 
 bool isEven(int input) {
-  final int n = input;
+  int n = input;
   if ((n == 0)) {
     return true;
   }
@@ -11,7 +11,7 @@ bool isEven(int input) {
 }
 
 bool isOdd(int input) {
-  final int n = input;
+  int n = input;
   if ((n == 0)) {
     return false;
   }

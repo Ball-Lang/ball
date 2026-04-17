@@ -3,17 +3,17 @@
 // Target: Dart
 
 int triple(int input) {
-  final int x = input;
+  int x = input;
   return (x * 3);
 }
 
 int addOne(int input) {
-  final int x = input;
+  int x = input;
   return (x + 1);
 }
 
 int pipeline(int input) {
-  final int x = input;
+  int x = input;
   return triple(addOne(triple(x)));
 }
 

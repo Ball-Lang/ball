@@ -3,7 +3,7 @@
 // Target: Dart
 
 int Function(int) adder(int input) {
-  final int delta = input;
+  int delta = input;
   return (int x) => (x + delta);
 }
 

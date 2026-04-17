@@ -3,7 +3,7 @@
 // Target: Dart
 
 bool identity(bool input) {
-  final bool b = input;
+  bool b = input;
   return b;
 }
 

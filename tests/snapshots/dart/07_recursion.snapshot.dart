@@ -3,7 +3,7 @@
 // Target: Dart
 
 int factorial(int input) {
-  final int n = input;
+  int n = input;
   if ((n <= 1)) {
     return 1;
   }
@@ -11,7 +11,7 @@ int factorial(int input) {
 }
 
 int fibonacci(int input) {
-  final int n = input;
+  int n = input;
   if ((n < 2)) {
     return n;
   }

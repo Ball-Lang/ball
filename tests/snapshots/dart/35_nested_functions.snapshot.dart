@@ -2,13 +2,13 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-int add(int a, int b) => (a + b);
 int square(int input) {
   int x = input;
   return (x * x);
 }
 
+int sumOfSquares(int a, int b) => (square(a) + square(b));
 void main() {
-  print((add(2, 3)).toString());
-  print(square(7).toString());
+  print(sumOfSquares(3, 4).toString());
+  print(sumOfSquares(5, 12).toString());
 }

@@ -22,9 +22,11 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Note: node 22 ships with npm 10.9.7+ which supports trusted publishing.
-      # Avoid `npm install -g npm@latest` — known to break due to the
-      # pre-installed npm having dev dependencies stripped.
+      # Install a specific newer npm version to fix the known scoped-package
+      # E404 bug with OIDC trusted publishing (npm/cli issues #8976, #8678).
+      # Pre-installed npm 10.9.7 has the bug; 11.5.1+ fixes it.
+      - name: Install npm 11.5+
+        run: npm install -g npm@11
 
       - name: Install dependencies
         working-directory: ts/engine

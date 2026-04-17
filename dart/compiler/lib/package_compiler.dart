@@ -67,13 +67,16 @@ class PackageCompiler {
       for (final m in program.modules)
         if (m.functions.isNotEmpty && m.functions.every((f) => f.isBase))
           m.name,
-      // Also exclude modules that have no local content (stub-only).
+      // Also exclude modules that have no local content (stub-only) — unless
+      // they carry `dart_exports` metadata, in which case they are re-export
+      // facades that must be emitted so downstream imports resolve.
       for (final m in program.modules)
         if (m.functions.isEmpty &&
             m.types.isEmpty &&
             m.typeDefs.isEmpty &&
             m.enums.isEmpty &&
-            !_isUserModule(m.name))
+            !_isUserModule(m.name) &&
+            !_hasExportMetadata(m))
           m.name,
     };
   }
@@ -293,12 +296,27 @@ class PackageCompiler {
     // only added as a placeholder for an external package import.
     // Modules that carry assets (e.g. '__assets__') are NOT stubs even though
     // they have no Dart code — their content is written by _extractResources.
+    //
+    // Modules that only contain `export` directives (e.g. package facades
+    // like `matcher.dart` or `shelf.dart`) are NOT stubs either — downstream
+    // source files may import them expecting to find the re-exported
+    // symbols. Those `dart_exports` live in module metadata.
+    if (_hasExportMetadata(module)) return false;
     return module.functions.isEmpty &&
         module.types.isEmpty &&
         module.typeDefs.isEmpty &&
         module.enums.isEmpty &&
         module.typeAliases.isEmpty &&
         module.assets.isEmpty;
+  }
+
+  bool _hasExportMetadata(Module module) {
+    if (!module.hasMetadata()) return false;
+    final meta = module.metadata.fields;
+    final exports = meta['dart_exports'];
+    if (exports == null) return false;
+    // Presence of any export entry means the module must be emitted.
+    return exports.hasListValue() && exports.listValue.values.isNotEmpty;
   }
 
   static bool _isUserModule(String name) {

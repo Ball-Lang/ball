@@ -179,8 +179,20 @@ class DartCompiler {
       // Skip base modules and empty stubs.
       final allBase = module.functions.every((f) => f.isBase);
       if (allBase && module.functions.isNotEmpty) continue;
-      if (module.functions.isEmpty && module.typeDefs.isEmpty &&
-          module.types.isEmpty && module.name != program.entryModule) continue;
+      // A module with no local declarations is a stub UNLESS it carries
+      // re-export directives in its metadata — those facades (e.g.
+      // `matcher.dart`, `shelf.dart`) must still be emitted so downstream
+      // imports resolve.
+      final hasExports = _moduleHasExports(module);
+      if (module.functions.isEmpty &&
+          module.typeDefs.isEmpty &&
+          module.types.isEmpty &&
+          module.typeAliases.isEmpty &&
+          module.enums.isEmpty &&
+          !hasExports &&
+          module.name != program.entryModule) {
+        continue;
+      }
       try {
         result[module.name] = compileModule(module.name);
       } catch (e) {
@@ -193,6 +205,13 @@ class DartCompiler {
       }
     }
     return result;
+  }
+
+  bool _moduleHasExports(Module module) {
+    if (!module.hasMetadata()) return false;
+    final exports = module.metadata.fields['dart_exports'];
+    if (exports == null) return false;
+    return exports.hasListValue() && exports.listValue.values.isNotEmpty;
   }
 
   /// Compile a single module to raw (unformatted) Dart source.
@@ -1163,6 +1182,11 @@ class DartCompiler {
             ),
           );
         }
+      } else {
+        // Abstract/external/body-less methods must still clear stashed
+        // aliases so they don't leak into the NEXT method's body and
+        // produce spurious `<Type> <name> = input;` prologues there.
+        _pendingParamAliases = const [];
       }
     });
   }
@@ -1223,6 +1247,10 @@ class DartCompiler {
             ),
           );
         }
+      } else {
+        // External/body-less/empty-body constructors must still clear
+        // stashed aliases so they don't leak into the next member.
+        _pendingParamAliases = const [];
       }
     });
   }
@@ -2141,9 +2169,13 @@ class DartCompiler {
     clause.write(') {');
     _wl(clause.toString());
     _depth++;
-    _catchBoundVars.add(variable);
+    // Only treat the caught variable as a Map when there's no explicit type
+    // annotation. When the user caught a specific Dart exception class
+    // (e.g. `on FileSystemException catch (e)`), `e.message` must stay dotted.
+    final treatAsMap = type == null || type.isEmpty;
+    if (treatAsMap) _catchBoundVars.add(variable);
     if (body != null) _generateBranchBody(body, false);
-    _catchBoundVars.remove(variable);
+    if (treatAsMap) _catchBoundVars.remove(variable);
     _depth--;
   }
 
@@ -3391,16 +3423,72 @@ class DartCompiler {
 
   // ── Literals ─────────────────────────────────────────────────
 
+  /// Escape a Dart string value and wrap it with single quotes so it can be
+  /// safely emitted as source code. Handles all common control characters
+  /// that a raw [cb.literalString] would not (e.g. `\r`, `\b`, `\f`, `\v`,
+  /// `\x7f`) as well as backslash, single quote, `$`, and any other
+  /// non-printable code units via `\x..` / `\u..`.
+  String _dartStringLiteral(String s) {
+    final sb = StringBuffer("'");
+    for (var i = 0; i < s.length; i++) {
+      final unit = s.codeUnitAt(i);
+      switch (unit) {
+        case 0x08:
+          sb.write(r'\b');
+          break;
+        case 0x09:
+          sb.write(r'\t');
+          break;
+        case 0x0a:
+          sb.write(r'\n');
+          break;
+        case 0x0b:
+          sb.write(r'\v');
+          break;
+        case 0x0c:
+          sb.write(r'\f');
+          break;
+        case 0x0d:
+          sb.write(r'\r');
+          break;
+        case 0x22: // "
+          sb.writeCharCode(unit);
+          break;
+        case 0x24: // $
+          sb.write(r'\$');
+          break;
+        case 0x27: // '
+          sb.write(r"\'");
+          break;
+        case 0x5c: // \
+          sb.write(r'\\');
+          break;
+        default:
+          if (unit < 0x20 || unit == 0x7f) {
+            sb.write(
+              '\\x${unit.toRadixString(16).toUpperCase().padLeft(2, '0')}',
+            );
+          } else if (unit > 0x7f && unit < 0xa0) {
+            sb.write(
+              '\\u${unit.toRadixString(16).toUpperCase().padLeft(4, '0')}',
+            );
+          } else {
+            sb.writeCharCode(unit);
+          }
+      }
+    }
+    sb.write("'");
+    return sb.toString();
+  }
+
   cb.Expression _compileLiteral(Literal lit) => switch (lit.whichValue()) {
     Literal_Value.intValue => cb.literalNum(lit.intValue.toInt()),
     Literal_Value.doubleValue => cb.literalNum(lit.doubleValue),
     // Bug fix: code_builder's literalString only escapes single quotes and
-    // newlines, not backslashes. Pre-escape backslashes so that strings like
-    // `\d+` (from raw strings / regex patterns) don't produce unterminated
-    // string literals in the output.
-    Literal_Value.stringValue => cb.literalString(
-      lit.stringValue.replaceAll(r'\', r'\\'),
-    ),
+    // newlines, not backslashes or other control characters. Pre-escape
+    // backslashes plus control chars like `\r`, `\b`, `\f`, `\v`, `\x7f`
+    // so strings round-trip correctly.
+    Literal_Value.stringValue => _raw(_dartStringLiteral(lit.stringValue)),
     Literal_Value.boolValue => cb.literalBool(lit.boolValue),
     Literal_Value.bytesValue => _raw('${lit.bytesValue}'),
     Literal_Value.listValue => cb.literalList(

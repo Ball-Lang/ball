@@ -4143,6 +4143,188 @@ void main() {
       );
       expect(await runAndCapture(p), ['-1']);
     });
+
+    test('null_aware_access returns field value on non-null target', () async {
+      final p = buildProgram(
+        stdFunctions: nullFns,
+        functions: [
+          mainFn([
+            letStmt(
+              'obj',
+              msg([
+                field('name', literal('Alice')),
+              ]),
+            ),
+            stmt(
+              printToString(
+                stdCall(
+                  'null_aware_access',
+                  msg([
+                    field('target', ref('obj')),
+                    field('field', literal('name')),
+                  ]),
+                ),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(p), ['Alice']);
+    });
+
+    test('null_check throws BallRuntimeError on null', () async {
+      final p = buildProgram(
+        stdFunctions: nullFns,
+        functions: [
+          mainFn([
+            letStmt('x', litNull()),
+            stmt(
+              stdCall('null_check', msg([field('value', ref('x'))])),
+            ),
+          ]),
+        ],
+      );
+      expect(
+        runAndCapture(p),
+        throwsA(
+          isA<BallRuntimeError>().having(
+            (e) => e.message,
+            'message',
+            contains('Null check operator used on a null value'),
+          ),
+        ),
+      );
+    });
+
+    test('??= assigns when variable is null', () async {
+      final p = buildProgram(
+        stdFunctions: nullFns,
+        functions: [
+          mainFn([
+            letStmt('x', litNull(), keyword: 'var'),
+            // x ??= 42
+            stmt(
+              stdCall('assign', msg([
+                field('target', ref('x')),
+                field('op', literal('??=')),
+                field('value', literal(42)),
+              ])),
+            ),
+            stmt(printToString(ref('x'))),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(p), ['42']);
+    });
+
+    test('??= does not assign when variable is non-null', () async {
+      final p = buildProgram(
+        stdFunctions: nullFns,
+        functions: [
+          mainFn([
+            letStmt('x', literal(7), keyword: 'var'),
+            // x ??= 99
+            stmt(
+              stdCall('assign', msg([
+                field('target', ref('x')),
+                field('op', literal('??=')),
+                field('value', literal(99)),
+              ])),
+            ),
+            stmt(printToString(ref('x'))),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(p), ['7']);
+    });
+
+    test('??= on field access assigns when field is null', () async {
+      final p = buildProgram(
+        stdFunctions: nullFns,
+        functions: [
+          mainFn([
+            letStmt('obj', msg([field('value', litNull())]), keyword: 'var'),
+            // obj.value ??= 10
+            stmt(
+              stdCall('assign', msg([
+                field('target', {
+                  'fieldAccess': {'object': ref('obj'), 'field': 'value'},
+                }),
+                field('op', literal('??=')),
+                field('value', literal(10)),
+              ])),
+            ),
+            stmt(printToString({
+              'fieldAccess': {'object': ref('obj'), 'field': 'value'},
+            })),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(p), ['10']);
+    });
+
+    test('??= on field access does not assign when field is non-null', () async {
+      final p = buildProgram(
+        stdFunctions: nullFns,
+        functions: [
+          mainFn([
+            letStmt('obj', msg([field('value', literal(5))]), keyword: 'var'),
+            // obj.value ??= 99
+            stmt(
+              stdCall('assign', msg([
+                field('target', {
+                  'fieldAccess': {'object': ref('obj'), 'field': 'value'},
+                }),
+                field('op', literal('??=')),
+                field('value', literal(99)),
+              ])),
+            ),
+            stmt(printToString({
+              'fieldAccess': {'object': ref('obj'), 'field': 'value'},
+            })),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(p), ['5']);
+    });
+
+    test('??= on index assigns when element is null', () async {
+      final p = buildProgram(
+        stdFunctions: [
+          ...nullFns,
+          {'name': 'index', 'isBase': true},
+        ],
+        functions: [
+          mainFn([
+            letStmt('list', {
+              'literal': {
+                'listValue': {
+                  'elements': [litNull(), literal(2)],
+                },
+              },
+            }, keyword: 'var'),
+            // list[0] ??= 42
+            stmt(
+              stdCall('assign', msg([
+                field('target', stdCall('index', msg([
+                  field('target', ref('list')),
+                  field('index', literal(0)),
+                ]))),
+                field('op', literal('??=')),
+                field('value', literal(42)),
+              ])),
+            ),
+            stmt(printToString(
+              stdCall('index', msg([
+                field('target', ref('list')),
+                field('index', literal(0)),
+              ])),
+            )),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(p), ['42']);
+    });
   });
 
   // ── type checks ───────────────────────────────────────────────────────────

@@ -2012,6 +2012,67 @@ class BallEngine {
     return val;
   }
 
+  /// Handle `??=` with short-circuit semantics: evaluate the RHS only when
+  /// the current value of the target is `null`.
+  Future<BallValue> _evalNullAwareAssign(
+    Expression target,
+    Expression value,
+    _Scope scope,
+  ) async {
+    // Simple reference: x ??= val
+    if (target.whichExpr() == Expression_Expr.reference) {
+      final name = target.reference.name;
+      final current = scope.lookup(name);
+      if (current != null) return current;
+      final val = await _evalExpression(value, scope);
+      scope.set(name, val);
+      return val;
+    }
+
+    // Field access: obj.field ??= val
+    if (target.whichExpr() == Expression_Expr.fieldAccess) {
+      final obj = await _evalExpression(target.fieldAccess.object, scope);
+      if (obj is Map<String, Object?>) {
+        final fieldName = target.fieldAccess.field_2;
+        final current = obj[fieldName];
+        if (current != null) return current;
+        final val = await _evalExpression(value, scope);
+        obj[fieldName] = val;
+        return val;
+      }
+    }
+
+    // Index: list[i] ??= val  /  map[k] ??= val
+    if (target.whichExpr() == Expression_Expr.call &&
+        target.call.module == 'std' &&
+        target.call.function == 'index') {
+      final indexFields = _lazyFields(target.call);
+      final indexTarget = indexFields['target'];
+      final indexExpr = indexFields['index'];
+      if (indexTarget != null && indexExpr != null) {
+        final list = await _evalExpression(indexTarget, scope);
+        final idx = await _evalExpression(indexExpr, scope);
+        if (list is List && idx is int) {
+          final current = list[idx];
+          if (current != null) return current;
+          final val = await _evalExpression(value, scope);
+          list[idx] = val;
+          return val;
+        }
+        if (list is Map<String, Object?> && idx is String) {
+          final current = list[idx];
+          if (current != null) return current;
+          final val = await _evalExpression(value, scope);
+          list[idx] = val;
+          return val;
+        }
+      }
+    }
+
+    // Fallback: evaluate and return
+    return _evalExpression(value, scope);
+  }
+
   /// Handle ++/-- as lazy scope-mutating operations.
   Future<BallValue> _evalIncDec(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);

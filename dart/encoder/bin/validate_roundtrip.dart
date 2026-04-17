@@ -58,13 +58,31 @@ Future<void> main(List<String> args) async {
       final outDir = await Directory.systemTemp.createTemp('ball_roundtrip_');
       stdout.writeln('Writing to ${outDir.path}...');
 
-      // Write pubspec.yaml.
+      // Write pubspec.yaml with dependencies copied from the original package
+      // so `dart analyze` can resolve imports like `package:async/async.dart`.
+      final origPubspec = File('${pkgDir.path}/pubspec.yaml');
       final pubspecFile = File('${outDir.path}/pubspec.yaml');
-      await pubspecFile.writeAsString(
-        'name: $packageName\n'
-        'environment:\n'
-        '  sdk: ^3.9.0\n',
+      if (origPubspec.existsSync()) {
+        // Copy original pubspec — it has the real dependency declarations.
+        await pubspecFile.writeAsString(origPubspec.readAsStringSync());
+      } else {
+        await pubspecFile.writeAsString(
+          'name: $packageName\n'
+          'environment:\n'
+          '  sdk: ^3.9.0\n',
+        );
+      }
+
+      // Run `dart pub get` so imports resolve.
+      stdout.writeln('Installing dependencies...');
+      final getResult = await Process.run(
+        'dart',
+        ['pub', 'get'],
+        workingDirectory: outDir.path,
       );
+      if (getResult.exitCode != 0) {
+        stdout.writeln('  (pub get failed — continuing with analyze anyway)');
+      }
 
       // Write each compiled module to its file path.
       var writtenCount = 0;

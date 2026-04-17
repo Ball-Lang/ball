@@ -20,7 +20,10 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
+          # NOTE: do NOT set `registry-url` — it creates an .npmrc with
+          # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` which
+          # interferes with OIDC trusted publishing. With no .npmrc,
+          # npm publishes via OIDC only.
 
       # Install npm 11+ via corepack (npm/cli issues #8976, #8678):
       # pre-installed npm 10.9.7 has an E404 bug for scoped packages +

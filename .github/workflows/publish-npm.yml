@@ -1,13 +1,11 @@
 name: Publish npm
 
-# Triggered by semantic-release creating a GitHub release,
-# or by manually publishing a release.
 on:
   release:
     types: [published]
 
 permissions:
-  id-token: write    # OIDC trusted publishing — no NPM_TOKEN needed
+  id-token: write    # OIDC trusted publishing
   contents: read
 
 jobs:
@@ -22,16 +20,11 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Install npm 11.5.1+ globally for OIDC trusted publishing
-      # (npm/cli #8976, #8678: scoped packages need newer npm).
-      # Corepack alone doesn't switch the default npm shim, so we
-      # install globally and ensure the PATH is updated.
-      - name: Upgrade npm to 11.5+
-        run: |
-          corepack enable
-          corepack use npm@11.5.2
-          npm --version
-
+      # Install npm 11.5.2+ via npx (bypasses the MODULE_NOT_FOUND
+      # issue when globally installing npm over the pre-installed
+      # version in node:22 image).
+      # Required for OIDC trusted publishing to work for scoped
+      # packages (npm/cli #8976, #8678).
       - name: Install dependencies
         working-directory: ts/engine
         run: npm ci
@@ -44,19 +37,16 @@ jobs:
         working-directory: ts/engine
         run: npm test
 
-      # Remove setup-node's .npmrc (location: $RUNNER_TEMP/.npmrc)
-      # so npm 11.5+ uses pure OIDC. The token placeholder in that
-      # file blocks OIDC activation.
-      - name: Remove .npmrc to enable pure OIDC
-        run: |
-          rm -f "$RUNNER_TEMP/.npmrc"
-          unset NPM_CONFIG_USERCONFIG
-          echo "NPM_CONFIG_USERCONFIG=" >> $GITHUB_ENV
-
-      - name: Publish with provenance
+      # Use npx to invoke a NEW npm 11.5.2 for the publish step.
+      # This avoids the need to globally upgrade, which breaks due
+      # to missing dev deps in the pre-installed npm.
+      # Clear NPM_CONFIG_USERCONFIG so the token-placeholder .npmrc
+      # doesn't interfere with OIDC.
+      - name: Publish with provenance (via npx npm@11.5.2)
         working-directory: ts/engine
         env:
           NPM_CONFIG_USERCONFIG: ""
         run: |
-          echo "npm version: $(npm --version)"
-          npm publish --provenance --access public
+          rm -f "$RUNNER_TEMP/.npmrc"
+          npx -y npm@11.5.2 --version
+          npx -y npm@11.5.2 publish --provenance --access public

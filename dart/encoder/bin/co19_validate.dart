@@ -128,18 +128,18 @@ bool _isInlineableImport(String importPath) {
 }
 
 /// Regex matching any import of Utils/expect.dart (with varying ../
-/// prefixes, single or double quotes).
+/// prefixes, single or double quotes, case-insensitive Utils/utils).
 final _expectImportRe =
-    RegExp(r'''import\s+['"][\./]*Utils/expect\.dart['"];?''');
+    RegExp(r'''import\s+['"](?:\.\./)*[Uu]tils/expect\.dart['"];?''');
 
 /// Regex matching any import of Utils/static_type_helper.dart.
 final _staticTypeHelperImportRe =
-    RegExp(r'''import\s+['"][\./]*Utils/static_type_helper\.dart['"];?''');
+    RegExp(r'''import\s+['"](?:\.\./)*[Uu]tils/static_type_helper\.dart['"];?''');
 
 /// Regex matching any import of Utils/dynamic_check.dart or just
 /// dynamic_check.dart.
 final _dynamicCheckImportRe =
-    RegExp(r'''import\s+['"][\./]*(?:Utils/)?dynamic_check\.dart['"];?''');
+    RegExp(r'''import\s+['"](?:\.\./)*(?:[Uu]tils/)?dynamic_check\.dart['"];?''');
 
 /// Replace co19 helper imports with inlined class definitions.
 String _inlineHelpers(String source) {

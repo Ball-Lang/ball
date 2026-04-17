@@ -36,10 +36,19 @@ jobs:
         working-directory: ts/engine
         run: npm test
 
-      # Upgrade npm in place so `npm publish` (not npx) picks up >=11.5.1,
-      # which is required for trusted publishing / OIDC.
-      - name: Upgrade npm to >=11.5.1 for OIDC
-        run: npm install -g npm@latest
+      # Upgrade npm to 11.5.1+ for OIDC trusted publishing.
+      # Bypass the broken pre-installed npm (missing promise-retry) by
+      # downloading the tarball directly and extracting to the node lib
+      # path. This is the approach recommended when `npm install -g npm`
+      # fails with MODULE_NOT_FOUND.
+      - name: Upgrade npm to 11.5.2 for OIDC
+        run: |
+          NPM_DIR=$(dirname $(dirname $(which node)))/lib/node_modules/npm
+          curl -fsSL https://registry.npmjs.org/npm/-/npm-11.5.2.tgz -o /tmp/npm.tgz
+          sudo rm -rf "$NPM_DIR"
+          sudo mkdir -p "$NPM_DIR"
+          sudo tar -xzf /tmp/npm.tgz -C "$NPM_DIR" --strip-components=1
+          npm --version
 
       - name: Publish with provenance (OIDC trusted publishing)
         working-directory: ts/engine

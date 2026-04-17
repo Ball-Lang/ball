@@ -34,7 +34,7 @@
   "author": "Ball-Lang <ahmednfwela@bdaya-dev.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ball-lang/ball.git",
+    "url": "git+https://github.com/Ball-Lang/ball.git",
     "directory": "ts/engine"
   },
   "homepage": "https://github.com/ball-lang/ball/tree/main/ts/engine#readme",

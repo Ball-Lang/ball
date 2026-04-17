@@ -1,0 +1,66 @@
+{
+  "name": "@ball-lang/cli",
+  "version": "0.1.0",
+  "description": "Command-line interface for the Ball programming language. Runs Ball programs and performs static capability analysis.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "ball": "dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning test/cli_test.ts",
+    "prepublishOnly": "npm run build",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "ball",
+    "cli",
+    "interpreter",
+    "polyglot",
+    "protobuf",
+    "programming-language",
+    "capability-analysis",
+    "static-analysis",
+    "audit"
+  ],
+  "license": "MIT",
+  "author": "Ball-Lang <ahmednfwela@bdaya-dev.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ball-Lang/ball.git",
+    "directory": "ts/cli"
+  },
+  "homepage": "https://github.com/ball-lang/ball/tree/main/ts/cli#readme",
+  "bugs": {
+    "url": "https://github.com/ball-lang/ball/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/",
+    "src/",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@ball-lang/engine": "^0.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^6.0.2"
+  }
+}

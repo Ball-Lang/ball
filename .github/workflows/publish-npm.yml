@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    name: Publish @ball-lang/engine
+    name: Publish @ball-lang packages
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -24,16 +24,30 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install dependencies
+      # ── @ball-lang/engine ───────────────────────────────────────────────
+      - name: Install engine dependencies
         working-directory: ts/engine
         run: npm ci
 
-      - name: Build
+      - name: Build engine
         working-directory: ts/engine
         run: npm run build
 
-      - name: Test
+      - name: Test engine
         working-directory: ts/engine
+        run: npm test
+
+      # ── @ball-lang/cli ──────────────────────────────────────────────────
+      - name: Install cli dependencies
+        working-directory: ts/cli
+        run: npm ci
+
+      - name: Build cli
+        working-directory: ts/cli
+        run: npm run build
+
+      - name: Test cli
+        working-directory: ts/cli
         run: npm test
 
       # Upgrade npm to 11.5.1+ for OIDC trusted publishing.
@@ -50,9 +64,15 @@ jobs:
           sudo tar -xzf /tmp/npm.tgz -C "$NPM_DIR" --strip-components=1
           npm --version
 
-      - name: Publish with provenance (OIDC trusted publishing)
+      # Publish engine first — cli depends on it, so on a fresh major bump
+      # the engine must be registry-resolvable before the cli publishes.
+      - name: Publish engine with provenance (OIDC trusted publishing)
         working-directory: ts/engine
         # No NODE_AUTH_TOKEN, no NPM_TOKEN — any token env var causes npm to
         # use token auth instead of OIDC. id-token: write (set at job level)
         # is what lets npm mint the OIDC token for registry.npmjs.org.
+        run: npm publish --provenance --access public
+
+      - name: Publish cli with provenance (OIDC trusted publishing)
+        working-directory: ts/cli
         run: npm publish --provenance --access public

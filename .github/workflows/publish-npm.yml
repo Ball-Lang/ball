@@ -42,12 +42,16 @@ jobs:
         working-directory: ts/engine
         run: npm test
 
-      # Remove setup-node's .npmrc that contains a NODE_AUTH_TOKEN
-      # placeholder. With trusted publishing, pure OIDC handles auth;
-      # any token in .npmrc prevents OIDC activation on some npm
-      # versions (known issue with scoped packages).
-      - name: Remove setup-node's .npmrc (enable pure OIDC)
-        run: rm -f ~/.npmrc $RUNNER_TEMP/.npmrc
+      - name: Debug auth environment
+        run: |
+          echo "npm version: $(npm --version)"
+          echo "node version: $(node --version)"
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL set: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
+          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN set: ${ACTIONS_ID_TOKEN_REQUEST_TOKEN:+yes}"
+          echo "--- .npmrc locations ---"
+          ls -la ~/.npmrc $RUNNER_TEMP/.npmrc ts/engine/.npmrc 2>&1 || true
+          cat ~/.npmrc 2>/dev/null | sed 's/=.*$/=REDACTED/' || echo "no ~/.npmrc"
+          cat $RUNNER_TEMP/.npmrc 2>/dev/null | sed 's/=.*$/=REDACTED/' || echo "no RUNNER_TEMP/.npmrc"
 
       # OIDC trusted publishing requires npm 11.5.1+ AND the trusted
       # publisher config on npmjs.com must match: org=ball-lang,

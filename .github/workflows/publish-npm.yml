@@ -20,15 +20,11 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-          # NOTE: do NOT set `registry-url` — it creates an .npmrc with
-          # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` which
-          # interferes with OIDC trusted publishing. With no .npmrc,
-          # npm publishes via OIDC only.
+          registry-url: https://registry.npmjs.org
 
-      # Install npm 11+ via corepack (npm/cli issues #8976, #8678):
-      # pre-installed npm 10.9.7 has an E404 bug for scoped packages +
-      # OIDC. Using corepack avoids the broken `npm install -g npm@X`
-      # path that fails with MODULE_NOT_FOUND.
+      # Install npm 11.5.1+ which supports OIDC trusted publishing for
+      # scoped packages. Use corepack to avoid MODULE_NOT_FOUND issues
+      # with `npm install -g npm@X` in node:22 image.
       - name: Enable npm 11 via corepack
         run: |
           corepack enable
@@ -46,9 +42,11 @@ jobs:
         working-directory: ts/engine
         run: npm test
 
-      # No NPM_TOKEN secret — OIDC handles auth.
-      # Configure trusted publisher at: npmjs.com/package/@ball-lang/engine/access
-      # Workflow filename must match: "publish-npm.yml"
+      # OIDC trusted publishing requires npm 11.5.1+ AND the trusted
+      # publisher config on npmjs.com must match: org=ball-lang,
+      # repo=ball, workflow=publish-npm.yml.
+      # The NODE_AUTH_TOKEN placeholder from setup-node's .npmrc is
+      # bypassed when OIDC is active.
       - name: Publish with provenance
         working-directory: ts/engine
         run: npm publish --provenance --access public

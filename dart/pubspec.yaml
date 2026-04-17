@@ -9,3 +9,69 @@ workspace:
   - engine
   - cli
   - resolver
+
+dev_dependencies:
+  melos: ^7.0.0
+
+melos:
+  repository: https://github.com/ball-lang/ball
+
+  command:
+    version:
+      branch: main
+      linkToCommits: true
+      workspaceChangelog: true
+      updateGitTagRefs: true
+
+  ignore:
+    - '**/.dart_tool/**'
+    - '**/build/**'
+
+  scripts:
+    analyze:
+      description: Run `dart analyze` on all packages
+      run: melos exec -c 1 -- "dart analyze --no-fatal-warnings ."
+
+    format:
+      description: Run `dart format` on all packages
+      run: melos exec -c 1 -- "dart format ."
+
+    format-check:
+      description: Check formatting without modifying files
+      run: melos exec -c 1 -- "dart format --set-exit-if-changed ."
+
+    test:
+      description: Run all tests across packages (skips packages without tests)
+      run: melos exec --fail-fast --dir-exists=test -c 1 -- "dart test"
+
+    test-fast:
+      description: Run tests excluding slow-tagged tests
+      run: melos exec --fail-fast --dir-exists=test -c 1 -- "dart test --exclude-tags slow"
+
+    regen-std:
+      description: Regenerate std.json and std.bin from std.dart
+      run: cd shared && dart run bin/gen_std.dart
+
+    regen-protos:
+      description: Regenerate protobuf bindings via buf
+      run: cd .. && buf generate proto/
+
+    validate-roundtrip:
+      description: Run round-trip validation on all 20 top pub packages
+      run: cd encoder && dart run ball_encoder:roundtrip_top20
+
+    co19:
+      description: Run co19 conformance validation (default 500 tests)
+      run: cd encoder && dart run ball_encoder:co19_validate --limit 500
+
+    audit:
+      description: Run ball audit on examples
+      run: dart run ball_cli:ball audit ../examples/hello_world/hello_world.ball.json
+
+    pub-publish-dry:
+      description: Dry-run publish for all packages (order matters — base first)
+      run: melos exec -c 1 --order-dependents-first -- "dart pub publish --dry-run"
+
+    clean:
+      description: Remove all build artifacts and .dart_tool directories
+      run: melos exec -- "rm -rf .dart_tool build"

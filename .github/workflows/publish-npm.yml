@@ -22,11 +22,14 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Install a specific newer npm version to fix the known scoped-package
-      # E404 bug with OIDC trusted publishing (npm/cli issues #8976, #8678).
-      # Pre-installed npm 10.9.7 has the bug; 11.5.1+ fixes it.
-      - name: Install npm 11.5+
-        run: npm install -g npm@11
+      # Install npm 11+ via corepack (npm/cli issues #8976, #8678):
+      # pre-installed npm 10.9.7 has an E404 bug for scoped packages +
+      # OIDC. Using corepack avoids the broken `npm install -g npm@X`
+      # path that fails with MODULE_NOT_FOUND.
+      - name: Enable npm 11 via corepack
+        run: |
+          corepack enable
+          corepack prepare npm@11.5.2 --activate
 
       - name: Install dependencies
         working-directory: ts/engine

@@ -5,7 +5,7 @@ on:
     types: [published]
 
 permissions:
-  id-token: write    # OIDC trusted publishing
+  id-token: write    # for provenance attestation (not OIDC auth)
   contents: read
 
 jobs:
@@ -20,11 +20,6 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Install npm 11.5.2+ via npx (bypasses the MODULE_NOT_FOUND
-      # issue when globally installing npm over the pre-installed
-      # version in node:22 image).
-      # Required for OIDC trusted publishing to work for scoped
-      # packages (npm/cli #8976, #8678).
       - name: Install dependencies
         working-directory: ts/engine
         run: npm ci
@@ -37,16 +32,8 @@ jobs:
         working-directory: ts/engine
         run: npm test
 
-      # Use npx to invoke a NEW npm 11.5.2 for the publish step.
-      # This avoids the need to globally upgrade, which breaks due
-      # to missing dev deps in the pre-installed npm.
-      # Clear NPM_CONFIG_USERCONFIG so the token-placeholder .npmrc
-      # doesn't interfere with OIDC.
-      - name: Publish with provenance (via npx npm@11.5.2)
+      - name: Publish with provenance
         working-directory: ts/engine
         env:
-          NPM_CONFIG_USERCONFIG: ""
-        run: |
-          rm -f "$RUNNER_TEMP/.npmrc"
-          npx -y npm@11.5.2 --version
-          npx -y npm@11.5.2 publish --provenance --access public
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public

@@ -22,13 +22,15 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Install npm 11.5.1+ which supports OIDC trusted publishing for
-      # scoped packages. Use corepack to avoid MODULE_NOT_FOUND issues
-      # with `npm install -g npm@X` in node:22 image.
-      - name: Enable npm 11 via corepack
+      # Install npm 11.5.1+ globally for OIDC trusted publishing
+      # (npm/cli #8976, #8678: scoped packages need newer npm).
+      # Corepack alone doesn't switch the default npm shim, so we
+      # install globally and ensure the PATH is updated.
+      - name: Upgrade npm to 11.5+
         run: |
           corepack enable
-          corepack prepare npm@11.5.2 --activate
+          corepack use npm@11.5.2
+          npm --version
 
       - name: Install dependencies
         working-directory: ts/engine
@@ -42,20 +44,19 @@ jobs:
         working-directory: ts/engine
         run: npm test
 
-      - name: Debug auth environment
+      # Remove setup-node's .npmrc (location: $RUNNER_TEMP/.npmrc)
+      # so npm 11.5+ uses pure OIDC. The token placeholder in that
+      # file blocks OIDC activation.
+      - name: Remove .npmrc to enable pure OIDC
         run: |
-          echo "npm version: $(npm --version)"
-          echo "node version: $(node --version)"
-          echo "ACTIONS_ID_TOKEN_REQUEST_URL set: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
-          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN set: ${ACTIONS_ID_TOKEN_REQUEST_TOKEN:+yes}"
-          echo "--- .npmrc locations ---"
-          ls -la ~/.npmrc $RUNNER_TEMP/.npmrc ts/engine/.npmrc 2>&1 || true
-          cat ~/.npmrc 2>/dev/null | sed 's/=.*$/=REDACTED/' || echo "no ~/.npmrc"
-          cat $RUNNER_TEMP/.npmrc 2>/dev/null | sed 's/=.*$/=REDACTED/' || echo "no RUNNER_TEMP/.npmrc"
+          rm -f "$RUNNER_TEMP/.npmrc"
+          unset NPM_CONFIG_USERCONFIG
+          echo "NPM_CONFIG_USERCONFIG=" >> $GITHUB_ENV
 
-      # OIDC trusted publishing requires npm 11.5.1+ AND the trusted
-      # publisher config on npmjs.com must match: org=ball-lang,
-      # repo=ball, workflow=publish-npm.yml.
       - name: Publish with provenance
         working-directory: ts/engine
-        run: npm publish --provenance --access public
+        env:
+          NPM_CONFIG_USERCONFIG: ""
+        run: |
+          echo "npm version: $(npm --version)"
+          npm publish --provenance --access public

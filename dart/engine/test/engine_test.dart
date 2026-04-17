@@ -8350,4 +8350,224 @@ void _inheritanceTests() {
       expect(lines, ['42']);
     });
   });
+
+  // ── Operator overloading tests ──────────────────────────────────
+  group('engine: operator overloading', () {
+    /// Build a program with a class that has a constructor and an operator method.
+    Program buildOperatorProgram({
+      required String className,
+      required String operatorSymbol,
+      required Map<String, dynamic> operatorBody,
+      required Map<String, dynamic> mainBody,
+      List<String> extraStdFunctions = const [],
+      List<Map<String, dynamic>> extraFields = const [],
+    }) {
+      // Constructor: ClassName.new — builds {__type__: className, x: input.x, y: input.y}
+      final ctorFunc = <String, dynamic>{
+        'name': '$className.new',
+        'inputType': '${className}Input',
+        'outputType': className,
+        'metadata': {
+          'kind': 'constructor',
+          'params': [
+            {'name': 'x'},
+            {'name': 'y'},
+          ],
+        },
+        'body': msg([
+          field('__type__', literal('main:$className')),
+          field('x', ref('x')),
+          field('y', ref('y')),
+        ]),
+      };
+
+      // Operator method: ClassName.operatorSymbol
+      final operatorFunc = <String, dynamic>{
+        'name': 'main:$className.$operatorSymbol',
+        'metadata': {
+          'kind': 'method',
+          'is_operator': true,
+          'operator': operatorSymbol,
+          'params': [
+            {'name': 'self'},
+            {'name': 'other'},
+          ],
+        },
+        'body': operatorBody,
+      };
+
+      final mainFunc = <String, dynamic>{
+        'name': 'main',
+        'body': mainBody,
+      };
+
+      final programJson = {
+        'name': 'test_operator',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'add', 'isBase': true},
+              {'name': 'subtract', 'isBase': true},
+              {'name': 'equals', 'isBase': true},
+              {'name': 'not_equals', 'isBase': true},
+              {'name': 'less_than', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+              {'name': 'string_interpolation', 'isBase': true},
+              {'name': 'if', 'isBase': true},
+              {'name': 'assign', 'isBase': true},
+              ...extraStdFunctions.map((n) => {'name': n, 'isBase': true}),
+            ],
+          },
+          {
+            'name': 'main',
+            'functions': [ctorFunc, operatorFunc, mainFunc],
+            'typeDefs': [
+              {
+                'name': 'main:$className',
+                'descriptor': {
+                  'name': 'main:$className',
+                  'field': [
+                    {
+                      'name': 'x',
+                      'number': 1,
+                      'label': 'LABEL_OPTIONAL',
+                      'type': 'TYPE_INT64',
+                    },
+                    {
+                      'name': 'y',
+                      'number': 2,
+                      'label': 'LABEL_OPTIONAL',
+                      'type': 'TYPE_INT64',
+                    },
+                    ...extraFields,
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+
+      return Program()..mergeFromProto3Json(programJson);
+    }
+
+    test('operator + override on class instance', () async {
+      // class Point { int x; int y; Point operator +(Point other) => Point(x + other.x, y + other.y); }
+      // var a = Point(1, 2); var b = Point(3, 4); var c = a + b; print(c.x); print(c.y);
+      final program = buildOperatorProgram(
+        className: 'Point',
+        operatorSymbol: '+',
+        operatorBody: msg([
+          field('__type__', literal('main:Point')),
+          field('x', stdCall('add', msg([
+            field('left', {
+              'fieldAccess': {'object': ref('self'), 'field': 'x'},
+            }),
+            field('right', {
+              'fieldAccess': {'object': ref('other'), 'field': 'x'},
+            }),
+          ]))),
+          field('y', stdCall('add', msg([
+            field('left', {
+              'fieldAccess': {'object': ref('self'), 'field': 'y'},
+            }),
+            field('right', {
+              'fieldAccess': {'object': ref('other'), 'field': 'y'},
+            }),
+          ]))),
+        ]),
+        mainBody: {
+          'block': {
+            'statements': [
+              letStmt('a', call('Point', input: msg([
+                field('x', literal(1)),
+                field('y', literal(2)),
+              ]))),
+              letStmt('b', call('Point', input: msg([
+                field('x', literal(3)),
+                field('y', literal(4)),
+              ]))),
+              letStmt('c', stdCall('add', msg([
+                field('left', ref('a')),
+                field('right', ref('b')),
+              ]))),
+              stmt(printToString({
+                'fieldAccess': {'object': ref('c'), 'field': 'x'},
+              })),
+              stmt(printToString({
+                'fieldAccess': {'object': ref('c'), 'field': 'y'},
+              })),
+            ],
+          },
+        },
+      );
+
+      final lines = await runAndCapture(program);
+      expect(lines, ['4', '6']);
+    });
+
+    test('operator == override on class instance', () async {
+      // class Token { int x; int y; bool operator ==(Object other) => other is Token && x == other.x && y == other.y; }
+      // Simplified: operator== returns true if self.x == other.x and self.y == other.y.
+      final program = buildOperatorProgram(
+        className: 'Token',
+        operatorSymbol: '==',
+        operatorBody: stdCall('and', msg([
+          field('left', stdCall('equals', msg([
+            field('left', {
+              'fieldAccess': {'object': ref('self'), 'field': 'x'},
+            }),
+            field('right', {
+              'fieldAccess': {'object': ref('other'), 'field': 'x'},
+            }),
+          ]))),
+          field('right', stdCall('equals', msg([
+            field('left', {
+              'fieldAccess': {'object': ref('self'), 'field': 'y'},
+            }),
+            field('right', {
+              'fieldAccess': {'object': ref('other'), 'field': 'y'},
+            }),
+          ]))),
+        ])),
+        extraStdFunctions: ['and'],
+        mainBody: {
+          'block': {
+            'statements': [
+              letStmt('a', call('Token', input: msg([
+                field('x', literal(1)),
+                field('y', literal(2)),
+              ]))),
+              letStmt('b', call('Token', input: msg([
+                field('x', literal(1)),
+                field('y', literal(2)),
+              ]))),
+              letStmt('c', call('Token', input: msg([
+                field('x', literal(1)),
+                field('y', literal(99)),
+              ]))),
+              // a == b should be true (same x and y)
+              stmt(printToString(stdCall('equals', msg([
+                field('left', ref('a')),
+                field('right', ref('b')),
+              ])))),
+              // a == c should be false (different y)
+              stmt(printToString(stdCall('equals', msg([
+                field('left', ref('a')),
+                field('right', ref('c')),
+              ])))),
+            ],
+          },
+        },
+      );
+
+      final lines = await runAndCapture(program);
+      expect(lines, ['true', 'false']);
+    });
+  });
 }

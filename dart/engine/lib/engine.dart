@@ -1924,8 +1924,16 @@ class BallEngine {
     final value = fields['value'];
     if (target == null || value == null) return null;
 
-    final val = await _evalExpression(value, scope);
     final op = _stringFieldVal(fields, 'op');
+
+    // For ??= we must check the current value BEFORE evaluating the RHS,
+    // because Dart's ??= short-circuits (does not evaluate RHS if LHS is
+    // non-null).
+    if (op == '??=') {
+      return _evalNullAwareAssign(target, value, scope);
+    }
+
+    final val = await _evalExpression(value, scope);
 
     // Simple reference assignment
     if (target.whichExpr() == Expression_Expr.reference) {
@@ -1946,6 +1954,14 @@ class BallEngine {
       if (obj is Map<String, Object?>) {
         final fieldName = target.fieldAccess.field_2;
 
+        // Compound assignment on field access (e.g. obj.field ??= val)
+        if (op != null && op.isNotEmpty && op != '=') {
+          final current = obj[fieldName];
+          final computed = _applyCompoundOp(op, current, val);
+          obj[fieldName] = computed;
+          return computed;
+        }
+
         // Check for a setter function before falling back to map write.
         final setterResult = await _trySetterDispatch(obj, fieldName, val);
         if (setterResult != _sentinel) return setterResult;
@@ -1965,6 +1981,23 @@ class BallEngine {
       if (indexTarget != null && indexExpr != null) {
         final list = await _evalExpression(indexTarget, scope);
         final idx = await _evalExpression(indexExpr, scope);
+
+        // Compound assignment on index (e.g. list[i] ??= val, map[k] += val)
+        if (op != null && op.isNotEmpty && op != '=') {
+          if (list is List && idx is int) {
+            final current = list[idx];
+            final computed = _applyCompoundOp(op, current, val);
+            list[idx] = computed;
+            return computed;
+          }
+          if (list is Map<String, Object?> && idx is String) {
+            final current = list[idx];
+            final computed = _applyCompoundOp(op, current, val);
+            list[idx] = computed;
+            return computed;
+          }
+        }
+
         if (list is List && idx is int) {
           list[idx] = val;
           return val;
@@ -2102,7 +2135,88 @@ class BallEngine {
   // Base Functions (std + dart_std modules)
   // ============================================================
 
+  // Maps std function names to the Dart operator symbol used in the encoder.
+  static const _stdFunctionToOperator = <String, String>{
+    'equals': '==',
+    'not_equals': '!=',
+    'add': '+',
+    'subtract': '-',
+    'multiply': '*',
+    'divide': '~/',
+    'divide_double': '/',
+    'modulo': '%',
+    'less_than': '<',
+    'greater_than': '>',
+    'lte': '<=',
+    'gte': '>=',
+    'index': '[]',
+  };
+
+  /// Try to dispatch a std operator call to a user-defined operator override.
+  /// Returns `null` if no override is found.
+  Future<BallValue?> _tryOperatorOverride(
+    String function,
+    BallValue input,
+  ) async {
+    final op = _stdFunctionToOperator[function];
+    if (op == null || input is! Map<String, Object?>) return null;
+
+    // For 'index', operands are in 'target'/'index'; for others, 'left'/'right'.
+    final BallValue left;
+    final BallValue right;
+    if (function == 'index') {
+      left = input['target'];
+      right = input['index'];
+    } else {
+      left = input['left'];
+      right = input['right'];
+    }
+
+    if (left is! Map<String, Object?> || !left.containsKey('__type__')) {
+      return null;
+    }
+
+    final typeName = left['__type__'] as String;
+    final colonIdx = typeName.indexOf(':');
+    final modPart =
+        colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
+
+    // Walk the type hierarchy (self, then __super__ chain) looking for the
+    // operator method, mirroring normal method dispatch.
+    Map<String, Object?>? current = left;
+    while (current != null) {
+      final curType = current['__type__'] as String?;
+      if (curType != null) {
+        final cColonIdx = curType.indexOf(':');
+        final cModPart =
+            cColonIdx >= 0 ? curType.substring(0, cColonIdx) : modPart;
+        final cTypeName =
+            cColonIdx >= 0 ? curType : '$cModPart:$curType';
+        final methodKey = '$cModPart.$cTypeName.$op';
+        final method = _functions[methodKey];
+        if (method != null) {
+          // Build input matching method-call convention: {self, other}.
+          final methodInput = <String, Object?>{
+            'self': left,
+            'other': right,
+          };
+          return _callFunction(cModPart, method, methodInput);
+        }
+      }
+      final super_ = current['__super__'];
+      current = super_ is Map<String, Object?> ? super_ : null;
+    }
+
+    return null;
+  }
+
   Future<BallValue> _callBaseFunction(String module, String function, BallValue input) async {
+    // Check for operator overrides on class instances before std dispatch.
+    if (_stdFunctionToOperator.containsKey(function)) {
+      final override = await _tryOperatorOverride(function, input);
+      if (override != null) return override;
+    }
+
     for (final handler in moduleHandlers) {
       if (handler.handles(module)) {
         final result = await handler.call(function, input, callFunction);
@@ -2188,7 +2302,13 @@ class BallEngine {
 
       // Null safety
       'null_coalesce': (i) => _stdBinaryAny(i, (a, b) => a ?? b),
-      'null_check': (i) => _extractUnaryArg(i)!,
+      'null_check': (i) {
+        final v = _extractUnaryArg(i);
+        if (v == null) {
+          throw BallRuntimeError('Null check operator used on a null value');
+        }
+        return v;
+      },
       'null_aware_access': _stdNullAwareAccess,
       'null_aware_call': _stdNullAwareCall,
 

@@ -39,14 +39,23 @@ import 'package:test/test.dart';
 // ─── Pipeline-specific knobs ─────────────────────────────────────
 // Fixtures whose emitted C++ wouldn't run (e.g. uses a feature the C++
 // compiler doesn't fully support yet). Each entry is {fixture: reason}.
-const _skipCppCompile = <String, String>{};
+const _skipCppCompile = <String, String>{
+  '36_catch_stack':
+      'C++ compiler does not yet bind the second `stack` param of `catch (e, st)`',
+};
 
 // Fixtures skipped for every C++ pipeline (including engine and runner).
-const _skipCppAny = <String, String>{};
+const _skipCppAny = <String, String>{
+  '36_catch_stack':
+      'C++ engine does not yet bind the second `stack` param of `catch (e, st)`',
+};
 
 // Fixtures skipped for the TypeScript pipeline. Populate with a reason
 // string as gaps are discovered; empty set = no skips.
-const _skipTs = <String, String>{};
+const _skipTs = <String, String>{
+  '36_catch_stack':
+      'TypeScript compiler does not yet bind the second `stack` param of `catch (e, st)`',
+};
 
 String _norm(String s) =>
     s.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trimRight();

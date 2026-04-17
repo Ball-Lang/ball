@@ -2055,7 +2055,22 @@ class DartCompiler {
     // catch-all that dispatches. Otherwise nothing (unhandled
     // exceptions propagate naturally).
     if (tagCatches.isNotEmpty || untypedCatch != null) {
-      _wl('} catch (__ball_e) {');
+      // Preserve the untyped catch's stack_trace binding, if any. This
+      // matters when the original Dart source was `catch (e, stack)` —
+      // without this, `stack` is undefined in the body.
+      String? untypedStack;
+      if (untypedCatch != null) {
+        final cf = _fieldsToMap(untypedCatch.messageCreation.fields);
+        untypedStack = _stringFieldValue(cf, 'stack_trace');
+      }
+      // Include the stack-trace parameter on the catch-all so it's in
+      // scope for both tag-catch branches (which may use it via a shared
+      // fallback) and the untyped branch.
+      if (untypedStack != null && untypedStack.isNotEmpty) {
+        _wl('} catch (__ball_e, $untypedStack) {');
+      } else {
+        _wl('} catch (__ball_e) {');
+      }
       _depth++;
       bool first = true;
       for (final ce in tagCatches) {

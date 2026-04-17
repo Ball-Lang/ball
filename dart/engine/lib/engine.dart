@@ -1820,7 +1820,7 @@ class BallEngine {
     BallValue result;
     try {
       result = body != null ? await _evalExpression(body, scope) : null;
-    } catch (e) {
+    } catch (e, stackTrace) {
       result = null;
       if (catches != null &&
           catches.whichExpr() == Expression_Expr.literal &&
@@ -1847,6 +1847,7 @@ class BallEngine {
             if (!matches) continue;
           }
           final variable = _stringFieldVal(cf, 'variable') ?? 'e';
+          final stackVariable = _stringFieldVal(cf, 'stack_trace');
           final catchBody = cf['body'];
           if (catchBody != null) {
             final catchScope = scope.child();
@@ -1854,6 +1855,13 @@ class BallEngine {
             // bodies can read field data); fall back to string form for
             // real Dart runtime errors.
             catchScope.bind(variable, e is BallException ? e.value : e.toString());
+            // Bind the stack-trace variable when the source was
+            // `catch (e, stack) { ... }`. We use the trace Dart
+            // captured at the outer `catch (e, stackTrace)` above so
+            // the binding reflects the real unwinding point.
+            if (stackVariable != null && stackVariable.isNotEmpty) {
+              catchScope.bind(stackVariable, stackTrace);
+            }
             // Save/restore the active exception so `rethrow` re-raises
             // the original error and nested tries unwind cleanly.
             final previousActive = _activeException;

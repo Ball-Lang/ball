@@ -22,9 +22,9 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Ensure npm >= 11.5.1 for trusted publishing OIDC support
-      - name: Upgrade npm
-        run: npm install -g npm@latest
+      # Note: node 22 ships with npm 10.9.7+ which supports trusted publishing.
+      # Avoid `npm install -g npm@latest` — known to break due to the
+      # pre-installed npm having dev dependencies stripped.
 
       - name: Install dependencies
         working-directory: ts/engine

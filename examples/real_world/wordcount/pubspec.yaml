@@ -1,0 +1,24 @@
+name: wordcount_demo
+description: Ball real-world demo — encode/audit/compile a small Dart CLI.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  ball_base: ^0.1.0
+  ball_encoder: ^0.1.0
+  ball_compiler: ^0.1.0
+
+dependency_overrides:
+  ball_base:
+    path: ../../../dart/shared
+  ball_encoder:
+    path: ../../../dart/encoder
+  ball_compiler:
+    path: ../../../dart/compiler
+  ball_engine:
+    path: ../../../dart/engine
+  ball_resolver:
+    path: ../../../dart/resolver

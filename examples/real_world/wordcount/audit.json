@@ -1,0 +1,132 @@
+{
+  "programName": "wordcount",
+  "programVersion": "1.0.0",
+  "capabilities": [
+    {
+      "capability": "pure",
+      "riskLevel": "none"
+    },
+    {
+      "capability": "io",
+      "riskLevel": "low",
+      "callSites": [
+        {
+          "module": "main",
+          "function": "main",
+          "calleeModule": "std",
+          "calleeFunction": "print"
+        },
+        {
+          "module": "main",
+          "function": "main",
+          "calleeModule": "std",
+          "calleeFunction": "print"
+        },
+        {
+          "module": "main",
+          "function": "main",
+          "calleeModule": "std",
+          "calleeFunction": "print"
+        },
+        {
+          "module": "main",
+          "function": "main",
+          "calleeModule": "std",
+          "calleeFunction": "print"
+        },
+        {
+          "module": "main",
+          "function": "main",
+          "calleeModule": "std",
+          "calleeFunction": "print"
+        },
+        {
+          "module": "main",
+          "function": "main",
+          "calleeModule": "std",
+          "calleeFunction": "print"
+        },
+        {
+          "module": "main",
+          "function": "main",
+          "calleeModule": "std",
+          "calleeFunction": "print"
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "module": "main",
+      "function": "sampleText",
+      "capabilities": [
+        "pure"
+      ]
+    },
+    {
+      "module": "main",
+      "function": "main:Counts.new"
+    },
+    {
+      "module": "main",
+      "function": "main:Counts.observe",
+      "capabilities": [
+        "pure"
+      ]
+    },
+    {
+      "module": "main",
+      "function": "trim",
+      "capabilities": [
+        "pure"
+      ]
+    },
+    {
+      "module": "main",
+      "function": "isSpace",
+      "capabilities": [
+        "pure"
+      ]
+    },
+    {
+      "module": "main",
+      "function": "countWords",
+      "capabilities": [
+        "pure"
+      ]
+    },
+    {
+      "module": "main",
+      "function": "splitLines",
+      "capabilities": [
+        "pure"
+      ]
+    },
+    {
+      "module": "main",
+      "function": "main",
+      "capabilities": [
+        "pure",
+        "io"
+      ]
+    }
+  ],
+  "summary": {
+    "isPure": false,
+    "readsFilesystem": false,
+    "writesFilesystem": false,
+    "readsStdin": false,
+    "writesStdout": true,
+    "writesStderr": false,
+    "readsEnvironment": false,
+    "controlsProcess": false,
+    "usesMemory": false,
+    "usesTime": false,
+    "usesRandom": false,
+    "usesConcurrency": false,
+    "usesNetwork": false,
+    "totalFunctions": 8,
+    "pureFunctions": 7,
+    "effectfulFunctions": 1
+  }
+}

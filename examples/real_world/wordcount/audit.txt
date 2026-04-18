@@ -1,0 +1,21 @@
+Ball Capability Audit: wordcount v1.0.0
+============================================================
+
+Capabilities:
+  ✓ pure (pure computation)
+  ⚠ io (7 call sites: main.main → std.print, main.main → std.print, main.main → std.print, main.main → std.print, main.main → std.print, main.main → std.print, main.main → std.print)
+  ✗ NONE: filesystem, network, process, memory, concurrency, random
+
+Summary: LOW RISK
+  8 functions: 7 pure, 1 effectful
+
+Per-function breakdown:
+  main.sampleText → pure
+  main.main:Counts.new → pure
+  main.main:Counts.observe → pure
+  main.trim → pure
+  main.isSpace → pure
+  main.countWords → pure
+  main.splitLines → pure
+  main.main → io
+

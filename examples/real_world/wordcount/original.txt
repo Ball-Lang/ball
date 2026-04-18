@@ -1,0 +1,7 @@
+wordcount report
+----------------
+lines:   5
+words:   36
+chars:   194
+blank:   0
+longest: 44

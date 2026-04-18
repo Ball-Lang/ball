@@ -18,13 +18,10 @@ environment:
 resolution: workspace
 
 dependencies:
-  ball_base:
-    path: ../shared
-  ball_resolver:
-    path: ../resolver
+  ball_base: ^0.1.0
+  ball_resolver: ^0.1.0
   protobuf: ^6.0.0
 
 dev_dependencies:
-  ball_encoder:
-    path: ../encoder
+  ball_encoder: ^0.1.0
   test: ^1.25.0

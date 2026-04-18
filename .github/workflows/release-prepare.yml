@@ -1,0 +1,43 @@
+name: Prepare release
+
+# Fires on push to main. When conventional commits indicate a
+# version bump, Melos opens a release PR with per-package version
+# bumps + CHANGELOG updates for human review.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare-release:
+    name: Prepare release PR
+    runs-on: ubuntu-latest
+    # Skip when the commit is itself a release commit (prevents loops)
+    if: "!contains(github.event.head_commit.message, 'chore(release)')"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          # Use PAT so the resulting PR can trigger downstream workflows.
+          # Default GITHUB_TOKEN cannot do this.
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+
+      - uses: dart-lang/setup-dart@v1
+
+      - name: Bootstrap workspace
+        working-directory: dart
+        run: dart pub get
+
+      - uses: bluefireteam/melos-action@v3
+        with:
+          melos-working-dir: dart
+          run-versioning: true
+          publish-dry-run: true
+          create-pr: true
+          # RELEASE_PAT must have contents:write + pull-requests:write
+          # and ideally actions:write so the release-tag.yml triggers.
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}

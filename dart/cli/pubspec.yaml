@@ -23,14 +23,10 @@ executables:
 
 dependencies:
   ball_base: ^0.1.0
-  ball_compiler:
-    path: ../compiler
-  ball_encoder:
-    path: ../encoder
-  ball_engine:
-    path: ../engine
-  ball_resolver:
-    path: ../resolver
+  ball_compiler: ^0.1.0
+  ball_encoder: ^0.1.0
+  ball_engine: ^0.1.0
+  ball_resolver: ^0.1.0
   fixnum: ^1.1.1
   protobuf: ^6.0.0
 

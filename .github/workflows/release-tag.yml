@@ -1,0 +1,48 @@
+name: Tag and start release
+
+# Fires when a release PR (chore(release): ...) is merged to main.
+# Creates per-package tags via Melos, then dispatches release-publish.yml
+# once per package in dependency order (base → resolver → engine → ...).
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  tag-and-dispatch:
+    name: Tag packages and dispatch publish
+    runs-on: ubuntu-latest
+    # Only run on release commits (created by release-prepare.yml's PR merge)
+    if: contains(github.event.head_commit.message, 'chore(release)')
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: dart-lang/setup-dart@v1
+
+      - name: Bootstrap workspace
+        working-directory: dart
+        run: dart pub get
+
+      # melos-action with `tag: true` creates <package_name>-v<version>
+      # tags for every package whose version changed since the last tag.
+      - uses: bluefireteam/melos-action@v3
+        with:
+          melos-working-dir: dart
+          tag: true
+
+      # Dispatch release-publish.yml once per freshly-tagged package,
+      # in dependency order. `--no-published` skips packages whose
+      # version is already on pub.dev (e.g. republishing unchanged).
+      - name: Dispatch per-package publish workflows
+        working-directory: dart
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dart run melos exec -c 1 --no-private --order-dependents -- \
+            'gh workflow run release-publish.yml --ref $MELOS_PACKAGE_NAME-v$MELOS_PACKAGE_VERSION'

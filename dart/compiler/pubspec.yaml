@@ -18,14 +18,10 @@ environment:
 resolution: workspace
 
 dependencies:
-  ball_base:
-    path: ../shared
-  ball_encoder:
-    path: ../encoder
-  ball_engine:
-    path: ../engine
-  ball_resolver:
-    path: ../resolver
+  ball_base: ^0.1.0
+  ball_encoder: ^0.1.0
+  ball_engine: ^0.1.0
+  ball_resolver: ^0.1.0
   code_builder: ^4.10.0
   dart_style: ^3.0.0
   protobuf: ^6.0.0

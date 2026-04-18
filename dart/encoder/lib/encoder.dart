@@ -1102,6 +1102,12 @@ class DartEncoder {
     );
   }
 
+  /// Counter shared across all unnamed extension declarations within a single
+  /// module encoding run, so multiple `extension on T { ... }` clauses
+  /// in the same file produce distinct Ball-level names (and therefore
+  /// distinct typeDefs + method-to-extension routing).
+  int _unnamedExtensionCounter = 0;
+
   void _encodeExtensionDeclaration(
     ast.ExtensionDeclaration decl,
     List<FunctionDefinition> functions,
@@ -1109,13 +1115,19 @@ class DartEncoder {
   ) {
     String extName;
     if (decl.name == null) {
-      _warn('Extension declaration has no name; using "_unnamed_extension"');
-      extName = '_unnamed_extension';
+      final idx = _unnamedExtensionCounter++;
+      _warn(
+        'Extension declaration has no name; using '
+        '"_unnamed_extension_$idx"',
+      );
+      extName = '_unnamed_extension_$idx';
     } else {
       extName = decl.name!.lexeme;
     }
-    final ballName = extName == '_unnamed_extension'
-        ? '_unnamed_extension'
+    // The prefix `_unnamed_extension` (with optional _<n> suffix) signals
+    // to the compiler to emit an anonymous `extension on T { ... }`.
+    final ballName = extName.startsWith('_unnamed_extension')
+        ? extName
         : '$_moduleName:$extName';
     for (final member in decl.body.members) {
       if (member is ast.MethodDeclaration) {
@@ -1616,6 +1628,19 @@ class DartEncoder {
       }
       return Statement()..expression = (Expression()..block = block);
     }
+    // Dart 3 pattern-variable declaration:
+    //   `var (a, b) = pair;`
+    //   `final (x, y: name) = record;`
+    // The pattern destructures a record/list/map/object into named
+    // variables. We can't faithfully model arbitrary patterns in Ball,
+    // but the common record form `(a, b, ..)` can round-trip by
+    // (1) evaluating the RHS into a temp,
+    // (2) declaring each variable bound to the matching field.
+    if (stmt is ast.PatternVariableDeclarationStatement) {
+      final decl = stmt.declaration;
+      final encoded = _tryEncodePatternVarDecl(decl);
+      if (encoded != null) return encoded;
+    }
     // Unsupported statement — store sourc as string literal for round-tripping.
     return Statement()
       ..expression = (Expression()
@@ -1623,6 +1648,63 @@ class DartEncoder {
           ..stringValue =
               '/* unsupported: ${stmt.runtimeType}: ${stmt.toSource()} */'));
   }
+
+  /// Best-effort encoder for `var (a, b, ...) = rhs;` where the pattern is
+  /// a RecordPattern with all positional fields. Returns a block that
+  /// evaluates the RHS once into a synthetic temp and declares each bound
+  /// variable via `record.$1` / `record.$2` accessors.
+  ///
+  /// Returns `null` if the pattern isn't a simple record of simple binds
+  /// — in that case the caller falls back to the unsupported-literal path.
+  Statement? _tryEncodePatternVarDecl(ast.PatternVariableDeclaration decl) {
+    final pat = decl.pattern;
+    if (pat is! ast.RecordPattern) return null;
+
+    // Collect positional bind names; fail if anything is non-trivial.
+    final binds = <({String name, int? positionalIndex, String? label})>[];
+    var positionalIdx = 0;
+    for (final f in pat.fields) {
+      final inner = f.pattern;
+      if (inner is! ast.DeclaredVariablePattern) return null;
+      final label = f.name?.name?.lexeme;
+      binds.add((
+        name: inner.name.lexeme,
+        positionalIndex: label == null ? positionalIdx : null,
+        label: label,
+      ));
+      if (label == null) positionalIdx++;
+    }
+
+    // Build a block:
+    //   final __ball_rec_N = <rhs>;
+    //   final a = __ball_rec_N.$1;
+    //   final b = __ball_rec_N.$2;
+    //   final name = __ball_rec_N.name;
+    final tempName = '__ball_rec_${_patternVarCounter++}';
+    final block = Block();
+    block.statements.add(
+      Statement()
+        ..let = (LetBinding()
+          ..name = tempName
+          ..value = _encodeExpr(decl.expression)),
+    );
+    for (final b in binds) {
+      final field = b.label ?? '\$${(b.positionalIndex ?? 0) + 1}';
+      block.statements.add(
+        Statement()
+          ..let = (LetBinding()
+            ..name = b.name
+            ..value = (Expression()
+              ..fieldAccess = (FieldAccess()
+                ..object = (Expression()
+                  ..reference = (Reference()..name = tempName))
+                ..field_2 = field))),
+      );
+    }
+    return Statement()..expression = (Expression()..block = block);
+  }
+
+  int _patternVarCounter = 0;
 
   Statement _encodeVarDeclStatement(ast.VariableDeclarationStatement stmt) {
     return _encodeVarDeclEntry(stmt, stmt.variables.variables.first);
@@ -1812,6 +1894,9 @@ class DartEncoder {
             ..literal = (Literal()
               ..stringValue = loopParts.loopVariable.name.lexeme)),
       );
+      // Preserve the declaration keyword so the compiler can round-trip
+      // `for (var x in ...)` as `var` (not default `final`). When there's
+      // an explicit type, the type overrides the keyword.
       if (loopParts.loopVariable.type != null) {
         fields.add(
           FieldValuePair()
@@ -1820,6 +1905,17 @@ class DartEncoder {
               ..literal = (Literal()
                 ..stringValue = loopParts.loopVariable.type!.toSource())),
         );
+      } else {
+        // Grab the `var`/`final` keyword (if any) from the loopVariable.
+        final kw = loopParts.loopVariable.keyword?.lexeme;
+        if (kw != null && (kw == 'var' || kw == 'final')) {
+          fields.add(
+            FieldValuePair()
+              ..name = 'variable_keyword'
+              ..value = (Expression()
+                ..literal = (Literal()..stringValue = kw)),
+          );
+        }
       }
       fields.add(
         FieldValuePair()
@@ -1864,6 +1960,47 @@ class DartEncoder {
           ..value = _encodeExpr(loopParts.iterable),
       );
 
+      final body = stmt.body;
+      if (body is ast.Block) {
+        fields.add(
+          FieldValuePair()
+            ..name = 'body'
+            ..value = _encodeBlock(body.statements, hasReturn: false),
+        );
+      } else {
+        fields.add(
+          FieldValuePair()
+            ..name = 'body'
+            ..value = _encodeSingleStatement(body, hasReturn: false),
+        );
+      }
+      return _buildStdCall('for_in', fields);
+    } else if (loopParts is ast.ForEachPartsWithPattern) {
+      // Dart 3 destructuring for-each:
+      //   `for (var MapEntry(key: name, value: content) in map.entries) ...`
+      // Preserve the keyword + pattern as a raw string under `pattern` so
+      // the compiler can emit `for (<pattern> in <iter>) <body>` verbatim.
+      _usedBaseFunctions.add('for_in');
+      if (stmt.awaitKeyword != null) {
+        fields.add(
+          FieldValuePair()
+            ..name = 'is_await'
+            ..value = (Expression()..literal = (Literal()..boolValue = true)),
+        );
+      }
+      final kw = loopParts.keyword.lexeme;
+      final patternSrc = loopParts.pattern.toSource();
+      fields.add(
+        FieldValuePair()
+          ..name = 'pattern'
+          ..value = (Expression()
+            ..literal = (Literal()..stringValue = '$kw $patternSrc')),
+      );
+      fields.add(
+        FieldValuePair()
+          ..name = 'iterable'
+          ..value = _encodeExpr(loopParts.iterable),
+      );
       final body = stmt.body;
       if (body is ast.Block) {
         fields.add(
@@ -3107,6 +3244,57 @@ class DartEncoder {
             ..name = 'iterable'
             ..value = _encodeExpr(parts.iterable),
         );
+      } else if (parts is ast.ForPartsWithDeclarations ||
+          parts is ast.ForPartsWithExpression) {
+        // C-style for inside a collection literal — e.g.
+        // `[for (var i = 0; i < n; i++) f(i)]`. Store the full for-header
+        // as a raw `init`/`condition`/`update` trio that the compiler can
+        // splice into `for (init; cond; update) body` verbatim.
+        if (parts is ast.ForPartsWithDeclarations) {
+          fields.add(
+            FieldValuePair()
+              ..name = 'init'
+              ..value = (Expression()
+                ..literal = (Literal()
+                  ..stringValue = parts.variables.toSource())),
+          );
+          if (parts.condition != null) {
+            fields.add(
+              FieldValuePair()
+                ..name = 'condition'
+                ..value = _encodeExpr(parts.condition!),
+            );
+          }
+          if (parts.updaters.isNotEmpty) {
+            fields.add(
+              FieldValuePair()
+                ..name = 'update'
+                ..value = _encodeExpr(parts.updaters.first),
+            );
+          }
+        } else if (parts is ast.ForPartsWithExpression) {
+          if (parts.initialization != null) {
+            fields.add(
+              FieldValuePair()
+                ..name = 'init'
+                ..value = _encodeExpr(parts.initialization!),
+            );
+          }
+          if (parts.condition != null) {
+            fields.add(
+              FieldValuePair()
+                ..name = 'condition'
+                ..value = _encodeExpr(parts.condition!),
+            );
+          }
+          if (parts.updaters.isNotEmpty) {
+            fields.add(
+              FieldValuePair()
+                ..name = 'update'
+                ..value = _encodeExpr(parts.updaters.first),
+            );
+          }
+        }
       }
       fields.add(
         FieldValuePair()
@@ -3627,6 +3815,10 @@ class DartEncoder {
       if (p.isOptionalPositional) pm['is_optional'] = true;
       if (p.isRequiredNamed) pm['is_required_named'] = true;
       if (p.isOptionalNamed) pm['is_optional_named'] = true;
+      // `covariant T x` on a method parameter signals that subclass overrides
+      // may narrow the parameter's type. Preserve so round-tripped Dart
+      // passes override-invariance checks.
+      if (p.covariantKeyword != null) pm['is_covariant'] = true;
       paramList.add(pm);
     }
     meta['params'] = paramList;

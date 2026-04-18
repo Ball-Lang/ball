@@ -59,6 +59,46 @@ class DartCompiler {
   /// [_generateFunctionBody].
   List<({String name, String? type})> _pendingParamAliases = const [];
 
+  /// Field/getter/method names of the currently-compiled class-like
+  /// container (class, mixin, extension, extension_type, enum). Used to
+  /// avoid renaming a positional parameter to `input` when the class has a
+  /// member named `input` — such a rename would shadow the member and
+  /// change `return input;` from "return the field" to "return the param".
+  Set<String> _currentClassMemberNames = const {};
+
+  /// Collect the instance member names of a class-like container:
+  /// descriptor fields + declared methods/getters/setters/fields.
+  /// Static members are excluded (they don't shadow instance refs).
+  Set<String> _collectClassMemberNames(
+    google.DescriptorProto? descriptor,
+    List<FunctionDefinition> methods,
+  ) {
+    final names = <String>{};
+    if (descriptor != null) {
+      for (final f in descriptor.field) {
+        names.add(_dartFieldName(f.name));
+      }
+    }
+    for (final m in methods) {
+      final mMeta = _readMeta(m);
+      if (mMeta['is_static'] == true) continue;
+      names.add(_memberName(m.name));
+    }
+    return names;
+  }
+
+  /// Run [body] with the class member name set in scope. Ensures the
+  /// previous context is restored even if [body] throws.
+  T _withClassContext<T>(Set<String> members, T Function() body) {
+    final saved = _currentClassMemberNames;
+    _currentClassMemberNames = members;
+    try {
+      return body();
+    } finally {
+      _currentClassMemberNames = saved;
+    }
+  }
+
   // ── Per-module import alias mapping ────────────────────────
   // Maps dart module ball-names (e.g. 'dart.developer') to their import
   // alias (e.g. 'dev') for the module currently being compiled.
@@ -671,14 +711,17 @@ class DartCompiler {
         }
       }
 
-      for (final method in methods) {
-        final mMeta = _readMeta(method);
-        if ((mMeta['kind'] as String?) == 'constructor') {
-          b.constructors.add(_buildConstructor(enumDef.name, method, mMeta));
-        } else {
-          b.methods.add(_buildMethod(enumDef.name, method, mMeta));
+      final memberNames = _collectClassMemberNames(null, methods);
+      _withClassContext(memberNames, () {
+        for (final method in methods) {
+          final mMeta = _readMeta(method);
+          if ((mMeta['kind'] as String?) == 'constructor') {
+            b.constructors.add(_buildConstructor(enumDef.name, method, mMeta));
+          } else {
+            b.methods.add(_buildMethod(enumDef.name, method, mMeta));
+          }
         }
-      }
+      });
     });
   }
 
@@ -724,9 +767,12 @@ class DartCompiler {
           );
         }
       }
-      for (final method in methods) {
-        b.methods.add(_buildMethod(td.name, method, _readMeta(method)));
-      }
+      final memberNames = _collectClassMemberNames(descriptor, methods);
+      _withClassContext(memberNames, () {
+        for (final method in methods) {
+          b.methods.add(_buildMethod(td.name, method, _readMeta(method)));
+        }
+      });
     });
   }
 
@@ -812,16 +858,21 @@ class DartCompiler {
         b.fields.add(_buildStaticField(sf));
       }
 
-      for (final method in methods) {
-        final mMeta = _readMeta(method);
-        final mKind = mMeta['kind'] as String? ?? 'method';
-        if (mKind == 'static_field') continue;
-        if (mKind == 'constructor') {
-          b.constructors.add(_buildConstructor(descriptor.name, method, mMeta));
-        } else {
-          b.methods.add(_buildMethod(descriptor.name, method, mMeta));
+      final memberNames = _collectClassMemberNames(descriptor, methods);
+      _withClassContext(memberNames, () {
+        for (final method in methods) {
+          final mMeta = _readMeta(method);
+          final mKind = mMeta['kind'] as String? ?? 'method';
+          if (mKind == 'static_field') continue;
+          if (mKind == 'constructor') {
+            b.constructors.add(
+              _buildConstructor(descriptor.name, method, mMeta),
+            );
+          } else {
+            b.methods.add(_buildMethod(descriptor.name, method, mMeta));
+          }
         }
-      }
+      });
     });
   }
 
@@ -1010,9 +1061,12 @@ class DartCompiler {
     final on = meta['on'] as String?;
     final typeParamsStr = _typeParamsStr(meta);
     final doc = meta['doc'] as String?;
-    final displayName = td.name == '_unnamed_extension'
-        ? ''
-        : _dartType(td.name);
+    // Unnamed extensions are encoded with names like `_unnamed_extension`,
+    // `_unnamed_extension_0`, `_unnamed_extension_1`, etc. so multiple
+    // unnamed extensions in one file don't collide. Emit them all as
+    // anonymous `extension on T { ... }`.
+    final isUnnamed = td.name.startsWith('_unnamed_extension');
+    final displayName = isUnnamed ? '' : _dartType(td.name);
 
     return cb.Extension((b) {
       b.name = '$displayName$typeParamsStr';
@@ -1024,9 +1078,12 @@ class DartCompiler {
         }
       }
       b.on = cb.refer(on ?? 'dynamic');
-      for (final method in methods) {
-        b.methods.add(_buildMethod(td.name, method, _readMeta(method)));
-      }
+      final memberNames = _collectClassMemberNames(null, methods);
+      _withClassContext(memberNames, () {
+        for (final method in methods) {
+          b.methods.add(_buildMethod(td.name, method, _readMeta(method)));
+        }
+      });
     });
   }
 
@@ -1084,17 +1141,23 @@ class DartCompiler {
         );
       }
 
-      for (final method in methods) {
-        final mMeta = _readMeta(method);
-        final mKind = mMeta['kind'] as String? ?? 'method';
-        if (mKind == 'static_field') {
-          b.fields.add(_buildStaticField(method));
-        } else if (mKind == 'constructor') {
-          b.constructors.add(_buildConstructor(td.name, method, mMeta));
-        } else {
-          b.methods.add(_buildMethod(td.name, method, mMeta));
+      final memberNames = _collectClassMemberNames(
+        td.hasDescriptor() ? td.descriptor : null,
+        methods,
+      );
+      _withClassContext(memberNames, () {
+        for (final method in methods) {
+          final mMeta = _readMeta(method);
+          final mKind = mMeta['kind'] as String? ?? 'method';
+          if (mKind == 'static_field') {
+            b.fields.add(_buildStaticField(method));
+          } else if (mKind == 'constructor') {
+            b.constructors.add(_buildConstructor(td.name, method, mMeta));
+          } else {
+            b.methods.add(_buildMethod(td.name, method, mMeta));
+          }
         }
-      }
+      });
     });
   }
 
@@ -1310,8 +1373,15 @@ class DartCompiler {
       final isOptional = p['is_optional'] == true;
       if (!isNamed && !isOptional) positionalCount++;
     }
+    // Don't rename to `input` if the enclosing class has a member named
+    // `input` — the rename would shadow the member, changing the meaning
+    // of any `input` reference in the body from "field" to "parameter".
+    final classHasInputMember = _currentClassMemberNames.contains('input');
     final renameSinglePositional =
-        positionalCount == 1 && !hasInitializers && !hasRedirect;
+        positionalCount == 1 &&
+        !hasInitializers &&
+        !hasRedirect &&
+        !classHasInputMember;
 
     for (final p in params) {
       if (p is! Map) continue;
@@ -1348,6 +1418,7 @@ class DartCompiler {
         if (p['is_super'] == true) pb.toSuper = true;
         if (isNamed) pb.named = true;
         if (isRequiredNamed) pb.required = true;
+        if (p['is_covariant'] == true) pb.covariant = true;
         if (defaultValue != null) pb.defaultTo = cb.Code(defaultValue);
       });
 
@@ -1685,6 +1756,15 @@ class DartCompiler {
         final expr = stmt.expression;
         if (_isStdControl(expr)) {
           _generateStdStatement(expr.call, false);
+        } else if (expr.whichExpr() == Expression_Expr.block &&
+            !expr.block.hasResult()) {
+          // A block-as-statement with no result (e.g. encoded pattern-var
+          // destructuring) must be emitted inline so its `let` bindings
+          // are visible to subsequent statements in the enclosing block.
+          // Wrapping in `(() { ... })()` would hide them.
+          for (final s in expr.block.statements) {
+            _generateStatement(s);
+          }
         } else {
           _wl('${_e(expr)};');
         }
@@ -1933,11 +2013,27 @@ class DartCompiler {
   }
 
   void _generateForIn(Map<String, Expression> fields) {
-    final variable = _stringFieldValue(fields, 'variable') ?? 'item';
-    final variableType = _stringFieldValue(fields, 'variable_type') ?? 'final';
-    final typeDecl = variableType == 'final' || variableType.isEmpty
-        ? 'final $variable'
-        : '$variableType $variable';
+    // Pattern form (Dart 3 destructuring): the encoder stores the whole
+    // `<kw> <pattern>` verbatim under `pattern` — splice directly into
+    // `for (<pattern> in <iter>) <body>`.
+    final patternStr = _stringFieldValue(fields, 'pattern');
+    final String typeDecl;
+    if (patternStr != null && patternStr.isNotEmpty) {
+      typeDecl = patternStr;
+    } else {
+      final variable = _stringFieldValue(fields, 'variable') ?? 'item';
+      final variableType = _stringFieldValue(fields, 'variable_type');
+      final variableKeyword = _stringFieldValue(fields, 'variable_keyword');
+      if (variableType != null && variableType.isNotEmpty) {
+        typeDecl = '$variableType $variable';
+      } else if (variableKeyword == 'var') {
+        typeDecl = 'var $variable';
+      } else {
+        // Default: `final` (matches pre-existing behaviour for programs that
+        // omit the keyword; most Ball-constructed loops want final anyway).
+        typeDecl = 'final $variable';
+      }
+    }
     final iterable = fields['iterable'];
     final body = fields['body'];
     final isAwait = _boolFieldValue(fields, 'is_await');
@@ -2005,10 +2101,40 @@ class DartCompiler {
     } else {
       return;
     }
+    // Fall-through: an empty case body means the original Dart source used
+    // label fall-through (`case A: case B: body;`). Emit NO `break` so Dart
+    // falls through to the next case. Also, if the body already ends with
+    // `return`/`throw`/`continue`/`break`, skip the trailing `break`.
+    if (body == null || _isEmptyBody(body)) {
+      // Empty body: fall-through. No break, no body.
+      return;
+    }
     _depth++;
-    if (body != null) _generateBranchBody(body, false);
-    _wl('break;');
+    _generateBranchBody(body, false);
+    if (!_bodyEndsWithControlFlow(body)) {
+      _wl('break;');
+    }
     _depth--;
+  }
+
+  /// Returns true if the body expression ends with a terminating statement
+  /// (return, throw, continue, break) that would make a trailing `break;`
+  /// dead code. Used by switch-case generation.
+  bool _bodyEndsWithControlFlow(Expression body) {
+    Expression last = body;
+    if (body.whichExpr() == Expression_Expr.block) {
+      final stmts = body.block.statements;
+      if (stmts.isEmpty) return false;
+      final lastStmt = stmts.last;
+      if (lastStmt.whichStmt() != Statement_Stmt.expression) return false;
+      last = lastStmt.expression;
+    }
+    if (last.whichExpr() != Expression_Expr.call) return false;
+    final fn = last.call.function;
+    return fn == 'return' ||
+        fn == 'throw' ||
+        fn == 'continue' ||
+        fn == 'break';
   }
 
   /// Common Dart exception class names. When a typed catch's `type` is
@@ -2083,19 +2209,31 @@ class DartCompiler {
     // catch-all that dispatches. Otherwise nothing (unhandled
     // exceptions propagate naturally).
     if (tagCatches.isNotEmpty || untypedCatch != null) {
-      // Preserve the untyped catch's stack_trace binding, if any. This
-      // matters when the original Dart source was `catch (e, stack)` —
-      // without this, `stack` is undefined in the body.
+      // Preserve stack_trace bindings from any catch clause that had one.
+      // Dart-source `catch (e, stack)` or `on T catch (e, stack)` encodes
+      // a `stack_trace` field per clause; without this, `stack` would be
+      // undefined in the body. We union the stack names across clauses
+      // and emit ONE catch-all stack parameter so every branch can see it,
+      // aliasing to each clause's requested name inside its branch.
       String? untypedStack;
       if (untypedCatch != null) {
         final cf = _fieldsToMap(untypedCatch.messageCreation.fields);
-        untypedStack = _stringFieldValue(cf, 'stack_trace');
+        final s = _stringFieldValue(cf, 'stack_trace');
+        if (s != null && s.isNotEmpty) untypedStack = s;
       }
-      // Include the stack-trace parameter on the catch-all so it's in
-      // scope for both tag-catch branches (which may use it via a shared
-      // fallback) and the untyped branch.
-      if (untypedStack != null && untypedStack.isNotEmpty) {
-        _wl('} catch (__ball_e, $untypedStack) {');
+      // Collect stack_trace names requested by tag catches.
+      final tagStackNames = <String>{};
+      for (final ce in tagCatches) {
+        final cf = _fieldsToMap(ce.messageCreation.fields);
+        final s = _stringFieldValue(cf, 'stack_trace');
+        if (s != null && s.isNotEmpty) tagStackNames.add(s);
+      }
+      final anyNeedsStack =
+          untypedStack != null || tagStackNames.isNotEmpty;
+      // Use a stable catch-level name; alias per-branch.
+      const catchAllStack = '__ball_st';
+      if (anyNeedsStack) {
+        _wl('} catch (__ball_e, $catchAllStack) {');
       } else {
         _wl('} catch (__ball_e) {');
       }
@@ -2105,11 +2243,17 @@ class DartCompiler {
         final cf = _fieldsToMap(ce.messageCreation.fields);
         final type = _stringFieldValue(cf, 'type')!;
         final variable = _stringFieldValue(cf, 'variable') ?? 'e';
+        final stackName = _stringFieldValue(cf, 'stack_trace');
         final cbody = cf['body'];
         final keyword = first ? 'if' : 'else if';
         _wl("$keyword (__ball_e is Map && __ball_e['__type'] == '$type') {");
         _depth++;
         _wl('final $variable = __ball_e;');
+        if (stackName != null &&
+            stackName.isNotEmpty &&
+            stackName != catchAllStack) {
+          _wl('final $stackName = $catchAllStack;');
+        }
         _catchBoundVars.add(variable);
         if (cbody != null) _generateBranchBody(cbody, false);
         _catchBoundVars.remove(variable);
@@ -2127,6 +2271,9 @@ class DartCompiler {
           _depth++;
         }
         _wl('final $variable = __ball_e;');
+        if (untypedStack != null && untypedStack != catchAllStack) {
+          _wl('final $untypedStack = $catchAllStack;');
+        }
         _catchBoundVars.add(variable);
         if (cbody != null) _generateBranchBody(cbody, false);
         _catchBoundVars.remove(variable);
@@ -2973,8 +3120,16 @@ class DartCompiler {
       };
       const prefixOps = {'not', 'negate', 'bitwise_not',
                          'pre_increment', 'pre_decrement'};
+      // Postfix operators also misparse when used as a method receiver:
+      // `i++.toString()` is invalid Dart (the `.toString()` never binds).
+      // Wrap the whole expression in parens: `(i++).toString()`.
+      const postfixOps = {'post_increment', 'post_decrement'};
       final fn = v.call.function;
-      if (infixOps.contains(fn) || prefixOps.contains(fn)) return true;
+      if (infixOps.contains(fn) ||
+          prefixOps.contains(fn) ||
+          postfixOps.contains(fn)) {
+        return true;
+      }
     }
     return false;
   }
@@ -3287,6 +3442,55 @@ class DartCompiler {
         ? call.input.messageCreation.fields
         : <FieldValuePair>[];
     if (allFields.isEmpty) return '()';
+
+    // Format 1 (encoder.dart _encodeRecordLiteral): fields are flat on the
+    // MessageCreation input. Positional fields use names `$0`, `$1`, ...;
+    // named fields use the literal name. This is what the Dart encoder
+    // currently produces.
+    final isFlatRecord = allFields.every((f) {
+      final n = f.name;
+      return n == r'$0' ||
+          n == r'$1' ||
+          n == r'$2' ||
+          n == r'$3' ||
+          n == r'$4' ||
+          n == r'$5' ||
+          n == r'$6' ||
+          n == r'$7' ||
+          RegExp(r'^\$\d+$').hasMatch(n) ||
+          (n.isNotEmpty && !n.startsWith(r'$'));
+    });
+    if (isFlatRecord && !allFields.any((f) => f.name == 'fields')) {
+      final positionalPattern = RegExp(r'^\$\d+$');
+      final positional = <({int i, Expression v})>[];
+      final named = <({String k, Expression v})>[];
+      for (final f in allFields) {
+        if (positionalPattern.hasMatch(f.name)) {
+          positional.add((
+            i: int.parse(f.name.substring(1)),
+            v: f.value,
+          ));
+        } else {
+          named.add((k: f.name, v: f.value));
+        }
+      }
+      positional.sort((a, b) => a.i.compareTo(b.i));
+      final parts = <String>[];
+      for (final p in positional) {
+        parts.add(_e(p.v));
+      }
+      for (final n in named) {
+        parts.add('${n.k}: ${_e(n.v)}');
+      }
+      // Dart requires a trailing comma for single-positional records to
+      // disambiguate from a parenthesized expression, e.g. `(x,)`.
+      if (positional.length == 1 && named.isEmpty) {
+        return '(${parts.first},)';
+      }
+      return '(${parts.join(', ')})';
+    }
+
+    // Format 2 (legacy): wrapped under a single `fields` list.
     final fieldsValue = allFields
         .firstWhere((f) => f.name == 'fields', orElse: FieldValuePair.new)
         .value;
@@ -3321,11 +3525,27 @@ class DartCompiler {
   }
 
   String _compileCollectionFor(Map<String, Expression> f) {
-    final variable = _stringFieldValue(f, 'variable') ?? 'item';
-    final iterable = f['iterable'], body = f['body'];
-    if (iterable == null || body == null) return '/* invalid collection for */';
-    return 'for (final $variable in ${_e(iterable)}) '
-        '${_e(body)}';
+    final body = f['body'];
+    if (body == null) return '/* invalid collection for */';
+    // For-each form: `for (variable in iterable) body`.
+    final iterable = f['iterable'];
+    if (iterable != null) {
+      final variable = _stringFieldValue(f, 'variable') ?? 'item';
+      return 'for (final $variable in ${_e(iterable)}) ${_e(body)}';
+    }
+    // C-style form: `for (init; condition; update) body`. The encoder sends
+    // `init` as a raw string (variable declarations) and `condition`/`update`
+    // as expressions.
+    final init = _stringFieldValue(f, 'init');
+    final cond = f['condition'];
+    final update = f['update'];
+    if (init != null || cond != null || update != null) {
+      final initStr = init ?? (f['init'] != null ? _e(f['init']!) : '');
+      final condStr = cond != null ? _e(cond) : '';
+      final updStr = update != null ? _e(update) : '';
+      return 'for ($initStr; $condStr; $updStr) ${_e(body)}';
+    }
+    return '/* invalid collection for */';
   }
 
   String _compileSwitchExpr(Map<String, Expression> f) {

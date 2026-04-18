@@ -414,6 +414,14 @@
                               }
                             },
                             {
+                              "name": "variable_keyword",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "var"
+                                }
+                              }
+                            },
+                            {
                               "name": "iterable",
                               "value": {
                                 "reference": {

@@ -31,9 +31,12 @@ void main() {
 }
 ''');
       // The untyped catch must expose the stack-trace variable so
-      // references like `stack` in the body resolve.
-      expect(out, contains('catch (__ball_e, stack)'));
+      // references like `stack` in the body resolve. The compiler uses a
+      // stable catch-all name `__ball_st` and aliases it to each clause's
+      // requested name inside the branch.
+      expect(out, contains('catch (__ball_e, __ball_st)'));
       expect(out, contains('final e = __ball_e;'));
+      expect(out, contains('final stack = __ball_st;'));
     });
 
     test('typed catch on Exception keeps stack variable', () {

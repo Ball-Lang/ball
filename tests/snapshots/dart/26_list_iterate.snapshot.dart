@@ -10,7 +10,7 @@ void main() {
   }
   print(product.toString());
   var total = 0;
-  for (final x in xs) {
+  for (var x in xs) {
     total = (total + x);
   }
   print(total.toString());

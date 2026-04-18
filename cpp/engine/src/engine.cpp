@@ -48,6 +48,11 @@ static thread_local std::exception_ptr g_active_exception;
 // OOP helpers — type name matching & __super__ chain walking
 // ================================================================
 
+// Forward-declared: maps std function names to operator symbols used by
+// user-defined overrides. Defined further below alongside other OOP helpers.
+static const std::unordered_map<std::string, std::string>& std_function_to_operator();
+
+
 /// Compare type names accounting for module-qualified forms.
 /// "main:Foo" matches "Foo", "Foo" matches "main:Foo", and exact matches.
 static bool type_name_matches(const std::string& obj_type, const std::string& check_type) {
@@ -144,12 +149,47 @@ void Engine::build_lookup_tables() {
                 }
             }
         }
+        // Index enum types and their values (mirrors Dart _enumValues).
+        for (const auto& enum_desc : mod.enums()) {
+            const auto& enum_name = enum_desc.name();  // e.g. "main:Color"
+            BallMap values;
+            for (const auto& v : enum_desc.value()) {
+                BallMap value_obj;
+                value_obj["__type__"] = enum_name;
+                value_obj["name"] = v.name();
+                value_obj["index"] = static_cast<int64_t>(v.number());
+                values[v.name()] = value_obj;
+            }
+            enum_values_[enum_name] = values;
+            auto ec = enum_name.find(':');
+            if (ec != std::string::npos) {
+                enum_values_[enum_name.substr(ec + 1)] = values;
+            }
+        }
         for (const auto& func : mod.functions()) {
             std::string key = mod.name() + "." + func.name();
             functions_[key] = &func;
             if (func.has_metadata()) {
                 auto params = extract_params(func.metadata());
                 if (!params.empty()) param_cache_[key] = std::move(params);
+
+                // Register constructors so class names resolve as callables.
+                auto kind_it = func.metadata().fields().find("kind");
+                if (kind_it != func.metadata().fields().end() &&
+                    kind_it->second.string_value() == "constructor") {
+                    ConstructorEntry entry{mod.name(), &func};
+                    // func.name() is "ClassName.new" or "ClassName.named".
+                    auto dot_idx = func.name().find('.');
+                    if (dot_idx != std::string::npos) {
+                        std::string class_name = func.name().substr(0, dot_idx);
+                        std::string ctor_suffix = func.name().substr(dot_idx + 1);
+                        if (ctor_suffix == "new") {
+                            constructors_[class_name] = entry;
+                            constructors_[mod.name() + ":" + class_name] = entry;
+                        }
+                        constructors_[func.name()] = entry;
+                    }
+                }
             }
         }
     }
@@ -329,6 +369,18 @@ BallValue Engine::resolve_and_call(const std::string& module,
             }
         }
     }
+    // Constructor fallback: try "function.new" (default constructor name).
+    std::string ctor_key = mod_name + "." + function + ".new";
+    auto cit = functions_.find(ctor_key);
+    if (cit != functions_.end()) {
+        return call_function_internal(mod_name, *cit->second, std::move(input));
+    }
+    // Also check the constructor registry by bare name.
+    auto ctor_entry = constructors_.find(function);
+    if (ctor_entry != constructors_.end()) {
+        return call_function_internal(
+            ctor_entry->second.module, *ctor_entry->second.func, std::move(input));
+    }
     // Fall through to base function handlers for known base modules
     for (auto& handler : handlers_) {
         if (handler->handles(mod_name)) {
@@ -347,6 +399,14 @@ BallValue Engine::resolve_and_call(const std::string& module,
 BallValue Engine::call_base_function(const std::string& module,
                                      const std::string& function,
                                      BallValue input) {
+    // Check for operator overrides on class instances before std dispatch.
+    // Mirrors Dart's _callBaseFunction.
+    if ((module == "std" || module == "dart_std") &&
+        std_function_to_operator().count(function)) {
+        auto override = try_operator_override(function, input);
+        if (override.has_value()) return *override;
+    }
+
     if (module == "std_memory") {
         BallMap args;
         if (is_map(input)) args = std::any_cast<BallMap>(input);
@@ -525,7 +585,43 @@ BallValue Engine::eval_literal(const ball::v1::Literal& lit, std::shared_ptr<Sco
 }
 
 BallValue Engine::eval_reference(const ball::v1::Reference& ref, std::shared_ptr<Scope> scope) {
-    return scope->lookup(ref.name());
+    const auto& name = ref.name();
+    if (scope->has(name)) return scope->lookup(name);
+
+    // Constructor tear-off: resolve class names and "Class.new" references
+    // to callable closures that invoke the constructor function.
+    auto ctor_it = constructors_.find(name);
+    if (ctor_it != constructors_.end()) {
+        auto entry = ctor_it->second;
+        BallFunction closure = [this, entry](BallValue input) -> BallValue {
+            return call_function_internal(entry.module, *entry.func, std::move(input));
+        };
+        return closure;
+    }
+
+    // Try stripping module prefix (e.g. "main:Foo" -> "Foo").
+    auto colon_idx = name.find(':');
+    if (colon_idx != std::string::npos) {
+        std::string bare = name.substr(colon_idx + 1);
+        auto bare_it = constructors_.find(bare);
+        if (bare_it != constructors_.end()) {
+            auto entry = bare_it->second;
+            BallFunction closure = [this, entry](BallValue input) -> BallValue {
+                return call_function_internal(entry.module, *entry.func, std::move(input));
+            };
+            return closure;
+        }
+    }
+
+    // Enum type reference: resolve to the enum's value map so that
+    // field access (MyEnum.value1) works.
+    auto enum_it = enum_values_.find(name);
+    if (enum_it != enum_values_.end()) {
+        return enum_it->second;
+    }
+
+    // Fall back to scope lookup (will throw with the normal error message).
+    return scope->lookup(name);
 }
 
 BallValue Engine::eval_field_access(const ball::v1::FieldAccess& access, std::shared_ptr<Scope> scope) {
@@ -589,6 +685,10 @@ BallValue Engine::eval_field_access(const ball::v1::FieldAccess& access, std::sh
             for (const auto& [_, v] : m) vals.push_back(v);
             return vals;
         }
+        // Getter dispatch: if the field isn't a data field, check for a
+        // getter function on the object's type (metadata is_getter: true).
+        auto getter_result = try_getter_dispatch(m, field);
+        if (getter_result.has_value()) return *getter_result;
         throw BallRuntimeError("Field \"" + field + "\" not found in map");
     }
     if (is_string(object)) {
@@ -1350,7 +1450,22 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
         auto obj = eval_expr(ti->second.field_access().object(), scope);
         if (is_map(obj)) {
             auto& m = std::any_cast<BallMap&>(obj);
-            m[ti->second.field_access().field()] = val;
+            const auto& field_name = ti->second.field_access().field();
+
+            // Compound assignment on field access (e.g. obj.field ??= val).
+            if (!op.empty() && op != "=") {
+                auto fit = m.find(field_name);
+                BallValue current = (fit != m.end()) ? fit->second : BallValue{};
+                auto computed = apply_compound_op(op, current, val);
+                m[field_name] = computed;
+                return computed;
+            }
+
+            // Check for a setter function before falling back to map write.
+            auto setter_result = try_setter_dispatch(m, field_name, val);
+            if (setter_result.has_value()) return *setter_result;
+
+            m[field_name] = val;
             return val;
         }
     }
@@ -1384,6 +1499,204 @@ BallValue Engine::eval_inc_dec(const ball::v1::FunctionCall& call, std::shared_p
     }
     int64_t v = to_int(eval_expr(vi->second, scope));
     return is_inc ? v + 1 : v - 1;
+}
+
+// ================================================================
+// OOP dispatch helpers — getters, setters, operator overrides
+// ================================================================
+
+bool Engine::is_getter_fn(const ball::v1::FunctionDefinition& func) {
+    if (!func.has_metadata()) return false;
+    auto it = func.metadata().fields().find("is_getter");
+    return it != func.metadata().fields().end() && it->second.bool_value();
+}
+
+bool Engine::is_setter_fn(const ball::v1::FunctionDefinition& func) {
+    if (!func.has_metadata()) return false;
+    auto it = func.metadata().fields().find("is_setter");
+    return it != func.metadata().fields().end() && it->second.bool_value();
+}
+
+std::optional<BallValue> Engine::try_getter_dispatch(const BallMap& object,
+                                                    const std::string& field_name) {
+    auto type_it = object.find("__type__");
+    if (type_it == object.end() || !is_string(type_it->second)) return std::nullopt;
+    const auto& type_name = std::any_cast<const std::string&>(type_it->second);
+
+    auto colon_idx = type_name.find(':');
+    std::string mod_part = (colon_idx != std::string::npos)
+        ? type_name.substr(0, colon_idx)
+        : current_module_;
+
+    // Check "module.typeName.fieldName" as a getter.
+    std::string getter_key = mod_part + "." + type_name + "." + field_name;
+    auto fit = functions_.find(getter_key);
+    if (fit != functions_.end() && is_getter_fn(*fit->second)) {
+        BallMap input;
+        input["self"] = object;
+        return call_function_internal(mod_part, *fit->second, BallValue(input));
+    }
+
+    // Walk __super__ chain for inherited getters.
+    auto super_it = object.find("__super__");
+    BallValue super_obj = (super_it != object.end()) ? super_it->second : BallValue{};
+    while (is_map(super_obj)) {
+        const auto& sm = std::any_cast<const BallMap&>(super_obj);
+        auto st = sm.find("__type__");
+        if (st != sm.end() && is_string(st->second)) {
+            const auto& super_type = std::any_cast<const std::string&>(st->second);
+            auto s_colon = super_type.find(':');
+            std::string s_mod = (s_colon != std::string::npos)
+                ? super_type.substr(0, s_colon) : mod_part;
+            std::string s_type = (s_colon != std::string::npos)
+                ? super_type : (s_mod + ":" + super_type);
+            std::string super_getter_key = s_mod + "." + s_type + "." + field_name;
+            auto sfit = functions_.find(super_getter_key);
+            if (sfit != functions_.end() && is_getter_fn(*sfit->second)) {
+                BallMap input;
+                input["self"] = object;
+                return call_function_internal(s_mod, *sfit->second, BallValue(input));
+            }
+        }
+        auto ss = sm.find("__super__");
+        super_obj = (ss != sm.end()) ? ss->second : BallValue{};
+    }
+
+    return std::nullopt;
+}
+
+std::optional<BallValue> Engine::try_setter_dispatch(const BallMap& object,
+                                                    const std::string& field_name,
+                                                    BallValue value) {
+    auto type_it = object.find("__type__");
+    if (type_it == object.end() || !is_string(type_it->second)) return std::nullopt;
+    const auto& type_name = std::any_cast<const std::string&>(type_it->second);
+
+    auto colon_idx = type_name.find(':');
+    std::string mod_part = (colon_idx != std::string::npos)
+        ? type_name.substr(0, colon_idx)
+        : current_module_;
+
+    // Setter functions are named "TypeName.fieldName=" by convention.
+    std::string setter_key = mod_part + "." + type_name + "." + field_name + "=";
+    auto fit = functions_.find(setter_key);
+    if (fit != functions_.end() && is_setter_fn(*fit->second)) {
+        BallMap input;
+        input["self"] = object;
+        input["value"] = std::move(value);
+        return call_function_internal(mod_part, *fit->second, BallValue(input));
+    }
+
+    // Walk __super__ chain for inherited setters.
+    auto super_it = object.find("__super__");
+    BallValue super_obj = (super_it != object.end()) ? super_it->second : BallValue{};
+    while (is_map(super_obj)) {
+        const auto& sm = std::any_cast<const BallMap&>(super_obj);
+        auto st = sm.find("__type__");
+        if (st != sm.end() && is_string(st->second)) {
+            const auto& super_type = std::any_cast<const std::string&>(st->second);
+            auto s_colon = super_type.find(':');
+            std::string s_mod = (s_colon != std::string::npos)
+                ? super_type.substr(0, s_colon) : mod_part;
+            std::string s_type = (s_colon != std::string::npos)
+                ? super_type : (s_mod + ":" + super_type);
+            std::string super_setter_key = s_mod + "." + s_type + "." + field_name + "=";
+            auto sfit = functions_.find(super_setter_key);
+            if (sfit != functions_.end() && is_setter_fn(*sfit->second)) {
+                BallMap input;
+                input["self"] = object;
+                input["value"] = std::move(value);
+                return call_function_internal(s_mod, *sfit->second, BallValue(input));
+            }
+        }
+        auto ss = sm.find("__super__");
+        super_obj = (ss != sm.end()) ? ss->second : BallValue{};
+    }
+
+    return std::nullopt;
+}
+
+// Maps std function names to operator symbols used by user-defined overrides.
+// Mirrors Dart _stdFunctionToOperator.
+static const std::unordered_map<std::string, std::string>& std_function_to_operator() {
+    static const std::unordered_map<std::string, std::string> table = {
+        {"equals", "=="},
+        {"not_equals", "!="},
+        {"add", "+"},
+        {"subtract", "-"},
+        {"multiply", "*"},
+        {"divide", "~/"},
+        {"divide_double", "/"},
+        {"modulo", "%"},
+        {"less_than", "<"},
+        {"greater_than", ">"},
+        {"lte", "<="},
+        {"gte", ">="},
+        {"index", "[]"},
+    };
+    return table;
+}
+
+std::optional<BallValue> Engine::try_operator_override(const std::string& function,
+                                                      const BallValue& input) {
+    const auto& table = std_function_to_operator();
+    auto op_it = table.find(function);
+    if (op_it == table.end()) return std::nullopt;
+    if (!is_map(input)) return std::nullopt;
+    const auto& m = std::any_cast<const BallMap&>(input);
+
+    // For "index": operands are in target/index; for others, left/right.
+    BallValue left, right;
+    if (function == "index") {
+        auto lit = m.find("target");
+        auto rit = m.find("index");
+        if (lit != m.end()) left = lit->second;
+        if (rit != m.end()) right = rit->second;
+    } else {
+        auto lit = m.find("left");
+        auto rit = m.find("right");
+        if (lit != m.end()) left = lit->second;
+        if (rit != m.end()) right = rit->second;
+    }
+
+    if (!is_map(left)) return std::nullopt;
+    const auto& left_map = std::any_cast<const BallMap&>(left);
+    auto type_it = left_map.find("__type__");
+    if (type_it == left_map.end() || !is_string(type_it->second)) return std::nullopt;
+
+    const auto& type_name = std::any_cast<const std::string&>(type_it->second);
+    auto colon_idx = type_name.find(':');
+    std::string mod_part = (colon_idx != std::string::npos)
+        ? type_name.substr(0, colon_idx)
+        : current_module_;
+    const std::string& op = op_it->second;
+
+    // Walk type hierarchy: current type, then __super__ chain.
+    BallValue current = left;
+    while (is_map(current)) {
+        const auto& cur_map = std::any_cast<const BallMap&>(current);
+        auto cur_type_it = cur_map.find("__type__");
+        if (cur_type_it != cur_map.end() && is_string(cur_type_it->second)) {
+            const auto& cur_type = std::any_cast<const std::string&>(cur_type_it->second);
+            auto c_colon = cur_type.find(':');
+            std::string c_mod = (c_colon != std::string::npos)
+                ? cur_type.substr(0, c_colon) : mod_part;
+            std::string c_type = (c_colon != std::string::npos)
+                ? cur_type : (c_mod + ":" + cur_type);
+            std::string method_key = c_mod + "." + c_type + "." + op;
+            auto fit = functions_.find(method_key);
+            if (fit != functions_.end()) {
+                BallMap method_input;
+                method_input["self"] = left;
+                method_input["other"] = right;
+                return call_function_internal(c_mod, *fit->second, BallValue(method_input));
+            }
+        }
+        auto next = cur_map.find("__super__");
+        current = (next != cur_map.end()) ? next->second : BallValue{};
+    }
+
+    return std::nullopt;
 }
 
 BallValue Engine::apply_compound_op(const std::string& op, BallValue current, BallValue val) {

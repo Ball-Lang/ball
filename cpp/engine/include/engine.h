@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <functional>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -160,6 +161,21 @@ private:
     std::unordered_map<std::string, const ball::v1::FunctionDefinition*> functions_;
     std::unordered_map<std::string, std::vector<std::string>> param_cache_;
 
+    // Constructor registry: maps bare class names (and "module:Class"
+    // qualified names, and "Class.new" / "Class.ctorName" forms) to the
+    // constructor function definition. Populated during build_lookup_tables
+    // for every function whose metadata has kind == "constructor".
+    struct ConstructorEntry {
+        std::string module;
+        const ball::v1::FunctionDefinition* func;
+    };
+    std::unordered_map<std::string, ConstructorEntry> constructors_;
+
+    // Enum type registry: maps enum type names (both qualified "module:Enum"
+    // and bare "Enum") to a map of value name -> enum value object
+    // (BallMap with __type__, name, index fields).
+    std::unordered_map<std::string, BallMap> enum_values_;
+
     std::shared_ptr<Scope> global_scope_;
     std::string current_module_;
 
@@ -237,6 +253,19 @@ private:
 
     std::string json_encode_value(const BallValue& val);
     BallValue json_decode_string(const std::string& str);
+
+    // OOP dispatch helpers. Return an empty std::optional when no
+    // getter/setter/operator is found so callers can fall through to
+    // default behavior.
+    std::optional<BallValue> try_getter_dispatch(const BallMap& object,
+                                                 const std::string& field_name);
+    std::optional<BallValue> try_setter_dispatch(const BallMap& object,
+                                                 const std::string& field_name,
+                                                 BallValue value);
+    std::optional<BallValue> try_operator_override(const std::string& function,
+                                                   const BallValue& input);
+    bool is_getter_fn(const ball::v1::FunctionDefinition& func);
+    bool is_setter_fn(const ball::v1::FunctionDefinition& func);
 
     std::string string_field_val(const std::unordered_map<std::string, ball::v1::Expression>& fields,
                                   const std::string& name);

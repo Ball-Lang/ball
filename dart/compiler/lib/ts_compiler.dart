@@ -964,15 +964,18 @@ class TsCompiler {
       bool first = true;
       Expression? untypedBody;
       String untypedVar = 'e';
+      String? untypedStackVar;
       for (final ce in clauses) {
         if (ce.whichExpr() != Expression_Expr.messageCreation) continue;
         final cf = _fieldMap(ce.messageCreation.fields);
         final type = _stringFieldVal(cf, 'type');
         final variable = _stringFieldVal(cf, 'variable') ?? 'e';
+        final stackVar = _stringFieldVal(cf, 'stack_trace');
         final cbody = cf['body'];
         if (type == null || type.isEmpty) {
           untypedBody = cbody;
           untypedVar = variable;
+          untypedStackVar = stackVar;
           continue;
         }
         // Typed catch.
@@ -981,6 +984,14 @@ class TsCompiler {
         _out.writeln('$_ind$keyword ($cond) {');
         _depth++;
         _out.writeln('${_ind}const $variable = __ball_active_error;');
+        if (stackVar != null && stackVar.isNotEmpty) {
+          // Dart's `catch (e, stack)` binds a StackTrace. The engine
+          // treats this as an opaque string; approximate with the
+          // underlying Error's .stack string (or empty string when the
+          // thrown value isn't an Error).
+          _out.writeln(
+              "${_ind}const $stackVar = (__ball_active_error instanceof Error && __ball_active_error.stack != null ? __ball_active_error.stack : (new Error().stack ?? ''));");
+        }
         // Only treat the caught var as a Map-shaped throw when the
         // caught type isn't a user-defined class. Real class instances
         // support dotted property access (e.g. `e.reason`) directly.
@@ -998,6 +1009,10 @@ class TsCompiler {
       if (!first) _depth++;
       if (untypedBody != null) {
         _out.writeln('${_ind}const $untypedVar = __ball_active_error;');
+        if (untypedStackVar != null && untypedStackVar.isNotEmpty) {
+          _out.writeln(
+              "${_ind}const $untypedStackVar = (__ball_active_error instanceof Error && __ball_active_error.stack != null ? __ball_active_error.stack : (new Error().stack ?? ''));");
+        }
         _catchVars.add(untypedVar);
         _emitStatementOrExpression(untypedBody);
         _catchVars.remove(untypedVar);

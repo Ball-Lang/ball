@@ -50,21 +50,20 @@ jobs:
         with:
           sdk: stable
 
-      # Node is needed by the TS structural compile (ts-morph) tests in
-      # dart/compiler/test/ts_emit/**. Without node_modules they skip
-      # silently — installing it here is what gates the self-host
-      # TS-bootstrap regression guard (engine_compile_test).
+      # Node is needed by the Dart-side TsCompiler wrapper, which
+      # shells out to @ball-lang/compiler (ts/compiler/). Without the
+      # dist build the wrapper throws.
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: dart/compiler/tool/package-lock.json
+          cache-dependency-path: ts/compiler/package-lock.json
 
       - name: Install dependencies
         run: cd dart && dart pub get
 
-      - name: Install ts-morph (ts_emit tests)
-        run: cd dart/compiler/tool && npm ci
+      - name: Install & build @ball-lang/compiler
+        run: cd ts/compiler && npm ci && npm run build
 
       - name: Analyze
         run: dart analyze dart/
@@ -81,7 +80,7 @@ jobs:
       - name: Encoder tests
         run: cd dart/encoder && dart test
 
-      - name: Compiler tests (incl. ts_emit + self-host engine compile)
+      - name: Compiler tests
         run: cd dart/compiler && dart test --exclude-tags slow
 
       - name: Resolver tests
@@ -135,17 +134,31 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: ts/engine/package-lock.json
 
-      - name: Install dependencies
+      # Dart is needed to regenerate engine.ball.json for the engine
+      # self-host parse test under ts/compiler/test/engine_parse.test.ts.
+      - name: Bootstrap Dart workspace
+        run: cd dart && dart pub get
+
+      # @ball-lang/engine
+      - name: Install @ball-lang/engine deps
         run: cd ts/engine && npm ci
-
-      - name: Build
+      - name: Build @ball-lang/engine
         run: cd ts/engine && npm run build
-
-      - name: Test
+      - name: Test @ball-lang/engine
         run: cd ts/engine && npm test
+
+      # @ball-lang/compiler (self-host TS-native compiler)
+      - name: Install @ball-lang/compiler deps
+        run: cd ts/compiler && npm ci
+      - name: Build @ball-lang/compiler
+        run: cd ts/compiler && npm run build
+      - name: Test @ball-lang/compiler (fixtures + engine parse)
+        run: cd ts/compiler && npm test

@@ -30,7 +30,7 @@ Future<void> main(List<String> args) async {
 
   final repoRoot = _findRepoRoot();
   final engineSrcPath = '$repoRoot/dart/engine/lib/engine.dart';
-  final outDir = Directory('$repoRoot/dart/self_host');
+  final outDir = Directory('$repoRoot/dart/self_host/lib');
   if (!outDir.existsSync()) outDir.createSync(recursive: true);
   final outPath = '${outDir.path}/engine_roundtrip.dart';
 

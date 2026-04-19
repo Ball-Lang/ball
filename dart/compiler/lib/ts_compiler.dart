@@ -156,6 +156,11 @@ class TsCompiler {
       }
     }
 
+    // Populate the function-name set once per plan build so
+    // _compileMessageCreation can tell a function call (typeName is a
+    // known function) from a constructor invocation (typeName is a typeDef).
+    _allFunctionNames = {for (final fn in entryMod.functions) fn.name};
+
     // Typedefs first — many classes below reference them (BallValue, etc.).
     // Function-typed aliases currently fall through to `any` since TS
     // function-type syntax differs; pure aliases get a real TsTypeAlias.
@@ -258,6 +263,20 @@ class TsCompiler {
   /// TS lexical scoping).
   Set<String> _currentMethodParams = const <String>{};
 
+  /// Short (un-qualified) method names of the class currently being
+  /// emitted. When the encoder emits `this.foo()` as a MessageCreation
+  /// with `typeName = 'main:Class.foo'`, the TS compiler needs to
+  /// reconstruct it as `this.foo()`. Populated only while emitting
+  /// class member bodies; empty otherwise.
+  Set<String> _currentClassMethodNames = const <String>{};
+
+  /// Qualified names of all user-defined functions in the entry module
+  /// (free functions AND class methods). Used to distinguish a
+  /// MessageCreation that encodes a function call (typeName is a
+  /// function) from one that encodes a constructor invocation (typeName
+  /// is a typeDef).
+  Set<String> _allFunctionNames = const <String>{};
+
   /// Build a TsClass for a typeDef. Fields come from descriptor +
   /// metadata; ctors/methods/getters/setters come from [members].
   TsClass _buildClassStatement(
@@ -301,13 +320,39 @@ class TsCompiler {
     final getters = <TsGetter>[];
     final setters = <TsSetter>[];
 
+    // Collect the class's own method names so that MessageCreation
+    // entries with `typeName == main:Class.method` resolve to
+    // `this.method(...)` inside bodies we're about to emit.
+    final methodNames = <String>{};
+    for (final fn in members) {
+      methodNames.add(_memberName(fn.name));
+    }
+    final savedClassMethods = _currentClassMethodNames;
+    _currentClassMethodNames = methodNames;
+
     for (final fn in members) {
       final mMeta = fn.hasMetadata()
           ? _structToMap(fn.metadata)
           : const <String, Object?>{};
       final kind = mMeta['kind'] as String? ?? 'method';
       if (kind == 'constructor') {
-        ctors.add(_buildCtor(fn, mMeta, fieldNames));
+        // Dart allows named constructors (Foo.named()); TS permits at
+        // most one constructor per class. Keep the default (`.new`) as
+        // the real ctor; demote any named ctors to static factory
+        // methods so the emitted TS compiles.
+        //
+        // Use the un-sanitized short name for the check — `_sanitize`
+        // mangles `new` to `new_` since it's a reserved word.
+        final lastDot = fn.name.lastIndexOf('.');
+        final rawShort =
+            lastDot < 0 ? fn.name : fn.name.substring(lastDot + 1);
+        if (rawShort == 'new') {
+          ctors.add(_buildCtor(fn, mMeta, fieldNames));
+        } else {
+          methods.add(
+            _buildMethod(fn, {...mMeta, 'is_static': true}, fieldNames),
+          );
+        }
       } else if (mMeta['is_getter'] == true) {
         getters.add(_buildGetter(fn, mMeta, fieldNames));
       } else if (mMeta['is_setter'] == true) {
@@ -319,6 +364,7 @@ class TsCompiler {
         methods.add(_buildMethod(fn, mMeta, fieldNames));
       }
     }
+    _currentClassMethodNames = savedClassMethods;
 
     // Inheritance.
     final superName = meta['superclass'] as String?;
@@ -1090,28 +1136,39 @@ class TsCompiler {
           .join(', ');
       return '{$entries}';
     }
-    // Named type → a class constructor invocation. The encoder emits
-    // positional arguments as `arg0`, `arg1`, ...; named parameters
-    // keep their Dart names. Re-order by Ball field name → `arg0`
-    // first to preserve positional order.
-    if (_typeIsUserDefinedClass(msg.typeName)) {
-      final positional = <String>[];
-      final named = <String, String>{};
-      for (final f in msg.fields) {
-        final argMatch = RegExp(r'^arg(\d+)$').firstMatch(f.name);
-        if (argMatch != null) {
-          positional.add(_expr(f.value));
-        } else {
-          named[f.name] = _expr(f.value);
-        }
+
+    // Encoded function call. The Dart encoder represents `foo()` /
+    // `this.foo()` (method invocation with no explicit receiver) as
+    // MessageCreation with typeName = the function's qualified name.
+    //
+    // Two flavors surface for engine.dart:
+    //   a) Free function:    typeName = 'main:helper' (matches a
+    //      function registered under that exact name).
+    //   b) Implicit-this method call: typeName = 'main:methodName'
+    //      (WITHOUT the class prefix). The short name matches a method
+    //      of the currently-emitting class; emit `this.<name>(args)`.
+    final shortName = _memberName(msg.typeName);
+    if (_allFunctionNames.contains(msg.typeName)) {
+      final args = _extractPositionalAndNamed(msg.fields);
+      if (_currentClassMethodNames.contains(shortName)) {
+        return 'this.$shortName($args)';
       }
-      final allArgs = [
-        ...positional,
-        if (named.isNotEmpty)
-          '{ ${named.entries.map((e) => "${e.key}: ${e.value}").join(", ")} }',
-      ].join(', ');
-      return 'new ${_classTsName(msg.typeName)}($allArgs)';
+      return '$shortName($args)';
     }
+    // Implicit-this fallback — the class-prefixed name isn't in
+    // _allFunctionNames because the encoder stripped it, but the
+    // short name is in the current class's method set.
+    if (_currentClassMethodNames.contains(shortName)) {
+      final args = _extractPositionalAndNamed(msg.fields);
+      return 'this.$shortName($args)';
+    }
+
+    // Named user-defined class → constructor invocation.
+    if (_typeIsUserDefinedClass(msg.typeName)) {
+      final args = _extractPositionalAndNamed(msg.fields);
+      return 'new ${_classTsName(msg.typeName)}($args)';
+    }
+
     // Protobuf messages and other external types: fall back to a
     // tagged object literal for now.
     final entries = [
@@ -1119,6 +1176,31 @@ class TsCompiler {
       ...msg.fields.map((f) => "'${f.name}': ${_expr(f.value)}"),
     ].join(', ');
     return '{$entries}';
+  }
+
+  /// Flatten a Ball field list into a TS argument-list string,
+  /// preserving positional (`arg0`, `arg1`, ...) order and packing
+  /// named params into a trailing `{...}` object literal. Handles the
+  /// `__type_args__` sentinel by dropping it.
+  String _extractPositionalAndNamed(List<FieldValuePair> fields) {
+    final positional = <String>[];
+    final named = <String, String>{};
+    final argRe = RegExp(r'^arg(\d+)$');
+    for (final f in fields) {
+      if (f.name == '__type_args__' || f.name == '__const__') continue;
+      final m = argRe.firstMatch(f.name);
+      if (m != null) {
+        positional.add(_expr(f.value));
+      } else {
+        named[f.name] = _expr(f.value);
+      }
+    }
+    final parts = [
+      ...positional,
+      if (named.isNotEmpty)
+        '{ ${named.entries.map((e) => "${e.key}: ${e.value}").join(", ")} }',
+    ];
+    return parts.join(', ');
   }
 
   /// Whether [typeName] is a user-defined class declared in the
@@ -1140,41 +1222,76 @@ class TsCompiler {
     _out.clear();
     final savedDepth = _depth;
     _depth = 1;
-    _out.writeln('(() => {');
+    // Emit into an inner buffer so we can inspect whether the body
+    // uses `await` — if so, the IIFE must be async and its call
+    // must itself be awaited so the enclosing async function is
+    // still the awaiter.
+    final inner = StringBuffer();
+    _out = inner;
+    inner.writeln();
     for (final stmt in block.statements) {
       _emitStatement(stmt);
     }
     if (block.hasResult()) {
       _out.writeln('${_ind}return ${_expr(block.result)};');
     }
-    _out.write('})()');
-    final body = _out.toString();
+    final innerText = inner.toString();
+    final usesAwait = _containsBareKeyword(innerText, 'await');
+    final usesYield = _containsBareKeyword(innerText, 'yield');
+    final body = StringBuffer();
+    if (usesAwait) {
+      body.write('(await (async () => {');
+    } else if (usesYield) {
+      body.write('(yield* (function* () {');
+    } else {
+      body.write('(() => {');
+    }
+    body.write(innerText);
+    body.write('})())');
+    _out = StringBuffer();
     _out.clear();
     _out.write(saved);
     _depth = savedDepth;
-    return body;
+    return body.toString();
+  }
+
+  /// True if [text] contains the keyword [kw] as a standalone token
+  /// (not a substring of an identifier or inside a string literal).
+  /// Used to decide whether an IIFE needs to be async / generator.
+  bool _containsBareKeyword(String text, String kw) {
+    final re = RegExp(r'(^|[^A-Za-z0-9_$])' + kw + r'([^A-Za-z0-9_$]|$)');
+    return re.hasMatch(text);
   }
 
   String _compileLambda(FunctionDefinition fn) {
     final params = _extractParams(fn);
     final paramList = params.map(_sanitize).join(', ');
     final savedDepth = _depth;
-    final saved = _out.toString();
-    _out.clear();
+    final savedOut = _out;
+    // Capture body into an inner buffer so we can decide whether the
+    // lambda must be async/generator based on its contents.
+    final inner = StringBuffer();
+    _out = inner;
     _depth = 1;
-    _out.writeln('(($paramList) => {');
+    inner.writeln();
     if (params.length == 1 && params.first != 'input') {
       _out.writeln('${_ind}const input = ${_sanitize(params.first)};');
     }
     if (fn.hasBody()) {
       _emitStatementOrExpression(fn.body, isFunctionBody: true);
     }
-    _out.write('})');
-    final body = _out.toString();
-    _out.clear();
-    _out.write(saved);
+    final innerText = inner.toString();
+    final isAsync = _functionIsAsync(fn) ||
+        _containsBareKeyword(innerText, 'await');
+    final isGenerator = _containsBareKeyword(innerText, 'yield');
+    _out = savedOut;
     _depth = savedDepth;
-    return body;
+    if (isGenerator) {
+      // TS arrow functions can't be generators; fall back to a named
+      // function expression.
+      return '(function* ($paramList) {${innerText}})';
+    }
+    return '(${isAsync ? 'async ' : ''}($paramList) => {${innerText}})';
   }
 
   // ─────────────────────────── Calls ───────────────────────────────
@@ -1396,6 +1513,25 @@ class TsCompiler {
       // _buildMethod.
       case 'await':
         return 'await ${_expr(f['value']!)}';
+      // Pattern-matching switch (expression or statement form).
+      // For self-host we lower both to a cascading if/else IIFE —
+      // TS has no native pattern matching, and cases in engine.dart
+      // are all constant-pattern equality checks.
+      case 'switch':
+      case 'switch_expr':
+        return _compileSwitchExpr(call);
+      // Control-flow ops sometimes land in expression position when
+      // switch-expression cases or collection-elements wrap their
+      // result with std.return / std.break / std.continue. The
+      // control-flow STATEMENT path handles them at statement position;
+      // here we unwrap or IIFE-wrap so the emitted TS stays valid.
+      case 'return':
+        {
+          final v = f['value'];
+          // Switch-expr-case bodies arrive as std.return around the
+          // case value. We want the bare value.
+          return v == null ? 'undefined' : _expr(v);
+        }
       // Null-aware method call: `target?.method(args)`.
       case 'null_aware_call':
         {
@@ -1417,6 +1553,21 @@ class TsCompiler {
                   .join(', ')
               : '';
           return '${_expr(target)}?.$methodName($otherArgs)';
+        }
+      // Null-aware subscript. Dart `x?[k]` reads; when appearing on the
+      // LHS of an assign it's `x?[k] = v`. TS doesn't have `?[]`; we
+      // emit plain `x[k]` and assume the higher-level assignment /
+      // read is guarded elsewhere. For the self-host this is enough
+      // because engine.dart uses the LHS form only via `??=` which
+      // the compiler already elaborates into an explicit check.
+      case 'null_aware_index':
+        {
+          final self = f['self'] ?? f['target'];
+          final idx = f['index'] ?? f['key'];
+          if (self == null || idx == null) {
+            return '/* null_aware_index missing self/index */';
+          }
+          return '${_expr(self)}[${_expr(idx)}]';
         }
       // Null-aware property access: `target?.field`.
       case 'null_aware_access':
@@ -1506,6 +1657,56 @@ class TsCompiler {
       return '($s)';
     }
     return s;
+  }
+
+  /// Compile a Ball `std.switch` / `std.switch_expr` to a cascading
+  /// ternary chain. Each `pattern => body` case becomes
+  /// `subject === <pattern> ? <body> : <next>`, with the wildcard /
+  /// default case in the tail position (or `undefined` when absent).
+  ///
+  /// Ternary chain (rather than an IIFE) is chosen so the expression
+  /// works identically in sync and async contexts — an IIFE would have
+  /// to be `async` when the body contains `await`, and we don't
+  /// always know at emit time.
+  String _compileSwitchExpr(FunctionCall call) {
+    final subjectExpr = _field(call, 'subject');
+    final casesField = _field(call, 'cases');
+    if (subjectExpr == null || casesField == null) {
+      return '/* malformed switch */ undefined';
+    }
+    final subjectStr = _expr(subjectExpr);
+    List<Expression> caseExprs = const [];
+    if (casesField.whichExpr() == Expression_Expr.literal &&
+        casesField.literal.whichValue() == Literal_Value.listValue) {
+      caseExprs = casesField.literal.listValue.elements;
+    }
+    Expression? defaultBody;
+    final branches = <(String pattern, String body)>[];
+    for (final ce in caseExprs) {
+      if (ce.whichExpr() != Expression_Expr.messageCreation) continue;
+      final mc = ce.messageCreation;
+      Expression? pattern;
+      Expression? body;
+      for (final f in mc.fields) {
+        if (f.name == 'pattern') pattern = f.value;
+        if (f.name == 'body') body = f.value;
+      }
+      if (body == null) continue;
+      if (pattern == null) {
+        defaultBody = body;
+        continue;
+      }
+      branches.add((_expr(pattern), _expr(body)));
+    }
+    final tail =
+        defaultBody != null ? _expr(defaultBody) : 'undefined';
+    if (branches.isEmpty) return tail;
+    // Build from the right so nesting mirrors source order.
+    var result = tail;
+    for (final (pattern, body) in branches.reversed) {
+      result = '(($subjectStr) === $pattern ? ($body) : $result)';
+    }
+    return result;
   }
 
   String? _compileThrowValue(Expression v) {

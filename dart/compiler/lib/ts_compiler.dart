@@ -523,12 +523,48 @@ class TsCompiler {
   /// Very small Dart → TS type mapper. Covers the scalar + generic
   /// types that show up in engine.dart metadata; anything unknown
   /// falls through to `any`.
+  ///
+  /// Recursively maps generic arguments — `Map<String, BallValue>`
+  /// becomes `Map<string, any>`, `List<Point>` becomes `Array<Point>`.
+  /// Records and function types aren't handled yet; they currently
+  /// fall through to `any` to keep the TS compilable.
   String _dartTypeToTs(String dart) {
     final t = dart.trim();
     if (t.isEmpty) return 'any';
+    // Records `(T1, T2)` or `({T1 a, T2 b})` → `any` for now (see 2.4).
+    if (t.startsWith('(')) return 'any';
+    // Function types: `int Function(String)` → `any` for now.
+    if (t.contains(' Function(')) return 'any';
     // Drop null suffixes for now — TS handles `| null` separately and
     // Phase 2 doesn't need nullability precision for self-host.
     final nonNull = t.endsWith('?') ? t.substring(0, t.length - 1) : t;
+    // Generic form: `<outer><'<'><inner><'>'>`.
+    final lt = nonNull.indexOf('<');
+    if (lt > 0 && nonNull.endsWith('>')) {
+      final outer = nonNull.substring(0, lt);
+      final inner = nonNull.substring(lt + 1, nonNull.length - 1);
+      final innerArgs = _splitTopLevelCommas(inner)
+          .map(_dartTypeToTs)
+          .toList();
+      switch (outer) {
+        case 'List':
+        case 'Iterable':
+        case 'Set':
+          return 'Array<${innerArgs.join(", ")}>';
+        case 'Map':
+          return 'Map<${innerArgs.join(", ")}>';
+        case 'Future':
+          return innerArgs.isEmpty
+              ? 'Promise<any>'
+              : 'Promise<${innerArgs.join(", ")}>';
+        case 'FutureOr':
+          final a = innerArgs.isEmpty ? 'any' : innerArgs.first;
+          return '$a | Promise<$a>';
+        default:
+          final mappedOuter = _dartTypeToTs(outer);
+          return '$mappedOuter<${innerArgs.join(", ")}>';
+      }
+    }
     switch (nonNull) {
       case 'int':
       case 'double':
@@ -547,6 +583,27 @@ class TsCompiler {
     // Strip leading `main:` so generated TS uses the bare class name.
     if (nonNull.startsWith('main:')) return nonNull.substring(5);
     return nonNull;
+  }
+
+  /// Split a string on commas that are at the top level of nesting
+  /// (ignoring commas inside <..> / (..) / [..]).
+  List<String> _splitTopLevelCommas(String s) {
+    final out = <String>[];
+    var depth = 0;
+    var start = 0;
+    for (var i = 0; i < s.length; i++) {
+      final c = s.codeUnitAt(i);
+      if (c == 0x3C /* < */ || c == 0x28 /* ( */ || c == 0x5B /* [ */) {
+        depth++;
+      } else if (c == 0x3E /* > */ || c == 0x29 /* ) */ || c == 0x5D /* ] */) {
+        depth--;
+      } else if (c == 0x2C /* , */ && depth == 0) {
+        out.add(s.substring(start, i).trim());
+        start = i + 1;
+      }
+    }
+    if (start < s.length) out.add(s.substring(start).trim());
+    return out;
   }
 
   // ─────────────────────────── Functions ───────────────────────────
@@ -932,6 +989,10 @@ class TsCompiler {
         return _compileLiteral(expr.literal);
       case Expression_Expr.reference:
         final refName = expr.reference.name;
+        // `this` is the current instance in both Dart and TS; pass it
+        // through verbatim without sanitization (sanitize would mangle
+        // it to `this_` because it's a reserved keyword).
+        if (refName == 'this') return 'this';
         // Inside a method body, a bare reference to a class field
         // (not shadowed by a parameter) is implicit `this.<name>` in
         // Dart. TS has no such implicit resolution, so emit it
@@ -1325,6 +1386,38 @@ class TsCompiler {
       // _buildMethod.
       case 'await':
         return 'await ${_expr(f['value']!)}';
+      // Null-aware method call: `target?.method(args)`.
+      case 'null_aware_call':
+        {
+          final target = f['target'];
+          final method = f['method'];
+          if (target == null || method == null) {
+            return '/* null_aware_call missing target/method */';
+          }
+          final methodName = method.literal.stringValue;
+          final otherArgs = (call.hasInput() &&
+                  call.input.whichExpr() ==
+                      Expression_Expr.messageCreation)
+              ? call.input.messageCreation.fields
+                  .where((fd) =>
+                      fd.name != 'target' &&
+                      fd.name != 'method' &&
+                      fd.name != '__type_args__')
+                  .map((fd) => _expr(fd.value))
+                  .join(', ')
+              : '';
+          return '${_expr(target)}?.$methodName($otherArgs)';
+        }
+      // Null-aware property access: `target?.field`.
+      case 'null_aware_access':
+        {
+          final target = f['target'];
+          final field = f['field'];
+          if (target == null || field == null) {
+            return '/* null_aware_access missing target/field */';
+          }
+          return '${_expr(target)}?.${field.literal.stringValue}';
+        }
       // Generator yield: TS supports `yield x` in `function*`; until
       // generators are first-class we emit the same form. Expression
       // position works for both `function` and `function*`.

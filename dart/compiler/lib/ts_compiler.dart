@@ -156,7 +156,17 @@ class TsCompiler {
       }
     }
 
-    // Classes first so they are declared before any top-level code that
+    // Typedefs first — many classes below reference them (BallValue, etc.).
+    // Function-typed aliases currently fall through to `any` since TS
+    // function-type syntax differs; pure aliases get a real TsTypeAlias.
+    for (final ta in entryMod.typeAliases) {
+      final target = _dartTypeToTs(ta.targetType);
+      statements.add(
+        TsTypeAlias(name: ta.name, type: target, isExported: true),
+      );
+    }
+
+    // Classes second so they are declared before any top-level code that
     // constructs them.
     for (final td in entryMod.typeDefs) {
       final members = classMembers[td.name] ?? const <FunctionDefinition>[];
@@ -1418,6 +1428,58 @@ class TsCompiler {
           }
           return '${_expr(target)}?.${field.literal.stringValue}';
         }
+      // Typed collection literals. The Dart encoder preserves the
+      // type-parameter string for round-trip fidelity; TS ignores it.
+      case 'typed_list':
+        {
+          // fields: `type_args` (string), `elements` (list)
+          final elements = f['elements'];
+          if (elements != null &&
+              elements.whichExpr() == Expression_Expr.literal &&
+              elements.literal.whichValue() == Literal_Value.listValue) {
+            final parts =
+                elements.literal.listValue.elements.map(_expr).toList();
+            return '[${parts.join(", ")}]';
+          }
+          // Elements can also arrive as a list-literal Expression.
+          if (elements != null) return _expr(elements);
+          return '[]';
+        }
+      case 'typed_map':
+        {
+          // Dart `<K, V>{...}` with zero entries → empty Map; with
+          // entries → new Map([[k, v], ...]).
+          final entries = f['entries'];
+          if (entries == null) return 'new Map()';
+          // entries is a list literal whose elements are records {key, value}
+          // or message creations with {key, value} fields.
+          final entryExprs =
+              entries.whichExpr() == Expression_Expr.literal &&
+                      entries.literal.whichValue() == Literal_Value.listValue
+                  ? entries.literal.listValue.elements
+                  : <Expression>[];
+          if (entryExprs.isEmpty) return 'new Map()';
+          final pairs = <String>[];
+          for (final e in entryExprs) {
+            if (e.whichExpr() == Expression_Expr.messageCreation) {
+              final mc = e.messageCreation;
+              final k = mc.fields
+                  .firstWhere((fd) => fd.name == 'key',
+                      orElse: () => FieldValuePair())
+                  .value;
+              final v = mc.fields
+                  .firstWhere((fd) => fd.name == 'value',
+                      orElse: () => FieldValuePair())
+                  .value;
+              pairs.add('[${_expr(k)}, ${_expr(v)}]');
+            }
+          }
+          return 'new Map([${pairs.join(", ")}])';
+        }
+      case 'map_create':
+        // Untyped Dart `{}` (empty map literal) encodes to std.map_create
+        // with a type-args string like 'String, int' or 'K, V' — discard it.
+        return 'new Map()';
       // Generator yield: TS supports `yield x` in `function*`; until
       // generators are first-class we emit the same form. Expression
       // position works for both `function` and `function*`.
@@ -1611,6 +1673,83 @@ function __ball_parse_double(s: string): number {
 // it. Declared as `any` so it's visible everywhere; the catch binding
 // shadows it within scope.
 let __ball_active_error: any = undefined;
+
+// ── Dart → JS Map / Array / String polyfills ──────────────────────
+// Ball-compiled code still calls Dart-flavored method names (.containsKey,
+// .add, etc.) because the TS compiler doesn't rewrite call sites. Node's
+// --experimental-strip-types removes TS annotations at runtime, so type
+// errors don't matter here; these polyfills make the calls actually work.
+// Each guard skips the patch if it already exists so multiple emitted
+// files sharing the preamble don't double-install.
+(function installBallPolyfills() {
+  const mp: any = Map.prototype;
+  if (!mp.containsKey) mp.containsKey = function (k: any) { return this.has(k); };
+  if (!mp.putIfAbsent) {
+    mp.putIfAbsent = function (k: any, supplier: any) {
+      if (!this.has(k)) this.set(k, supplier());
+      return this.get(k);
+    };
+  }
+  if (!mp.addAll) {
+    mp.addAll = function (other: any) {
+      if (other instanceof Map) {
+        for (const [k, v] of other.entries()) this.set(k, v);
+      } else if (other && typeof other === 'object') {
+        for (const k of Object.keys(other)) this.set(k, other[k]);
+      }
+    };
+  }
+  // Map.entries / .keys / .values already exist; Dart uses the same names.
+  // Dart Map.isEmpty / isNotEmpty are getters.
+  Object.defineProperty(mp, 'isEmpty', {
+    configurable: true,
+    get() { return this.size === 0; },
+  });
+  Object.defineProperty(mp, 'isNotEmpty', {
+    configurable: true,
+    get() { return this.size !== 0; },
+  });
+
+  const ap: any = Array.prototype;
+  if (!ap.add) ap.add = function (v: any) { this.push(v); };
+  if (!ap.addAll) ap.addAll = function (iter: any) {
+    for (const v of iter) this.push(v);
+  };
+  if (!ap.removeLast) ap.removeLast = function () { return this.pop(); };
+  Object.defineProperty(ap, 'isEmpty', {
+    configurable: true,
+    get() { return this.length === 0; },
+  });
+  Object.defineProperty(ap, 'isNotEmpty', {
+    configurable: true,
+    get() { return this.length !== 0; },
+  });
+  Object.defineProperty(ap, 'first', {
+    configurable: true,
+    get() { return this[0]; },
+  });
+  Object.defineProperty(ap, 'last', {
+    configurable: true,
+    get() { return this[this.length - 1]; },
+  });
+  // Array.prototype.map / forEach / every / some already exist. Dart's
+  // `where` is JS's `filter`; add an alias.
+  if (!ap.where) ap.where = Array.prototype.filter;
+  if (!ap.toList) ap.toList = function () { return this.slice(); };
+  if (!ap.contains) ap.contains = function (v: any) { return this.indexOf(v) >= 0; };
+  if (!ap.toSet) ap.toSet = function () { return new Set(this); };
+
+  const sp: any = String.prototype;
+  // Dart String getters.
+  Object.defineProperty(sp, 'isEmpty', {
+    configurable: true,
+    get() { return this.length === 0; },
+  });
+  Object.defineProperty(sp, 'isNotEmpty', {
+    configurable: true,
+    get() { return this.length !== 0; },
+  });
+})();
 ''';
 
 /// Constructor parameter shape (structurally similar to what the Dart

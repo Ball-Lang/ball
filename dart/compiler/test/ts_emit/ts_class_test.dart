@@ -104,5 +104,16 @@ void main() {
               'await chain',
             ]),
         skip: skip);
+
+    test('collections — List polyfills (add/removeLast/first/last/where)',
+        () => _runFixtureRoundTrip('collections', [
+              'list.add(1)',
+              'list.removeLast()',
+              'list.first',
+              'list.last',
+              'big.where',
+              'big.contains(3)',
+            ]),
+        skip: skip);
   });
 }

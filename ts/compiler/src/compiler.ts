@@ -2,21 +2,17 @@
  * Ball → TypeScript compiler.
  *
  * Walks a Ball `Program` and emits idiomatic TypeScript via ts-morph.
- * Runs in-process in TS — no Dart subprocess, no stdin/stdout IPC.
+ * Runs in-process in TS — no Dart subprocess.
  *
- * Architecture mirrors the Dart compiler's split:
- *   - Declarations (classes, functions, enums, typedefs) go through
- *     ts-morph's structure API so indentation / formatting / ordering
- *     is handled by the library.
- *   - Expression / statement emission produces raw TS source strings
- *     which are passed as `body: <string>` to ts-morph. ts-morph
- *     re-indents them inside the declaration block.
- *
- * Feature coverage is grown incrementally. Call `BallCompiler.compile()`
- * and check the output against the Dart reference compiler's output —
- * the two should converge.
+ * Mirrors the semantics of the original Dart `ts_compiler.dart`:
+ *   - Declarations (functions, classes, enums, typedefs) go through
+ *     ts-morph's structure API — indentation / ordering / formatting
+ *     handled by the library.
+ *   - Expressions / statements are emitted as raw TS source strings
+ *     into an internal buffer. ts-morph re-indents them inside each
+ *     declaration block.
  */
-import { Project, StructureKind } from "ts-morph";
+import { Project, StructureKind, type Scope as _Scope } from "ts-morph";
 import type {
   Expression,
   FieldValuePair,
@@ -27,6 +23,7 @@ import type {
   Program,
   Statement,
   Struct,
+  TypeDefinition,
 } from "./types.ts";
 import { TS_RUNTIME_PREAMBLE } from "./preamble.ts";
 
@@ -37,58 +34,115 @@ export interface CompileOptions {
   fileName?: string;
 }
 
+interface CtorParam {
+  name: string;
+  isThis: boolean;
+}
+
 export class BallCompiler {
   private readonly program: Program;
+
+  /** Buffer that _emit* functions write into. */
+  private out = "";
+  private depth = 0;
+
+  /** Catch-bound variables currently in scope — subject to bracket access. */
+  private readonly catchVars = new Set<string>();
+
+  /** Fields of the class currently being emitted (method bodies). */
+  private currentClassFields: Set<string> = new Set();
+
+  /** Parameters of the currently-emitting method (shadow fields). */
+  private currentMethodParams: Set<string> = new Set();
+
+  /** Short method names of the current class (for `this.foo()` routing). */
+  private currentClassMethodNames: Set<string> = new Set();
+
+  /** All function names in the entry module (function vs ctor routing). */
+  private allFunctionNames: Set<string> = new Set();
+
+  /** typeDefs in the entry module (typeName → definition). */
+  private typeDefByName: Map<string, TypeDefinition> = new Map();
 
   constructor(program: Program) {
     this.program = program;
   }
 
-  /** Compile the program to TS source. Entry point. */
+  /** Compile to TS source. */
   compile(options: CompileOptions = {}): string {
     const { includePreamble = true, fileName = "program.ts" } = options;
     const project = new Project({
       useInMemoryFileSystem: true,
       compilerOptions: { target: 99 /* ESNext */ },
     });
-    const sourceFile = project.createSourceFile(fileName, "", {
-      overwrite: true,
-    });
+    const sf = project.createSourceFile(fileName, "", { overwrite: true });
 
     const entryMod = this.program.modules.find(
       (m) => m.name === this.program.entryModule,
     );
     if (!entryMod) {
       throw new Error(
-        `Entry module "${this.program.entryModule}" not found in program`,
+        `Entry module "${this.program.entryModule}" not found`,
       );
     }
 
-    // Emit top-level functions (non-base, non-entry).
+    // Seed the function-name + typeDef lookup tables.
+    this.allFunctionNames = new Set(entryMod.functions.map((f) => f.name));
+    this.typeDefByName = new Map(
+      (entryMod.typeDefs ?? []).map((td) => [td.name, td]),
+    );
+
+    // Group functions by their enclosing class (if any) — matches the
+    // `<typeDef.name>.<member>` naming convention from the encoder.
+    const classMembers = new Map<string, FunctionDef[]>();
+    const freeFunctions: FunctionDef[] = [];
     for (const fn of entryMod.functions) {
       if (fn.isBase) continue;
       if (fn.name === this.program.entryFunction) continue;
-      this.emitFreeFunction(sourceFile, fn);
+      const enclosing = this.enclosingTypeName(fn.name);
+      if (enclosing) {
+        const list = classMembers.get(enclosing) ?? [];
+        list.push(fn);
+        classMembers.set(enclosing, list);
+      } else {
+        freeFunctions.push(fn);
+      }
     }
 
-    // Emit entry as `main` with an immediate call at end.
+    // Typedefs → TsTypeAlias.
+    for (const ta of entryMod.typeAliases ?? []) {
+      sf.addTypeAlias({
+        name: ta.name,
+        type: this.dartTypeToTs(ta.targetType),
+        isExported: true,
+      });
+    }
+
+    // Classes.
+    for (const td of entryMod.typeDefs ?? []) {
+      this.emitClass(sf, td, classMembers.get(td.name) ?? []);
+    }
+
+    // Free top-level functions.
+    for (const fn of freeFunctions) {
+      this.emitFreeFunction(sf, fn);
+    }
+
+    // Entry function as `main()` + immediate call.
     const entryFn = entryMod.functions.find(
       (f) => f.name === this.program.entryFunction,
     );
     if (entryFn) {
-      this.emitFreeFunction(sourceFile, entryFn, "main");
-      sourceFile.addStatements("main();");
+      this.emitFreeFunction(sf, entryFn, "main");
+      sf.addStatements("main();");
     }
 
-    sourceFile.formatText({
-      indentSize: 2,
-      convertTabsToSpaces: true,
-    });
-    const body = sourceFile.getFullText();
+    sf.formatText({ indentSize: 2, convertTabsToSpaces: true });
+    const body = sf.getFullText();
     return includePreamble ? TS_RUNTIME_PREAMBLE + "\n" + body : body;
   }
 
-  // ─────────────────────────── Declarations ───────────────────────────
+  // ───────────────────────── Declarations ────────────────────────────
 
   private emitFreeFunction(
     sf: ReturnType<Project["createSourceFile"]>,
@@ -97,8 +151,13 @@ export class BallCompiler {
   ): void {
     const params = extractParams(fn);
     const name = forceName ?? sanitize(fn.name);
-    const isAsync = readBool(fn.metadata, "is_async");
-    const body = this.captureBody(fn, params);
+    const body = this.captureInto(() => {
+      if (params.length === 1 && params[0] !== "input") {
+        this.writeln(`const input = ${sanitize(params[0])};`);
+      }
+      if (fn.body) this.emitStatementOrExpression(fn.body, true);
+    });
+    const isAsync = functionIsAsync(fn);
     sf.addFunction({
       kind: StructureKind.Function,
       name,
@@ -109,161 +168,1081 @@ export class BallCompiler {
     });
   }
 
-  // Capture a function body as a raw TS source string.
-  private captureBody(fn: FunctionDef, params: string[]): string {
-    const parts: string[] = [];
-    // Legacy alias: Ball programs may reference `input` by name.
-    if (params.length === 1 && params[0] !== "input") {
-      parts.push(`const input = ${sanitize(params[0])};`);
+  private emitClass(
+    sf: ReturnType<Project["createSourceFile"]>,
+    td: TypeDefinition,
+    members: FunctionDef[],
+  ): void {
+    const meta: Struct = td.metadata ?? {};
+    const tsName = classTsName(td.name);
+
+    // Fields: prefer metadata.fields (richer) with descriptor fallback.
+    const fieldSpecs = Array.isArray(meta["fields"])
+      ? (meta["fields"] as unknown[])
+      : [];
+    const properties: Array<{
+      name: string;
+      type: string;
+      isStatic: boolean;
+      isReadonly: boolean;
+    }> = [];
+    const fieldNames = new Set<string>();
+    for (const raw of fieldSpecs) {
+      if (raw == null || typeof raw !== "object") continue;
+      const r = raw as Record<string, unknown>;
+      const fname = typeof r.name === "string" ? r.name : undefined;
+      if (!fname) continue;
+      fieldNames.add(fname);
+      properties.push({
+        name: fname,
+        type: typeof r.type === "string" ? this.dartTypeToTs(r.type) : "any",
+        isStatic: r.is_static === true,
+        isReadonly: r.is_final === true,
+      });
     }
-    if (fn.body) {
-      parts.push(this.emitStatementOrExpression(fn.body, true));
+    if (properties.length === 0 && td.descriptor?.field) {
+      for (const f of td.descriptor.field) {
+        fieldNames.add(f.name);
+        properties.push({ name: f.name, type: "any", isStatic: false, isReadonly: false });
+      }
     }
-    return parts.join("\n");
+
+    // Method-name set for `this.foo()` routing inside bodies.
+    const methodNames = new Set<string>();
+    for (const fn of members) methodNames.add(memberShortName(fn.name));
+    const savedClassMethods = this.currentClassMethodNames;
+    this.currentClassMethodNames = methodNames;
+
+    const hasExtends = typeof meta["superclass"] === "string";
+
+    const ctors: Array<{ parameters: Array<{ name: string; type: string }>; statements: string }> = [];
+    const methods: Array<{
+      name: string;
+      isAsync: boolean;
+      isStatic: boolean;
+      parameters: Array<{ name: string; type: string }>;
+      returnType: string;
+      statements: string;
+    }> = [];
+    const getters: Array<{ name: string; isStatic: boolean; returnType: string; statements: string }> = [];
+    const setters: Array<{
+      name: string;
+      isStatic: boolean;
+      parameters: Array<{ name: string; type: string }>;
+      statements: string;
+    }> = [];
+
+    for (const fn of members) {
+      const mMeta: Struct = fn.metadata ?? {};
+      const kind = typeof mMeta["kind"] === "string" ? mMeta["kind"] : "method";
+      if (kind === "constructor") {
+        // Named ctors become static factory methods; default `.new`
+        // becomes the real ctor.
+        const lastDot = fn.name.lastIndexOf(".");
+        const rawShort = lastDot < 0 ? fn.name : fn.name.slice(lastDot + 1);
+        if (rawShort === "new") {
+          ctors.push(this.buildCtor(fn, mMeta, fieldNames, hasExtends));
+        } else {
+          methods.push(
+            this.buildMethod(fn, { ...mMeta, is_static: true }, fieldNames),
+          );
+        }
+      } else if (mMeta["is_getter"] === true) {
+        getters.push(this.buildGetter(fn, mMeta, fieldNames));
+      } else if (mMeta["is_setter"] === true) {
+        setters.push(this.buildSetter(fn, mMeta, fieldNames));
+      } else if (kind === "static_field") {
+        // Static fields are currently unmodeled; skip.
+      } else {
+        methods.push(this.buildMethod(fn, mMeta, fieldNames));
+      }
+    }
+
+    this.currentClassMethodNames = savedClassMethods;
+
+    // Inheritance.
+    const superName =
+      typeof meta["superclass"] === "string" ? meta["superclass"] : undefined;
+    const interfaces = Array.isArray(meta["interfaces"])
+      ? (meta["interfaces"] as unknown[])
+          .filter((i): i is string => typeof i === "string")
+      : undefined;
+    const tsInterfaces = interfaces
+      ?.filter((i) => i !== "Exception")
+      .map((i) => this.dartTypeToTs(i));
+
+    sf.addClass({
+      name: tsName,
+      isExported: true,
+      isAbstract: meta["is_abstract"] === true,
+      extends: superName ? this.dartTypeToTs(superName) : undefined,
+      implements: tsInterfaces && tsInterfaces.length > 0 ? tsInterfaces : undefined,
+      properties: properties.map((p) => ({
+        name: p.name,
+        type: p.type,
+        isStatic: p.isStatic,
+        isReadonly: p.isReadonly,
+      })),
+      ctors,
+      methods,
+      getAccessors: getters,
+      setAccessors: setters,
+    });
   }
 
-  // ─────────────────────────── Statements / Expressions ──────────────
+  private buildCtor(
+    fn: FunctionDef,
+    meta: Struct,
+    classFields: Set<string>,
+    hasExtends: boolean,
+  ): { parameters: Array<{ name: string; type: string }>; statements: string } {
+    const rawParams = extractCtorParams(meta);
+    const parameters = rawParams.map((p) => ({ name: sanitize(p.name), type: "any" }));
+    const prologueParts: string[] = [];
+    if (hasExtends) prologueParts.push("super();");
+    for (const p of rawParams) {
+      if (p.isThis) prologueParts.push(`this.${p.name} = ${sanitize(p.name)};`);
+    }
+    const prologue = prologueParts.join("\n");
+    const captured = this.withMethodContext(
+      new Set(rawParams.map((p) => p.name)),
+      classFields,
+      () =>
+        this.captureInto(() => {
+          if (fn.body) this.emitStatementOrExpression(fn.body, false);
+        }),
+    );
+    const body = prologue === "" ? captured : captured === "" ? prologue : `${prologue}\n${captured}`;
+    return { parameters, statements: body };
+  }
+
+  private buildMethod(fn: FunctionDef, meta: Struct, classFields: Set<string>) {
+    const params = extractParams(fn);
+    const body = this.withMethodContext(
+      new Set(params),
+      classFields,
+      () =>
+        this.captureInto(() => {
+          if (params.length === 1 && params[0] !== "input") {
+            this.writeln(`const input = ${sanitize(params[0])};`);
+          }
+          if (fn.body) this.emitStatementOrExpression(fn.body, true);
+        }),
+    );
+    const isAsync = functionIsAsync(fn);
+    return {
+      name: memberShortName(fn.name),
+      isAsync,
+      isStatic: meta["is_static"] === true,
+      parameters: params.map((p) => ({ name: sanitize(p), type: "any" })),
+      returnType: isAsync ? "Promise<any>" : "any",
+      statements: body,
+    };
+  }
+
+  private buildGetter(fn: FunctionDef, meta: Struct, classFields: Set<string>) {
+    const body = this.withMethodContext(
+      new Set<string>(),
+      classFields,
+      () =>
+        this.captureInto(() => {
+          if (fn.body) this.emitStatementOrExpression(fn.body, true);
+        }),
+    );
+    return {
+      name: memberShortName(fn.name),
+      isStatic: meta["is_static"] === true,
+      returnType: "any",
+      statements: body,
+    };
+  }
+
+  private buildSetter(fn: FunctionDef, meta: Struct, classFields: Set<string>) {
+    const params = extractParams(fn);
+    const body = this.withMethodContext(
+      new Set(params),
+      classFields,
+      () =>
+        this.captureInto(() => {
+          if (fn.body) this.emitStatementOrExpression(fn.body, false);
+        }),
+    );
+    return {
+      name: memberShortName(fn.name),
+      isStatic: meta["is_static"] === true,
+      parameters: params.map((p) => ({ name: sanitize(p), type: "any" })),
+      statements: body,
+    };
+  }
+
+  // ───────────────────────── Buffer helpers ──────────────────────────
+
+  private captureInto(body: () => void): string {
+    const savedOut = this.out;
+    const savedDepth = this.depth;
+    this.out = "";
+    this.depth = 0;
+    try {
+      body();
+      return this.out.replace(/\s+$/, "");
+    } finally {
+      this.out = savedOut;
+      this.depth = savedDepth;
+    }
+  }
+
+  private writeln(s: string): void {
+    this.out += "  ".repeat(this.depth) + s + "\n";
+  }
+
+  private get ind(): string {
+    return "  ".repeat(this.depth);
+  }
+
+  private withMethodContext<T>(
+    params: Set<string>,
+    fields: Set<string>,
+    fn: () => T,
+  ): T {
+    const sParams = this.currentMethodParams;
+    const sFields = this.currentClassFields;
+    this.currentMethodParams = params;
+    this.currentClassFields = fields;
+    try {
+      return fn();
+    } finally {
+      this.currentMethodParams = sParams;
+      this.currentClassFields = sFields;
+    }
+  }
+
+  // ───────────────────────── Statements ──────────────────────────────
 
   private emitStatementOrExpression(
     expr: Expression,
     isFunctionBody: boolean,
-  ): string {
+  ): void {
+    // Bare expression used as a function body → emit `return`.
+    if (isFunctionBody && !expr.block) {
+      this.writeln(`return ${this.expr(expr)};`);
+      return;
+    }
     if (expr.block) {
-      return this.emitBlock(expr.block, isFunctionBody);
+      this.emitBlock(expr.block, isFunctionBody);
+      return;
     }
-    if (isFunctionBody) {
-      return `return ${this.emitExpr(expr)};`;
+    if (expr.call && this.isControlFlow(expr.call)) {
+      this.emitControlFlowStatement(expr.call);
+      return;
     }
-    return `${this.emitExpr(expr)};`;
+    this.writeln(`${this.expr(expr)};`);
   }
 
-  private emitBlock(block: NonNullable<Expression["block"]>, isFunctionBody: boolean): string {
-    const lines: string[] = [];
-    for (const stmt of block.statements) {
-      lines.push(this.emitStatement(stmt));
-    }
-    if (block.result && isFunctionBody) {
+  private emitBlock(block: NonNullable<Expression["block"]>, isFunctionBody: boolean): void {
+    for (const s of block.statements ?? []) this.emitStatement(s);
+    if (block.result !== undefined && isFunctionBody) {
       const r = block.result;
-      // Skip empty-set literals (notSet).
-      const isEmpty = r.literal !== undefined &&
+      // notSet literal → skip.
+      const isNotSet =
+        r.literal !== undefined &&
         r.literal.intValue === undefined &&
         r.literal.doubleValue === undefined &&
         r.literal.stringValue === undefined &&
         r.literal.boolValue === undefined &&
-        r.literal.listValue === undefined;
-      if (!isEmpty) {
-        lines.push(`return ${this.emitExpr(r)};`);
-      }
-    } else if (block.result) {
-      lines.push(`${this.emitExpr(block.result)};`);
+        r.literal.listValue === undefined &&
+        r.literal.bytesValue === undefined;
+      if (!isNotSet) this.writeln(`return ${this.expr(r)};`);
+    } else if (block.result !== undefined) {
+      this.writeln(`${this.expr(block.result)};`);
     }
-    return lines.join("\n");
   }
 
-  private emitStatement(stmt: Statement): string {
+  private emitStatement(stmt: Statement): void {
     if (stmt.let) {
-      const kw = readString(stmt.let.metadata, "keyword") === "var"
-        ? "let"
-        : "const";
+      const meta: Struct = stmt.let.metadata ?? {};
+      const keyword = typeof meta["keyword"] === "string" ? meta["keyword"] : "final";
+      const kw = keyword === "var" ? "let" : "const";
       const name = sanitize(stmt.let.name);
       if (stmt.let.value !== undefined) {
-        return `${kw} ${name} = ${this.emitExpr(stmt.let.value)};`;
+        this.writeln(`${kw} ${name} = ${this.expr(stmt.let.value)};`);
+      } else {
+        this.writeln(`${kw} ${name};`);
       }
-      return `${kw} ${name};`;
+      return;
     }
     if (stmt.expression) {
       const e = stmt.expression;
+      if (e.call && this.isControlFlow(e.call)) {
+        this.emitControlFlowStatement(e.call);
+        return;
+      }
       // Block-expression-as-statement with no result: hoist inner stmts.
       if (e.block && e.block.result === undefined) {
-        return e.block.statements.map((s) => this.emitStatement(s)).join("\n");
+        for (const inner of e.block.statements ?? []) this.emitStatement(inner);
+        return;
       }
-      return `${this.emitExpr(e)};`;
+      this.writeln(`${this.expr(e)};`);
     }
-    return "";
   }
 
-  private emitExpr(expr: Expression): string {
-    if (expr.literal) return this.emitLiteral(expr.literal);
-    if (expr.reference) return sanitize(expr.reference.name);
-    if (expr.fieldAccess) {
-      const obj = this.emitExpr(expr.fieldAccess.object);
-      return `${obj}.${expr.fieldAccess.field}`;
-    }
-    if (expr.call) return this.emitCall(expr.call);
-    if (expr.messageCreation) return this.emitMessageCreation(expr.messageCreation);
-    return "null /* unhandled expr */";
+  // ───────────────────────── Control flow ────────────────────────────
+
+  private isControlFlow(call: FunctionCall): boolean {
+    if (!isStd(call.module)) return false;
+    const kinds = new Set([
+      "if", "for", "for_in", "while", "do_while", "try",
+      "return", "break", "continue", "labeled", "throw", "rethrow",
+      "assign",
+    ]);
+    return kinds.has(call.function);
   }
 
-  private emitLiteral(lit: Literal): string {
+  private emitControlFlowStatement(call: FunctionCall): void {
+    switch (call.function) {
+      case "if":        this.emitIfStmt(call); break;
+      case "for":       this.emitForStmt(call); break;
+      case "for_in":    this.emitForInStmt(call); break;
+      case "while":     this.emitWhileStmt(call); break;
+      case "do_while":  this.emitDoWhileStmt(call); break;
+      case "try":       this.emitTryStmt(call); break;
+      case "return": {
+        const v = field(call, "value");
+        this.writeln(v ? `return ${this.expr(v)};` : "return;");
+        break;
+      }
+      case "break": {
+        const label = stringField(call, "label");
+        this.writeln(label ? `break ${label};` : "break;");
+        break;
+      }
+      case "continue": {
+        const label = stringField(call, "label");
+        this.writeln(label ? `continue ${label};` : "continue;");
+        break;
+      }
+      case "labeled": {
+        const label = stringField(call, "label");
+        this.writeln(`${label}:`);
+        const body = field(call, "body");
+        if (body) this.emitStatementOrExpression(body, false);
+        break;
+      }
+      case "throw": {
+        const v = field(call, "value");
+        if (v) {
+          const str = this.compileThrowValue(v) ?? this.expr(v);
+          this.writeln(`throw ${str};`);
+        } else {
+          this.writeln("throw null;");
+        }
+        break;
+      }
+      case "rethrow":
+        this.writeln("throw __ball_active_error;");
+        break;
+      case "assign":
+        this.emitAssignStmt(call);
+        break;
+    }
+  }
+
+  private emitIfStmt(call: FunctionCall): void {
+    const cond = field(call, "condition");
+    const then_ = field(call, "then");
+    const else_ = field(call, "else");
+    this.writeln(`if (${this.expr(cond!)}) {`);
+    this.depth++;
+    if (then_) this.emitStatementOrExpression(then_, false);
+    this.depth--;
+    if (else_) {
+      this.writeln(`} else {`);
+      this.depth++;
+      this.emitStatementOrExpression(else_, false);
+      this.depth--;
+    }
+    this.writeln(`}`);
+  }
+
+  private emitForStmt(call: FunctionCall): void {
+    const init = field(call, "init");
+    const cond = field(call, "condition");
+    const update = field(call, "update");
+    const body = field(call, "body");
+    let initStr: string;
+    if (init && init.literal?.stringValue !== undefined) {
+      initStr = translateInitString(init.literal.stringValue);
+    } else if (init) {
+      initStr = this.expr(init);
+    } else {
+      initStr = "";
+    }
+    const condStr = cond ? this.expr(cond) : "";
+    const updateStr = update ? this.expr(update) : "";
+    this.writeln(`for (${initStr}; ${condStr}; ${updateStr}) {`);
+    this.depth++;
+    if (body) this.emitStatementOrExpression(body, false);
+    this.depth--;
+    this.writeln(`}`);
+  }
+
+  private emitForInStmt(call: FunctionCall): void {
+    const variable = stringField(call, "variable") ?? "item";
+    const iterable = field(call, "iterable")!;
+    const body = field(call, "body");
+    this.writeln(`for (const ${variable} of ${this.expr(iterable)}) {`);
+    this.depth++;
+    if (body) this.emitStatementOrExpression(body, false);
+    this.depth--;
+    this.writeln(`}`);
+  }
+
+  private emitWhileStmt(call: FunctionCall): void {
+    const cond = field(call, "condition");
+    const body = field(call, "body");
+    this.writeln(`while (${this.expr(cond!)}) {`);
+    this.depth++;
+    if (body) this.emitStatementOrExpression(body, false);
+    this.depth--;
+    this.writeln(`}`);
+  }
+
+  private emitDoWhileStmt(call: FunctionCall): void {
+    const cond = field(call, "condition");
+    const body = field(call, "body");
+    this.writeln(`do {`);
+    this.depth++;
+    if (body) this.emitStatementOrExpression(body, false);
+    this.depth--;
+    this.writeln(`} while (${this.expr(cond!)});`);
+  }
+
+  private emitTryStmt(call: FunctionCall): void {
+    const body = field(call, "body");
+    const catches = field(call, "catches");
+    const fin = field(call, "finally");
+
+    this.writeln(`try {`);
+    this.depth++;
+    if (body) this.emitStatementOrExpression(body, false);
+    this.depth--;
+
+    this.writeln(`} catch (__ball_active_error) {`);
+    this.depth++;
+    if (catches && catches.literal?.listValue) {
+      const clauses = catches.literal.listValue.elements ?? [];
+      let first = true;
+      let untypedBody: Expression | undefined;
+      let untypedVar = "e";
+      let untypedStackVar: string | undefined;
+      for (const ce of clauses) {
+        if (!ce.messageCreation) continue;
+        const cf = fieldMap(ce.messageCreation.fields ?? []);
+        const type = stringFieldVal(cf, "type");
+        const variable = stringFieldVal(cf, "variable") ?? "e";
+        const stackVar = stringFieldVal(cf, "stack_trace");
+        const cbody = cf.get("body");
+        if (!type) {
+          untypedBody = cbody;
+          untypedVar = variable;
+          untypedStackVar = stackVar;
+          continue;
+        }
+        const cond = this.typedCatchCondition(type);
+        const keyword = first ? "if" : "else if";
+        this.writeln(`${keyword} (${cond}) {`);
+        this.depth++;
+        this.writeln(`const ${variable} = __ball_active_error;`);
+        if (stackVar) {
+          this.writeln(
+            `const ${stackVar} = (__ball_active_error instanceof Error && __ball_active_error.stack != null ? __ball_active_error.stack : (new Error().stack ?? ''));`,
+          );
+        }
+        const treatAsMap = !this.typeIsUserDefinedClass(`main:${type}`) &&
+          !this.typeIsUserDefinedClass(type);
+        if (treatAsMap) this.catchVars.add(variable);
+        if (cbody) this.emitStatementOrExpression(cbody, false);
+        if (treatAsMap) this.catchVars.delete(variable);
+        this.depth--;
+        this.writeln(`}`);
+        first = false;
+      }
+      if (!first) this.writeln(`else {`);
+      if (!first) this.depth++;
+      if (untypedBody) {
+        this.writeln(`const ${untypedVar} = __ball_active_error;`);
+        if (untypedStackVar) {
+          this.writeln(
+            `const ${untypedStackVar} = (__ball_active_error instanceof Error && __ball_active_error.stack != null ? __ball_active_error.stack : (new Error().stack ?? ''));`,
+          );
+        }
+        this.catchVars.add(untypedVar);
+        this.emitStatementOrExpression(untypedBody, false);
+        this.catchVars.delete(untypedVar);
+      } else {
+        this.writeln(`throw __ball_active_error;`);
+      }
+      if (!first) {
+        this.depth--;
+        this.writeln(`}`);
+      }
+    } else {
+      this.writeln(`throw __ball_active_error;`);
+    }
+    this.depth--;
+
+    if (fin) {
+      this.writeln(`} finally {`);
+      this.depth++;
+      this.emitStatementOrExpression(fin, false);
+      this.depth--;
+    }
+    this.writeln(`}`);
+  }
+
+  private emitAssignStmt(call: FunctionCall): void {
+    const target = field(call, "target");
+    const value = field(call, "value");
+    if (!target || !value) return;
+    const op = stringField(call, "op") || "=";
+    this.writeln(`${this.expr(target)} ${op} ${this.expr(value)};`);
+  }
+
+  private typedCatchCondition(type: string): string {
+    const builtins = new Set([
+      "Error", "TypeError", "RangeError", "SyntaxError",
+      "ReferenceError", "URIError", "EvalError",
+    ]);
+    if (builtins.has(type)) return `__ball_active_error instanceof ${type}`;
+    if (type === "FormatException") {
+      return "(__ball_active_error instanceof Error && __ball_active_error.message.startsWith('FormatException'))";
+    }
+    return `(__ball_active_error instanceof ${type} || (typeof __ball_active_error === 'object' && __ball_active_error !== null && __ball_active_error['__type'] === '${type}'))`;
+  }
+
+  // ───────────────────────── Expressions ─────────────────────────────
+
+  private expr(e: Expression): string {
+    if (e.call) return this.compileCall(e.call);
+    if (e.literal) return this.compileLiteral(e.literal);
+    if (e.reference) {
+      const name = e.reference.name;
+      if (name === "this") return "this";
+      if (
+        this.currentClassFields.has(name) &&
+        !this.currentMethodParams.has(name)
+      ) {
+        return `this.${sanitize(name)}`;
+      }
+      return sanitize(name);
+    }
+    if (e.fieldAccess) return this.compileFieldAccess(e.fieldAccess);
+    if (e.messageCreation) return this.compileMessageCreation(e.messageCreation);
+    if (e.block) return this.compileBlockExpression(e.block);
+    if (e.lambda) return this.compileLambda(e.lambda);
+    return "null /* notSet */";
+  }
+
+  private compileLiteral(lit: Literal): string {
     if (lit.intValue !== undefined) return String(lit.intValue);
     if (lit.doubleValue !== undefined) return String(lit.doubleValue);
-    if (lit.stringValue !== undefined) {
-      return jsStringLiteral(lit.stringValue);
-    }
-    if (lit.boolValue !== undefined) {
-      return lit.boolValue ? "true" : "false";
-    }
+    if (lit.stringValue !== undefined) return jsStringLiteral(lit.stringValue);
+    if (lit.boolValue !== undefined) return lit.boolValue ? "true" : "false";
     if (lit.listValue) {
-      return `[${lit.listValue.elements.map((e) => this.emitExpr(e)).join(", ")}]`;
+      const parts = (lit.listValue.elements ?? []).map((x) => this.expr(x));
+      return `[${parts.join(", ")}]`;
     }
+    if (lit.bytesValue !== undefined) return "/* bytes */ new Uint8Array()";
     return "null";
   }
 
-  private emitCall(call: FunctionCall): string {
-    // std dispatch for known base functions.
-    if (call.module === "std" || call.module === "dart_std") {
-      return this.emitStdCall(call);
+  private compileFieldAccess(fa: NonNullable<Expression["fieldAccess"]>): string {
+    const obj = this.expr(fa.object);
+    const f = fa.field;
+    if (f === "length") return `${obj}.length`;
+    // Positional record field: `.$1` / `.$2` → [0] / [1].
+    const recMatch = /^\$(\d+)$/.exec(f);
+    if (recMatch) {
+      const idx = parseInt(recMatch[1], 10) - 1;
+      return `${obj}[${idx}]`;
     }
-    const fn = sanitize(call.function);
-    if (!call.input) return `${fn}()`;
-    if (call.input.messageCreation) {
-      const fields = call.input.messageCreation.fields;
-      const args = fields.map((f) => this.emitExpr(f.value)).join(", ");
-      return `${fn}(${args})`;
+    if (
+      fa.object.reference !== undefined &&
+      this.catchVars.has(fa.object.reference.name)
+    ) {
+      return `${obj}['${f}']`;
     }
-    return `${fn}(${this.emitExpr(call.input)})`;
+    return `${obj}.${f}`;
   }
 
-  private emitMessageCreation(
+  private compileMessageCreation(
     mc: NonNullable<Expression["messageCreation"]>,
   ): string {
-    // Anonymous arg bag → inline object literal.
-    if (!mc.typeName) {
-      const entries = mc.fields
-        .map((f) => `'${f.name}': ${this.emitExpr(f.value)}`)
+    const tn = mc.typeName ?? "";
+    const fields = mc.fields ?? [];
+    if (tn === "") {
+      const entries = fields
+        .map((f) => `'${f.name}': ${this.expr(f.value)}`)
         .join(", ");
       return `{${entries}}`;
     }
-    return `new ${sanitize(mc.typeName)}(${mc.fields
-      .map((f) => this.emitExpr(f.value))
-      .join(", ")})`;
+
+    // Function call encoded as MessageCreation: `foo()` / `this.foo()`
+    // with no explicit receiver. typeName = function qualified name.
+    const shortName = memberShortName(tn);
+    if (this.allFunctionNames.has(tn)) {
+      const args = this.extractPositionalAndNamed(fields);
+      if (this.currentClassMethodNames.has(shortName)) {
+        return `this.${shortName}(${args})`;
+      }
+      return `${shortName}(${args})`;
+    }
+    if (this.currentClassMethodNames.has(shortName)) {
+      const args = this.extractPositionalAndNamed(fields);
+      return `this.${shortName}(${args})`;
+    }
+
+    // User-defined class → `new X(...)`.
+    if (this.typeIsUserDefinedClass(tn)) {
+      const args = this.extractPositionalAndNamed(fields);
+      return `new ${classTsName(tn)}(${args})`;
+    }
+
+    // Fallback: tagged object literal.
+    const entries = [
+      `'__type': '${tn}'`,
+      ...fields.map((f) => `'${f.name}': ${this.expr(f.value)}`),
+    ].join(", ");
+    return `{${entries}}`;
   }
 
-  private emitStdCall(call: FunctionCall): string {
-    const fn = call.function;
-    const f = fieldMap(call.input);
-
-    // Minimum std set needed for hello world. More handlers are added
-    // in subsequent iterations.
-    switch (fn) {
-      case "print": {
-        const msg = f.get("message");
-        if (!msg) return "console.log()";
-        return `console.log(__ball_to_string(${this.emitExpr(msg)}))`;
+  private extractPositionalAndNamed(fields: FieldValuePair[]): string {
+    const positional: string[] = [];
+    const named: Array<[string, string]> = [];
+    const argRe = /^arg(\d+)$/;
+    for (const f of fields) {
+      if (f.name === "__type_args__" || f.name === "__const__") continue;
+      if (argRe.test(f.name)) {
+        positional.push(this.expr(f.value));
+      } else {
+        named.push([f.name, this.expr(f.value)]);
       }
-      case "add":
-        return `(${this.emitExpr(f.get("left")!)} + ${this.emitExpr(f.get("right")!)})`;
-      case "concat":
-        return `(${this.emitExpr(f.get("left")!)} + ${this.emitExpr(f.get("right")!)})`;
-      case "to_string":
-        return `__ball_to_string(${this.emitExpr(f.get("value")!)})`;
-      default:
-        return `/* std.${fn} */ ${sanitize(fn)}(${Array.from(f.values()).map((e) => this.emitExpr(e)).join(", ")})`;
     }
+    const parts = [
+      ...positional,
+      ...(named.length > 0
+        ? [`{ ${named.map(([k, v]) => `${k}: ${v}`).join(", ")} }`]
+        : []),
+    ];
+    return parts.join(", ");
+  }
+
+  private typeIsUserDefinedClass(tn: string): boolean {
+    return tn !== "" && this.typeDefByName.has(tn);
+  }
+
+  private compileBlockExpression(block: NonNullable<Expression["block"]>): string {
+    const innerText = this.captureInto(() => {
+      this.writeln(""); // leading newline
+      for (const s of block.statements ?? []) this.emitStatement(s);
+      if (block.result !== undefined) {
+        this.writeln(`return ${this.expr(block.result)};`);
+      }
+    }) + "\n";
+    const usesAwait = containsBareKeyword(innerText, "await");
+    const usesYield = containsBareKeyword(innerText, "yield");
+    if (usesAwait) return `(await (async () => {${innerText}})())`;
+    if (usesYield) return `(yield* (function* () {${innerText}})())`;
+    return `(() => {${innerText}})()`;
+  }
+
+  private compileLambda(fn: FunctionDef): string {
+    const params = extractParams(fn);
+    const paramList = params.map(sanitize).join(", ");
+    const innerText = this.captureInto(() => {
+      this.writeln("");
+      if (params.length === 1 && params[0] !== "input") {
+        this.writeln(`const input = ${sanitize(params[0])};`);
+      }
+      if (fn.body) this.emitStatementOrExpression(fn.body, true);
+    }) + "\n";
+    const isAsync = functionIsAsync(fn) || containsBareKeyword(innerText, "await");
+    const isGenerator = containsBareKeyword(innerText, "yield");
+    if (isGenerator) {
+      return `(function* (${paramList}) {${innerText}})`;
+    }
+    return `(${isAsync ? "async " : ""}(${paramList}) => {${innerText}})`;
+  }
+
+  // ───────────────────────── Calls ──────────────────────────────────
+
+  private compileCall(call: FunctionCall): string {
+    const emptyModuleStd = new Set([
+      "labeled", "paren", "switch_expr", "set_create", "map_create",
+      "yield_each", "rethrow", "assert",
+    ]);
+    if (
+      isStd(call.module) ||
+      ((call.module === undefined || call.module === "") && emptyModuleStd.has(call.function))
+    ) {
+      return this.compileStdCall(call);
+    }
+    const fn = sanitize(call.function);
+    const thisPrefix =
+      this.currentClassMethodNames.has(call.function) &&
+      !this.currentMethodParams.has(call.function)
+        ? "this."
+        : "";
+    if (!call.input) return `${thisPrefix}${fn}()`;
+    const input = call.input;
+    if (input.messageCreation) {
+      const fields = input.messageCreation.fields ?? [];
+      const selfField = fields.find((f) => f.name === "self");
+      if (selfField) {
+        const selfStr = this.expr(selfField.value);
+        const otherArgs = fields
+          .filter((f) => f.name !== "self" && f.name !== "__type_args__")
+          .map((f) => this.expr(f.value))
+          .join(", ");
+        return otherArgs === ""
+          ? `${selfStr}.${fn}()`
+          : `${selfStr}.${fn}(${otherArgs})`;
+      }
+      const args = fields.map((f) => this.expr(f.value)).join(", ");
+      return `${thisPrefix}${fn}(${args})`;
+    }
+    return `${thisPrefix}${fn}(${this.expr(input)})`;
+  }
+
+  private compileStdCall(call: FunctionCall): string {
+    const fn = call.function;
+    const f = fieldMap(call.input?.messageCreation?.fields ?? []);
+    const bin = (op: string) => `(${this.expr(f.get("left")!)} ${op} ${this.expr(f.get("right")!)})`;
+    const un = (op: string) => {
+      const inner = this.expr(f.get("value")!);
+      if (op === "-" && inner.startsWith("-")) return `-(${inner})`;
+      return `${op}${inner}`;
+    };
+
+    switch (fn) {
+      // Arithmetic
+      case "add":          return bin("+");
+      case "subtract":     return bin("-");
+      case "multiply":     return bin("*");
+      case "divide":       return `Math.trunc(${this.expr(f.get("left")!)} / ${this.expr(f.get("right")!)})`;
+      case "divide_double":return bin("/");
+      case "modulo":       return bin("%");
+      case "negate":       return un("-");
+      // Comparison
+      case "equals":       return bin("===");
+      case "not_equals":   return bin("!==");
+      case "less_than":    return bin("<");
+      case "greater_than": return bin(">");
+      case "lte":          return bin("<=");
+      case "gte":          return bin(">=");
+      // Logical
+      case "and":          return bin("&&");
+      case "or":           return bin("||");
+      case "not":          return un("!");
+      // Bitwise
+      case "bitwise_and":  return bin("&");
+      case "bitwise_or":   return bin("|");
+      case "bitwise_xor":  return bin("^");
+      case "bitwise_not":  return un("~");
+      case "left_shift":   return bin("<<");
+      case "right_shift":  return bin(">>");
+      case "unsigned_right_shift": return bin(">>>");
+      case "integer_divide":
+        return `Math.trunc(${this.expr(f.get("left")!)} / ${this.expr(f.get("right")!)})`;
+      case "concat":       return bin("+");
+      case "to_string":    return `__ball_to_string(${this.expr(f.get("value")!)})`;
+      case "int_to_string":return `String(${this.expr(f.get("value")!)})`;
+      case "double_to_string": return `__ball_double_to_string(${this.expr(f.get("value")!)})`;
+      case "string_to_int":return `__ball_parse_int(${this.expr(f.get("value")!)})`;
+      case "string_to_double": return `__ball_parse_double(${this.expr(f.get("value")!)})`;
+      case "string_length":return `${this.expr(f.get("value")!)}.length`;
+      case "string_to_upper": return `${this.wrapIfNeeded(f.get("value")!)}.toUpperCase()`;
+      case "string_to_lower": return `${this.wrapIfNeeded(f.get("value")!)}.toLowerCase()`;
+      case "string_trim":  return `${this.wrapIfNeeded(f.get("value")!)}.trim()`;
+      case "string_trim_start": return `${this.wrapIfNeeded(f.get("value")!)}.trimStart()`;
+      case "string_trim_end": return `${this.wrapIfNeeded(f.get("value")!)}.trimEnd()`;
+      case "string_contains": return `${this.expr(f.get("left")!)}.includes(${this.expr(f.get("right")!)})`;
+      case "string_starts_with": return `${this.expr(f.get("left")!)}.startsWith(${this.expr(f.get("right")!)})`;
+      case "string_ends_with": return `${this.expr(f.get("left")!)}.endsWith(${this.expr(f.get("right")!)})`;
+      case "string_is_empty": return `(${this.expr(f.get("value")!)}.length === 0)`;
+      case "string_split": return `${this.expr(f.get("value")!)}.split(${this.expr(f.get("separator")!)})`;
+      case "string_substring": {
+        const v = this.expr(f.get("value")!);
+        const s = this.expr(f.get("start")!);
+        const end = f.get("end");
+        return end ? `${v}.substring(${s}, ${this.expr(end)})` : `${v}.substring(${s})`;
+      }
+      case "string_interpolation": {
+        const parts = f.get("parts");
+        if (parts?.literal?.listValue) {
+          const pieces = (parts.literal.listValue.elements ?? [])
+            .map((p) => `(${this.expr(p)})`)
+            .join(" + ");
+          return `(${pieces})`;
+        }
+        return `''`;
+      }
+      // Math
+      case "math_abs":   return `Math.abs(${this.expr(f.get("value")!)})`;
+      case "math_round": return `Math.round(${this.expr(f.get("value")!)})`;
+      case "math_floor": return `Math.floor(${this.expr(f.get("value")!)})`;
+      case "math_ceil":  return `Math.ceil(${this.expr(f.get("value")!)})`;
+      case "math_trunc": return `Math.trunc(${this.expr(f.get("value")!)})`;
+      case "math_sqrt":  return `Math.sqrt(${this.expr(f.get("value")!)})`;
+      case "math_pow":   return `Math.pow(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
+      case "math_min":   return `Math.min(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
+      case "math_max":   return `Math.max(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
+      case "math_pi":    return "Math.PI";
+      case "math_e":     return "Math.E";
+      case "print":      return `console.log(__ball_to_string(${this.expr(f.get("message")!)}))`;
+      case "index":      return `${this.expr(f.get("target")!)}[${this.expr(f.get("index")!)}]`;
+      case "null_coalesce": return `(${this.expr(f.get("left")!)} ?? ${this.expr(f.get("right")!)})`;
+      case "null_check": return this.expr(f.get("value")!);
+      case "is":         return "true /* is check */";
+      case "is_not":     return "false /* is_not check */";
+      case "as":         return this.expr(f.get("value")!);
+      case "if": {
+        const cond = this.expr(f.get("condition")!);
+        const t = this.expr(f.get("then")!);
+        const elseE = f.get("else");
+        const e = elseE ? this.expr(elseE) : "undefined";
+        return `(${cond} ? ${t} : ${e})`;
+      }
+      case "paren":   return `(${this.expr(f.get("value")!)})`;
+      case "assert":  return `console.assert(${this.expr(f.get("condition")!)})`;
+      case "assign": {
+        const op = stringField(call, "op") || "=";
+        return `(${this.expr(f.get("target")!)} ${op} ${this.expr(f.get("value")!)})`;
+      }
+      case "pre_increment":  return `(++${this.expr(f.get("value")!)})`;
+      case "pre_decrement":  return `(--${this.expr(f.get("value")!)})`;
+      case "post_increment": return `(${this.expr(f.get("value")!)}++)`;
+      case "post_decrement": return `(${this.expr(f.get("value")!)}--)`;
+      case "throw": {
+        const v = f.get("value");
+        if (!v) return "(() => { throw null; })()";
+        const str = this.compileThrowValue(v) ?? this.expr(v);
+        return `(() => { throw ${str}; })()`;
+      }
+      case "rethrow": return "(() => { throw __ball_active_error; })()";
+      case "await":   return `await ${this.expr(f.get("value")!)}`;
+      case "switch":
+      case "switch_expr": return this.compileSwitchExpr(call);
+      case "return": {
+        const v = f.get("value");
+        return v ? this.expr(v) : "undefined";
+      }
+      case "null_aware_call": {
+        const target = f.get("target");
+        const method = f.get("method");
+        if (!target || !method) return "/* null_aware_call missing */";
+        const methodName = method.literal?.stringValue ?? "";
+        const inputFields = call.input?.messageCreation?.fields ?? [];
+        const otherArgs = inputFields
+          .filter((fd) => fd.name !== "target" && fd.name !== "method" && fd.name !== "__type_args__")
+          .map((fd) => this.expr(fd.value))
+          .join(", ");
+        return `${this.expr(target)}?.${methodName}(${otherArgs})`;
+      }
+      case "null_aware_index": {
+        const self_ = f.get("self") ?? f.get("target");
+        const idx = f.get("index") ?? f.get("key");
+        if (!self_ || !idx) return "/* null_aware_index missing */";
+        return `${this.expr(self_)}[${this.expr(idx)}]`;
+      }
+      case "null_aware_access": {
+        const target = f.get("target");
+        const fieldE = f.get("field");
+        if (!target || !fieldE) return "/* null_aware_access missing */";
+        return `${this.expr(target)}?.${fieldE.literal?.stringValue ?? ""}`;
+      }
+      case "typed_list": {
+        const elements = f.get("elements");
+        if (elements?.literal?.listValue) {
+          const parts = (elements.literal.listValue.elements ?? []).map((x) => this.expr(x));
+          return `[${parts.join(", ")}]`;
+        }
+        if (elements) return this.expr(elements);
+        return "[]";
+      }
+      case "typed_map": {
+        const entries = f.get("entries");
+        if (!entries) return "new Map()";
+        const entryExprs = entries.literal?.listValue?.elements ?? [];
+        if (entryExprs.length === 0) return "new Map()";
+        const pairs: string[] = [];
+        for (const e of entryExprs) {
+          if (e.messageCreation) {
+            const mc = e.messageCreation;
+            const mFields = mc.fields ?? [];
+            const k = mFields.find((fd) => fd.name === "key")?.value;
+            const v = mFields.find((fd) => fd.name === "value")?.value;
+            if (k && v) pairs.push(`[${this.expr(k)}, ${this.expr(v)}]`);
+          }
+        }
+        return `new Map([${pairs.join(", ")}])`;
+      }
+      case "map_create": return "new Map()";
+      case "record": {
+        const positional: string[] = [];
+        const named: Array<[string, string]> = [];
+        const posRe = /^(?:\$|arg)(\d+)$/;
+        for (const fd of call.input?.messageCreation?.fields ?? []) {
+          if (fd.name === "__type_args__") continue;
+          if (posRe.test(fd.name)) {
+            positional.push(this.expr(fd.value));
+          } else {
+            named.push([fd.name, this.expr(fd.value)]);
+          }
+        }
+        if (named.length === 0) return `[${positional.join(", ")}]`;
+        if (positional.length === 0) {
+          return `{ ${named.map(([k, v]) => `${k}: ${v}`).join(", ")} }`;
+        }
+        const entries = [
+          ...positional.map((v, i) => `"${i}": ${v}`),
+          ...named.map(([k, v]) => `${k}: ${v}`),
+        ];
+        return `{ ${entries.join(", ")} }`;
+      }
+      case "yield":      return `yield ${this.expr(f.get("value")!)}`;
+      case "yield_each": return `yield* ${this.expr(f.get("value")!)}`;
+      default: {
+        const args = Array.from(f.values()).map((e) => this.expr(e)).join(", ");
+        return `/* std.${fn} */ ${sanitize(fn)}(${args})`;
+      }
+    }
+  }
+
+  private wrapIfNeeded(e: Expression): string {
+    const s = this.expr(e);
+    if (s === "") return s;
+    const first = s.charCodeAt(0);
+    if (first === 0x21 /* ! */ || first === 0x7e /* ~ */ || first === 0x2d /* - */) {
+      return `(${s})`;
+    }
+    return s;
+  }
+
+  private compileSwitchExpr(call: FunctionCall): string {
+    const subjectExpr = field(call, "subject");
+    const casesField = field(call, "cases");
+    if (!subjectExpr || !casesField) return "/* malformed switch */ undefined";
+    const subjectStr = this.expr(subjectExpr);
+    const caseExprs = casesField.literal?.listValue?.elements ?? [];
+    let defaultBody: Expression | undefined;
+    const branches: Array<{ cond: string; body: string }> = [];
+    for (const ce of caseExprs) {
+      if (!ce.messageCreation) continue;
+      let pattern: Expression | undefined;
+      let body: Expression | undefined;
+      for (const fd of ce.messageCreation.fields ?? []) {
+        if (fd.name === "pattern") pattern = fd.value;
+        if (fd.name === "body") body = fd.value;
+      }
+      if (!body) continue;
+      if (!pattern) {
+        defaultBody = body;
+        continue;
+      }
+      const patText = patternLiteralText(pattern);
+      if (patText === undefined) {
+        branches.push({
+          cond: `((${subjectStr}) === ${this.expr(pattern)})`,
+          body: this.expr(body),
+        });
+        continue;
+      }
+      const cond = patternToTsCondition(patText, subjectStr);
+      if (cond === "true") {
+        defaultBody = body;
+        break;
+      }
+      branches.push({ cond, body: this.expr(body) });
+    }
+    const tail = defaultBody ? this.expr(defaultBody) : "undefined";
+    if (branches.length === 0) return tail;
+    let result = tail;
+    for (const { cond, body } of [...branches].reverse()) {
+      result = `(${cond} ? (${body}) : ${result})`;
+    }
+    return result;
+  }
+
+  private compileThrowValue(v: Expression): string | undefined {
+    if (!v.messageCreation) return undefined;
+    if (v.messageCreation.typeName) return undefined;
+    const entries = (v.messageCreation.fields ?? [])
+      .map((fd) => `'${fd.name}': ${this.expr(fd.value)}`)
+      .join(", ");
+    return `{${entries}}`;
+  }
+
+  // ───────────────────────── Helpers ─────────────────────────────────
+
+  private enclosingTypeName(fnName: string): string | undefined {
+    let best: string | undefined;
+    for (const name of this.typeDefByName.keys()) {
+      if (fnName.startsWith(`${name}.`) && (best === undefined || name.length > best.length)) {
+        best = name;
+      }
+    }
+    return best;
+  }
+
+  private dartTypeToTs(dart: string): string {
+    const t = dart.trim();
+    if (t === "") return "any";
+    if (t.startsWith("(")) return "any";
+    if (t.includes(" Function(")) return "any";
+    const nonNull = t.endsWith("?") ? t.slice(0, -1) : t;
+    const lt = nonNull.indexOf("<");
+    if (lt > 0 && nonNull.endsWith(">")) {
+      const outer = nonNull.slice(0, lt);
+      const inner = nonNull.slice(lt + 1, -1);
+      const innerArgs = splitTopLevelCommas(inner).map((x) => this.dartTypeToTs(x));
+      switch (outer) {
+        case "List":
+        case "Iterable":
+        case "Set":
+          return `Array<${innerArgs.join(", ")}>`;
+        case "Map":
+          return `Map<${innerArgs.join(", ")}>`;
+        case "Future":
+          return innerArgs.length === 0 ? "Promise<any>" : `Promise<${innerArgs.join(", ")}>`;
+        case "FutureOr": {
+          const a = innerArgs.length === 0 ? "any" : innerArgs[0];
+          return `${a} | Promise<${a}>`;
+        }
+        default:
+          return `${this.dartTypeToTs(outer)}<${innerArgs.join(", ")}>`;
+      }
+    }
+    switch (nonNull) {
+      case "int":
+      case "double":
+      case "num":
+        return "number";
+      case "bool":
+        return "boolean";
+      case "String":
+        return "string";
+      case "void":
+        return "void";
+      case "dynamic":
+      case "Object":
+        return "any";
+    }
+    if (nonNull.startsWith("main:")) return nonNull.slice(5);
+    return nonNull;
   }
 }
 
-// ─────────────────────────── Helpers ───────────────────────────────
+// ───────────────────────── Free helpers ───────────────────────────────
 
 function extractParams(fn: FunctionDef): string[] {
   const params = fn.metadata?.["params"];
@@ -277,30 +1256,158 @@ function extractParams(fn: FunctionDef): string[] {
   return out;
 }
 
-function readBool(meta: Struct | undefined, key: string): boolean {
-  const v = meta?.[key];
-  return v === true;
-}
-
-function readString(meta: Struct | undefined, key: string): string | undefined {
-  const v = meta?.[key];
-  return typeof v === "string" ? v : undefined;
-}
-
-function fieldMap(input?: Expression): Map<string, Expression> {
-  const out = new Map<string, Expression>();
-  if (!input?.messageCreation) return out;
-  for (const f of input.messageCreation.fields) out.set(f.name, f.value);
+function extractCtorParams(meta: Struct): CtorParam[] {
+  const raw = meta["params"];
+  if (!Array.isArray(raw)) return [];
+  const out: CtorParam[] = [];
+  for (const p of raw) {
+    if (p && typeof p === "object" && "name" in p && typeof (p as any).name === "string") {
+      out.push({ name: (p as any).name, isThis: (p as any).is_this === true });
+    }
+  }
   return out;
 }
 
+function functionIsAsync(fn: FunctionDef): boolean {
+  return fn.metadata?.["is_async"] === true;
+}
+
+function field(call: FunctionCall, name: string): Expression | undefined {
+  const fields = call.input?.messageCreation?.fields;
+  if (!fields) return undefined;
+  for (const f of fields) if (f.name === name) return f.value;
+  return undefined;
+}
+
+function stringField(call: FunctionCall, name: string): string | undefined {
+  const e = field(call, name);
+  return e?.literal?.stringValue;
+}
+
+function stringFieldVal(
+  m: Map<string, Expression>,
+  name: string,
+): string | undefined {
+  return m.get(name)?.literal?.stringValue;
+}
+
+function fieldMap(fields: FieldValuePair[]): Map<string, Expression> {
+  const m = new Map<string, Expression>();
+  for (const f of fields) m.set(f.name, f.value);
+  return m;
+}
+
+function memberShortName(qualified: string): string {
+  const dot = qualified.lastIndexOf(".");
+  return sanitize(dot < 0 ? qualified : qualified.slice(dot + 1));
+}
+
+function classTsName(qualified: string): string {
+  const colon = qualified.lastIndexOf(":");
+  return colon < 0 ? qualified : qualified.slice(colon + 1);
+}
+
+function isStd(module: string | undefined): boolean {
+  return module === "std" || module === "dart_std";
+}
+
+function containsBareKeyword(text: string, kw: string): boolean {
+  return new RegExp(`(^|[^A-Za-z0-9_$])${kw}([^A-Za-z0-9_$]|$)`).test(text);
+}
+
+function translateInitString(raw: string): string {
+  for (const kw of ["var", "final", "int", "double", "String", "bool", "num"]) {
+    if (raw.length > kw.length + 1 && raw.slice(0, kw.length) === kw && raw[kw.length] === " ") {
+      return `let ${raw.slice(kw.length + 1)}`;
+    }
+  }
+  return `let ${raw}`;
+}
+
+function splitTopLevelCommas(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0x3c /* < */ || c === 0x28 /* ( */ || c === 0x5b /* [ */) depth++;
+    else if (c === 0x3e /* > */ || c === 0x29 /* ) */ || c === 0x5d /* ] */) depth--;
+    else if (c === 0x2c /* , */ && depth === 0) {
+      out.push(s.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  if (start < s.length) out.push(s.slice(start).trim());
+  return out;
+}
+
+function splitTopLevel(text: string, delim: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let quote = 0;
+  let start = 0;
+  for (let i = 0; i <= text.length - delim.length; i++) {
+    const c = text.charCodeAt(i);
+    if (quote === 0) {
+      if (c === 0x28 || c === 0x5b || c === 0x3c) depth++;
+      else if (c === 0x29 || c === 0x5d || c === 0x3e) depth--;
+      else if (c === 0x27 || c === 0x22) quote = c;
+      else if (depth === 0 && text.slice(i, i + delim.length) === delim) {
+        out.push(text.slice(start, i).trim());
+        start = i + delim.length;
+        i += delim.length - 1;
+      }
+    } else if (c === quote) {
+      quote = 0;
+    }
+  }
+  out.push(text.slice(start).trim());
+  return out;
+}
+
+function patternLiteralText(pat: Expression): string | undefined {
+  return pat.literal?.stringValue;
+}
+
+function patternToTsCondition(pat: string, subject: string): string {
+  const trimmed = pat.trim();
+  if (trimmed === "") return "true";
+  if (trimmed === "_") return "true";
+  const whenMatch = /^_\s+when\s+(.+)$/.exec(trimmed);
+  if (whenMatch) return `(${whenMatch[1]})`;
+  if (trimmed.includes("||")) {
+    const parts = splitTopLevel(trimmed, "||");
+    if (parts.length > 1) {
+      return `(${parts.map((p) => patternToTsCondition(p, subject)).join(" || ")})`;
+    }
+  }
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return `(${subject} === ${trimmed})`;
+  if (trimmed === "true" || trimmed === "false" || trimmed === "null") {
+    return `(${subject} === ${trimmed})`;
+  }
+  if (
+    (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+  ) {
+    const inner = trimmed.slice(1, -1);
+    return `(${subject} === ${jsStringLiteral(inner)})`;
+  }
+  return `(${subject} === (${trimmed}))`;
+}
+
 function jsStringLiteral(s: string): string {
-  return "'" + s
-    .replace(/\\/g, "\\\\")
-    .replace(/'/g, "\\'")
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r")
-    .replace(/\t/g, "\\t") + "'";
+  let out = "'";
+  for (let i = 0; i < s.length; i++) {
+    const cu = s.charCodeAt(i);
+    if (cu === 0x27) out += "\\'";
+    else if (cu === 0x5c) out += "\\\\";
+    else if (cu === 0x0a) out += "\\n";
+    else if (cu === 0x0d) out += "\\r";
+    else if (cu === 0x09) out += "\\t";
+    else if (cu >= 0x20 && cu < 0x7f) out += s[i];
+    else out += "\\u" + cu.toString(16).padStart(4, "0");
+  }
+  return out + "'";
 }
 
 function sanitize(name: string): string {

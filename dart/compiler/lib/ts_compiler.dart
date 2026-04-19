@@ -18,12 +18,18 @@ import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:protobuf/well_known_types/google/protobuf/struct.pb.dart'
     as structpb;
 
+import 'src/ts_emit_plan.dart';
+import 'src/ts_emit_runner.dart';
+
 /// Compiles a Ball [Program] to TypeScript source.
 class TsCompiler {
   final Program program;
   TsCompiler(this.program);
 
-  final StringBuffer _out = StringBuffer();
+  /// Mutable so helper methods can temporarily redirect output to a
+  /// fresh buffer (see [_captureInto]) when building body strings for
+  /// the structural emit plan.
+  StringBuffer _out = StringBuffer();
   int _depth = 0;
   String get _ind => '  ' * _depth;
 
@@ -31,6 +37,24 @@ class TsCompiler {
   /// catch body — field access on these compiles to bracket lookup so
   /// `e.detail` becomes `e['detail']` (Dart-style thrown maps).
   final Set<String> _catchVars = {};
+
+  /// Runs [body] with [_out] temporarily replaced by a fresh buffer,
+  /// returning the contents written into that buffer. Used to capture
+  /// function / method / ctor body strings for the structural emit
+  /// plan (see [buildEmitPlan]).
+  String _captureInto(void Function() body) {
+    final saved = _out;
+    final savedDepth = _depth;
+    _out = StringBuffer();
+    _depth = 0;
+    try {
+      body();
+      return _out.toString().trimRight();
+    } finally {
+      _out = saved;
+      _depth = savedDepth;
+    }
+  }
 
   /// Compile the program. Returns ready-to-run TypeScript source.
   String compile() {
@@ -72,6 +96,102 @@ class TsCompiler {
     }
 
     return _out.toString();
+  }
+
+  /// Structural compile — the Phase 2+ path.
+  ///
+  /// Builds a [TsEmitPlan] (imports, functions, classes, enums) by
+  /// walking the program, then serializes it through the ts-morph Node
+  /// helper (`dart/compiler/tool/ts_emit.mjs`). Returns the finished
+  /// TS source, including formatting and proper indentation.
+  ///
+  /// Requires `dart/compiler/tool/node_modules` (one-time `npm install`
+  /// in that directory).
+  ///
+  /// Feature coverage grows incrementally per the Phase 2 plan:
+  /// classes (2.1), native async (2.2), generics (2.3), pattern matching
+  /// + records (2.4). Until complete, any constructs not yet modeled
+  /// fall through to a raw-text escape hatch.
+  Future<String> compileStructural() async {
+    final plan = buildEmitPlan();
+    return runTsEmitAsync(plan);
+  }
+
+  /// Build a [TsEmitPlan] for the program. Exposed for tests and for
+  /// tools that want to inspect the structure before emission.
+  TsEmitPlan buildEmitPlan() {
+    final statements = <TsStatement>[];
+
+    // Find the entry module + entry function.
+    Module? entryMod;
+    FunctionDefinition? entryFn;
+    for (final m in program.modules) {
+      if (m.name == program.entryModule) {
+        entryMod = m;
+        for (final f in m.functions) {
+          if (f.name == program.entryFunction) entryFn = f;
+        }
+      }
+    }
+    if (entryMod == null) {
+      throw StateError('Entry module "${program.entryModule}" not found');
+    }
+
+    // Top-level user functions (non-base, non-entry).
+    for (final fn in entryMod.functions) {
+      if (fn.isBase) continue;
+      if (fn.name == program.entryFunction) continue;
+      statements.add(_buildFunctionStatement(fn));
+    }
+
+    // Entry function, emitted as `main` with an immediate call at end.
+    if (entryFn != null) {
+      statements.add(_buildFunctionStatement(entryFn, forceName: 'main'));
+      statements.add(TsRaw('main();'));
+    }
+
+    return TsEmitPlan(
+      path: '${program.name.isNotEmpty ? program.name : "program"}.ts',
+      statements: statements,
+    );
+  }
+
+  /// Build a [TsFunction] structure for a Ball function. The body is
+  /// captured as a raw TS source string via [_captureInto] — ts-morph
+  /// re-indents and formats it inside the function block.
+  TsFunction _buildFunctionStatement(
+    FunctionDefinition fn, {
+    String? forceName,
+  }) {
+    final params = _extractParams(fn);
+    final name = forceName ?? _sanitize(fn.name);
+    final body = _captureInto(() {
+      // Legacy alias: some Ball programs reference `input` by name.
+      if (params.length == 1 && params.first != 'input') {
+        _out.writeln('const input = ${_sanitize(params.first)};');
+      }
+      if (fn.hasBody()) {
+        _emitStatementOrExpression(fn.body, isFunctionBody: true);
+      }
+    });
+    final isAsync = _functionIsAsync(fn);
+    return TsFunction(
+      name: name,
+      isAsync: isAsync,
+      parameters: params
+          .map((p) => TsParameter(name: _sanitize(p), type: 'any'))
+          .toList(),
+      returnType: isAsync ? 'Promise<any>' : 'any',
+      body: body,
+    );
+  }
+
+  /// Infer whether a function is `async`. Looks at the metadata key
+  /// `is_async` emitted by the Dart encoder.
+  bool _functionIsAsync(FunctionDefinition fn) {
+    if (!fn.hasMetadata()) return false;
+    final flag = fn.metadata.fields['is_async'];
+    return flag != null && flag.hasBoolValue() && flag.boolValue;
   }
 
   // ─────────────────────────── Functions ───────────────────────────

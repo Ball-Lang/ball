@@ -69,6 +69,12 @@ melos:
       description: Run ball audit on examples
       run: dart run ball_cli:ball audit ../examples/hello_world/hello_world.ball.json
 
+    self-host:
+      description: Phase 1 parity + Phase 2 TS-native compile of engine.dart
+      run: |
+        cd self_host && dart test
+        cd ../../ts/compiler && npm test
+
     pub-publish-dry:
       description: Dry-run publish for all packages (order matters — base first)
       run: melos exec -c 1 --order-dependents-first -- "dart pub publish --dry-run"

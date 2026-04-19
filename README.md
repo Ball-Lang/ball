@@ -33,7 +33,7 @@ Programs are **structured data**, not text. A Ball program is a protobuf message
 | **Programs are data** | Protobuf schema enforces structural validity. If it deserializes, it is syntactically valid. No parser, no syntax errors. |
 | **Provably complete security auditing** | `ball audit` statically reports every side effect. No `eval`, no FFI, no hidden capabilities — every I/O operation flows through a named base function. |
 | **Multi-language compilation** | Compile Ball to Dart, C++, and more. Encode Dart source back to Ball. Round-trip real-world code. |
-| **Self-hosted toolchain** | The Dart reference interpreter (3000 LOC) is itself encoded as Ball, then compiled back to Dart with byte-identical conformance output. Also compiles to syntactically-valid TypeScript via ts-morph — 37/37 Dart fixtures round-trip to TS and execute byte-identical on Node. |
+| **Self-hosted toolchain** | The Dart reference interpreter (3000 LOC) is itself encoded as Ball, then compiled back to Dart with byte-identical conformance output. A TS-native compiler ([@ball-lang/compiler](https://www.npmjs.com/package/@ball-lang/compiler)) uses ts-morph in-process — 37/37 Dart fixtures round-trip to TS and execute byte-identical on Node, and the full engine.dart parses cleanly. The C++ compiler runs 41/41 fixture programs end-to-end. |
 | **Three runtime engines** | Dart (true async), C++ (native), TypeScript (runs in the browser). |
 | **Package management** | Import modules from pub, npm, and more registries with `ball add pub:package@^1.0.0`. |
 | **Web playground** | Try Ball in your browser at [ball-lang.dev/playground](https://ball-lang.dev/playground). |

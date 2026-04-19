@@ -115,5 +115,26 @@ void main() {
               'big.contains(3)',
             ]),
         skip: skip);
+
+    test('inheritance — abstract Shape, Circle/Square extending, implicit-this',
+        () => _runFixtureRoundTrip('inheritance', [
+              'abstract class Shape',
+              'class Circle extends Shape',
+              'class Square extends Shape',
+              'this.describe()',
+              'this.radius',
+              'this.side',
+            ]),
+        skip: skip);
+
+    test('exceptions — typed catch, rethrow, DomainError class',
+        () => _runFixtureRoundTrip('exceptions', [
+              'class DomainError',
+              'throw new DomainError',
+              'instanceof DomainError',
+              'e.reason',
+              'throw __ball_active_error',
+            ]),
+        skip: skip);
   });
 }

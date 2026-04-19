@@ -289,7 +289,7 @@ export class StdModuleHandler extends BallModuleHandler {
   readonly _tombstones: Array<string>;
 
   constructor() {
-
+    super();
   }
 
   get registeredFunctions(): any {

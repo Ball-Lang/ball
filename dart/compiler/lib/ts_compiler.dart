@@ -330,6 +330,12 @@ class TsCompiler {
     final savedClassMethods = _currentClassMethodNames;
     _currentClassMethodNames = methodNames;
 
+    // TS requires an explicit super() in derived-class constructors
+    // before any `this` access. Flag it here so _buildCtor can prepend
+    // a super(...) call with all params forwarded — a reasonable default
+    // when the encoder doesn't surface an explicit super-call.
+    final hasExtends = (meta['superclass'] as String?) != null;
+
     for (final fn in members) {
       final mMeta = fn.hasMetadata()
           ? _structToMap(fn.metadata)
@@ -347,7 +353,7 @@ class TsCompiler {
         final rawShort =
             lastDot < 0 ? fn.name : fn.name.substring(lastDot + 1);
         if (rawShort == 'new') {
-          ctors.add(_buildCtor(fn, mMeta, fieldNames));
+          ctors.add(_buildCtor(fn, mMeta, fieldNames, hasExtends: hasExtends));
         } else {
           methods.add(
             _buildMethod(fn, {...mMeta, 'is_static': true}, fieldNames),
@@ -393,20 +399,27 @@ class TsCompiler {
   TsCtor _buildCtor(
     FunctionDefinition fn,
     Map<String, Object?> meta,
-    Set<String> classFields,
-  ) {
+    Set<String> classFields, {
+    bool hasExtends = false,
+  }) {
     final rawParams = _extractCtorParams(meta);
     // Build parameter list + prologue body that assigns `this.<name> =
     // <name>` for any parameter with `is_this` true (Dart initializing
-    // formals).
+    // formals). Derived-class ctors in TS MUST call super() before
+    // any `this` access, so prepend `super();` automatically when the
+    // class extends another and we don't see a more specific super
+    // call in metadata (a future enhancement could read
+    // `super_constructor_args`).
     final parameters = <TsParameter>[];
-    final prologue = StringBuffer();
+    final prologueParts = <String>[];
+    if (hasExtends) prologueParts.add('super();');
     for (final p in rawParams) {
       parameters.add(TsParameter(name: _sanitize(p.name), type: 'any'));
       if (p.isThis) {
-        prologue.writeln('this.${p.name} = ${_sanitize(p.name)};');
+        prologueParts.add('this.${p.name} = ${_sanitize(p.name)};');
       }
     }
+    final prologue = prologueParts.join('\n');
     final captured = _withMethodContext(
       params: rawParams.map((p) => p.name).toSet(),
       fields: classFields,
@@ -416,8 +429,9 @@ class TsCompiler {
         }
       }),
     );
-    final body =
-        prologue.isEmpty ? captured : '${prologue.toString().trimRight()}\n$captured'.trimRight();
+    final body = prologue.isEmpty
+        ? captured
+        : (captured.isEmpty ? prologue : '$prologue\n$captured');
     return TsCtor(parameters: parameters, body: body);
   }
 
@@ -967,9 +981,14 @@ class TsCompiler {
         _out.writeln('$_ind$keyword ($cond) {');
         _depth++;
         _out.writeln('${_ind}const $variable = __ball_active_error;');
-        _catchVars.add(variable);
+        // Only treat the caught var as a Map-shaped throw when the
+        // caught type isn't a user-defined class. Real class instances
+        // support dotted property access (e.g. `e.reason`) directly.
+        final treatAsMap = !_typeIsUserDefinedClass('main:$type') &&
+            !_typeIsUserDefinedClass(type);
+        if (treatAsMap) _catchVars.add(variable);
         if (cbody != null) _emitStatementOrExpression(cbody);
-        _catchVars.remove(variable);
+        if (treatAsMap) _catchVars.remove(variable);
         _depth--;
         _out.writeln('$_ind}');
         first = false;
@@ -1020,10 +1039,16 @@ class TsCompiler {
       return "(__ball_active_error instanceof Error && "
           "__ball_active_error.message.startsWith('FormatException'))";
     }
-    // Ball-tag throws: thrown values are objects with a `__type` field.
-    return "(typeof __ball_active_error === 'object' && "
+    // User-defined class throw: `throw DomainError(...)` creates an
+    // actual class instance via `new DomainError(...)` in the emitted
+    // TS. instanceof matches that.
+    //
+    // The legacy Ball-tag throw form (plain objects with `__type`)
+    // is still covered as a fallback.
+    return "(__ball_active_error instanceof $type || "
+        "(typeof __ball_active_error === 'object' && "
         "__ball_active_error !== null && "
-        "__ball_active_error['__type'] === '$type')";
+        "__ball_active_error['__type'] === '$type'))";
   }
 
   void _emitAssignStmt(FunctionCall call) {
@@ -1312,7 +1337,16 @@ class TsCompiler {
     // are flattened to positional args. Matches the Dart/C++ compiler
     // strategy.
     final fn = _sanitize(call.function);
-    if (!call.hasInput()) return '$fn()';
+    // Implicit-this method call: a bare `describe()` inside a method
+    // body references a sibling method on the same class. The encoder
+    // doesn't prefix it with `this.`; we must. Honors parameter
+    // shadowing so a local `describe` hides the method.
+    final thisPrefix =
+        _currentClassMethodNames.contains(call.function) &&
+                !_currentMethodParams.contains(call.function)
+            ? 'this.'
+            : '';
+    if (!call.hasInput()) return '$thisPrefix$fn()';
     final input = call.input;
     if (input.whichExpr() == Expression_Expr.messageCreation) {
       final fields = input.messageCreation.fields;
@@ -1330,9 +1364,9 @@ class TsCompiler {
             : '$selfStr.$fn($otherArgs)';
       }
       final args = fields.map((f) => _expr(f.value)).join(', ');
-      return '$fn($args)';
+      return '$thisPrefix$fn($args)';
     }
-    return '$fn(${_expr(input)})';
+    return '$thisPrefix$fn(${_expr(input)})';
   }
 
   String _compileStdCall(FunctionCall call) {

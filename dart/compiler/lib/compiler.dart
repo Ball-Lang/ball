@@ -2374,14 +2374,12 @@ class DartCompiler {
     // __cascade_self__ is a sentinel that means "no explicit receiver" inside
     // a cascade section — emit just the field name.
     if (_emit(obj) == '__cascade_self__') return cb.refer(fa.field_2);
-    // Catch-bound variables hold the thrown value, which in Ball's
-    // typed-catch convention is a Map. Use subscript access instead of
-    // dotted access so `e.detail` becomes `e['detail']` — Dart Maps
-    // don't support dotted field access.
-    if (fa.object.whichExpr() == Expression_Expr.reference &&
-        _catchBoundVars.contains(fa.object.reference.name)) {
-      return _raw("${fa.object.reference.name}['${fa.field_2}']");
-    }
+    // Historically we rewrote `e.x → e['x']` for bare `catch (e)` because the
+    // Ball engine throws Map-valued exceptions; Dart Maps don't support dotted
+    // access. That rewrite broke round-tripping when the source narrowed `e`
+    // via `is SomeType` and then did real property access. Authors of Ball
+    // programs that want Map access on a caught exception must now use
+    // IndexExpression (encoded as std.index), not PropertyAccess.
     return obj.property(fa.field_2);
   }
 

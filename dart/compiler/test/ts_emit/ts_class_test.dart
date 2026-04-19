@@ -147,5 +147,14 @@ void main() {
               '{ name: name, age: age }',
             ]),
         skip: skip);
+
+    test('switch_expr — integer / or-pattern / when-guard / wildcard',
+        () => _runFixtureRoundTrip('switch_expr', [
+              '(n === 0)',
+              '(n === 1) || (n === 2)',
+              '(n < 0)',
+              "(d === 1) ? ('Mon')",
+            ]),
+        skip: skip);
   });
 }

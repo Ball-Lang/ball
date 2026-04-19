@@ -1771,13 +1771,19 @@ class TsCompiler {
 
   /// Compile a Ball `std.switch` / `std.switch_expr` to a cascading
   /// ternary chain. Each `pattern => body` case becomes
-  /// `subject === <pattern> ? <body> : <next>`, with the wildcard /
-  /// default case in the tail position (or `undefined` when absent).
+  /// `<cond> ? <body> : <next>`, with the wildcard / default case in
+  /// the tail position (or `undefined` when absent).
+  ///
+  /// The encoder stores each pattern as a **raw string** (the literal
+  /// Dart source text). [_patternToTsCondition] parses the common
+  /// shapes — constant literals, wildcards (`_`), when-guards
+  /// (`_ when <expr>`), or-patterns (`A || B`) — and emits a TS
+  /// boolean expression. Complex patterns (records, class, extraction)
+  /// currently fall back to string-equality compare, which is mostly
+  /// wrong — a Phase 2.4c gap.
   ///
   /// Ternary chain (rather than an IIFE) is chosen so the expression
-  /// works identically in sync and async contexts — an IIFE would have
-  /// to be `async` when the body contains `await`, and we don't
-  /// always know at emit time.
+  /// works identically in sync and async contexts.
   String _compileSwitchExpr(FunctionCall call) {
     final subjectExpr = _field(call, 'subject');
     final casesField = _field(call, 'cases');
@@ -1791,7 +1797,7 @@ class TsCompiler {
       caseExprs = casesField.literal.listValue.elements;
     }
     Expression? defaultBody;
-    final branches = <(String pattern, String body)>[];
+    final branches = <(String cond, String body)>[];
     for (final ce in caseExprs) {
       if (ce.whichExpr() != Expression_Expr.messageCreation) continue;
       final mc = ce.messageCreation;
@@ -1806,17 +1812,123 @@ class TsCompiler {
         defaultBody = body;
         continue;
       }
-      branches.add((_expr(pattern), _expr(body)));
+      final patText = _patternLiteralText(pattern);
+      if (patText == null) {
+        // Non-literal pattern — fall back to equality (matches the
+        // pre-existing behavior for programs using pattern-expressions).
+        branches.add(
+          ('(($subjectStr) === ${_expr(pattern)})', _expr(body)),
+        );
+        continue;
+      }
+      final cond = _patternToTsCondition(patText, subjectStr);
+      if (cond == 'true') {
+        // Unconditional wildcard — treat as default and drop later
+        // branches (they'd be unreachable anyway).
+        defaultBody = body;
+        break;
+      }
+      branches.add((cond, _expr(body)));
     }
     final tail =
         defaultBody != null ? _expr(defaultBody) : 'undefined';
     if (branches.isEmpty) return tail;
-    // Build from the right so nesting mirrors source order.
     var result = tail;
-    for (final (pattern, body) in branches.reversed) {
-      result = '(($subjectStr) === $pattern ? ($body) : $result)';
+    for (final (cond, body) in branches.reversed) {
+      result = '($cond ? ($body) : $result)';
     }
     return result;
+  }
+
+  /// Extracts the Dart source text of a pattern when the encoder
+  /// stored it as a plain string literal; otherwise null.
+  String? _patternLiteralText(Expression pat) {
+    if (pat.whichExpr() != Expression_Expr.literal) return null;
+    if (pat.literal.whichValue() != Literal_Value.stringValue) return null;
+    return pat.literal.stringValue;
+  }
+
+  /// Parse the common shapes of the encoder's pattern-text strings
+  /// into a TS boolean expression that tests `subject` against the
+  /// pattern. Handles:
+  ///   - `_`                    → always matches (returns `'true'`)
+  ///   - `_ when <expr>`        → emit `<expr>` verbatim
+  ///   - `<int>` / `<double>`   → `subject === <n>`
+  ///   - `'<str>'` / `"<str>"`  → `subject === <str-literal>`
+  ///   - `true` / `false` / `null`
+  ///   - `A || B`               → recurse on both sides with `||`
+  ///
+  /// Anything else falls through to a safe but wrong string-compare;
+  /// more pattern shapes (records, class, extraction, relational) are
+  /// a Phase 2.4c follow-up.
+  String _patternToTsCondition(String pat, String subject) {
+    final trimmed = pat.trim();
+    if (trimmed.isEmpty) return 'true';
+
+    // Wildcard or underscore — optionally guarded by `when <expr>`.
+    if (trimmed == '_') return 'true';
+    final whenMatch = RegExp(r'^_\s+when\s+(.+)$').firstMatch(trimmed);
+    if (whenMatch != null) {
+      return '(${whenMatch.group(1)})';
+    }
+
+    // Or-pattern: split on top-level `||`.
+    if (trimmed.contains('||')) {
+      final parts = _splitTopLevel(trimmed, '||');
+      if (parts.length > 1) {
+        return '(${parts.map((p) => _patternToTsCondition(p, subject)).join(' || ')})';
+      }
+    }
+
+    // Numeric literal.
+    if (RegExp(r'^-?\d+(\.\d+)?$').hasMatch(trimmed)) {
+      return '($subject === $trimmed)';
+    }
+    // Boolean / null.
+    if (trimmed == 'true' || trimmed == 'false' || trimmed == 'null') {
+      return '($subject === $trimmed)';
+    }
+    // String literal (single or double quotes).
+    if ((trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+        (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+      // Normalize to JS single-quoted literal.
+      final inner = trimmed.substring(1, trimmed.length - 1);
+      return "($subject === ${_jsStringLiteral(inner)})";
+    }
+
+    // Fallback: treat as an expression and compare with strict equality.
+    return '($subject === ($trimmed))';
+  }
+
+  /// Split [text] on top-level occurrences of [delim] (not inside
+  /// parens / brackets / angle / quote). Used by pattern parsing to
+  /// handle or-patterns without tearing apart nested patterns.
+  List<String> _splitTopLevel(String text, String delim) {
+    final out = <String>[];
+    var depth = 0;
+    var quote = 0;
+    var start = 0;
+    for (var i = 0; i <= text.length - delim.length; i++) {
+      final c = text.codeUnitAt(i);
+      if (quote == 0) {
+        if (c == 0x28 /* ( */ || c == 0x5B /* [ */ || c == 0x3C /* < */) {
+          depth++;
+        } else if (c == 0x29 /* ) */ || c == 0x5D /* ] */ || c == 0x3E /* > */) {
+          depth--;
+        } else if (c == 0x27 /* ' */ || c == 0x22 /* " */) {
+          quote = c;
+        } else if (depth == 0 &&
+            text.substring(i, i + delim.length) == delim) {
+          out.add(text.substring(start, i).trim());
+          start = i + delim.length;
+          i += delim.length - 1;
+        }
+      } else if (c == quote) {
+        quote = 0;
+      }
+    }
+    out.add(text.substring(start).trim());
+    return out;
   }
 
   String? _compileThrowValue(Expression v) {

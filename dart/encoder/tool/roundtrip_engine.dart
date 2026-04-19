@@ -68,8 +68,16 @@ Future<void> main(List<String> args) async {
   }
 
   if (saveProgram != null) {
-    final json = jsonEncode(program.toProto3Json());
-    File(saveProgram).writeAsStringSync(json);
+    if (saveProgram.endsWith('.pb')) {
+      // Binary protobuf — preferred for large programs whose expression
+      // trees exceed protobuf's default JSON nesting limit of 100. The
+      // C++ compiler's binary path sets SetRecursionLimit(10000), which
+      // engine.dart needs.
+      File(saveProgram).writeAsBytesSync(program.writeToBuffer());
+    } else {
+      final json = jsonEncode(program.toProto3Json());
+      File(saveProgram).writeAsStringSync(json);
+    }
     stdout.writeln('  Wrote intermediate Ball program → $saveProgram');
   }
 

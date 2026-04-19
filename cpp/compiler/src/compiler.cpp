@@ -342,6 +342,21 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     if (field == "first") return obj + ".front()";
     if (field == "last") return obj + ".back()";
     if (field == "runtimeType") return "std::string(typeid(" + obj + ").name())";
+    // Dart positional record field access: `.$1`, `.$2`, ... Lower to
+    // `std::get<0>(...)` / `std::get<1>(...)` since records emit as
+    // std::tuple<...> (see compile_message_creation below).
+    if (field.size() >= 2 && field[0] == '$') {
+        bool all_digits = true;
+        for (size_t i = 1; i < field.size(); ++i) {
+            if (field[i] < '0' || field[i] > '9') { all_digits = false; break; }
+        }
+        if (all_digits) {
+            int idx = std::stoi(field.substr(1)) - 1;
+            if (idx >= 0) {
+                return "std::get<" + std::to_string(idx) + ">(" + obj + ")";
+            }
+        }
+    }
     return obj + "." + sanitize_name(field);
 }
 
@@ -911,6 +926,66 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     // ── Async (no-op wrappers) ──
     if (fn == "await" || fn == "yield" || fn == "yield_each") {
         return get_message_field(call, "value");
+    }
+
+    // ── Record literal ──
+    // Dart `(a, b)` (positional) / `(x: v)` (named) encodes as
+    // std.record. Lower positional records to std::make_tuple(...) so
+    // they pair up with the `$1`/`$2` field-access rewrite above.
+    // Named / mixed records currently fall back to an
+    // std::unordered_map<std::string, std::any> — a Phase 3 follow-up
+    // could emit a typed struct instead.
+    if (fn == "record") {
+        std::vector<std::string> positional;
+        std::vector<std::pair<std::string, std::string>> named;
+        if (call.has_input() &&
+            call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+            for (const auto& f : call.input().message_creation().fields()) {
+                const auto& n = f.name();
+                if (n == "__type_args__") continue;
+                // Positional fields are named `$0`/`$1`/... or `arg0`/...
+                bool is_positional = false;
+                if (!n.empty() && (n[0] == '$' || (n.size() > 3 &&
+                    n.substr(0, 3) == "arg"))) {
+                    size_t start = n[0] == '$' ? 1 : 3;
+                    if (start < n.size()) {
+                        is_positional = true;
+                        for (size_t i = start; i < n.size(); ++i) {
+                            if (n[i] < '0' || n[i] > '9') { is_positional = false; break; }
+                        }
+                    }
+                }
+                if (is_positional) {
+                    positional.push_back(compile_expr(f.value()));
+                } else {
+                    named.emplace_back(n, compile_expr(f.value()));
+                }
+            }
+        }
+        if (named.empty()) {
+            std::string out = "std::make_tuple(";
+            for (size_t i = 0; i < positional.size(); ++i) {
+                if (i) out += ", ";
+                out += positional[i];
+            }
+            out += ")";
+            return out;
+        }
+        // Named (or mixed) record → unordered_map<string, any>.
+        std::string out = "std::unordered_map<std::string, std::any>{";
+        bool first_e = true;
+        for (size_t i = 0; i < positional.size(); ++i) {
+            if (!first_e) out += ", ";
+            out += "{\"" + std::to_string(i) + "\", std::any(" + positional[i] + ")}";
+            first_e = false;
+        }
+        for (const auto& [k, v] : named) {
+            if (!first_e) out += ", ";
+            out += "{\"" + k + "\", std::any(" + v + ")}";
+            first_e = false;
+        }
+        out += "}";
+        return out;
     }
 
     // ── Try/catch ──

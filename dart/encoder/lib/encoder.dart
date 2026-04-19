@@ -2728,8 +2728,13 @@ class DartEncoder {
       }
     }
 
-    // .toString() -> std.to_string
-    if (methodName == 'toString' && args.isEmpty && realTarget != null) {
+    // .toString() -> std.to_string. Skip the shortcut when the call is
+    // null-aware (`v?.toString()`); that must round-trip through
+    // `null_aware_call` so the `?.` semantics survive.
+    if (methodName == 'toString' &&
+        args.isEmpty &&
+        realTarget != null &&
+        !isNullAware) {
       _usedBaseFunctions.add('to_string');
       return _buildUnaryStdCall('to_string', _encodeExpr(realTarget));
     }
@@ -2738,8 +2743,9 @@ class DartEncoder {
     // Without type resolution we can't prove the receiver type, so
     // these always route — if a non-matching receiver hits one, the
     // std function throws at runtime (same risk as unconditional
-    // `.toString()` routing above).
-    if (realTarget != null && args.isEmpty) {
+    // `.toString()` routing above). Skip when null-aware for the same
+    // reason as the `.toString()` shortcut above.
+    if (realTarget != null && args.isEmpty && !isNullAware) {
       const unaryRoutes = <String, String>{
         // Strings
         'toUpperCase': 'string_to_upper',

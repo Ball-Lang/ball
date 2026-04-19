@@ -9,6 +9,7 @@ workspace:
   - engine
   - cli
   - resolver
+  - self_host
 
 dev_dependencies:
   melos: ^7.0.0

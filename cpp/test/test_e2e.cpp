@@ -278,10 +278,14 @@ int main() {
               << "Using CMake: " << BALL_E2E_CMAKE << "\n"
               << "Generator:  " << BALL_E2E_GENERATOR << "\n";
 
-    // Curated subset of fixtures for end-to-end compilation. The names
-    // match either the hand-written `tests/conformance/*.ball.json` or
-    // the auto-generated `tests/fixtures/dart/_generated/*.ball.json`
-    // files; resolve_fixture() scans both.
+    // End-to-end C++ compile + run for every fixture under
+    // tests/fixtures/dart/_generated/ plus hand-written conformance
+    // programs in tests/conformance/. Names match either location;
+    // resolve_fixture() scans both.
+    //
+    // Previously this list was 12 hand-picked names. Expanded to the
+    // full 37 as part of the C++ self-host push (Phase 3); any fixture
+    // that fails here surfaces a real cpp-compiler gap.
     const std::vector<std::string> program_names = {
         // Auto-generated from tests/fixtures/dart/*.dart
         "01_hello",
@@ -292,6 +296,35 @@ int main() {
         "06_function",
         "07_recursion",
         "08_comparison",
+        "09_string",
+        "10_nested_control",
+        "11_try_catch",
+        "12_early_return",
+        "13_list_ops",
+        "14_bool_logic",
+        "15_closure",
+        "16_labeled_break",
+        "17_rethrow",
+        "18_do_while",
+        "19_nested_calls",
+        "20_bitwise",
+        "21_ternary",
+        "22_mutual_recursion",
+        "23_string_ops",
+        "24_int_methods",
+        "25_nested_closure",
+        "26_list_iterate",
+        "27_continue",
+        "28_negative_math",
+        "29_short_circuit",
+        "30_deep_recursion",
+        "31_closures",
+        "32_string_ops",
+        "33_list_ops",
+        "34_fibonacci",
+        "35_nested_functions",
+        "36_catch_stack",
+        "36_math_utils",
         // Hand-written in tests/conformance/ — exercise typed-catch /
         // rethrow / labeled-break / throw-value paths specifically.
         "21_typed_catch",

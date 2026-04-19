@@ -109,31 +109,15 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 namespace {
 
-bool isEven(int64_t n);
-bool isOdd(int64_t n);
-
-bool isEven(int64_t n) {
-    auto& input = n;
-    if ((n == 0LL)) {
-        return true;
-    }
-    return isOdd((n - 1LL));
-}
-
-bool isOdd(int64_t n) {
-    auto& input = n;
-    if ((n == 0LL)) {
-        return false;
-    }
-    return isEven((n - 1LL));
-}
 
 } // namespace
 
 int main() {
-    std::cout << ball_to_string(isEven(0LL)) << std::endl;
-    std::cout << ball_to_string(isOdd(7LL)) << std::endl;
-    std::cout << ball_to_string(isEven(10LL)) << std::endl;
-    std::cout << ball_to_string(isOdd(10LL)) << std::endl;
+    auto s = "Hello, World!"s;
+    std::cout << ball_to_string(static_cast<int64_t>(s.size())) << std::endl;
+    std::cout << [](std::string s){std::transform(s.begin(),s.end(),s.begin(),::toupper);return s;}(s) << std::endl;
+    std::cout << [](std::string s){std::transform(s.begin(),s.end(),s.begin(),::tolower);return s;}(s) << std::endl;
+    std::cout << [](const std::string& s){auto a=s.find_first_not_of(" \t\n\r"),b=s.find_last_not_of(" \t\n\r");return a==std::string::npos?std::string():s.substr(a,b-a+1);}(s) << std::endl;
+    std::cout << (("Hello"s + ", "s) + "World!"s) << std::endl;
     return 0;
 }

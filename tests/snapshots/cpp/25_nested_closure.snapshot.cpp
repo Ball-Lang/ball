@@ -107,18 +107,23 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
 
-int Function(int) compose(int Function(int) f, int Function(int) g) {
-    return [&](auto x) {
+std::function<int64_t(int64_t)> compose(std::function<int64_t(int64_t)> f, std::function<int64_t(int64_t)> g);
+
+std::function<int64_t(int64_t)> compose(std::function<int64_t(int64_t)> f, std::function<int64_t(int64_t)> g) {
+    return [=](auto x) {
         return f(g(x));
     };
 }
 
+} // namespace
+
 int main() {
-    auto inc = [&](auto x) {
+    auto inc = [=](auto x) {
         return (x + 1LL);
     };
-    auto dbl = [&](auto x) {
+    auto dbl = [=](auto x) {
         return (x * 2LL);
     };
     auto incThenDouble = compose(dbl, inc);

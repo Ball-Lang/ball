@@ -107,14 +107,22 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
+
+
+} // namespace
 
 int main() {
     auto found = 0LL;
-    [&]() {
-        [&](){
-            // for loop
-        }();
-    }();
+    for (auto i = 1; (i <= 5LL); (i = (i + 1LL))) {
+        for (auto j = 1; (j <= 5LL); (j = (j + 1LL))) {
+            if (((i * j) == 12LL)) {
+                (found = ((i * 100LL) + j));
+                goto __ball_break_outer;
+            }
+        }
+        __ball_continue_outer:;
+    }
     __ball_break_outer:;
     std::cout << ball_to_string(found) << std::endl;
     return 0;

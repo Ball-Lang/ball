@@ -109,31 +109,21 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 namespace {
 
-bool isEven(int64_t n);
-bool isOdd(int64_t n);
+int64_t fib(int64_t n);
 
-bool isEven(int64_t n) {
+int64_t fib(int64_t n) {
     auto& input = n;
-    if ((n == 0LL)) {
-        return true;
+    if ((n <= 1LL)) {
+        return n;
     }
-    return isOdd((n - 1LL));
-}
-
-bool isOdd(int64_t n) {
-    auto& input = n;
-    if ((n == 0LL)) {
-        return false;
-    }
-    return isEven((n - 1LL));
+    return (fib((n - 1LL)) + fib((n - 2LL)));
 }
 
 } // namespace
 
 int main() {
-    std::cout << ball_to_string(isEven(0LL)) << std::endl;
-    std::cout << ball_to_string(isOdd(7LL)) << std::endl;
-    std::cout << ball_to_string(isEven(10LL)) << std::endl;
-    std::cout << ball_to_string(isOdd(10LL)) << std::endl;
+    for (int i = 0; (i < 8LL); (i++)) {
+        std::cout << ball_to_string(fib(i)) << std::endl;
+    }
     return 0;
 }

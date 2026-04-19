@@ -107,10 +107,14 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
+
+
+} // namespace
 
 int main() {
     try {
-        std::stoll("not a number"s);
+        [](const std::string& s) -> int64_t { try { return std::stoll(s); } catch (const std::exception&) { throw BallException("FormatException"s, "FormatException: "s + s); } }("not a number"s);
     } catch (const BallException& __ball_e) {
         if (__ball_e.type_name == "FormatException"s) {
             const BallException& e = __ball_e;

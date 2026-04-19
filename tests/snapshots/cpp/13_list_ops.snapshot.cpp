@@ -107,9 +107,13 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
+
+
+} // namespace
 
 int main() {
-    auto xs = std::vector<std::any>{std::any(1LL), std::any(2LL), std::any(3LL), std::any(4LL), std::any(5LL)};
+    auto xs = std::vector<int64_t>{1LL, 2LL, 3LL, 4LL, 5LL};
     std::cout << ball_to_string(static_cast<int64_t>(xs.size())) << std::endl;
     auto sum = 0LL;
     for (auto i = 0; (i < static_cast<int64_t>(xs.size())); (i = (i + 1LL))) {

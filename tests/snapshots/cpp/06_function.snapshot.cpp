@@ -107,6 +107,10 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
+
+int64_t add(int64_t a, int64_t b);
+int64_t square(int64_t x);
 
 int64_t add(int64_t a, int64_t b) {
     return (a + b);
@@ -116,6 +120,8 @@ int64_t square(int64_t x) {
     auto& input = x;
     return (x * x);
 }
+
+} // namespace
 
 int main() {
     std::cout << ball_to_string(add(2LL, 3LL)) << std::endl;

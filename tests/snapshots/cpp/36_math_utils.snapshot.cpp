@@ -109,31 +109,38 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 namespace {
 
-bool isEven(int64_t n);
-bool isOdd(int64_t n);
+int64_t abs_(int64_t x);
+int64_t max_(int64_t a, int64_t b);
+int64_t min_(int64_t a, int64_t b);
 
-bool isEven(int64_t n) {
-    auto& input = n;
-    if ((n == 0LL)) {
-        return true;
+int64_t abs_(int64_t x) {
+    auto& input = x;
+    if ((x < 0LL)) {
+        return (-x);
     }
-    return isOdd((n - 1LL));
+    return x;
 }
 
-bool isOdd(int64_t n) {
-    auto& input = n;
-    if ((n == 0LL)) {
-        return false;
+int64_t max_(int64_t a, int64_t b) {
+    if ((a > b)) {
+        return a;
     }
-    return isEven((n - 1LL));
+    return b;
+}
+
+int64_t min_(int64_t a, int64_t b) {
+    if ((a < b)) {
+        return a;
+    }
+    return b;
 }
 
 } // namespace
 
 int main() {
-    std::cout << ball_to_string(isEven(0LL)) << std::endl;
-    std::cout << ball_to_string(isOdd(7LL)) << std::endl;
-    std::cout << ball_to_string(isEven(10LL)) << std::endl;
-    std::cout << ball_to_string(isOdd(10LL)) << std::endl;
+    std::cout << ball_to_string(abs_((-5LL))) << std::endl;
+    std::cout << ball_to_string(abs_(3LL)) << std::endl;
+    std::cout << ball_to_string(max_(10LL, 20LL)) << std::endl;
+    std::cout << ball_to_string(min_(10LL, 20LL)) << std::endl;
     return 0;
 }

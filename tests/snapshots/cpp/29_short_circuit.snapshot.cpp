@@ -107,11 +107,16 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
+
+bool sideEffect(std::string tag, bool v);
 
 bool sideEffect(std::string tag, bool v) {
     std::cout << ("eval:"s + ball_to_string(tag)) << std::endl;
     return v;
 }
+
+} // namespace
 
 int main() {
     std::cout << ball_to_string((sideEffect("a"s, false) && sideEffect("b"s, true))) << std::endl;

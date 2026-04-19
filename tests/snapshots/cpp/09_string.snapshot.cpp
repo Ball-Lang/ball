@@ -107,6 +107,10 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
+
+
+} // namespace
 
 int main() {
     auto name = "world"s;

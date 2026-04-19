@@ -107,6 +107,9 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
+
+int64_t firstPositive(int64_t a, int64_t b, int64_t c);
 
 int64_t firstPositive(int64_t a, int64_t b, int64_t c) {
     if ((a > 0LL)) {
@@ -120,6 +123,8 @@ int64_t firstPositive(int64_t a, int64_t b, int64_t c) {
     }
     return 0LL;
 }
+
+} // namespace
 
 int main() {
     std::cout << ball_to_string(firstPositive((-1LL), 5LL, 2LL)) << std::endl;

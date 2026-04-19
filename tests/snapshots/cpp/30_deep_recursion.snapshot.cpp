@@ -107,6 +107,10 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
+
+int64_t sumTo(int64_t n);
+int64_t power(int64_t base, int64_t exp_);
 
 int64_t sumTo(int64_t n) {
     auto& input = n;
@@ -116,12 +120,14 @@ int64_t sumTo(int64_t n) {
     return (n + sumTo((n - 1LL)));
 }
 
-int64_t power(int64_t base, int64_t exp) {
-    if ((exp == 0LL)) {
+int64_t power(int64_t base, int64_t exp_) {
+    if ((exp_ == 0LL)) {
         return 1LL;
     }
-    return (base * power(base, (exp - 1LL)));
+    return (base * power(base, (exp_ - 1LL)));
 }
+
+} // namespace
 
 int main() {
     std::cout << ball_to_string(sumTo(10LL)) << std::endl;

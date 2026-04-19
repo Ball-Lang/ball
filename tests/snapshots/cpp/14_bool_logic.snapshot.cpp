@@ -107,11 +107,16 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
+
+bool identity(bool b);
 
 bool identity(bool b) {
     auto& input = b;
     return b;
 }
+
+} // namespace
 
 int main() {
     auto t = identity(true);

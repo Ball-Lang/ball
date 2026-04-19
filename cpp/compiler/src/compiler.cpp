@@ -1282,6 +1282,7 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                         const ball::v1::Expression* body = nullptr;
                         std::string var = "e";
                         std::string type_name; // empty = untyped
+                        std::string stack_var; // empty = no stack binding
                     };
                     std::vector<CatchClause> clauses;
                     for (const auto& cx : catches_expr->literal().list_value().elements()) {
@@ -1295,6 +1296,9 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                             else if (f.name() == "type" &&
                                      f.value().expr_case() == ball::v1::Expression::kLiteral)
                                 cc.type_name = f.value().literal().string_value();
+                            else if (f.name() == "stack_trace" &&
+                                     f.value().expr_case() == ball::v1::Expression::kLiteral)
+                                cc.stack_var = f.value().literal().string_value();
                         }
                         clauses.push_back(std::move(cc));
                     }
@@ -1341,6 +1345,14 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                             indent_++;
                             auto var = sanitize_name(cc.var);
                             emit_line("const BallException& " + var + " = __ball_e;");
+                            if (!cc.stack_var.empty()) {
+                                // Dart's `catch (e, stack)` binds a StackTrace.
+                                // C++ exceptions don't carry a stack by default;
+                                // emit an opaque empty string to keep user
+                                // code compilable (mirrors the TS compiler).
+                                emit_line("std::string " + sanitize_name(cc.stack_var) +
+                                          " = \"<stack trace unavailable>\"s;");
+                            }
                             catch_bound_vars_.insert(var);
                             emit_catch_body(cc);
                             catch_bound_vars_.erase(var);
@@ -1354,6 +1366,11 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                         if (first_untyped) {
                             auto var = sanitize_name(first_untyped->var);
                             emit_line("const BallException& " + var + " = __ball_e;");
+                            if (!first_untyped->stack_var.empty()) {
+                                emit_line("std::string " +
+                                          sanitize_name(first_untyped->stack_var) +
+                                          " = \"<stack trace unavailable>\"s;");
+                            }
                             catch_bound_vars_.insert(var);
                             emit_catch_body(*first_untyped);
                             catch_bound_vars_.erase(var);
@@ -1373,6 +1390,11 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                     if (first_untyped) {
                         auto var = sanitize_name(first_untyped->var);
                         emit_line("std::string " + var + " = __ball_e.what();");
+                        if (!first_untyped->stack_var.empty()) {
+                            emit_line("std::string " +
+                                      sanitize_name(first_untyped->stack_var) +
+                                      " = \"<stack trace unavailable>\"s;");
+                        }
                         // Not a BallException — no fields map, so don't
                         // register as catch-bound for field access.
                         emit_catch_body(*first_untyped);

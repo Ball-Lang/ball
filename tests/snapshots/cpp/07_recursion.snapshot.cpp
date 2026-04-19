@@ -107,6 +107,10 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
+
+int64_t factorial(int64_t n);
+int64_t fibonacci(int64_t n);
 
 int64_t factorial(int64_t n) {
     auto& input = n;
@@ -123,6 +127,8 @@ int64_t fibonacci(int64_t n) {
     }
     return (fibonacci((n - 1LL)) + fibonacci((n - 2LL)));
 }
+
+} // namespace
 
 int main() {
     std::cout << ball_to_string(factorial(5LL)) << std::endl;

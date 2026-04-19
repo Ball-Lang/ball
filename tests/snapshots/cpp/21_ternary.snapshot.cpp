@@ -107,20 +107,26 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
 
-int64_t abs(int64_t x) {
+int64_t abs_(int64_t x);
+std::string sign(int64_t x);
+
+int64_t abs_(int64_t x) {
     auto& input = x;
     return ((x < 0LL) ? (-x) : x);
 }
 
 std::string sign(int64_t x) {
     auto& input = x;
-    return ((x > 0LL) ? "pos"s : /* std.paren */ 0);
+    return ((x > 0LL) ? "pos"s : (((x < 0LL) ? "neg"s : "zero"s)));
 }
 
+} // namespace
+
 int main() {
-    std::cout << ball_to_string(abs((-5LL))) << std::endl;
-    std::cout << ball_to_string(abs(7LL)) << std::endl;
+    std::cout << ball_to_string(abs_((-5LL))) << std::endl;
+    std::cout << ball_to_string(abs_(7LL)) << std::endl;
     std::cout << sign(3LL) << std::endl;
     std::cout << sign((-3LL)) << std::endl;
     std::cout << sign(0LL) << std::endl;

@@ -107,6 +107,11 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
+
+int64_t triple(int64_t x);
+int64_t addOne(int64_t x);
+int64_t pipeline(int64_t x);
 
 int64_t triple(int64_t x) {
     auto& input = x;
@@ -122,6 +127,8 @@ int64_t pipeline(int64_t x) {
     auto& input = x;
     return triple(addOne(triple(x)));
 }
+
+} // namespace
 
 int main() {
     std::cout << ball_to_string(pipeline(2LL)) << std::endl;

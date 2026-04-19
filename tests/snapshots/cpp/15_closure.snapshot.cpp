@@ -107,13 +107,18 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 #endif  // BALL_EMIT_RUNTIME_H
 
+namespace {
 
-int Function(int) adder(int64_t delta) {
+std::function<int64_t(int64_t)> adder(int64_t delta);
+
+std::function<int64_t(int64_t)> adder(int64_t delta) {
     auto& input = delta;
-    return [&](auto x) {
+    return [=](auto x) {
         return (x + delta);
     };
 }
+
+} // namespace
 
 int main() {
     auto add5 = adder(5LL);

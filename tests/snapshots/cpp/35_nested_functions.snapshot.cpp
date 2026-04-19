@@ -109,31 +109,22 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 
 namespace {
 
-bool isEven(int64_t n);
-bool isOdd(int64_t n);
+int64_t square(int64_t x);
+int64_t sumOfSquares(int64_t a, int64_t b);
 
-bool isEven(int64_t n) {
-    auto& input = n;
-    if ((n == 0LL)) {
-        return true;
-    }
-    return isOdd((n - 1LL));
+int64_t square(int64_t x) {
+    auto& input = x;
+    return (x * x);
 }
 
-bool isOdd(int64_t n) {
-    auto& input = n;
-    if ((n == 0LL)) {
-        return false;
-    }
-    return isEven((n - 1LL));
+int64_t sumOfSquares(int64_t a, int64_t b) {
+    return (square(a) + square(b));
 }
 
 } // namespace
 
 int main() {
-    std::cout << ball_to_string(isEven(0LL)) << std::endl;
-    std::cout << ball_to_string(isOdd(7LL)) << std::endl;
-    std::cout << ball_to_string(isEven(10LL)) << std::endl;
-    std::cout << ball_to_string(isOdd(10LL)) << std::endl;
+    std::cout << ball_to_string(sumOfSquares(3LL, 4LL)) << std::endl;
+    std::cout << ball_to_string(sumOfSquares(5LL, 12LL)) << std::endl;
     return 0;
 }

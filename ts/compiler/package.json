@@ -1,0 +1,65 @@
+{
+  "name": "@ball-lang/compiler",
+  "version": "0.1.0",
+  "description": "Ball \u2192 TypeScript compiler. Consumes a Ball protobuf Program and emits idiomatic TypeScript via ts-morph. The canonical TS compiler for Ball \u2014 lives in TS land so TS syntax knowledge doesn't leak into other languages.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "ball-ts-compile": "bin/ball-ts-compile.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "prepublishOnly": "npm run build",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "ball",
+    "compiler",
+    "typescript",
+    "ts-morph",
+    "programming-language",
+    "polyglot",
+    "protobuf",
+    "code-generation"
+  ],
+  "license": "MIT",
+  "author": "Ball-Lang <ahmednfwela@bdaya-dev.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ball-Lang/ball.git",
+    "directory": "ts/compiler"
+  },
+  "homepage": "https://github.com/ball-lang/ball/tree/main/ts/compiler#readme",
+  "bugs": {
+    "url": "https://github.com/ball-lang/ball/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/",
+    "src/",
+    "bin/",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "ts-morph": "^28.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2"
+  }
+}

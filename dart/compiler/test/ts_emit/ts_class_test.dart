@@ -136,5 +136,16 @@ void main() {
               'throw __ball_active_error',
             ]),
         skip: skip);
+
+    test('records — positional tuples, named records, destructuring',
+        () => _runFixtureRoundTrip('records', [
+              '[(a + b), (a * b)]',
+              'result[0]',
+              'result[1]',
+              'const sum = __ball_rec_0[0]',
+              'const product = __ball_rec_0[1]',
+              '{ name: name, age: age }',
+            ]),
+        skip: skip);
   });
 }

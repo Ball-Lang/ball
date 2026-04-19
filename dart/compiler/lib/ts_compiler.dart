@@ -757,6 +757,18 @@ class TsCompiler {
         _emitControlFlowStatement(e.call);
         return;
       }
+      // Block expression used as a statement and with no result — hoist
+      // its inner let bindings + statements into the enclosing scope
+      // instead of wrapping in an IIFE. This preserves the scope of
+      // pattern-var destructurings (`final (a, b) = rhs;`) which the
+      // encoder lowers to a `block { let __tmp = rhs; let a = __tmp.$1;
+      // ... }` expression at statement position.
+      if (e.whichExpr() == Expression_Expr.block && !e.block.hasResult()) {
+        for (final inner in e.block.statements) {
+          _emitStatement(inner);
+        }
+        return;
+      }
       _out.writeln('$_ind${_expr(e)};');
     }
   }
@@ -1159,6 +1171,14 @@ class TsCompiler {
     final field = fa.field_2;
     // `.length` on a string or array is a property in JS.
     if (field == 'length') return '$obj.length';
+    // Dart positional record field access: `.$1`, `.$2`, ... Lower to
+    // the 0-based tuple index so it works on the `[a, b]` emission
+    // produced by std.record.
+    final recMatch = RegExp(r'^\$(\d+)$').firstMatch(field);
+    if (recMatch != null) {
+      final idx = int.parse(recMatch.group(1)!) - 1;
+      return '$obj[$idx]';
+    }
     // Catch-bound vars are (map-shaped) thrown values: bracket lookup.
     if (fa.object.whichExpr() == Expression_Expr.reference &&
         _catchVars.contains(fa.object.reference.name)) {
@@ -1680,6 +1700,47 @@ class TsCompiler {
         // Untyped Dart `{}` (empty map literal) encodes to std.map_create
         // with a type-args string like 'String, int' or 'K, V' — discard it.
         return 'new Map()';
+      // Dart record literal: `(a, b)` for positional, `(x: v, y: w)` for
+      // named, and mixed. TS doesn't have records — lower positional
+      // records to tuples (arrays) and named records to object literals.
+      // Mixed records fall back to an object with both `$1`/`$2`
+      // (1-indexed) keys for positional fields and named keys.
+      //
+      // The encoder emits positional fields as `$0`, `$1`, ... (or
+      // `arg0`, `arg1`, ... — handle both patterns).
+      case 'record':
+        {
+          final positional = <String>[];
+          final named = <String, String>{};
+          final posRe = RegExp(r'^(?:\$|arg)(\d+)$');
+          if (call.hasInput() &&
+              call.input.whichExpr() == Expression_Expr.messageCreation) {
+            for (final fd in call.input.messageCreation.fields) {
+              if (fd.name == '__type_args__') continue;
+              final argMatch = posRe.firstMatch(fd.name);
+              if (argMatch != null) {
+                positional.add(_expr(fd.value));
+              } else {
+                named[fd.name] = _expr(fd.value);
+              }
+            }
+          }
+          if (named.isEmpty) {
+            return '[${positional.join(", ")}]';
+          }
+          if (positional.isEmpty) {
+            return '{ ${named.entries.map((e) => "${e.key}: ${e.value}").join(", ")} }';
+          }
+          // Mixed record — keep positional as 0-based [0], [1] on the
+          // same object so Dart's `.$N` access (which we rewrite to
+          // [N-1] above) continues to work.
+          final entries = <String>[
+            for (var i = 0; i < positional.length; i++)
+              '"$i": ${positional[i]}',
+            ...named.entries.map((e) => "${e.key}: ${e.value}"),
+          ];
+          return '{ ${entries.join(", ")} }';
+        }
       // Generator yield: TS supports `yield x` in `function*`; until
       // generators are first-class we emit the same form. Expression
       // position works for both `function` and `function*`.

@@ -137,10 +137,34 @@ class TsCompiler {
       throw StateError('Entry module "${program.entryModule}" not found');
     }
 
-    // Top-level user functions (non-base, non-entry).
+    // Group functions by their enclosing class, if any. A function is a
+    // class member when its name matches `<typeDef.name>.<memberName>`;
+    // otherwise it is a free top-level function.
+    final classMembers = <String, List<FunctionDefinition>>{};
+    final freeFunctions = <FunctionDefinition>[];
+    final typeDefByName = <String, TypeDefinition>{
+      for (final td in entryMod.typeDefs) td.name: td,
+    };
     for (final fn in entryMod.functions) {
       if (fn.isBase) continue;
       if (fn.name == program.entryFunction) continue;
+      final enclosing = _enclosingTypeName(fn.name, typeDefByName);
+      if (enclosing != null) {
+        classMembers.putIfAbsent(enclosing, () => <FunctionDefinition>[]).add(fn);
+      } else {
+        freeFunctions.add(fn);
+      }
+    }
+
+    // Classes first so they are declared before any top-level code that
+    // constructs them.
+    for (final td in entryMod.typeDefs) {
+      final members = classMembers[td.name] ?? const <FunctionDefinition>[];
+      statements.add(_buildClassStatement(td, members));
+    }
+
+    // Top-level user functions.
+    for (final fn in freeFunctions) {
       statements.add(_buildFunctionStatement(fn));
     }
 
@@ -154,6 +178,26 @@ class TsCompiler {
       path: '${program.name.isNotEmpty ? program.name : "program"}.ts',
       statements: statements,
     );
+  }
+
+  /// Returns the enclosing type name of a function, or null if the
+  /// function is not a class member. Handles the Ball naming convention
+  /// `<typeDef.name>.<memberName>` (where `typeDef.name` is typically
+  /// `<module>:<ClassName>`).
+  String? _enclosingTypeName(
+    String fnName,
+    Map<String, TypeDefinition> typeDefByName,
+  ) {
+    // Check every registered type; longest match wins so nested names
+    // (e.g. Outer.Inner) resolve to Inner.
+    String? best;
+    for (final name in typeDefByName.keys) {
+      if (fnName.startsWith('$name.') &&
+          (best == null || name.length > best.length)) {
+        best = name;
+      }
+    }
+    return best;
   }
 
   /// Build a [TsFunction] structure for a Ball function. The body is
@@ -192,6 +236,317 @@ class TsCompiler {
     if (!fn.hasMetadata()) return false;
     final flag = fn.metadata.fields['is_async'];
     return flag != null && flag.hasBoolValue() && flag.boolValue;
+  }
+
+  /// Set while emitting a method / ctor / accessor body; bare references
+  /// whose names appear here (and are not shadowed by a parameter / local)
+  /// are prefixed with `this.`.
+  Set<String> _currentClassFields = const <String>{};
+
+  /// Parameters of the currently-emitting method. Tracked so a parameter
+  /// named the same as a class field shadows the field (matches Dart and
+  /// TS lexical scoping).
+  Set<String> _currentMethodParams = const <String>{};
+
+  /// Build a TsClass for a typeDef. Fields come from descriptor +
+  /// metadata; ctors/methods/getters/setters come from [members].
+  TsClass _buildClassStatement(
+    TypeDefinition td,
+    List<FunctionDefinition> members,
+  ) {
+    final meta = _structToMap(td.metadata);
+    final tsName = _classTsName(td.name);
+
+    // Fields: prefer metadata.fields (richer: is_final, is_static, type)
+    // but fall back to descriptor.field for simple data classes.
+    final fieldSpecs = (meta['fields'] as List?)?.cast<Object>() ?? const [];
+    final properties = <TsProperty>[];
+    final fieldNames = <String>{};
+    for (final raw in fieldSpecs) {
+      if (raw is! Map) continue;
+      final name = raw['name'] as String?;
+      if (name == null) continue;
+      fieldNames.add(name);
+      properties.add(
+        TsProperty(
+          name: name,
+          type: (raw['type'] as String?) != null
+              ? _dartTypeToTs(raw['type'] as String)
+              : 'any',
+          isStatic: raw['is_static'] == true,
+          isReadonly: raw['is_final'] == true,
+        ),
+      );
+    }
+    // Fallback: use descriptor fields if metadata didn't supply any.
+    if (properties.isEmpty) {
+      for (final f in td.descriptor.field) {
+        fieldNames.add(f.name);
+        properties.add(TsProperty(name: f.name, type: 'any'));
+      }
+    }
+
+    final ctors = <TsCtor>[];
+    final methods = <TsMethod>[];
+    final getters = <TsGetter>[];
+    final setters = <TsSetter>[];
+
+    for (final fn in members) {
+      final mMeta = fn.hasMetadata()
+          ? _structToMap(fn.metadata)
+          : const <String, Object?>{};
+      final kind = mMeta['kind'] as String? ?? 'method';
+      if (kind == 'constructor') {
+        ctors.add(_buildCtor(fn, mMeta, fieldNames));
+      } else if (mMeta['is_getter'] == true) {
+        getters.add(_buildGetter(fn, mMeta, fieldNames));
+      } else if (mMeta['is_setter'] == true) {
+        setters.add(_buildSetter(fn, mMeta, fieldNames));
+      } else if (kind == 'static_field') {
+        // Skip — static fields end up as class properties via metadata.
+        // Not yet modeled; falls through to the raw escape hatch.
+      } else {
+        methods.add(_buildMethod(fn, mMeta, fieldNames));
+      }
+    }
+
+    // Inheritance.
+    final superName = meta['superclass'] as String?;
+    final interfaces = (meta['interfaces'] as List?)?.cast<String>();
+    // Exception is a special case: Dart uses `implements Exception` as a
+    // convention but TS has no Exception type. Drop it.
+    final tsInterfaces = interfaces
+        ?.where((i) => i != 'Exception')
+        .map((i) => _dartTypeToTs(i))
+        .toList();
+
+    return TsClass(
+      name: tsName,
+      isExported: true,
+      isAbstract: meta['is_abstract'] == true,
+      extendsClause: superName != null ? _dartTypeToTs(superName) : null,
+      implementsClause: tsInterfaces ?? const <String>[],
+      properties: properties,
+      ctors: ctors,
+      methods: methods,
+      getters: getters,
+      setters: setters,
+    );
+  }
+
+  TsCtor _buildCtor(
+    FunctionDefinition fn,
+    Map<String, Object?> meta,
+    Set<String> classFields,
+  ) {
+    final rawParams = _extractCtorParams(meta);
+    // Build parameter list + prologue body that assigns `this.<name> =
+    // <name>` for any parameter with `is_this` true (Dart initializing
+    // formals).
+    final parameters = <TsParameter>[];
+    final prologue = StringBuffer();
+    for (final p in rawParams) {
+      parameters.add(TsParameter(name: _sanitize(p.name), type: 'any'));
+      if (p.isThis) {
+        prologue.writeln('this.${p.name} = ${_sanitize(p.name)};');
+      }
+    }
+    final captured = _withMethodContext(
+      params: rawParams.map((p) => p.name).toSet(),
+      fields: classFields,
+      run: () => _captureInto(() {
+        if (fn.hasBody()) {
+          _emitStatementOrExpression(fn.body, isFunctionBody: false);
+        }
+      }),
+    );
+    final body =
+        prologue.isEmpty ? captured : '${prologue.toString().trimRight()}\n$captured'.trimRight();
+    return TsCtor(parameters: parameters, body: body);
+  }
+
+  TsMethod _buildMethod(
+    FunctionDefinition fn,
+    Map<String, Object?> meta,
+    Set<String> classFields,
+  ) {
+    final params = _extractParams(fn);
+    final body = _withMethodContext(
+      params: params.toSet(),
+      fields: classFields,
+      run: () => _captureInto(() {
+        if (params.length == 1 && params.first != 'input') {
+          _out.writeln('const input = ${_sanitize(params.first)};');
+        }
+        if (fn.hasBody()) {
+          _emitStatementOrExpression(fn.body, isFunctionBody: true);
+        }
+      }),
+    );
+    final methodName = _memberName(fn.name);
+    final isAsync = _functionIsAsync(fn);
+    return TsMethod(
+      name: methodName,
+      isAsync: isAsync,
+      isStatic: meta['is_static'] == true,
+      parameters: params
+          .map((p) => TsParameter(name: _sanitize(p), type: 'any'))
+          .toList(),
+      returnType: isAsync ? 'Promise<any>' : 'any',
+      body: body,
+    );
+  }
+
+  TsGetter _buildGetter(
+    FunctionDefinition fn,
+    Map<String, Object?> meta,
+    Set<String> classFields,
+  ) {
+    final body = _withMethodContext(
+      params: const <String>{},
+      fields: classFields,
+      run: () => _captureInto(() {
+        if (fn.hasBody()) {
+          _emitStatementOrExpression(fn.body, isFunctionBody: true);
+        }
+      }),
+    );
+    return TsGetter(
+      name: _memberName(fn.name),
+      isStatic: meta['is_static'] == true,
+      returnType: 'any',
+      body: body,
+    );
+  }
+
+  TsSetter _buildSetter(
+    FunctionDefinition fn,
+    Map<String, Object?> meta,
+    Set<String> classFields,
+  ) {
+    final params = _extractParams(fn);
+    final body = _withMethodContext(
+      params: params.toSet(),
+      fields: classFields,
+      run: () => _captureInto(() {
+        if (fn.hasBody()) {
+          _emitStatementOrExpression(fn.body, isFunctionBody: false);
+        }
+      }),
+    );
+    return TsSetter(
+      name: _memberName(fn.name),
+      isStatic: meta['is_static'] == true,
+      parameters: params
+          .map((p) => TsParameter(name: _sanitize(p), type: 'any'))
+          .toList(),
+      body: body,
+    );
+  }
+
+  /// Runs [run] with class-member context set; [_currentClassFields]
+  /// and [_currentMethodParams] are swapped in and out, so
+  /// [_expr] can decide whether to emit `this.<name>`.
+  T _withMethodContext<T>({
+    required Set<String> params,
+    required Set<String> fields,
+    required T Function() run,
+  }) {
+    final savedParams = _currentMethodParams;
+    final savedFields = _currentClassFields;
+    _currentMethodParams = params;
+    _currentClassFields = fields;
+    try {
+      return run();
+    } finally {
+      _currentMethodParams = savedParams;
+      _currentClassFields = savedFields;
+    }
+  }
+
+  /// Extract the short member name from a qualified Ball function name
+  /// (`main:Point.distanceSquared` → `distanceSquared`). Constructors
+  /// named `.new` become just 'constructor' (placeholder — not used
+  /// since ctors route through [_buildCtor]).
+  String _memberName(String qualified) {
+    final dot = qualified.lastIndexOf('.');
+    if (dot < 0) return _sanitize(qualified);
+    return _sanitize(qualified.substring(dot + 1));
+  }
+
+  /// Produce a TypeScript-friendly class name from a qualified Ball
+  /// type name. `main:Point` → `Point`; `main:_Foo` → `_Foo`.
+  String _classTsName(String qualified) {
+    final colon = qualified.lastIndexOf(':');
+    final bare = colon < 0 ? qualified : qualified.substring(colon + 1);
+    return bare;
+  }
+
+  /// Hand-rolled Struct → Map decoder. structpb wraps every value, so
+  /// we unwrap the common scalar kinds and recurse for lists/structs.
+  Map<String, Object?> _structToMap(structpb.Struct s) {
+    final out = <String, Object?>{};
+    s.fields.forEach((k, v) => out[k] = _unwrapStructValue(v));
+    return out;
+  }
+
+  Object? _unwrapStructValue(structpb.Value v) {
+    if (v.hasNullValue()) return null;
+    if (v.hasBoolValue()) return v.boolValue;
+    if (v.hasNumberValue()) {
+      final n = v.numberValue;
+      if (n == n.truncateToDouble()) return n.toInt();
+      return n;
+    }
+    if (v.hasStringValue()) return v.stringValue;
+    if (v.hasListValue()) {
+      return v.listValue.values.map(_unwrapStructValue).toList();
+    }
+    if (v.hasStructValue()) {
+      return _structToMap(v.structValue);
+    }
+    return null;
+  }
+
+  List<_CtorParam> _extractCtorParams(Map<String, Object?> meta) {
+    final raw = (meta['params'] as List?)?.cast<Object>() ?? const [];
+    final params = <_CtorParam>[];
+    for (final r in raw) {
+      if (r is! Map) continue;
+      final name = r['name'] as String?;
+      if (name == null) continue;
+      params.add(_CtorParam(name: name, isThis: r['is_this'] == true));
+    }
+    return params;
+  }
+
+  /// Very small Dart → TS type mapper. Covers the scalar + generic
+  /// types that show up in engine.dart metadata; anything unknown
+  /// falls through to `any`.
+  String _dartTypeToTs(String dart) {
+    final t = dart.trim();
+    if (t.isEmpty) return 'any';
+    // Drop null suffixes for now — TS handles `| null` separately and
+    // Phase 2 doesn't need nullability precision for self-host.
+    final nonNull = t.endsWith('?') ? t.substring(0, t.length - 1) : t;
+    switch (nonNull) {
+      case 'int':
+      case 'double':
+      case 'num':
+        return 'number';
+      case 'bool':
+        return 'boolean';
+      case 'String':
+        return 'string';
+      case 'void':
+        return 'void';
+      case 'dynamic':
+      case 'Object':
+        return 'any';
+    }
+    // Strip leading `main:` so generated TS uses the bare class name.
+    if (nonNull.startsWith('main:')) return nonNull.substring(5);
+    return nonNull;
   }
 
   // ─────────────────────────── Functions ───────────────────────────
@@ -576,7 +931,16 @@ class TsCompiler {
       case Expression_Expr.literal:
         return _compileLiteral(expr.literal);
       case Expression_Expr.reference:
-        return _sanitize(expr.reference.name);
+        final refName = expr.reference.name;
+        // Inside a method body, a bare reference to a class field
+        // (not shadowed by a parameter) is implicit `this.<name>` in
+        // Dart. TS has no such implicit resolution, so emit it
+        // explicitly.
+        if (_currentClassFields.contains(refName) &&
+            !_currentMethodParams.contains(refName)) {
+          return 'this.${_sanitize(refName)}';
+        }
+        return _sanitize(refName);
       case Expression_Expr.fieldAccess:
         return _compileFieldAccess(expr.fieldAccess);
       case Expression_Expr.messageCreation:
@@ -655,12 +1019,48 @@ class TsCompiler {
           .join(', ');
       return '{$entries}';
     }
-    // Named type → ignored; emit as object literal with __type marker.
+    // Named type → a class constructor invocation. The encoder emits
+    // positional arguments as `arg0`, `arg1`, ...; named parameters
+    // keep their Dart names. Re-order by Ball field name → `arg0`
+    // first to preserve positional order.
+    if (_typeIsUserDefinedClass(msg.typeName)) {
+      final positional = <String>[];
+      final named = <String, String>{};
+      for (final f in msg.fields) {
+        final argMatch = RegExp(r'^arg(\d+)$').firstMatch(f.name);
+        if (argMatch != null) {
+          positional.add(_expr(f.value));
+        } else {
+          named[f.name] = _expr(f.value);
+        }
+      }
+      final allArgs = [
+        ...positional,
+        if (named.isNotEmpty)
+          '{ ${named.entries.map((e) => "${e.key}: ${e.value}").join(", ")} }',
+      ].join(', ');
+      return 'new ${_classTsName(msg.typeName)}($allArgs)';
+    }
+    // Protobuf messages and other external types: fall back to a
+    // tagged object literal for now.
     final entries = [
       "'__type': '${msg.typeName}'",
       ...msg.fields.map((f) => "'${f.name}': ${_expr(f.value)}"),
     ].join(', ');
     return '{$entries}';
+  }
+
+  /// Whether [typeName] is a user-defined class declared in the
+  /// current program's entry module (qualified form `main:Foo`).
+  bool _typeIsUserDefinedClass(String typeName) {
+    if (typeName.isEmpty) return false;
+    for (final m in program.modules) {
+      if (m.name != program.entryModule) continue;
+      for (final td in m.typeDefs) {
+        if (td.name == typeName) return true;
+      }
+    }
+    return false;
   }
 
   String _compileBlockExpression(Block block) {
@@ -727,9 +1127,21 @@ class TsCompiler {
     if (!call.hasInput()) return '$fn()';
     final input = call.input;
     if (input.whichExpr() == Expression_Expr.messageCreation) {
-      final args = input.messageCreation.fields
-          .map((f) => _expr(f.value))
-          .join(', ');
+      final fields = input.messageCreation.fields;
+      // Method call convention: first field named `self` is the receiver.
+      // Emit as `<self>.<method>(<other-args>)`.
+      final selfField = fields.where((f) => f.name == 'self').firstOrNull;
+      if (selfField != null) {
+        final selfStr = _expr(selfField.value);
+        final otherArgs = fields
+            .where((f) => f.name != 'self' && f.name != '__type_args__')
+            .map((f) => _expr(f.value))
+            .join(', ');
+        return otherArgs.isEmpty
+            ? '$selfStr.$fn()'
+            : '$selfStr.$fn($otherArgs)';
+      }
+      final args = fields.map((f) => _expr(f.value)).join(', ');
       return '$fn($args)';
     }
     return '$fn(${_expr(input)})';
@@ -1094,3 +1506,12 @@ function __ball_parse_double(s: string): number {
 // shadows it within scope.
 let __ball_active_error: any = undefined;
 ''';
+
+/// Constructor parameter shape (structurally similar to what the Dart
+/// encoder stores under `metadata.params` for a constructor function).
+/// `isThis` marks Dart's initializing-formal pattern (`this.x`).
+class _CtorParam {
+  final String name;
+  final bool isThis;
+  const _CtorParam({required this.name, this.isThis = false});
+}

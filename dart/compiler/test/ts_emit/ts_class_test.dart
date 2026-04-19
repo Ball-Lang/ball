@@ -44,58 +44,65 @@ void main() {
       ? null
       : 'node_modules missing under dart/compiler/tool';
 
+  Future<void> _runFixtureRoundTrip(
+    String fixture,
+    List<String> mustContain,
+  ) async {
+    final root = _findRepoRoot();
+    final sourcePath = '$root/tests/fixtures/compiler/ts/$fixture.dart';
+    final source = File(sourcePath).readAsStringSync();
+    final program = DartEncoder().encode(source, name: fixture);
+    final out = await TsCompiler(program).compileStructural();
+    for (final m in mustContain) {
+      expect(out, contains(m), reason: 'missing `$m` in TS output:\n$out');
+    }
+    final tmp = await Directory.systemTemp.createTemp('ball_ts_$fixture');
+    try {
+      final ts = File('${tmp.path}/out.ts');
+      await ts.writeAsString(tsRuntimePreamble + '\n' + out);
+      final nodeRun = await Process.run(
+        Platform.isWindows ? 'node.exe' : 'node',
+        ['--experimental-strip-types', ts.path],
+        runInShell: true,
+      );
+      expect(nodeRun.exitCode, 0,
+          reason: 'Node failed:\nstderr:\n${nodeRun.stderr}\n\nemitted:\n$out');
+      final dartRun = await Process.run(
+        Platform.isWindows ? 'dart.bat' : 'dart',
+        ['run', sourcePath],
+        runInShell: true,
+      );
+      expect(dartRun.exitCode, 0);
+      String normalize(String s) => s.replaceAll('\r\n', '\n').trim();
+      expect(
+        normalize(nodeRun.stdout as String),
+        equals(normalize(dartRun.stdout as String)),
+        reason: 'Node output differs from Dart',
+      );
+    } finally {
+      await tmp.delete(recursive: true);
+    }
+  }
+
   group('TS class emission', () {
     test('class_basics — Point class round-trips Dart → Ball → TS → Node',
-        () async {
-      final root = _findRepoRoot();
-      final sourcePath = '$root/tests/fixtures/compiler/ts/class_basics.dart';
-      final source = File(sourcePath).readAsStringSync();
-      final program = DartEncoder().encode(source, name: 'class_basics');
-      final out = await TsCompiler(program).compileStructural();
+        () => _runFixtureRoundTrip('class_basics', [
+              'class Point',
+              'distanceSquared',
+              'new Point(3, 4)',
+              'p.distanceSquared(q)',
+              'this.x',
+            ]),
+        skip: skip);
 
-      // Structural checks.
-      expect(out, contains('class Point'));
-      expect(out, contains('distanceSquared'));
-      expect(out, contains('new Point(3, 4)'));
-      expect(out, contains('p.distanceSquared(q)'));
-      expect(out, contains('this.x'));
-
-      final tmp = await Directory.systemTemp.createTemp('ball_ts_class');
-      try {
-        // Wrap with the existing TS runtime preamble so __ball_to_string
-        // resolves. The old TsCompiler's preamble string is accessible
-        // via the constant at the bottom of ts_compiler.dart.
-        final ts = File('${tmp.path}/out.ts');
-        await ts.writeAsString(tsRuntimePreamble + '\n' + out);
-        final nodeRun = await Process.run(
-          Platform.isWindows ? 'node.exe' : 'node',
-          ['--experimental-strip-types', ts.path],
-          runInShell: true,
-        );
-        expect(nodeRun.exitCode, 0,
-            reason: 'Node failed:\n'
-                'stderr:\n${nodeRun.stderr}\n\n'
-                'stdout:\n${nodeRun.stdout}\n\n'
-                'emitted:\n$out');
-
-        // Reference: run the original Dart source for comparison.
-        final dartRun = await Process.run(
-          Platform.isWindows ? 'dart.bat' : 'dart',
-          ['run', sourcePath],
-          runInShell: true,
-        );
-        expect(dartRun.exitCode, 0);
-        // Dart on Windows emits \r\n; Node uses \n. Normalize before
-        // comparing so the test is platform-agnostic.
-        String normalize(String s) => s.replaceAll('\r\n', '\n').trim();
-        expect(
-          normalize(nodeRun.stdout as String),
-          equals(normalize(dartRun.stdout as String)),
-          reason: 'Node output differs from Dart',
-        );
-      } finally {
-        await tmp.delete(recursive: true);
-      }
-    }, skip: skip);
+    test('async_basics — await chain round-trips to native TS async',
+        () => _runFixtureRoundTrip('async_basics', [
+              'async function compute',
+              'async function chain',
+              'async function main',
+              'await compute',
+              'await chain',
+            ]),
+        skip: skip);
   });
 }

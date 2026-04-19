@@ -1319,6 +1319,19 @@ class TsCompiler {
         }
       case 'rethrow':
         return '(() => { throw __ball_active_error; })()';
+      // Async: `await x` lowers to native TS `await`. The caller is
+      // expected to be an async function — ensured by the `is_async`
+      // metadata flag we honor in _buildFunctionStatement /
+      // _buildMethod.
+      case 'await':
+        return 'await ${_expr(f['value']!)}';
+      // Generator yield: TS supports `yield x` in `function*`; until
+      // generators are first-class we emit the same form. Expression
+      // position works for both `function` and `function*`.
+      case 'yield':
+        return 'yield ${_expr(f['value']!)}';
+      case 'yield_each':
+        return 'yield* ${_expr(f['value']!)}';
       // Std function without a case → still emit as a call so the
       // runtime catches it clearly.
       default:

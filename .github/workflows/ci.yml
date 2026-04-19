@@ -50,8 +50,21 @@ jobs:
         with:
           sdk: stable
 
+      # Node is needed by the TS structural compile (ts-morph) tests in
+      # dart/compiler/test/ts_emit/**. Without node_modules they skip
+      # silently — installing it here is what gates the self-host
+      # TS-bootstrap regression guard (engine_compile_test).
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dart/compiler/tool/package-lock.json
+
       - name: Install dependencies
         run: cd dart && dart pub get
+
+      - name: Install ts-morph (ts_emit tests)
+        run: cd dart/compiler/tool && npm ci
 
       - name: Analyze
         run: dart analyze dart/
@@ -68,11 +81,14 @@ jobs:
       - name: Encoder tests
         run: cd dart/encoder && dart test
 
-      - name: Compiler tests
+      - name: Compiler tests (incl. ts_emit + self-host engine compile)
         run: cd dart/compiler && dart test --exclude-tags slow
 
       - name: Resolver tests
         run: cd dart/resolver && dart test
+
+      - name: Self-host parity (conformance via round-tripped engine)
+        run: cd dart/self_host && dart test
 
   # ──────────────────────────────────────────────────
   # C++ — build + test on all platforms

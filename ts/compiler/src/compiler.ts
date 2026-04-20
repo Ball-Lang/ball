@@ -37,6 +37,7 @@ export interface CompileOptions {
 interface CtorParam {
   name: string;
   isThis: boolean;
+  isNamed: boolean;
 }
 
 export class BallCompiler {
@@ -338,16 +339,36 @@ export class BallCompiler {
     hasExtends: boolean,
   ): { parameters: Array<{ name: string; type: string }>; statements: string } {
     const rawParams = extractCtorParams(meta);
+    // Dart constructors may mix positional + named params. When named
+    // params exist AND there are also positional params, callers may
+    // pass named params as a trailing object `{label: x, value: y}`.
+    //
+    // Emit ALL params as positional but add a prologue that tries to
+    // destructure the LAST arg as a named-params object when there's
+    // a mix. This handles both calling conventions:
+    //   new Foo('a', {label: 'b'})  → named destructured
+    //   new Foo('a', 'b', 'c')     → positional passthrough
+    const positionalParams = rawParams.filter((p) => !p.isNamed);
+    const namedParams = rawParams.filter((p) => p.isNamed);
     const parameters = rawParams.map((p) => ({ name: sanitize(p.name), type: "any" }));
     const prologueParts: string[] = [];
     if (hasExtends) prologueParts.push("super();");
+    // If there are named params AND the last positional+1 arg is an
+    // object, destructure named params from it (handles the encoder's
+    // MessageCreation calling convention where named args are packed).
+    if (positionalParams.length > 0 && namedParams.length > 0) {
+      // First named param slot might contain a {named args} object.
+      // Detect and destructure if so.
+      const firstNamedName = sanitize(namedParams[0].name);
+      prologueParts.push(
+        `if (typeof ${firstNamedName} === 'object' && ${firstNamedName} !== null && !Array.isArray(${firstNamedName}) && (` +
+        namedParams.map((p) => `'${p.name}' in ${firstNamedName}`).join(" || ") +
+        `)) { let __n = ${firstNamedName}; ` +
+        namedParams.map((p) => `${sanitize(p.name)} = __n.${p.name}`).join("; ") +
+        `; }`
+      );
+    }
     for (const p of rawParams) {
-      // Assign constructor params to instance fields. Dart's
-      // `this.x` initializing formals set `is_this: true`, but params
-      // with default values sometimes lack the flag while still
-      // mapping to fields (e.g. `this.stdout = print`). Assign
-      // whenever the param name matches a declared class field OR
-      // is_this is explicitly set.
       if (p.isThis || classFields.has(p.name)) {
         prologueParts.push(`this.${p.name} = ${sanitize(p.name)};`);
       }
@@ -1487,7 +1508,11 @@ function extractCtorParams(meta: Struct): CtorParam[] {
   const out: CtorParam[] = [];
   for (const p of raw) {
     if (p && typeof p === "object" && "name" in p && typeof (p as any).name === "string") {
-      out.push({ name: (p as any).name, isThis: (p as any).is_this === true });
+      out.push({
+        name: (p as any).name,
+        isThis: (p as any).is_this === true,
+        isNamed: (p as any).is_named === true,
+      });
     }
   }
   return out;

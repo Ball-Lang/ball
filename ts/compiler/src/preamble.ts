@@ -172,6 +172,51 @@ const __no_init__: unique symbol = Symbol('__no_init__');
   };
   if (!rp.hasMatch) rp.hasMatch = function (s: any) { return this.test(s); };
 
+  // Object.prototype polyfills — used by the compiled engine when
+  // checking Ball program inputs (plain objects, not Maps).
+  const op2: any = Object.prototype;
+  if (!op2.containsKey) {
+    Object.defineProperty(op2, 'containsKey', {
+      configurable: true, writable: true, enumerable: false,
+      value: function (k: any) {
+        if (this instanceof Map) return this.has(k);
+        if (this == null || typeof this !== 'object') return false;
+        return k in this;
+      },
+    });
+  }
+  // Dart Map has .entries / .keys / .values as getters. For plain
+  // objects (which the compiled engine uses for dispatch maps), polyfill
+  // these on Object.prototype. MUST NOT shadow Map.prototype which
+  // already has .entries / .keys / .values as methods.
+  const _mapEntries = Map.prototype.entries;
+  const _mapKeys = Map.prototype.keys;
+  const _mapValues = Map.prototype.values;
+  Object.defineProperty(op2, 'entries', {
+    configurable: true, enumerable: false,
+    get() {
+      if (this instanceof Map) return [..._mapEntries.call(this)].map(([k, v]: any) => ({ key: k, value: v }));
+      if (this == null || typeof this !== 'object') return [];
+      return Object.entries(this).map(([k, v]: any) => ({ key: k, value: v }));
+    },
+  });
+  Object.defineProperty(op2, 'keys', {
+    configurable: true, enumerable: false,
+    get() {
+      if (this instanceof Map) return [..._mapKeys.call(this)];
+      if (this == null || typeof this !== 'object') return [];
+      return Object.keys(this);
+    },
+  });
+  Object.defineProperty(op2, 'values', {
+    configurable: true, enumerable: false,
+    get() {
+      if (this instanceof Map) return [..._mapValues.call(this)];
+      if (this == null || typeof this !== 'object') return [];
+      return Object.values(this);
+    },
+  });
+
   // Number polyfills for Dart-style methods.
   const np: any = Number.prototype;
   if (!np.toInt) np.toInt = function () { return Math.trunc(this); };

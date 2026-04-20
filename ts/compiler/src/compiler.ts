@@ -123,8 +123,22 @@ export class BallCompiler {
       this.emitClass(sf, td, classMembers.get(td.name) ?? []);
     }
 
-    // Free top-level functions.
-    for (const fn of freeFunctions) {
+    // Top-level variables (kind == 'top_level_variable') emit as
+    // `const <name> = <body>;` before free functions.
+    for (const fn of freeFunctions.filter(
+      (f) => (f.metadata as any)?.kind === "top_level_variable",
+    )) {
+      const name = sanitize(fn.name);
+      const body = fn.body ? this.captureInto(() => {
+        this.writeln(`return ${this.expr(fn.body!)};`);
+      }) : "undefined";
+      sf.addStatements(`const ${name} = (() => { ${body} })();`);
+    }
+
+    // Free top-level functions (exclude top-level variables).
+    for (const fn of freeFunctions.filter(
+      (f) => (f.metadata as any)?.kind !== "top_level_variable",
+    )) {
       this.emitFreeFunction(sf, fn);
     }
 
@@ -211,6 +225,7 @@ export class BallCompiler {
     const methodNames = new Set<string>();
     for (const fn of members) methodNames.add(memberShortName(fn.name));
     const savedClassMethods = this.currentClassMethodNames;
+    const deferredStaticFields: string[] = [];
     this.currentClassMethodNames = methodNames;
 
     const hasExtends = typeof meta["superclass"] === "string";
@@ -252,7 +267,14 @@ export class BallCompiler {
       } else if (mMeta["is_setter"] === true) {
         setters.push(this.buildSetter(fn, mMeta, fieldNames));
       } else if (kind === "static_field") {
-        // Static fields are currently unmodeled; skip.
+        // Static field → module-level const emitted BEFORE the class
+        // so it's accessible as a bare name inside instance methods
+        // (matching Dart's behavior where static fields are visible
+        // without qualification). We capture the initializer body
+        // and emit it above the class via a deferred statement.
+        const sfName = memberShortName(fn.name);
+        const initBody = fn.body ? this.expr(fn.body) : "undefined";
+        deferredStaticFields.push(`const ${sfName} = ${initBody};`);
       } else {
         methods.push(this.buildMethod(fn, mMeta, fieldNames));
       }
@@ -270,6 +292,12 @@ export class BallCompiler {
     const tsInterfaces = interfaces
       ?.filter((i) => i !== "Exception")
       .map((i) => this.dartTypeToTs(i));
+
+    // Static fields are emitted as module-level constants before the
+    // class so they're accessible without qualification.
+    for (const stmt of deferredStaticFields) {
+      sf.addStatements(stmt);
+    }
 
     sf.addClass({
       name: tsName,

@@ -53,7 +53,7 @@ function buildHarness(enginePath: string): string {
   // stdout callback and safe defaults for everything else.
   return `
 import { readFileSync } from "node:fs";
-import { BallEngine } from "${engineUrl}";
+import { BallEngine, StdModuleHandler } from "${engineUrl}";
 
 // Deep-wrap proto3 JSON objects so missing fields behave like Dart's
 // protobuf runtime. Also wraps 'metadata' objects with a Struct-
@@ -186,6 +186,7 @@ if (_debugMod) {
 
 const lines: string[] = [];
 const stdoutFn = (s: string) => lines.push(s);
+const stdHandler = new StdModuleHandler();
 const engine = new BallEngine(
   programJson,     // program
   stdoutFn,        // stdout
@@ -194,10 +195,21 @@ const engine = new BallEngine(
   undefined,       // envGet
   [],              // args
   false,           // enableProfiling
-  [],              // moduleHandlers
+  [stdHandler],    // moduleHandlers
   undefined,       // resolver
 );
-await engine.run();
+try {
+  await engine.run();
+} catch (e) {
+  // Ball programs may throw BallException objects for flow control
+  // (e.g. exit(0)). Print a diagnostic and exit.
+  if (typeof e === 'object' && e !== null && 'typeName' in e) {
+    process.stderr.write('BallException: ' + (e as any).typeName + '\\n');
+  } else {
+    process.stderr.write('Runtime error: ' + String(e) + '\\n');
+  }
+  process.exit(1);
+}
 for (const line of lines) console.log(line);
 `;
 }

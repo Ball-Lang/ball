@@ -542,13 +542,15 @@ export class BallCompiler {
   // ───────────────────────── Control flow ────────────────────────────
 
   private isControlFlow(call: FunctionCall): boolean {
-    if (!isStd(call.module)) return false;
     const kinds = new Set([
       "if", "for", "for_in", "while", "do_while", "try",
       "return", "break", "continue", "labeled", "throw", "rethrow",
       "assign", "switch", "switch_expr",
     ]);
-    return kinds.has(call.function);
+    if (!kinds.has(call.function)) return false;
+    // Accept both explicit std module AND empty module (the encoder
+    // sometimes omits the module for control-flow operations).
+    return isStd(call.module) || !call.module;
   }
 
   private emitControlFlowStatement(call: FunctionCall): void {
@@ -599,12 +601,57 @@ export class BallCompiler {
         break;
       case "switch":
       case "switch_expr": {
-        // When a switch appears as a STATEMENT and its case bodies
-        // contain return values, emit as `return <ternary>` so the
-        // enclosing function returns. Otherwise emit as a bare
-        // expression (void switch).
-        const ternary = this.compileSwitchExpr(call);
-        this.writeln(`return ${ternary};`);
+        // When a switch appears as a STATEMENT (not expression), emit
+        // as an if/else chain so each case can `return` independently
+        // without the ternary's default arm causing an early exit.
+        const subjectExpr = field(call, "subject");
+        const casesField = field(call, "cases");
+        if (!subjectExpr || !casesField) {
+          this.writeln("/* malformed switch */");
+          break;
+        }
+        const subjectStr = this.expr(subjectExpr);
+        this.writeln(`{ const __sw = ${subjectStr};`);
+        this.depth++;
+        const caseExprs = casesField.literal?.listValue?.elements ?? [];
+        let defaultBody: Expression | undefined;
+        let first = true;
+        for (const ce of caseExprs) {
+          if (!ce.messageCreation) continue;
+          let pattern: Expression | undefined;
+          let body: Expression | undefined;
+          for (const fd of ce.messageCreation.fields ?? []) {
+            if (fd.name === "pattern") pattern = fd.value;
+            if (fd.name === "body") body = fd.value;
+          }
+          if (!body) continue;
+          if (!pattern) { defaultBody = body; continue; }
+          const patText = patternLiteralText(pattern);
+          const cond = patText !== undefined
+            ? patternToTsCondition(patText, "__sw")
+            : `((__sw) === ${this.expr(pattern)})`;
+          if (cond === "true") { defaultBody = body; break; }
+          const kw = first ? "if" : "else if";
+          this.writeln(`${kw} (${cond}) {`);
+          this.depth++;
+          this.emitStatementOrExpression(body, false);
+          this.depth--;
+          this.writeln("}");
+          first = false;
+        }
+        if (defaultBody) {
+          if (!first) {
+            this.writeln("else {");
+            this.depth++;
+          }
+          this.emitStatementOrExpression(defaultBody, false);
+          if (!first) {
+            this.depth--;
+            this.writeln("}");
+          }
+        }
+        this.depth--;
+        this.writeln("}");
         break;
       }
     }
@@ -1158,6 +1205,10 @@ export class BallCompiler {
       case "switch":
       case "switch_expr": return this.compileSwitchExpr(call);
       case "return": {
+        // In expression position: unwrap to the bare value. When this
+        // appears inside a switch-expr case body, the switch handler
+        // detects the return and emits `return <ternary>` at statement
+        // level.
         const v = f.get("value");
         return v ? this.expr(v) : "undefined";
       }
@@ -1595,7 +1646,12 @@ function jsStringLiteral(s: string): string {
  */
 function defaultInitializer(type: string, rawDartType?: string): string | undefined {
   const t = type.trim();
-  const d = (rawDartType ?? "").trim().replace(/\?$/, ""); // strip nullable
+  const raw = (rawDartType ?? "").trim();
+  // Nullable types (ending in ?) default to null, not the type's
+  // default value. Dart's `Set<String>? _allowlist = null` must stay
+  // null, not become `new Set()` which breaks null-guard patterns.
+  if (raw.endsWith("?")) return "null";
+  const d = raw.replace(/\?$/, "");
   // Check both mapped TS type and raw Dart type.
   // Use plain {} instead of new Map() — JS Map doesn't support
   // bracket access (m['k'] = v), but the compiled engine uses it

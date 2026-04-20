@@ -122,6 +122,13 @@ const __no_init__: unique symbol = Symbol('__no_init__');
   if (!ap.toList) ap.toList = function () { return this.slice(); };
   if (!ap.toSet) ap.toSet = function () { return new Set(this); };
   if (!ap.contains) ap.contains = function (v: any) { return this.indexOf(v) >= 0; };
+
+  // Dart Set polyfills — Set.contains → Set.has, etc.
+  const setp: any = Set.prototype;
+  if (!setp.contains) setp.contains = function (v: any) { return this.has(v); };
+  if (!setp.toList) setp.toList = function () { return [...this]; };
+  if (!setp.add) { /* Set already has .add */ }
+  if (!setp.remove) setp.remove = function (v: any) { return this.delete(v); };
   Object.defineProperty(ap, 'isEmpty', {
     configurable: true, get() { return this.length === 0; },
   });

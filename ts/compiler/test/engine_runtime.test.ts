@@ -198,7 +198,7 @@ const engine = new BallEngine(
   [stdHandler],    // moduleHandlers
   undefined,       // resolver
 );
-// Engine initialized successfully if we reach here.
+// Engine initialized successfully.
 try {
   await engine.run();
 } catch (e) {

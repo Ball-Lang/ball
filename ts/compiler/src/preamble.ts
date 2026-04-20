@@ -58,6 +58,10 @@ function __ball_double_to_string(n: number): string {
 // Active exception for rethrow. Catch bodies shadow with a local.
 let __ball_active_error: any = undefined;
 
+// Sentinel for "not yet initialized" — used by the Dart engine for
+// late-initialized variables and block-scoped flow tracking.
+const __no_init__: unique symbol = Symbol('__no_init__');
+
 // ── Dart \u2192 JS method-name polyfills ────────────────────────────────
 //
 // Idempotent: guarded so multiple preamble inclusions don't double-install.
@@ -115,6 +119,185 @@ let __ball_active_error: any = undefined;
   });
   Object.defineProperty(sp, 'isNotEmpty', {
     configurable: true, get() { return this.length !== 0; },
+  });
+})();
+
+// ── Protobuf Struct/Value compatibility ─────────────────────────
+//
+// Dart's protobuf runtime wraps google.protobuf.Struct as a class
+// with .fields (Map<String, Value>) and Value as .whichKind() +
+// .stringValue / .boolValue / .numberValue / .listValue / .structValue.
+// In proto3 JSON, these serialize as plain objects and values.
+//
+// This shim makes plain JSON objects behave like Struct/Value so the
+// compiled engine.dart can call .fields['key'].whichKind() etc.
+//
+// Strategy: Object.prototype gets a .fields getter that returns a
+// Proxy wrapping the object as a Map-like. Accessing [key] on the
+// proxy returns a Value-like wrapper with .whichKind() / typed
+// accessors (.stringValue, .boolValue, .numberValue, .listValue,
+// .structValue).
+
+const structpb_Value_Kind = {
+  nullValue: 'nullValue',
+  numberValue: 'numberValue',
+  stringValue: 'stringValue',
+  boolValue: 'boolValue',
+  structValue: 'structValue',
+  listValue: 'listValue',
+} as const;
+
+class __BallValueWrapper {
+  private _raw: any;
+  constructor(raw: any) { this._raw = raw; }
+  whichKind(): string {
+    const v = this._raw;
+    if (v === null || v === undefined) return 'nullValue';
+    if (typeof v === 'string') return 'stringValue';
+    if (typeof v === 'boolean') return 'boolValue';
+    if (typeof v === 'number') return 'numberValue';
+    if (Array.isArray(v)) return 'listValue';
+    if (typeof v === 'object') return 'structValue';
+    return 'nullValue';
+  }
+  get stringValue(): string { return typeof this._raw === 'string' ? this._raw : String(this._raw ?? ''); }
+  get boolValue(): boolean { return !!this._raw; }
+  get numberValue(): number { return Number(this._raw); }
+  get nullValue(): null { return null; }
+  get listValue(): { values: __BallValueWrapper[] } {
+    const arr = Array.isArray(this._raw) ? this._raw : [];
+    return { values: arr.map((v: any) => new __BallValueWrapper(v)) };
+  }
+  get structValue(): { fields: Record<string, __BallValueWrapper> } {
+    const obj = (typeof this._raw === 'object' && this._raw !== null) ? this._raw : {};
+    const fields: Record<string, __BallValueWrapper> = {};
+    for (const [k, v] of Object.entries(obj)) fields[k] = new __BallValueWrapper(v);
+    return { fields };
+  }
+  // Also proxy hasXxx for sub-values.
+  hasNullValue(): boolean { return this._raw == null; }
+  hasStringValue(): boolean { return typeof this._raw === 'string'; }
+  hasBoolValue(): boolean { return typeof this._raw === 'boolean'; }
+  hasNumberValue(): boolean { return typeof this._raw === 'number'; }
+  hasListValue(): boolean { return Array.isArray(this._raw); }
+  hasStructValue(): boolean { return typeof this._raw === 'object' && this._raw !== null && !Array.isArray(this._raw); }
+  // Pass-through for when the wrapper is used in expressions.
+  toString(): string { return String(this._raw); }
+  valueOf(): any { return this._raw; }
+}
+
+// Struct.fields shimming is done via a metadata-specific wrapper.
+// We do NOT add .fields to Object.prototype because it conflicts
+// with data properties named "fields" on MessageCreation / TypeDef.
+// Instead, the compiled engine accesses metadata.fields['key'] —
+// in proto3 JSON, metadata IS the fields directly, so we add a
+// .fields getter only when the object is a metadata Struct (i.e.,
+// it has string/bool/number/array/object values and no proto-shape
+// keys like "call"/"literal"/"block").
+//
+// The protoWrap normalizer in the test harness is responsible for
+// converting metadata objects to have the right shape.
+
+// ── Protobuf compatibility shims ────────────────────────────────
+//
+// The Dart encoder produces code that uses Dart's protobuf runtime
+// API (.whichExpr(), Expression_Expr.call, .hasInput(), .toInt(), etc.)
+// on what are really plain JSON objects at runtime. These shims make
+// the proto-style method calls work on plain objects so the compiled
+// engine.dart can execute on Node.
+
+// Oneof discriminator enums — string-valued constants that match the
+// field names the Dart protobuf codegen uses.
+const Expression_Expr = {
+  call: 'call', literal: 'literal', reference: 'reference',
+  fieldAccess: 'fieldAccess', messageCreation: 'messageCreation',
+  block: 'block', lambda: 'lambda', notSet: 'notSet',
+} as const;
+
+const Literal_Value = {
+  intValue: 'intValue', doubleValue: 'doubleValue',
+  stringValue: 'stringValue', boolValue: 'boolValue',
+  listValue: 'listValue', bytesValue: 'bytesValue', notSet: 'notSet',
+} as const;
+
+const Statement_Stmt = {
+  let: 'let', expression: 'expression', notSet: 'notSet',
+} as const;
+
+const ModuleImport_Source = {
+  http: 'http', file: 'file', inline: 'inline',
+  git: 'git', registry: 'registry', notSet: 'notSet',
+} as const;
+
+// Object.prototype shims for .whichXxx() / .hasXxx() / .toInt() —
+// these match the Dart protobuf generated API. Each is configurable
+// and non-enumerable so it doesn't pollute for-in loops.
+(function installProtoShims() {
+  const op: any = Object.prototype;
+
+  function defMethod(name: string, fn: Function) {
+    if (op[name]) return;
+    Object.defineProperty(op, name, {
+      configurable: true, writable: true, enumerable: false, value: fn,
+    });
+  }
+
+  // whichExpr / whichValue / whichStmt / whichSource — return which
+  // oneof field is set on this object.
+  defMethod('whichExpr', function (this: any) {
+    for (const k of ['call','literal','reference','fieldAccess','messageCreation','block','lambda']) {
+      if (this[k] !== undefined && this[k] !== null) return k;
+    }
+    return 'notSet';
+  });
+  defMethod('whichValue', function (this: any) {
+    for (const k of ['intValue','doubleValue','stringValue','boolValue','listValue','bytesValue']) {
+      if (this[k] !== undefined && this[k] !== null) return k;
+    }
+    return 'notSet';
+  });
+  defMethod('whichStmt', function (this: any) {
+    if (this['let'] !== undefined && this['let'] !== null) return 'let';
+    if (this['expression'] !== undefined && this['expression'] !== null) return 'expression';
+    return 'notSet';
+  });
+  defMethod('whichSource', function (this: any) {
+    for (const k of ['http','file','inline','git','registry']) {
+      if (this[k] !== undefined && this[k] !== null) return k;
+    }
+    return 'notSet';
+  });
+
+  // Presence checks — .hasXxx() returns true if the field is set.
+  for (const field of [
+    'input','body','result','metadata','value','name','module',
+    'left','right','condition','then','else','finally',
+    'subject','cases','catches','init','update','iterable',
+    'target','index','field','object','key','message',
+    'stringValue','boolValue','intValue','doubleValue','listValue',
+    'call','literal','reference','fieldAccess','messageCreation',
+    'block','lambda','let','expression','descriptor',
+  ]) {
+    const methodName = 'has' + field[0].toUpperCase() + field.slice(1);
+    defMethod(methodName, function (this: any) {
+      return this[field] !== undefined && this[field] !== null;
+    });
+  }
+
+  // .toInt() — Dart's Int64/fixnum returns int from string. In proto3
+  // JSON, int64 fields are serialized as strings ("42" not 42).
+  defMethod('toInt', function (this: any) {
+    if (typeof this === 'number') return this;
+    if (typeof this === 'string') return parseInt(this, 10);
+    if (typeof this.valueOf === 'function') return parseInt(String(this.valueOf()), 10);
+    return 0;
+  });
+
+  // .toList() on Uint8Array (bytesValue)
+  defMethod('toList', function (this: any) {
+    if (this instanceof Uint8Array) return Array.from(this);
+    if (Array.isArray(this)) return this.slice();
+    return [];
   });
 })();
 `;

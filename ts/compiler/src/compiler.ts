@@ -282,6 +282,7 @@ export class BallCompiler {
         type: p.type,
         isStatic: p.isStatic,
         isReadonly: p.isReadonly,
+        initializer: defaultInitializer(p.type),
       })),
       ctors,
       methods,
@@ -301,7 +302,15 @@ export class BallCompiler {
     const prologueParts: string[] = [];
     if (hasExtends) prologueParts.push("super();");
     for (const p of rawParams) {
-      if (p.isThis) prologueParts.push(`this.${p.name} = ${sanitize(p.name)};`);
+      // Assign constructor params to instance fields. Dart's
+      // `this.x` initializing formals set `is_this: true`, but params
+      // with default values sometimes lack the flag while still
+      // mapping to fields (e.g. `this.stdout = print`). Assign
+      // whenever the param name matches a declared class field OR
+      // is_this is explicitly set.
+      if (p.isThis || classFields.has(p.name)) {
+        prologueParts.push(`this.${p.name} = ${sanitize(p.name)};`);
+      }
     }
     const prologue = prologueParts.join("\n");
     const captured = this.withMethodContext(
@@ -1002,8 +1011,26 @@ export class BallCompiler {
       case "index":      return `${this.expr(f.get("target")!)}[${this.expr(f.get("index")!)}]`;
       case "null_coalesce": return `(${this.expr(f.get("left")!)} ?? ${this.expr(f.get("right")!)})`;
       case "null_check": return this.expr(f.get("value")!);
-      case "is":         return "true /* is check */";
-      case "is_not":     return "false /* is_not check */";
+      case "is": {
+        const val = f.get("value");
+        const typ = f.get("type");
+        if (val && typ) {
+          const v = this.expr(val);
+          const t = typ.literal?.stringValue ?? "";
+          return this.emitIsCheck(v, t);
+        }
+        return `(${this.expr(f.get("value")!)} != null)`;
+      }
+      case "is_not": {
+        const val = f.get("value");
+        const typ = f.get("type");
+        if (val && typ) {
+          const v = this.expr(val);
+          const t = typ.literal?.stringValue ?? "";
+          return `!(${this.emitIsCheck(v, t)})`;
+        }
+        return `(${this.expr(f.get("value")!)} == null)`;
+      }
       case "as":         return this.expr(f.get("value")!);
       case "if": {
         const cond = this.expr(f.get("condition")!);
@@ -1115,6 +1142,25 @@ export class BallCompiler {
         const args = Array.from(f.values()).map((e) => this.expr(e)).join(", ");
         return `/* std.${fn} */ ${sanitize(fn)}(${args})`;
       }
+    }
+  }
+
+  private emitIsCheck(value: string, type: string): string {
+    switch (type) {
+      case "int": return `(typeof ${value} === 'number' && Number.isInteger(${value}))`;
+      case "double": case "num": case "number": return `(typeof ${value} === 'number')`;
+      case "String": case "string": return `(typeof ${value} === 'string')`;
+      case "bool": case "boolean": return `(typeof ${value} === 'boolean')`;
+      case "List": return `Array.isArray(${value})`;
+      case "Map": return `(${value} instanceof Map || (typeof ${value} === 'object' && ${value} !== null && !Array.isArray(${value})))`;
+      case "Null": return `(${value} == null)`;
+      default:
+        // User-defined class → instanceof. Falls through to a
+        // broad null-check for unknown types.
+        if (this.typeIsUserDefinedClass(`main:${type}`) || this.typeIsUserDefinedClass(type)) {
+          return `(${value} instanceof ${classTsName(type)})`;
+        }
+        return `(${value} != null)`;
     }
   }
 
@@ -1408,6 +1454,22 @@ function jsStringLiteral(s: string): string {
     else out += "\\u" + cu.toString(16).padStart(4, "0");
   }
   return out + "'";
+}
+
+/** Return a default initializer expression for a TS type string so
+ *  class fields don't start as `undefined`. Dart fields are implicitly
+ *  initialized (Map→{}, List→[], bool→false, etc.); TS fields are not.
+ */
+function defaultInitializer(type: string): string | undefined {
+  const t = type.trim();
+  if (t.startsWith("Map<")) return "new Map()";
+  if (t.startsWith("Array<") || t === "Array") return "[]";
+  if (t.startsWith("Set<") || t === "Set") return "new Set()";
+  if (t === "number") return "0";
+  if (t === "boolean") return "false";
+  if (t === "string") return "''";
+  // `any` and user types → no initializer (could be anything).
+  return undefined;
 }
 
 function sanitize(name: string): string {

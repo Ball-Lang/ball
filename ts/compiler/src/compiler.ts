@@ -1650,7 +1650,17 @@ function defaultInitializer(type: string, rawDartType?: string): string | undefi
   // Nullable types (ending in ?) default to null, not the type's
   // default value. Dart's `Set<String>? _allowlist = null` must stay
   // null, not become `new Set()` which breaks null-guard patterns.
-  if (raw.endsWith("?")) return "null";
+  // Nullable types default to null EXCEPT Maps — null-aware access
+  // (?.[] / ?.) isn't in the compiled output and null Maps crash
+  // on bracket access. Empty {} is safe. Sets and Lists stay null
+  // because code like `if (allowlist != null)` uses null to mean
+  // "not active" and an empty collection would incorrectly activate
+  // the filter.
+  if (raw.endsWith("?")) {
+    const inner = raw.slice(0, -1).trim();
+    if (inner.startsWith("Map<") || inner === "Map") return "{}";
+    return "null";
+  }
   const d = raw.replace(/\?$/, "");
   // Check both mapped TS type and raw Dart type.
   // Use plain {} instead of new Map() — JS Map doesn't support

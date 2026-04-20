@@ -202,10 +202,10 @@ const engine = new BallEngine(
 try {
   await engine.run();
 } catch (e) {
-  // Ball programs may throw BallException objects for flow control
-  // (e.g. exit(0)). Print a diagnostic and exit.
   if (typeof e === 'object' && e !== null && 'typeName' in e) {
     process.stderr.write('BallException: ' + (e as any).typeName + '\\n');
+  } else if (e instanceof Error) {
+    process.stderr.write('Runtime error: ' + e.message + '\\n' + e.stack + '\\n');
   } else {
     process.stderr.write('Runtime error: ' + String(e) + '\\n');
   }

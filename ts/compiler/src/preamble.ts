@@ -438,6 +438,21 @@ const ModuleImport_Source = {
     });
   }
 
+  // Proto field-name aliases — Dart's protobuf codegen renames some
+  // fields to avoid keyword collisions (field → field_2, etc.) but
+  // proto3 JSON uses the original names. Add getters so both work.
+  Object.defineProperty(op, 'field_2', {
+    configurable: true, enumerable: false,
+    get() { return this.field; },
+    set(v: any) { this.field = v; },
+  });
+  // descriptor_ → descriptor (same issue)
+  Object.defineProperty(op, 'descriptor_', {
+    configurable: true, enumerable: false,
+    get() { return this.descriptor; },
+    set(v: any) { this.descriptor = v; },
+  });
+
   // .toInt() — Dart's Int64/fixnum returns int from string. In proto3
   // JSON, int64 fields are serialized as strings ("42" not 42).
   defMethod('toInt', function (this: any) {

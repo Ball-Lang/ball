@@ -37,21 +37,45 @@ class RegistryBridge {
       registryUrl: source.registryUrl.isEmpty ? null : source.registryUrl,
     );
 
-    final result = await adapter.fetchModule(
-      source.package,
-      version,
-      modulePath: source.modulePath.isEmpty ? null : source.modulePath,
-      encoding: source.encoding,
-      registryUrl: source.registryUrl.isEmpty ? null : source.registryUrl,
-    );
-
-    if (result.encoding == ModuleEncoding.MODULE_ENCODING_PROTO) {
-      return Module.fromBuffer(result.bytes);
-    }
-    return Module()
-      ..mergeFromProto3Json(
-        jsonDecode(String.fromCharCodes(result.bytes)),
-        ignoreUnknownFields: true,
+    try {
+      final result = await adapter.fetchModule(
+        source.package,
+        version,
+        modulePath: source.modulePath.isEmpty ? null : source.modulePath,
+        encoding: source.encoding,
+        registryUrl: source.registryUrl.isEmpty ? null : source.registryUrl,
       );
+
+      if (result.encoding == ModuleEncoding.MODULE_ENCODING_PROTO) {
+        return Module.fromBuffer(result.bytes);
+      }
+      return Module()
+        ..mergeFromProto3Json(
+          jsonDecode(String.fromCharCodes(result.bytes)),
+          ignoreUnknownFields: true,
+        );
+    } on StateError {
+      // If the adapter can't find a pre-packaged Ball artifact (or
+      // the download fails because there IS no Ball-specific archive),
+      // try the on-the-fly encoding fallback: download the package
+      // source and encode it via the Dart encoder.
+      if (onTheFlyEncoder != null) {
+        return onTheFlyEncoder!(source, version);
+      }
+      rethrow;
+    }
   }
+
+  /// Optional callback that downloads + encodes a package on-the-fly
+  /// when no pre-built Ball artifact is found in the registry archive.
+  /// Set by the CLI when it has access to the encoder.
+  OnTheFlyEncoder? onTheFlyEncoder;
 }
+
+/// Callback type for on-the-fly encoding of packages that don't
+/// publish Ball artifacts. The CLI provides this using [PubClient]
+/// + [PackageEncoder].
+typedef OnTheFlyEncoder = Future<Module> Function(
+  RegistrySource source,
+  String resolvedVersion,
+);

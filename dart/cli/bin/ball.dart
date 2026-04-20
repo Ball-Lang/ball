@@ -25,8 +25,11 @@ import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_base/capability_analyzer.dart';
 import 'package:ball_compiler/compiler.dart';
 import 'package:ball_encoder/encoder.dart';
+import 'package:ball_encoder/package_encoder.dart';
+import 'package:ball_encoder/pub_client.dart';
 import 'package:ball_engine/engine.dart';
 import 'package:ball_resolver/ball_resolver.dart';
+import 'package:yaml/yaml.dart';
 
 const _version = '0.1.0';
 
@@ -662,7 +665,7 @@ _ParsedSpec? _parseImportSpec(String spec) {
 
 // ── ball resolve ────────────────────────────────────────────────────────────
 
-void _resolve(List<String> args) {
+Future<void> _resolve(List<String> args) async {
   final file = File('ball.yaml');
   if (!file.existsSync()) {
     stderr.writeln('No ball.yaml found. Run `ball init` first.');
@@ -671,12 +674,125 @@ void _resolve(List<String> args) {
 
   stderr.writeln('Resolving dependencies from ball.yaml...');
 
-  // For now, just validate that ball.yaml exists and is parseable.
-  // Full resolution (read YAML → create ModuleImports → resolve via
-  // ModuleResolver → write ball.lock.json) will use the manifest parser
-  // from dart/resolver once it exists.
-  stderr.writeln('(Dependencies are resolved at build time via `ball build`)');
-  stderr.writeln('Run `ball build <program.ball.json>` to resolve and inline all imports.');
+  final content = file.readAsStringSync();
+  final doc = loadYaml(content) as YamlMap?;
+  if (doc == null) {
+    stderr.writeln('ball.yaml is empty or malformed.');
+    exit(1);
+  }
+
+  final deps = doc['dependencies'];
+  if (deps == null || deps is! YamlMap || deps.isEmpty) {
+    stderr.writeln('No dependencies declared in ball.yaml.');
+    return;
+  }
+
+  // Build ModuleImport entries from the YAML declarations.
+  final imports = <ModuleImport>[];
+  for (final entry in deps.entries) {
+    final name = entry.key as String;
+    final spec = entry.value;
+    if (spec is! YamlMap) continue;
+
+    final import_ = ModuleImport()..name = name;
+
+    if (spec.containsKey('registry')) {
+      final regName = spec['registry'] as String;
+      final pkg = spec['package'] as String? ?? name;
+      final version = spec['version'] as String? ?? 'any';
+      import_.registry = (RegistrySource()
+        ..package = pkg
+        ..version = version
+        ..registry = _parseRegistry(regName));
+    } else if (spec.containsKey('git')) {
+      final git = spec['git'] as YamlMap;
+      import_.git = (GitSource()
+        ..url = (git['url'] as String? ?? '')
+        ..ref = (git['ref'] as String? ?? 'main'));
+    } else if (spec.containsKey('url')) {
+      import_.http = (HttpSource()..url = spec['url'] as String);
+    } else if (spec.containsKey('path')) {
+      import_.file = (FileSource()..path = spec['path'] as String);
+    }
+
+    imports.add(import_);
+  }
+
+  if (imports.isEmpty) {
+    stderr.writeln('No resolvable dependencies found.');
+    return;
+  }
+
+  // Set up a resolver with the pub.dev registry adapter.
+  // When a package doesn't contain a pre-built Ball module, fall back
+  // to on-the-fly encoding via the Dart encoder.
+  final pubClient = PubClient();
+  final bridge = RegistryBridge()..register(PubAdapter());
+  bridge.onTheFlyEncoder = (source, version) async {
+    stderr.write('(encoding on-the-fly) ');
+    // Use PubClient's API-based resolution to get the correct archive URL.
+    final vi = await pubClient.resolveVersion(source.package, source.version);
+    final pkgDir = await pubClient.downloadPackage(
+      source.package,
+      vi.version,
+      archiveUrl: vi.archiveUrl,
+    );
+    try {
+      final encoder = PackageEncoder(pkgDir);
+      final program = encoder.encode();
+      // Return the main module (the first non-base, non-stub module).
+      for (final m in program.modules) {
+        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty) continue;
+        if (m.functions.isEmpty && m.typeDefs.isEmpty && m.types.isEmpty) continue;
+        return m;
+      }
+      throw StateError('No encodable module found in ${source.package}@$version');
+    } finally {
+      try { await pkgDir.delete(recursive: true); } catch (_) {}
+    }
+  };
+  final resolver = ModuleResolver(registryResolver: bridge.resolve);
+  final lockEntries = <Map<String, Object?>>[];
+
+  for (final import_ in imports) {
+    stderr.write('  ${import_.name}... ');
+    try {
+      final module = await resolver.resolve(import_);
+      stderr.writeln('OK (${module.functions.length} functions)');
+      lockEntries.add({
+        'name': import_.name,
+        'resolved_version': '',
+        'integrity': computeIntegrity(module),
+      });
+    } catch (e) {
+      stderr.writeln('FAIL: ${e.toString().split('\n').first}');
+      lockEntries.add({
+        'name': import_.name,
+        'error': e.toString().split('\n').first,
+      });
+    }
+  }
+
+  // Write ball.lock.json.
+  final lockFile = File('ball.lock.json');
+  final lockJson = const JsonEncoder.withIndent('  ').convert({
+    'lock_version': '1',
+    'packages': lockEntries,
+  });
+  lockFile.writeAsStringSync(lockJson);
+  stderr.writeln('\nWrote ball.lock.json (${lockEntries.length} packages)');
+}
+
+Registry _parseRegistry(String name) {
+  switch (name.toLowerCase()) {
+    case 'pub': return Registry.REGISTRY_PUB;
+    case 'npm': return Registry.REGISTRY_NPM;
+    case 'nuget': return Registry.REGISTRY_NUGET;
+    case 'cargo': return Registry.REGISTRY_CARGO;
+    case 'pypi': return Registry.REGISTRY_PYPI;
+    case 'maven': return Registry.REGISTRY_MAVEN;
+    default: return Registry.REGISTRY_UNSPECIFIED;
+  }
 }
 
 // ── ball tree ───────────────────────────────────────────────────────────────

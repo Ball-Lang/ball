@@ -29,6 +29,7 @@ dependencies:
   ball_resolver: ^0.1.0
   fixnum: ^1.1.1
   protobuf: ^6.0.0
+  yaml: ^3.1.0
 
 dev_dependencies:
   lints: ^6.1.0

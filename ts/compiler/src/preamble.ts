@@ -185,6 +185,30 @@ const __no_init__: unique symbol = Symbol('__no_init__');
       },
     });
   }
+  // putIfAbsent — Dart Map.putIfAbsent. Works on plain objects too.
+  if (!op2.putIfAbsent) {
+    Object.defineProperty(op2, 'putIfAbsent', {
+      configurable: true, writable: true, enumerable: false,
+      value: function (k: any, supplier: any) {
+        if (this instanceof Map) {
+          if (!this.has(k)) this.set(k, supplier());
+          return this.get(k);
+        }
+        if (!(k in this)) this[k] = supplier();
+        return this[k];
+      },
+    });
+  }
+  // remove — Dart Map.remove.
+  if (!op2.remove) {
+    Object.defineProperty(op2, 'remove', {
+      configurable: true, writable: true, enumerable: false,
+      value: function (k: any) {
+        if (this instanceof Map) { const v = this.get(k); this.delete(k); return v; }
+        const v = this[k]; delete this[k]; return v;
+      },
+    });
+  }
   // Dart Map has .entries / .keys / .values as GETTERS (no parens).
   // JS Map has them as METHODS (need parens). The compiled engine
   // accesses map.entries as a getter. Shadow BOTH Map.prototype AND

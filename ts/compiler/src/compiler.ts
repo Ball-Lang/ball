@@ -224,8 +224,18 @@ export class BallCompiler {
     }
 
     // Method-name set for `this.foo()` routing inside bodies.
+    // Exclude static fields — they're emitted as module-level consts
+    // and referenced WITHOUT `this.`.
     const methodNames = new Set<string>();
-    for (const fn of members) methodNames.add(memberShortName(fn.name));
+    const staticFieldNames = new Set<string>();
+    for (const fn of members) {
+      const mMeta: Struct = fn.metadata ?? {};
+      if ((mMeta as any).kind === "static_field") {
+        staticFieldNames.add(memberShortName(fn.name));
+      } else {
+        methodNames.add(memberShortName(fn.name));
+      }
+    }
     const savedClassMethods = this.currentClassMethodNames;
     const deferredStaticFields: string[] = [];
     this.currentClassMethodNames = methodNames;
@@ -500,7 +510,12 @@ export class BallCompiler {
     if (stmt.let) {
       const meta: Struct = stmt.let.metadata ?? {};
       const keyword = typeof meta["keyword"] === "string" ? meta["keyword"] : "final";
-      const kw = keyword === "var" ? "let" : "const";
+      // Use `let` for all declarations — we can't reliably determine
+      // if a variable is ever reassigned without whole-method analysis,
+      // and Dart's `final` guarantee doesn't help when the compiled
+      // output re-assigns in patterns the encoder generates (e.g.
+      // _tryOperatorOverride's `left = input['left']`).
+      const kw = "let";
       const name = sanitize(stmt.let.name);
       if (stmt.let.value !== undefined) {
         this.writeln(`${kw} ${name} = ${this.expr(stmt.let.value)};`);
@@ -531,7 +546,7 @@ export class BallCompiler {
     const kinds = new Set([
       "if", "for", "for_in", "while", "do_while", "try",
       "return", "break", "continue", "labeled", "throw", "rethrow",
-      "assign",
+      "assign", "switch", "switch_expr",
     ]);
     return kinds.has(call.function);
   }
@@ -582,6 +597,16 @@ export class BallCompiler {
       case "assign":
         this.emitAssignStmt(call);
         break;
+      case "switch":
+      case "switch_expr": {
+        // When a switch appears as a STATEMENT and its case bodies
+        // contain return values, emit as `return <ternary>` so the
+        // enclosing function returns. Otherwise emit as a bare
+        // expression (void switch).
+        const ternary = this.compileSwitchExpr(call);
+        this.writeln(`return ${ternary};`);
+        break;
+      }
     }
   }
 
@@ -766,14 +791,16 @@ export class BallCompiler {
     if (e.reference) {
       const name = e.reference.name;
       if (name === "this") return "this";
-      // Inside a class method, bare references to fields or sibling
-      // methods need `this.` prefix (Dart resolves implicitly; TS doesn't).
-      if (
-        !this.currentMethodParams.has(name) &&
-        (this.currentClassFields.has(name) ||
-          this.currentClassMethodNames.has(name))
-      ) {
-        return `this.${sanitize(name)}`;
+      // Inside a class method: bare references to fields need this.
+      // prefix. Method references also need .bind(this) because Dart
+      // tear-offs auto-bind but JS method references do not.
+      if (!this.currentMethodParams.has(name)) {
+        if (this.currentClassFields.has(name)) {
+          return `this.${sanitize(name)}`;
+        }
+        if (this.currentClassMethodNames.has(name)) {
+          return `this.${sanitize(name)}.bind(this)`;
+        }
       }
       return sanitize(name);
     }
@@ -943,9 +970,14 @@ export class BallCompiler {
       return this.compileStdCall(call);
     }
     const fn = sanitize(call.function);
+    // Prefix with this. when the function name is a class method OR
+    // a class field holding a callable (like `stdout` which is a
+    // void Function(String) field). Both need this. in TS since Dart
+    // resolves implicitly.
     const thisPrefix =
-      this.currentClassMethodNames.has(call.function) &&
-      !this.currentMethodParams.has(call.function)
+      !this.currentMethodParams.has(call.function) &&
+      (this.currentClassMethodNames.has(call.function) ||
+        this.currentClassFields.has(call.function))
         ? "this."
         : "";
     if (!call.input) return `${thisPrefix}${fn}()`;
@@ -989,8 +1021,27 @@ export class BallCompiler {
       case "modulo":       return bin("%");
       case "negate":       return un("-");
       // Comparison
-      case "equals":       return bin("===");
-      case "not_equals":   return bin("!==");
+      case "equals": {
+        // Use loose == when comparing against null so undefined matches
+        // too (Dart has no undefined; JS returns undefined for missing
+        // map keys, unset fields, etc.)
+        const l = f.get("left"), r = f.get("right");
+        if (l && r) {
+          const le = this.expr(l), re = this.expr(r);
+          const op = le === "null" || re === "null" ? "==" : "===";
+          return `(${le} ${op} ${re})`;
+        }
+        return bin("===");
+      }
+      case "not_equals": {
+        const l = f.get("left"), r = f.get("right");
+        if (l && r) {
+          const le = this.expr(l), re = this.expr(r);
+          const op = le === "null" || re === "null" ? "!=" : "!==";
+          return `(${le} ${op} ${re})`;
+        }
+        return bin("!==");
+      }
       case "less_than":    return bin("<");
       case "greater_than": return bin(">");
       case "lte":          return bin("<=");

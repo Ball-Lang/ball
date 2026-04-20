@@ -197,6 +197,7 @@ export class BallCompiler {
     const properties: Array<{
       name: string;
       type: string;
+      rawDartType: string;
       isStatic: boolean;
       isReadonly: boolean;
     }> = [];
@@ -210,6 +211,7 @@ export class BallCompiler {
       properties.push({
         name: fname,
         type: typeof r.type === "string" ? this.dartTypeToTs(r.type) : "any",
+        rawDartType: typeof r.type === "string" ? r.type : "",
         isStatic: r.is_static === true,
         isReadonly: r.is_final === true,
       });
@@ -217,7 +219,7 @@ export class BallCompiler {
     if (properties.length === 0 && td.descriptor?.field) {
       for (const f of td.descriptor.field) {
         fieldNames.add(f.name);
-        properties.push({ name: f.name, type: "any", isStatic: false, isReadonly: false });
+        properties.push({ name: f.name, type: "any", rawDartType: "", isStatic: false, isReadonly: false });
       }
     }
 
@@ -310,7 +312,7 @@ export class BallCompiler {
         type: p.type,
         isStatic: p.isStatic,
         isReadonly: p.isReadonly,
-        initializer: defaultInitializer(p.type),
+        initializer: defaultInitializer(p.type, p.rawDartType),
       })),
       ctors,
       methods,
@@ -764,9 +766,12 @@ export class BallCompiler {
     if (e.reference) {
       const name = e.reference.name;
       if (name === "this") return "this";
+      // Inside a class method, bare references to fields or sibling
+      // methods need `this.` prefix (Dart resolves implicitly; TS doesn't).
       if (
-        this.currentClassFields.has(name) &&
-        !this.currentMethodParams.has(name)
+        !this.currentMethodParams.has(name) &&
+        (this.currentClassFields.has(name) ||
+          this.currentClassMethodNames.has(name))
       ) {
         return `this.${sanitize(name)}`;
       }
@@ -1155,7 +1160,37 @@ export class BallCompiler {
         }
         return `new Map([${pairs.join(", ")}])`;
       }
-      case "map_create": return "new Map()";
+      case "set_create": {
+        const elements: string[] = [];
+        const inputFields = call.input?.messageCreation?.fields ?? [];
+        for (const fd of inputFields) {
+          elements.push(this.expr(fd.value));
+        }
+        if (elements.length === 0) return "new Set()";
+        return `new Set([${elements.join(", ")}])`;
+      }
+      case "map_create": {
+        // map_create can have entries passed as `entry` fields on the
+        // input MessageCreation. Each entry is a message with key/value.
+        // Emit as plain object {} (not new Map()) — JS Map doesn't
+        // support bracket access (m['k'] = v) but the compiled engine
+        // uses it throughout.
+        const mapEntries: string[] = [];
+        const inputFields = call.input?.messageCreation?.fields ?? [];
+        for (const fd of inputFields) {
+          if (fd.name === "entry" && fd.value.messageCreation) {
+            const mc = fd.value.messageCreation;
+            const mFields = mc.fields ?? [];
+            const kf = mFields.find((f: any) => f.name === "key");
+            const vf = mFields.find((f: any) => f.name === "value");
+            if (kf && vf) {
+              mapEntries.push(`${this.expr(kf.value)}: ${this.expr(vf.value)}`);
+            }
+          }
+        }
+        if (mapEntries.length === 0) return "{}";
+        return `{${mapEntries.join(", ")}}`;
+      }
       case "record": {
         const positional: string[] = [];
         const named: Array<[string, string]> = [];
@@ -1501,16 +1536,25 @@ function jsStringLiteral(s: string): string {
 /** Return a default initializer expression for a TS type string so
  *  class fields don't start as `undefined`. Dart fields are implicitly
  *  initialized (Map→{}, List→[], bool→false, etc.); TS fields are not.
+ *
+ *  Also accepts the raw Dart type string for cases where the TS mapper
+ *  lost precision (e.g. `Map<K, V Function(X)>` → `any` because the
+ *  function type triggered the early-return). Checking the Dart type
+ *  catches these.
  */
-function defaultInitializer(type: string): string | undefined {
+function defaultInitializer(type: string, rawDartType?: string): string | undefined {
   const t = type.trim();
-  if (t.startsWith("Map<")) return "new Map()";
-  if (t.startsWith("Array<") || t === "Array") return "[]";
-  if (t.startsWith("Set<") || t === "Set") return "new Set()";
-  if (t === "number") return "0";
-  if (t === "boolean") return "false";
-  if (t === "string") return "''";
-  // `any` and user types → no initializer (could be anything).
+  const d = (rawDartType ?? "").trim().replace(/\?$/, ""); // strip nullable
+  // Check both mapped TS type and raw Dart type.
+  // Use plain {} instead of new Map() — JS Map doesn't support
+  // bracket access (m['k'] = v), but the compiled engine uses it
+  // throughout for dispatch tables and caches.
+  if (t.startsWith("Map<") || d.startsWith("Map<") || d === "Map") return "{}";
+  if (t.startsWith("Array<") || t === "Array" || d.startsWith("List<") || d === "List") return "[]";
+  if (t.startsWith("Set<") || t === "Set" || d.startsWith("Set<") || d === "Set") return "new Set()";
+  if (t === "number" || d === "int" || d === "double" || d === "num") return "0";
+  if (t === "boolean" || d === "bool") return "false";
+  if (t === "string" || d === "String") return "''";
   return undefined;
 }
 

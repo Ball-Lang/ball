@@ -185,17 +185,33 @@ const __no_init__: unique symbol = Symbol('__no_init__');
       },
     });
   }
-  // Dart Map has .entries / .keys / .values as getters. For plain
-  // objects (which the compiled engine uses for dispatch maps), polyfill
-  // these on Object.prototype. MUST NOT shadow Map.prototype which
-  // already has .entries / .keys / .values as methods.
-  const _mapEntries = Map.prototype.entries;
-  const _mapKeys = Map.prototype.keys;
-  const _mapValues = Map.prototype.values;
+  // Dart Map has .entries / .keys / .values as GETTERS (no parens).
+  // JS Map has them as METHODS (need parens). The compiled engine
+  // accesses map.entries as a getter. Shadow BOTH Map.prototype AND
+  // Object.prototype so Map and plain-object dispatch tables work.
+  const _nativeMapEntries = Map.prototype.entries;
+  const _nativeMapKeys = Map.prototype.keys;
+  const _nativeMapValues = Map.prototype.values;
+  // Shadow Map.prototype.entries with a getter (Dart uses it as a getter).
+  Object.defineProperty(Map.prototype, 'entries', {
+    configurable: true, enumerable: false,
+    get() {
+      return [..._nativeMapEntries.call(this)].map(([k, v]: any) => ({ key: k, value: v }));
+    },
+  });
+  Object.defineProperty(Map.prototype, 'keys', {
+    configurable: true, enumerable: false,
+    get() { return [..._nativeMapKeys.call(this)]; },
+  });
+  Object.defineProperty(Map.prototype, 'values', {
+    configurable: true, enumerable: false,
+    get() { return [..._nativeMapValues.call(this)]; },
+  });
+  // For plain objects — same getters on Object.prototype.
   Object.defineProperty(op2, 'entries', {
     configurable: true, enumerable: false,
     get() {
-      if (this instanceof Map) return [..._mapEntries.call(this)].map(([k, v]: any) => ({ key: k, value: v }));
+      if (this instanceof Map) return [..._nativeMapEntries.call(this)].map(([k, v]: any) => ({ key: k, value: v }));
       if (this == null || typeof this !== 'object') return [];
       return Object.entries(this).map(([k, v]: any) => ({ key: k, value: v }));
     },
@@ -203,7 +219,7 @@ const __no_init__: unique symbol = Symbol('__no_init__');
   Object.defineProperty(op2, 'keys', {
     configurable: true, enumerable: false,
     get() {
-      if (this instanceof Map) return [..._mapKeys.call(this)];
+      if (this instanceof Map) return [..._nativeMapKeys.call(this)];
       if (this == null || typeof this !== 'object') return [];
       return Object.keys(this);
     },
@@ -211,7 +227,7 @@ const __no_init__: unique symbol = Symbol('__no_init__');
   Object.defineProperty(op2, 'values', {
     configurable: true, enumerable: false,
     get() {
-      if (this instanceof Map) return [..._mapValues.call(this)];
+      if (this instanceof Map) return [..._nativeMapValues.call(this)];
       if (this == null || typeof this !== 'object') return [];
       return Object.values(this);
     },

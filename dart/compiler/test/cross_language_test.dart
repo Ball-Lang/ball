@@ -31,7 +31,9 @@ import 'dart:io';
 
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_compiler/compiler.dart';
-import 'package:ball_compiler/ts_compiler.dart';
+// ts_compiler.dart was deleted — the canonical TS compiler lives in
+// ts/compiler/ (@ball-lang/compiler). The TS leg of this test shells
+// out to its CLI directly.
 import 'package:ball_encoder/encoder.dart';
 import 'package:ball_engine/engine.dart';
 import 'package:test/test.dart';
@@ -39,23 +41,13 @@ import 'package:test/test.dart';
 // ─── Pipeline-specific knobs ─────────────────────────────────────
 // Fixtures whose emitted C++ wouldn't run (e.g. uses a feature the C++
 // compiler doesn't fully support yet). Each entry is {fixture: reason}.
-const _skipCppCompile = <String, String>{
-  '36_catch_stack':
-      'C++ compiler does not yet bind the second `stack` param of `catch (e, st)`',
-};
+const _skipCppCompile = <String, String>{};
 
 // Fixtures skipped for every C++ pipeline (including engine and runner).
-const _skipCppAny = <String, String>{
-  '36_catch_stack':
-      'C++ engine does not yet bind the second `stack` param of `catch (e, st)`',
-};
+const _skipCppAny = <String, String>{};
 
-// Fixtures skipped for the TypeScript pipeline. Populate with a reason
-// string as gaps are discovered; empty set = no skips.
-const _skipTs = <String, String>{
-  '36_catch_stack':
-      'TypeScript compiler does not yet bind the second `stack` param of `catch (e, st)`',
-};
+// Fixtures skipped for the TypeScript pipeline.
+const _skipTs = <String, String>{};
 
 String _norm(String s) =>
     s.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trimRight();
@@ -90,19 +82,46 @@ String _runRecompiledDart(Program program, Directory scratch, String name) {
   return _runDartNative(out);
 }
 
-/// Compile Ball → TypeScript, run via `node --experimental-strip-types`.
-/// Returns null if `node` isn't on PATH. The emitted .ts file is always
-/// written so a failing test leaves something to inspect.
+/// Compile Ball → TypeScript via `@ball-lang/compiler` (ts/compiler/),
+/// then run via `node --experimental-strip-types`.
+/// Returns null if `node` isn't on PATH or the TS compiler isn't built.
 String? _runTsCompiled(Program program, Directory scratch, String name) {
-  // Build the source: runtime preamble + compiled program.
-  final tsSource = tsRuntimePreamble + '\n' + TsCompiler(program).compile();
-  final out = File('${scratch.path}/$name.regen.ts');
-  out.writeAsStringSync(tsSource);
-
-  // Node 22+ can run TypeScript directly via --experimental-strip-types.
-  // If node isn't on PATH, the test skips the pipeline.
   final nodeExe = Platform.isWindows ? 'node.exe' : 'node';
+
+  // Locate the @ball-lang/compiler CLI relative to the repo root.
+  var dir = Directory.current;
+  String? compilerCli;
+  while (true) {
+    final candidate = File('${dir.path}/ts/compiler/bin/ball-ts-compile.mjs');
+    if (candidate.existsSync()) {
+      compilerCli = candidate.absolute.path;
+      break;
+    }
+    final parent = dir.parent;
+    if (parent.path == dir.path) break;
+    dir = parent;
+  }
+  if (compilerCli == null) return null;
+
+  // Write program JSON to a temp file, invoke the TS compiler CLI.
+  final tmpIn = File('${scratch.path}/$name.ball.json');
+  tmpIn.writeAsStringSync(jsonEncode(program.toProto3Json()));
+  final out = File('${scratch.path}/$name.regen.ts');
+
   try {
+    final compile = Process.runSync(
+      nodeExe,
+      [compilerCli, tmpIn.path, '--out', out.path],
+      stdoutEncoding: utf8,
+      stderrEncoding: utf8,
+    );
+    if (compile.exitCode != 0) {
+      throw StateError(
+        'ball-ts-compile failed (rc=${compile.exitCode})\n'
+        'stderr:\n${compile.stderr}',
+      );
+    }
+
     final r = Process.runSync(
       nodeExe,
       [
@@ -117,7 +136,7 @@ String? _runTsCompiled(Program program, Directory scratch, String name) {
       throw StateError(
         'node run failed (rc=${r.exitCode})\n'
         'stderr:\n${r.stderr}\n'
-        '--- generated ts ---\n$tsSource',
+        '--- generated ts ---\n${out.readAsStringSync()}',
       );
     }
     return _norm(r.stdout as String);

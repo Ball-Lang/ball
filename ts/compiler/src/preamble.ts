@@ -58,6 +58,28 @@ function __ball_double_to_string(n: number): string {
 // Active exception for rethrow. Catch bodies shadow with a local.
 let __ball_active_error: any = undefined;
 
+// Dart type shims — provide static methods for Dart built-in types
+// that don't exist in JS (int, double, num, bool).
+const int = {
+  parse: (s: any) => { const n = parseInt(String(s), 10); if (isNaN(n)) throw new Error('FormatException: ' + s); return n; },
+  tryParse: (s: any) => { const n = parseInt(String(s), 10); return isNaN(n) ? null : n; },
+};
+const double = {
+  parse: (s: any) => { const n = parseFloat(String(s)); if (isNaN(n)) throw new Error('FormatException: ' + s); return n; },
+  tryParse: (s: any) => { const n = parseFloat(String(s)); return isNaN(n) ? null : n; },
+  infinity: Infinity,
+  nan: NaN,
+  negativeInfinity: -Infinity,
+};
+const num = {
+  parse: (s: any) => { const n = Number(s); if (isNaN(n)) throw new Error('FormatException: ' + s); return n; },
+  tryParse: (s: any) => { const n = Number(s); return isNaN(n) ? null : n; },
+};
+const bool = {
+  parse: (s: any) => { if (s === 'true') return true; if (s === 'false') return false; throw new Error('FormatException: ' + s); },
+  tryParse: (s: any) => { if (s === 'true') return true; if (s === 'false') return false; return null; },
+};
+
 // Sentinel for "not yet initialized" — used by the Dart engine for
 // late-initialized variables and block-scoped flow tracking.
 const __no_init__: unique symbol = Symbol('__no_init__');
@@ -120,6 +142,46 @@ const __no_init__: unique symbol = Symbol('__no_init__');
   Object.defineProperty(sp, 'isNotEmpty', {
     configurable: true, get() { return this.length !== 0; },
   });
+  // Dart String methods not on JS String.
+  if (!sp.replaceFirst) sp.replaceFirst = function (from: any, to: any) {
+    return this.replace(from instanceof RegExp ? from : String(from), to);
+  };
+  if (!sp.codeUnitAt) sp.codeUnitAt = function (i: any) { return this.charCodeAt(i); };
+  if (!sp.compareTo) sp.compareTo = function (other: any) {
+    return this < other ? -1 : this > other ? 1 : 0;
+  };
+  if (!sp.allMatches) sp.allMatches = function (pattern: any, start: any) {
+    const s = typeof start === 'number' ? this.substring(start) : this;
+    if (typeof pattern === 'string') {
+      return Array.from(s.matchAll(new RegExp(pattern, 'g')));
+    }
+    const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
+    return Array.from(s.matchAll(new RegExp(pattern.source, flags)));
+  };
+
+  // Dart RegExp polyfills.
+  const rp: any = RegExp.prototype;
+  if (!rp.firstMatch) rp.firstMatch = function (s: any) {
+    const m = this.exec(s);
+    if (m) m.group = (i: any) => m[i];
+    return m;
+  };
+  if (!rp.allMatches) rp.allMatches = function (s: any) {
+    const flags = this.flags.includes('g') ? this.flags : this.flags + 'g';
+    return [...s.matchAll(new RegExp(this.source, flags))];
+  };
+  if (!rp.hasMatch) rp.hasMatch = function (s: any) { return this.test(s); };
+
+  // Number polyfills for Dart-style methods.
+  const np: any = Number.prototype;
+  if (!np.toInt) np.toInt = function () { return Math.trunc(this); };
+  if (!np.toDouble) np.toDouble = function () { return this + 0.0; };
+  if (!np.compareTo) np.compareTo = function (other: any) {
+    return this < other ? -1 : this > other ? 1 : 0;
+  };
+  if (!np.clamp) np.clamp = function (lo: any, hi: any) {
+    return Math.min(Math.max(this, lo), hi);
+  };
 })();
 
 // ── Protobuf Struct/Value compatibility ─────────────────────────

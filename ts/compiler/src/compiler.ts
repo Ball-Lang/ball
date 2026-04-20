@@ -816,6 +816,20 @@ export class BallCompiler {
       return `new ${classTsName(tn)}(${args})`;
     }
 
+    // Dart/JS built-in constructors: RegExp, Map, Set, Error, etc.
+    // The encoder emits these as MessageCreation with typeName
+    // including the module prefix (e.g., 'main:RegExp'). Strip the
+    // prefix and emit as native constructors.
+    const builtinCtors = new Set([
+      "RegExp", "Map", "Set", "Error", "TypeError", "RangeError",
+      "DateTime", "Duration", "Uri", "BigInt", "Int64",
+    ]);
+    const shortTn = classTsName(tn);
+    if (builtinCtors.has(shortTn)) {
+      const args = this.extractPositionalAndNamed(fields);
+      return `new ${shortTn}(${args})`;
+    }
+
     // Fallback: tagged object literal.
     const entries = [
       `'__type': '${tn}'`,

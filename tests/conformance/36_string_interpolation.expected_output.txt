@@ -1,0 +1,3 @@
+Hello, world!
+Age: 25
+Sum: 5

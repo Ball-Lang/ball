@@ -15,11 +15,26 @@
     <div class="toolbar">
       <select id="examples" title="Load example program">
         <option value="">Examples...</option>
-        <option value="hello_world">Hello World</option>
-        <option value="fibonacci">Fibonacci</option>
-        <option value="fizzbuzz">FizzBuzz</option>
-        <option value="closures">Closures</option>
-        <option value="math_utils">Math Utils</option>
+        <optgroup label="Getting Started">
+          <option value="hello_world">Hello World</option>
+          <option value="fibonacci">Fibonacci</option>
+          <option value="fizzbuzz">FizzBuzz</option>
+          <option value="closures">Closures</option>
+          <option value="math_utils">Math Utils</option>
+        </optgroup>
+        <optgroup label="Algorithms">
+          <option value="bubble_sort">Bubble Sort</option>
+          <option value="binary_search">Binary Search</option>
+          <option value="prime_sieve">Prime Sieve</option>
+          <option value="roman_numerals">Roman Numerals</option>
+          <option value="gcd">GCD (Euclidean)</option>
+        </optgroup>
+        <optgroup label="Patterns">
+          <option value="triangle_pattern">Triangle Pattern</option>
+          <option value="string_reverse">String Reverse + Palindrome</option>
+          <option value="tower_of_hanoi">Tower of Hanoi</option>
+          <option value="collatz">Collatz Conjecture</option>
+        </optgroup>
       </select>
       <select id="language" title="Input language">
         <option value="ball_json">Ball JSON</option>
@@ -34,6 +49,7 @@
     <div class="pane" id="editorPane">
       <div class="pane-header">Editor</div>
       <div class="editor-container">
+        <div class="line-numbers" id="lineNumbers">1</div>
         <textarea id="editor" spellcheck="false" placeholder="Paste or write a Ball JSON program here..."></textarea>
       </div>
     </div>

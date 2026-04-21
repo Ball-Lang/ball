@@ -67,6 +67,8 @@ void main(List<String> args) {
       _resolve(rest);
     case 'tree':
       _tree(rest);
+    case 'publish':
+      _publish(rest);
     case 'version':
     case '--version':
     case '-v':
@@ -105,6 +107,7 @@ void _printUsage() {
   stderr.writeln('  init                         Create ball.yaml in current directory');
   stderr.writeln('  add      <spec>              Add dependency (pub:pkg@^1.0.0)');
   stderr.writeln('  resolve                      Resolve deps → ball.lock.json');
+  stderr.writeln('  publish                      Bake module.ball.bin into lib/');
   stderr.writeln('  tree                         Print dependency tree');
   stderr.writeln('  version                      Print version');
   stderr.writeln('  help                         Show this help');
@@ -819,6 +822,75 @@ Future<void> _resolve(List<String> args) async {
   });
   lockFile.writeAsStringSync(lockJson);
   stderr.writeln('\nWrote ball.lock.json (${lockEntries.length} packages)');
+}
+
+void _publish(List<String> args) {
+  // Encode the current project's Dart source to Ball IR, then write
+  // lib/module.ball.bin (binary protobuf) and lib/module.ball.json
+  // so downstream Ball projects can import this package directly.
+  final yamlFile = File('ball.yaml');
+  if (!yamlFile.existsSync()) {
+    // If no ball.yaml, look for pubspec.yaml (Dart package) and encode it.
+    final pubspec = File('pubspec.yaml');
+    if (!pubspec.existsSync()) {
+      stderr.writeln('Error: No ball.yaml or pubspec.yaml found.');
+      stderr.writeln('Run "ball init" first, or run from a Dart package directory.');
+      return;
+    }
+    stderr.writeln('No ball.yaml found. Encoding Dart package from pubspec.yaml...');
+    final encoder = PackageEncoder(Directory.current);
+    final program = encoder.encode();
+    _writeArtifacts(program);
+    return;
+  }
+
+  // Read ball.yaml for project info.
+  final yaml = loadYaml(yamlFile.readAsStringSync()) as YamlMap;
+  final name = yaml['name'] as String? ?? 'unnamed';
+
+  // Check if there's a Dart source to encode.
+  final libDir = Directory('lib');
+  if (libDir.existsSync()) {
+    stderr.writeln('Encoding Dart package "$name"...');
+    final encoder = PackageEncoder(Directory.current);
+    final program = encoder.encode();
+    _writeArtifacts(program);
+    return;
+  }
+
+  // If there's already a .ball.json program, just convert to binary.
+  final inputFile = args.isNotEmpty ? File(args[0]) : null;
+  if (inputFile != null && inputFile.existsSync()) {
+    stderr.writeln('Converting ${inputFile.path} to binary artifacts...');
+    final program = _loadProgram(inputFile.path);
+    _writeArtifacts(program);
+    return;
+  }
+
+  stderr.writeln('Error: No Dart source in lib/ and no .ball.json specified.');
+  stderr.writeln('Usage: ball publish [input.ball.json]');
+}
+
+void _writeArtifacts(Program program) {
+  final libDir = Directory('lib');
+  if (!libDir.existsSync()) libDir.createSync(recursive: true);
+
+  // Binary protobuf
+  final binFile = File('lib/module.ball.bin');
+  binFile.writeAsBytesSync(program.writeToBuffer());
+  stderr.writeln('  Wrote lib/module.ball.bin (${binFile.lengthSync()} bytes)');
+
+  // JSON (for human inspection / debugging)
+  final jsonFile = File('lib/module.ball.json');
+  final jsonStr = const JsonEncoder.withIndent('  ').convert(
+    jsonDecode(jsonEncode(program.toProto3Json())),
+  );
+  jsonFile.writeAsStringSync(jsonStr);
+  stderr.writeln('  Wrote lib/module.ball.json (${jsonFile.lengthSync()} bytes)');
+
+  stderr.writeln('\nBall artifacts ready for publishing.');
+  stderr.writeln('Downstream packages can import via:');
+  stderr.writeln('  ball add pub:${program.name}@^${program.version}');
 }
 
 Registry _parseRegistry(String name) {

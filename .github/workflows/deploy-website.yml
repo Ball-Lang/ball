@@ -54,6 +54,8 @@ jobs:
         run: |
           mkdir -p website/build/jaspr/playground
           cp web/playground/* website/build/jaspr/playground/
+          mkdir -p website/build/jaspr/playground/conformance
+          cp tests/conformance/*.ball.json website/build/jaspr/playground/conformance/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5

@@ -64,4 +64,25 @@ void main() {
       expect(lock.containsKey('packages'), isTrue);
     }
   }, timeout: Timeout(Duration(seconds: 60)));
+
+  test('ball publish creates artifacts from ball.json', () async {
+    // Copy a known ball program to the temp dir
+    final exampleSrc = File('../../examples/hello_world/hello_world.ball.json');
+    if (!exampleSrc.existsSync()) {
+      // Skip if example doesn't exist
+      return;
+    }
+    exampleSrc.copySync('${tmpDir.path}/hello.ball.json');
+
+    await ball(['init']);
+    final result = await ball(['publish', 'hello.ball.json']);
+    expect(result.exitCode, 0);
+
+    final binFile = File('${tmpDir.path}/lib/module.ball.bin');
+    final jsonFile = File('${tmpDir.path}/lib/module.ball.json');
+    expect(binFile.existsSync(), isTrue);
+    expect(jsonFile.existsSync(), isTrue);
+    expect(binFile.lengthSync(), greaterThan(0));
+    expect(jsonFile.lengthSync(), greaterThan(0));
+  });
 }

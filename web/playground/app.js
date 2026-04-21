@@ -275,6 +275,20 @@ const EXAMPLES = {
   }
 };
 
+// ── Conformance-based examples (loaded from bundled JSON) ────────────────────
+
+const CONFORMANCE_EXAMPLES = {
+  bubble_sort: '80_bubble_sort',
+  binary_search: '81_binary_search',
+  prime_sieve: '94_prime_sieve',
+  roman_numerals: '96_roman_numerals',
+  gcd: '72_gcd',
+  triangle_pattern: '68_triangle_pattern',
+  string_reverse: '82_string_reverse',
+  tower_of_hanoi: '89_tower_of_hanoi',
+  collatz: '60_collatz',
+};
+
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 
 const editor = document.getElementById('editor');
@@ -370,6 +384,7 @@ function formatJSON() {
   try {
     const parsed = JSON.parse(source);
     editor.value = JSON.stringify(parsed, null, 2);
+    updateLineNumbers();
   } catch (e) {
     appendOutput(`Format Error: ${e.message}`, 'output-error');
   }
@@ -404,6 +419,7 @@ function loadFromHash() {
   try {
     const decoded = decodeURIComponent(escape(atob(hash)));
     editor.value = decoded;
+    updateLineNumbers();
     return true;
   } catch {
     return false;
@@ -411,14 +427,37 @@ function loadFromHash() {
 }
 
 function loadExample(name) {
+  // Check built-in examples first
   const example = EXAMPLES[name];
-  if (!example) return;
-  editor.value = JSON.stringify(example, null, 2);
-  clearOutput();
-  updateProgramInfo(example);
-  updateStatus('idle', 'Ready');
-  // Clear hash when loading an example
-  history.replaceState(null, '', location.pathname);
+  if (example) {
+    editor.value = JSON.stringify(example, null, 2);
+    updateLineNumbers();
+    clearOutput();
+    updateProgramInfo(example);
+    updateStatus('idle', 'Ready');
+    history.replaceState(null, '', location.pathname);
+    return;
+  }
+
+  // Check conformance-based examples
+  const confName = CONFORMANCE_EXAMPLES[name];
+  if (confName) {
+    fetch(`conformance/${confName}.ball.json`)
+      .catch(() => fetch(`../../tests/conformance/${confName}.ball.json`))
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`Failed to load ${confName}`)))
+      .then(program => {
+        editor.value = JSON.stringify(program, null, 2);
+        updateLineNumbers();
+        clearOutput();
+        updateProgramInfo(program);
+        updateStatus('idle', 'Ready');
+        history.replaceState(null, '', location.pathname);
+      })
+      .catch(e => {
+        appendOutput(`Failed to load example: ${e.message}`, 'output-error');
+      });
+    return;
+  }
 }
 
 // ── Event listeners ───────────────────────────────────────────────────────────
@@ -488,6 +527,22 @@ document.addEventListener('mouseup', () => {
     isDragging = false;
     divider.classList.remove('dragging');
   }
+});
+
+// ── Line numbers ─────────────────────────────────────────────────────────────
+
+const lineNumbers = document.getElementById('lineNumbers');
+
+function updateLineNumbers() {
+  const lines = editor.value.split('\n').length;
+  const nums = [];
+  for (let i = 1; i <= lines; i++) nums.push(i);
+  lineNumbers.textContent = nums.join('\n');
+}
+
+editor.addEventListener('input', updateLineNumbers);
+editor.addEventListener('scroll', () => {
+  lineNumbers.scrollTop = editor.scrollTop;
 });
 
 // ── Initialization ────────────────────────────────────────────────────────────

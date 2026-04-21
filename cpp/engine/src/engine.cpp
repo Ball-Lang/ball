@@ -1705,7 +1705,8 @@ BallValue Engine::apply_compound_op(const std::string& op, BallValue current, Ba
     if (op == "-=") { if (both_int) return to_int(current) - to_int(val); return to_num(current) - to_num(val); }
     if (op == "*=") { if (both_int) return to_int(current) * to_int(val); return to_num(current) * to_num(val); }
     if (op == "/=") { auto d = to_num(val); if (d == 0.0) return static_cast<int64_t>(0); if (both_int) return to_int(current) / to_int(val); return to_num(current) / d; }
-    if (op == "%=") return to_int(current) % to_int(val);
+    if (op == "~/=") { auto d = to_int(val); return d != 0 ? to_int(current) / d : static_cast<int64_t>(0); }
+    if (op == "%=") { auto a = to_int(current), b = to_int(val); auto m = a % b; return m < 0 ? m + (b < 0 ? -b : b) : m; }
     if (op == "&=") return to_int(current) & to_int(val);
     if (op == "|=") return to_int(current) | to_int(val);
     if (op == "^=") return to_int(current) ^ to_int(val);
@@ -1739,7 +1740,7 @@ Engine::build_std_dispatch() {
         {"multiply", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); if(is_double(l)||is_double(r)) return to_double(l)*to_double(r); return to_int(l)*to_int(r); }},
         {"divide", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); auto rv=to_int(r); return rv!=0?to_int(l)/rv:static_cast<int64_t>(0); }},
         {"divide_double", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return to_double(l)/to_double(r); }},
-        {"modulo", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); if(is_double(l)||is_double(r)) return std::fmod(to_double(l),to_double(r)); return to_int(l)%to_int(r); }},
+        {"modulo", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); if(is_double(l)||is_double(r)) { auto a=to_double(l),b=to_double(r); auto m=std::fmod(a,b); return m<0?m+(b<0?-b:b):m; } auto a=to_int(l),b=to_int(r); auto m=a%b; return m<0?m+(b<0?-b:b):m; }},
         {"negate", [](BallValue i) -> BallValue { auto v=extract_unary(i); if(is_double(v)) return -to_double(v); return -to_int(v); }},
         {"equals", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return ball::to_string(l)==ball::to_string(r); }},
         {"not_equals", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return ball::to_string(l)!=ball::to_string(r); }},

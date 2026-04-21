@@ -192,7 +192,14 @@ std::string CppCompiler::sanitize_name(const std::string& name) {
     // C++ reserved words
     static const std::set<std::string> reserved = {
         "class", "struct", "new", "delete", "template", "typename",
-        "namespace", "operator", "default", "register", "explicit"
+        "namespace", "operator", "default", "register", "explicit",
+        "auto", "bool", "break", "case", "catch", "char", "const",
+        "continue", "do", "double", "else", "enum", "extern", "false",
+        "float", "for", "goto", "if", "inline", "int", "long",
+        "mutable", "private", "protected", "public", "return", "short",
+        "signed", "sizeof", "static", "switch", "this", "throw",
+        "true", "try", "typedef", "union", "unsigned", "using",
+        "virtual", "void", "volatile", "while",
     };
     if (reserved.count(result)) result += "_";
     // C stdlib / <cmath> / <cstdlib> names that would collide with
@@ -428,7 +435,7 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
     } else if (!func.input_type().empty()) {
         result += map_type(func.input_type()) + " input";
     }
-    result += ")";
+    result += ") mutable";
     if (!func.output_type().empty() && func.output_type() != "void") {
         result += " -> " + map_type(func.output_type());
     }
@@ -601,7 +608,11 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         return "(static_cast<double>(" + get_message_field(call, "left") +
                ") / " + get_message_field(call, "right") + ")";
     }
-    if (fn == "modulo") return compile_binary_op("%", call);
+    if (fn == "modulo") {
+        auto l = get_message_field(call, "left");
+        auto r = get_message_field(call, "right");
+        return "[&](auto _a, auto _b){ auto _r = _a % _b; return _r < 0 ? _r + (_b < 0 ? -_b : _b) : _r; }(" + l + ", " + r + ")";
+    }
     if (fn == "negate") return compile_unary_op("-", call);
 
     // ── Comparison ──
@@ -639,6 +650,9 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         std::string op = "=";
         if (op_expr && op_expr->expr_case() == ball::v1::Expression::kLiteral)
             op = op_expr->literal().string_value();
+        if (op == "~/=") {
+            return "(" + target + " = static_cast<int64_t>(" + target + " / " + val + "))";
+        }
         return "(" + target + " " + op + " " + val + ")";
     }
 

@@ -150,6 +150,7 @@ const __no_init__: unique symbol = Symbol('__no_init__');
     configurable: true, get() { return this.length !== 0; },
   });
   // Dart String methods not on JS String.
+  if (!sp.contains) sp.contains = function (s: any) { return this.includes(s); };
   if (!sp.replaceFirst) sp.replaceFirst = function (from: any, to: any) {
     return this.replace(from instanceof RegExp ? from : String(from), to);
   };

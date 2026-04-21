@@ -637,6 +637,10 @@ export class BallCompiler {
         const caseExprs = casesField.literal?.listValue?.elements ?? [];
         let defaultBody: Expression | undefined;
         let first = true;
+        // Parse all cases, detecting fall-through (empty body = merge
+        // with next case via ||).
+        const parsedCases: Array<{ conds: string[]; body?: Expression }> = [];
+        const pendingConds: string[] = [];
         for (const ce of caseExprs) {
           if (!ce.messageCreation) continue;
           let pattern: Expression | undefined;
@@ -645,17 +649,30 @@ export class BallCompiler {
             if (fd.name === "pattern") pattern = fd.value;
             if (fd.name === "body") body = fd.value;
           }
-          if (!body) continue;
           if (!pattern) { defaultBody = body; continue; }
           const patText = patternLiteralText(pattern);
           const cond = patText !== undefined
             ? patternToTsCondition(patText, "__sw")
             : `((__sw) === ${this.expr(pattern)})`;
           if (cond === "true") { defaultBody = body; break; }
+          // Empty body = fall-through: accumulate conditions.
+          const isEmpty = body && body.block &&
+            (body.block.statements ?? []).length === 0 &&
+            body.block.result === undefined;
+          if (!body || isEmpty) {
+            pendingConds.push(cond);
+            continue;
+          }
+          pendingConds.push(cond);
+          parsedCases.push({ conds: [...pendingConds], body });
+          pendingConds.length = 0;
+        }
+        for (const pc of parsedCases) {
+          const combinedCond = pc.conds.join(" || ");
           const kw = first ? "if" : "else if";
-          this.writeln(`${kw} (${cond}) {`);
+          this.writeln(`${kw} (${combinedCond}) {`);
           this.depth++;
-          this.emitStatementOrExpression(body, false);
+          this.emitStatementOrExpression(pc.body!, false);
           this.depth--;
           this.writeln("}");
           first = false;

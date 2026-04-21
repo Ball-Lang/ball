@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'website/**'
+      - 'web/playground/**'
       - 'examples/**'
       - '.github/workflows/deploy-website.yml'
   workflow_dispatch:
@@ -52,7 +53,7 @@ jobs:
       - name: Copy playground
         run: |
           mkdir -p website/build/jaspr/playground
-          cp website/playground/index.html website/build/jaspr/playground/index.html
+          cp web/playground/* website/build/jaspr/playground/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5

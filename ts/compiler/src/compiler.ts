@@ -1103,7 +1103,7 @@ export class BallCompiler {
       case "multiply":     return bin("*");
       case "divide":       return `Math.trunc(${this.expr(f.get("left")!)} / ${this.expr(f.get("right")!)})`;
       case "divide_double":return bin("/");
-      case "modulo":       return bin("%");
+      case "modulo":       return `__dart_mod(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
       case "negate":       return un("-");
       // Comparison
       case "equals": {

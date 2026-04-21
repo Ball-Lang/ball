@@ -55,6 +55,13 @@ function __ball_double_to_string(n: number): string {
   return n.toString();
 }
 
+// Dart-style Euclidean modulo: result is always non-negative.
+// JS % is remainder (can be negative), Dart % is Euclidean modulo.
+function __dart_mod(a: number, b: number): number {
+  const r = a % b;
+  return r < 0 ? r + (b < 0 ? -b : b) : r;
+}
+
 // Active exception for rethrow. Catch bodies shadow with a local.
 let __ball_active_error: any = undefined;
 

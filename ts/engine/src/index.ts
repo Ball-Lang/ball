@@ -511,7 +511,7 @@ export class BallEngine {
   private lazyFields(call: FunctionCall): Record<string, Expression> {
     if (!call.input?.messageCreation) return {};
     const result: Record<string, Expression> = {};
-    for (const f of call.input.messageCreation.fields) {
+    for (const f of call.input.messageCreation.fields ?? []) {
       result[f.name] = f.value;
     }
     return result;
@@ -740,7 +740,8 @@ export class BallEngine {
       case '-=': return a - b;
       case '*=': return a * b;
       case '/=': return Math.trunc(a / b);
-      case '%=': return a % b;
+      case '~/=': return Math.trunc(a / b);
+      case '%=': { const r = a % b; return r < 0 ? r + Math.abs(b) : r; }
       case '&=': return (a | 0) & (b | 0);
       case '|=': return (a | 0) | (b | 0);
       case '^=': return (a | 0) ^ (b | 0);
@@ -802,7 +803,7 @@ export class BallEngine {
       case 'multiply': return this.numOp(left, right, (a, b) => a * b);
       case 'divide': return Math.trunc(this.toNum(left) / this.toNum(right));
       case 'divide_double': return this.toNum(left) / this.toNum(right);
-      case 'modulo': return this.numOp(left, right, (a, b) => a % b);
+      case 'modulo': return this.numOp(left, right, (a, b) => { const r = a % b; return r < 0 ? r + Math.abs(b) : r; });
       case 'negate': return -this.toNum(value ?? input);
 
       // Comparison

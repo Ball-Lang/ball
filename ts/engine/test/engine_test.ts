@@ -202,7 +202,7 @@ try {
 
     test(`conformance: ${name}`, () => {
       const programJson = readFileSync(join(conformanceDir, file), 'utf-8');
-      const expectedOutput = readFileSync(expectedFile, 'utf-8').trim();
+      const expectedOutput = readFileSync(expectedFile, 'utf-8').replace(/\r\n/g, '\n').trim();
 
       const engine = new BallEngine(programJson);
       engine.run();

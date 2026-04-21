@@ -1255,7 +1255,11 @@ export class BallEngine {
       }
 
       // Collections
-      case 'list_push': { const l = [...(input?.list ?? [])]; l.push(input?.value); return l; }
+      case 'list_push': {
+        const l = input?.list;
+        if (Array.isArray(l)) { l.push(input?.value); return l; }
+        return [...(l ?? []), input?.value];
+      }
       case 'list_length': return (input?.list ?? input ?? []).length;
       case 'list_get': return (input?.list ?? [])[input?.index ?? 0];
       case 'list_map': {
@@ -1275,6 +1279,7 @@ export class BallEngine {
         if (Array.isArray(list)) { list.push(input?.value); return list; }
         return [...list, input?.value];
       }
+      case 'list_pop':
       case 'list_remove_last': {
         const list = input?.list ?? [];
         if (Array.isArray(list)) return list.pop();
@@ -1299,6 +1304,27 @@ export class BallEngine {
         return list.map((x: any) => this.ballToString(x)).join(String(sep));
       }
       case 'list_reversed': return [...(input?.list ?? [])].reverse();
+      case 'list_reverse': return [...(input?.list ?? [])].reverse();
+      case 'list_clear': return [];
+      case 'list_to_list': return [...(input?.list ?? [])];
+      case 'list_slice': {
+        const l = input?.list ?? [];
+        const s = input?.start != null ? this.toNum(input.start) : 0;
+        const e = input?.end != null ? this.toNum(input.end) : undefined;
+        return l.slice(s, e);
+      }
+      case 'list_all': {
+        const l = input?.list ?? [];
+        const fn = input?.function ?? input?.callback;
+        if (typeof fn === 'function') return l.every((x: any) => fn(x));
+        return true;
+      }
+      case 'map_put_if_absent': {
+        const m = input?.map ?? {};
+        const k = String(input?.key ?? '');
+        if (!(k in m)) { const v = input?.value; m[k] = typeof v === 'function' ? v() : v; }
+        return m[k];
+      }
       case 'list_sort': {
         const list = input?.list ?? [];
         const cmp = input?.compare ?? input?.comparator;

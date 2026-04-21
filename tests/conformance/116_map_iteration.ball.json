@@ -63,11 +63,25 @@
           "isBase": true
         },
         {
+          "name": "list_foreach",
+          "isBase": true
+        },
+        {
           "name": "assign",
           "isBase": true
         }
       ],
       "description": "Universal standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_foreach",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -203,12 +217,13 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "forEach",
+                      "module": "std_collections",
+                      "function": "list_foreach",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "scores"
@@ -216,7 +231,7 @@
                               }
                             },
                             {
-                              "name": "arg0",
+                              "name": "value",
                               "value": {
                                 "lambda": {
                                   "name": "",
@@ -358,12 +373,13 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "forEach",
+                      "module": "std_collections",
+                      "function": "list_foreach",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "scores"
@@ -371,7 +387,7 @@
                               }
                             },
                             {
-                              "name": "arg0",
+                              "name": "value",
                               "value": {
                                 "lambda": {
                                   "name": "",

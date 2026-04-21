@@ -59,6 +59,10 @@
           "isBase": true
         },
         {
+          "name": "list_push",
+          "isBase": true
+        },
+        {
           "name": "post_increment",
           "isBase": true
         },
@@ -96,6 +100,16 @@
         }
       ],
       "description": "Universal standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_push",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -214,12 +228,13 @@
                               "name": "body",
                               "value": {
                                 "call": {
-                                  "function": "add",
+                                  "module": "std",
+                                  "function": "assign",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "target",
                                           "value": {
                                             "reference": {
                                               "name": "result"
@@ -227,10 +242,33 @@
                                           }
                                         },
                                         {
-                                          "name": "arg0",
+                                          "name": "value",
                                           "value": {
-                                            "reference": {
-                                              "name": "i"
+                                            "call": {
+                                              "module": "std_collections",
+                                              "function": "list_push",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "list",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "result"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "i"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
                                             }
                                           }
                                         }
@@ -402,12 +440,13 @@
                                     {
                                       "expression": {
                                         "call": {
-                                          "function": "add",
+                                          "module": "std",
+                                          "function": "assign",
                                           "input": {
                                             "messageCreation": {
                                               "fields": [
                                                 {
-                                                  "name": "self",
+                                                  "name": "target",
                                                   "value": {
                                                     "reference": {
                                                       "name": "result"
@@ -415,10 +454,33 @@
                                                   }
                                                 },
                                                 {
-                                                  "name": "arg0",
+                                                  "name": "value",
                                                   "value": {
-                                                    "reference": {
-                                                      "name": "a"
+                                                    "call": {
+                                                      "module": "std_collections",
+                                                      "function": "list_push",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "fields": [
+                                                            {
+                                                              "name": "list",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "result"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "value",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "a"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
                                                     }
                                                   }
                                                 }
@@ -918,12 +980,13 @@
                                                   "name": "then",
                                                   "value": {
                                                     "call": {
-                                                      "function": "add",
+                                                      "module": "std",
+                                                      "function": "assign",
                                                       "input": {
                                                         "messageCreation": {
                                                           "fields": [
                                                             {
-                                                              "name": "self",
+                                                              "name": "target",
                                                               "value": {
                                                                 "reference": {
                                                                   "name": "result"
@@ -931,10 +994,33 @@
                                                               }
                                                             },
                                                             {
-                                                              "name": "arg0",
+                                                              "name": "value",
                                                               "value": {
-                                                                "reference": {
-                                                                  "name": "n"
+                                                                "call": {
+                                                                  "module": "std_collections",
+                                                                  "function": "list_push",
+                                                                  "input": {
+                                                                    "messageCreation": {
+                                                                      "fields": [
+                                                                        {
+                                                                          "name": "list",
+                                                                          "value": {
+                                                                            "reference": {
+                                                                              "name": "result"
+                                                                            }
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "name": "value",
+                                                                          "value": {
+                                                                            "reference": {
+                                                                              "name": "n"
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  }
                                                                 }
                                                               }
                                                             }

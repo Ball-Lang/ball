@@ -79,11 +79,21 @@
           "isBase": true
         },
         {
-          "name": "contains",
+          "name": "list_contains",
           "isBase": true
         }
       ],
       "description": "Universal standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_contains",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -402,12 +412,13 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "contains",
+                                  "module": "std_collections",
+                                  "function": "list_contains",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "value",
+                                          "name": "list",
                                           "value": {
                                             "reference": {
                                               "name": "result"
@@ -415,7 +426,7 @@
                                           }
                                         },
                                         {
-                                          "name": "arg0",
+                                          "name": "value",
                                           "value": {
                                             "literal": {
                                               "stringValue": "3"
@@ -424,8 +435,7 @@
                                         }
                                       ]
                                     }
-                                  },
-                                  "module": "std"
+                                  }
                                 }
                               }
                             }
@@ -448,12 +458,13 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "contains",
+                                  "module": "std_collections",
+                                  "function": "list_contains",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "value",
+                                          "name": "list",
                                           "value": {
                                             "reference": {
                                               "name": "result"
@@ -461,7 +472,7 @@
                                           }
                                         },
                                         {
-                                          "name": "arg0",
+                                          "name": "value",
                                           "value": {
                                             "literal": {
                                               "stringValue": "7"
@@ -470,8 +481,7 @@
                                         }
                                       ]
                                     }
-                                  },
-                                  "module": "std"
+                                  }
                                 }
                               }
                             }

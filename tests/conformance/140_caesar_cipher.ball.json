@@ -59,6 +59,10 @@
           "isBase": true
         },
         {
+          "name": "string_code_unit_at",
+          "isBase": true
+        },
+        {
           "name": "if",
           "isBase": true
         },
@@ -209,12 +213,13 @@
                                         "name": "code",
                                         "value": {
                                           "call": {
-                                            "function": "codeUnitAt",
+                                            "module": "std",
+                                            "function": "string_code_unit_at",
                                             "input": {
                                               "messageCreation": {
                                                 "fields": [
                                                   {
-                                                    "name": "self",
+                                                    "name": "value",
                                                     "value": {
                                                       "reference": {
                                                         "name": "text"
@@ -222,7 +227,7 @@
                                                     }
                                                   },
                                                   {
-                                                    "name": "arg0",
+                                                    "name": "index",
                                                     "value": {
                                                       "reference": {
                                                         "name": "i"

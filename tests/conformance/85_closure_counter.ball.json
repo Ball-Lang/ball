@@ -63,6 +63,14 @@
           "isBase": true
         },
         {
+          "name": "list_push",
+          "isBase": true
+        },
+        {
+          "name": "assign",
+          "isBase": true
+        },
+        {
           "name": "index",
           "isBase": true
         },
@@ -82,6 +90,16 @@
         }
       ],
       "description": "Dart-specific standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_push",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -225,12 +243,13 @@
                                     {
                                       "expression": {
                                         "call": {
-                                          "function": "list_add",
+                                          "module": "std",
+                                          "function": "assign",
                                           "input": {
                                             "messageCreation": {
                                               "fields": [
                                                 {
-                                                  "name": "list",
+                                                  "name": "target",
                                                   "value": {
                                                     "reference": {
                                                       "name": "counters"
@@ -238,55 +257,77 @@
                                                   }
                                                 },
                                                 {
-                                                  "name": "arg0",
+                                                  "name": "value",
                                                   "value": {
-                                                    "lambda": {
-                                                      "name": "",
-                                                      "body": {
-                                                        "block": {
-                                                          "statements": [
+                                                    "call": {
+                                                      "module": "std_collections",
+                                                      "function": "list_push",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "fields": [
                                                             {
-                                                              "expression": {
-                                                                "call": {
-                                                                  "module": "std",
-                                                                  "function": "post_increment",
-                                                                  "input": {
-                                                                    "messageCreation": {
-                                                                      "typeName": "",
-                                                                      "fields": [
+                                                              "name": "list",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "counters"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "value",
+                                                              "value": {
+                                                                "lambda": {
+                                                                  "name": "",
+                                                                  "body": {
+                                                                    "block": {
+                                                                      "statements": [
                                                                         {
-                                                                          "name": "value",
-                                                                          "value": {
-                                                                            "reference": {
-                                                                              "name": "count"
+                                                                          "expression": {
+                                                                            "call": {
+                                                                              "module": "std",
+                                                                              "function": "post_increment",
+                                                                              "input": {
+                                                                                "messageCreation": {
+                                                                                  "typeName": "",
+                                                                                  "fields": [
+                                                                                    {
+                                                                                      "name": "value",
+                                                                                      "value": {
+                                                                                        "reference": {
+                                                                                          "name": "count"
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  ]
+                                                                                }
+                                                                              }
                                                                             }
                                                                           }
                                                                         }
-                                                                      ]
+                                                                      ],
+                                                                      "result": {
+                                                                        "reference": {
+                                                                          "name": "count"
+                                                                        }
+                                                                      }
                                                                     }
+                                                                  },
+                                                                  "metadata": {
+                                                                    "kind": "lambda",
+                                                                    "has_return": true
                                                                   }
                                                                 }
                                                               }
                                                             }
-                                                          ],
-                                                          "result": {
-                                                            "reference": {
-                                                              "name": "count"
-                                                            }
-                                                          }
+                                                          ]
                                                         }
-                                                      },
-                                                      "metadata": {
-                                                        "kind": "lambda",
-                                                        "has_return": true
                                                       }
                                                     }
                                                   }
                                                 }
                                               ]
                                             }
-                                          },
-                                          "module": "std_collections"
+                                          }
                                         }
                                       }
                                     }

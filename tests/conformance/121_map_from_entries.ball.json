@@ -47,6 +47,10 @@
       ],
       "functions": [
         {
+          "name": "list_map",
+          "isBase": true
+        },
+        {
           "name": "concat",
           "isBase": true
         },
@@ -59,11 +63,29 @@
           "isBase": true
         },
         {
+          "name": "list_foreach",
+          "isBase": true
+        },
+        {
           "name": "multiply",
           "isBase": true
         }
       ],
       "description": "Universal standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_foreach",
+          "isBase": true
+        },
+        {
+          "name": "list_map",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -137,12 +159,13 @@
                                 "name": "arg0",
                                 "value": {
                                   "call": {
-                                    "function": "map",
+                                    "module": "std_collections",
+                                    "function": "list_map",
                                     "input": {
                                       "messageCreation": {
                                         "fields": [
                                           {
-                                            "name": "self",
+                                            "name": "list",
                                             "value": {
                                               "reference": {
                                                 "name": "words"
@@ -150,7 +173,7 @@
                                             }
                                           },
                                           {
-                                            "name": "arg0",
+                                            "name": "value",
                                             "value": {
                                               "lambda": {
                                                 "name": "",
@@ -215,12 +238,13 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "forEach",
+                      "module": "std_collections",
+                      "function": "list_foreach",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "wordLengths"
@@ -228,7 +252,7 @@
                               }
                             },
                             {
-                              "name": "arg0",
+                              "name": "value",
                               "value": {
                                 "lambda": {
                                   "name": "",
@@ -416,12 +440,13 @@
                                 "name": "arg0",
                                 "value": {
                                   "call": {
-                                    "function": "map",
+                                    "module": "std_collections",
+                                    "function": "list_map",
                                     "input": {
                                       "messageCreation": {
                                         "fields": [
                                           {
-                                            "name": "self",
+                                            "name": "list",
                                             "value": {
                                               "reference": {
                                                 "name": "nums"
@@ -429,7 +454,7 @@
                                             }
                                           },
                                           {
-                                            "name": "arg0",
+                                            "name": "value",
                                             "value": {
                                               "lambda": {
                                                 "name": "",
@@ -513,12 +538,13 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "forEach",
+                      "module": "std_collections",
+                      "function": "list_foreach",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "squareMap"
@@ -526,7 +552,7 @@
                               }
                             },
                             {
-                              "name": "arg0",
+                              "name": "value",
                               "value": {
                                 "lambda": {
                                   "name": "",

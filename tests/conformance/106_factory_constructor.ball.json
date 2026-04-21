@@ -55,6 +55,10 @@
           "isBase": true
         },
         {
+          "name": "map_contains_key",
+          "isBase": true
+        },
+        {
           "name": "return",
           "isBase": true
         },
@@ -84,6 +88,16 @@
         }
       ],
       "description": "Universal standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "map_contains_key",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -162,12 +176,13 @@
                               "name": "condition",
                               "value": {
                                 "call": {
-                                  "function": "containsKey",
+                                  "module": "std_collections",
+                                  "function": "map_contains_key",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "map",
                                           "value": {
                                             "reference": {
                                               "name": "_cache"
@@ -175,7 +190,7 @@
                                           }
                                         },
                                         {
-                                          "name": "arg0",
+                                          "name": "key",
                                           "value": {
                                             "reference": {
                                               "name": "name"

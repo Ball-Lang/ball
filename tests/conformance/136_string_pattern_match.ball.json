@@ -91,11 +91,25 @@
           "isBase": true
         },
         {
+          "name": "list_push",
+          "isBase": true
+        },
+        {
           "name": "print",
           "isBase": true
         }
       ],
       "description": "Universal standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_push",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -548,12 +562,13 @@
                                                   "name": "then",
                                                   "value": {
                                                     "call": {
-                                                      "function": "add",
+                                                      "module": "std",
+                                                      "function": "assign",
                                                       "input": {
                                                         "messageCreation": {
                                                           "fields": [
                                                             {
-                                                              "name": "self",
+                                                              "name": "target",
                                                               "value": {
                                                                 "reference": {
                                                                   "name": "positions"
@@ -561,10 +576,33 @@
                                                               }
                                                             },
                                                             {
-                                                              "name": "arg0",
+                                                              "name": "value",
                                                               "value": {
-                                                                "reference": {
-                                                                  "name": "i"
+                                                                "call": {
+                                                                  "module": "std_collections",
+                                                                  "function": "list_push",
+                                                                  "input": {
+                                                                    "messageCreation": {
+                                                                      "fields": [
+                                                                        {
+                                                                          "name": "list",
+                                                                          "value": {
+                                                                            "reference": {
+                                                                              "name": "positions"
+                                                                            }
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "name": "value",
+                                                                          "value": {
+                                                                            "reference": {
+                                                                              "name": "i"
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  }
                                                                 }
                                                               }
                                                             }

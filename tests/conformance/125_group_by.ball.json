@@ -67,11 +67,19 @@
           "isBase": true
         },
         {
+          "name": "map_contains_key",
+          "isBase": true
+        },
+        {
           "name": "assign",
           "isBase": true
         },
         {
           "name": "index",
+          "isBase": true
+        },
+        {
+          "name": "list_push",
           "isBase": true
         },
         {
@@ -84,6 +92,10 @@
         },
         {
           "name": "modulo",
+          "isBase": true
+        },
+        {
+          "name": "list_to_list",
           "isBase": true
         },
         {
@@ -114,6 +126,24 @@
         }
       ],
       "description": "Dart-specific standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_push",
+          "isBase": true
+        },
+        {
+          "name": "list_to_list",
+          "isBase": true
+        },
+        {
+          "name": "map_contains_key",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -235,12 +265,13 @@
                                                               "name": "value",
                                                               "value": {
                                                                 "call": {
-                                                                  "function": "containsKey",
+                                                                  "module": "std_collections",
+                                                                  "function": "map_contains_key",
                                                                   "input": {
                                                                     "messageCreation": {
                                                                       "fields": [
                                                                         {
-                                                                          "name": "self",
+                                                                          "name": "map",
                                                                           "value": {
                                                                             "reference": {
                                                                               "name": "groups"
@@ -248,7 +279,7 @@
                                                                           }
                                                                         },
                                                                         {
-                                                                          "name": "arg0",
+                                                                          "name": "key",
                                                                           "value": {
                                                                             "reference": {
                                                                               "name": "key"
@@ -332,12 +363,13 @@
                                     {
                                       "expression": {
                                         "call": {
-                                          "function": "add",
+                                          "module": "std_collections",
+                                          "function": "list_push",
                                           "input": {
                                             "messageCreation": {
                                               "fields": [
                                                 {
-                                                  "name": "self",
+                                                  "name": "list",
                                                   "value": {
                                                     "call": {
                                                       "module": "std",
@@ -385,7 +417,7 @@
                                                   }
                                                 },
                                                 {
-                                                  "name": "arg0",
+                                                  "name": "value",
                                                   "value": {
                                                     "reference": {
                                                       "name": "n"
@@ -649,12 +681,13 @@
                                 "name": "target",
                                 "value": {
                                   "call": {
-                                    "function": "toList",
+                                    "module": "std_collections",
+                                    "function": "list_to_list",
                                     "input": {
                                       "messageCreation": {
                                         "fields": [
                                           {
-                                            "name": "self",
+                                            "name": "list",
                                             "value": {
                                               "fieldAccess": {
                                                 "object": {
@@ -1002,12 +1035,13 @@
                                 "name": "target",
                                 "value": {
                                   "call": {
-                                    "function": "toList",
+                                    "module": "std_collections",
+                                    "function": "list_to_list",
                                     "input": {
                                       "messageCreation": {
                                         "fields": [
                                           {
-                                            "name": "self",
+                                            "name": "list",
                                             "value": {
                                               "fieldAccess": {
                                                 "object": {

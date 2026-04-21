@@ -83,6 +83,10 @@
           "isBase": true
         },
         {
+          "name": "math_clamp",
+          "isBase": true
+        },
+        {
           "name": "negate",
           "isBase": true
         }
@@ -717,12 +721,13 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "clamp",
+                                  "module": "std",
+                                  "function": "math_clamp",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "value",
                                           "value": {
                                             "reference": {
                                               "name": "MathUtils"
@@ -730,7 +735,7 @@
                                           }
                                         },
                                         {
-                                          "name": "arg0",
+                                          "name": "min",
                                           "value": {
                                             "literal": {
                                               "intValue": "5"
@@ -738,7 +743,7 @@
                                           }
                                         },
                                         {
-                                          "name": "arg1",
+                                          "name": "max",
                                           "value": {
                                             "literal": {
                                               "intValue": "0"
@@ -778,12 +783,13 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "clamp",
+                                  "module": "std",
+                                  "function": "math_clamp",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "value",
                                           "value": {
                                             "reference": {
                                               "name": "MathUtils"
@@ -791,7 +797,7 @@
                                           }
                                         },
                                         {
-                                          "name": "arg0",
+                                          "name": "min",
                                           "value": {
                                             "call": {
                                               "module": "std",
@@ -815,7 +821,7 @@
                                           }
                                         },
                                         {
-                                          "name": "arg1",
+                                          "name": "max",
                                           "value": {
                                             "literal": {
                                               "intValue": "0"
@@ -855,12 +861,13 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "clamp",
+                                  "module": "std",
+                                  "function": "math_clamp",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "value",
                                           "value": {
                                             "reference": {
                                               "name": "MathUtils"
@@ -868,7 +875,7 @@
                                           }
                                         },
                                         {
-                                          "name": "arg0",
+                                          "name": "min",
                                           "value": {
                                             "literal": {
                                               "intValue": "15"
@@ -876,7 +883,7 @@
                                           }
                                         },
                                         {
-                                          "name": "arg1",
+                                          "name": "max",
                                           "value": {
                                             "literal": {
                                               "intValue": "0"

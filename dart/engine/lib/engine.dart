@@ -2643,6 +2643,25 @@ class BallEngine {
         final m = i as Map<String, Object?>;
         return [...(m['list'] as List), ...(m['value'] as List)];
       },
+      'list_clear': (i) => <Object?>[],
+      'list_to_list': (i) => ((i as Map<String, Object?>)['list'] as List).toList(),
+      'list_foreach': (i) async {
+        final m = i as Map<String, Object?>;
+        final list = m['list'] as List;
+        final fn = m['function'] ?? m['value'];
+        if (fn is Function) {
+          for (final item in list) {
+            await fn(item);
+          }
+        }
+        return null;
+      },
+      'list_join': (i) {
+        final m = i as Map<String, Object?>;
+        final list = m['list'] as List;
+        final sep = m['separator']?.toString() ?? ',';
+        return list.map((e) => e.toString()).join(sep);
+      },
 
       // std_collections — map operations
       'map_get': (i) {
@@ -2664,6 +2683,20 @@ class BallEngine {
       'map_contains_key': (i) {
         final m = i as Map<String, Object?>;
         return (m['map'] as Map).containsKey(m['key']);
+      },
+      'map_contains_value': (i) {
+        final m = i as Map<String, Object?>;
+        return (m['map'] as Map).containsValue(m['value']);
+      },
+      'map_put_if_absent': (i) {
+        final m = i as Map<String, Object?>;
+        final map = m['map'] as Map;
+        final key = m['key'] as String;
+        if (!map.containsKey(key)) {
+          final val = m['value'];
+          map[key] = val is Function ? val() : val;
+        }
+        return map[key];
       },
       'map_keys': (i) =>
           ((i as Map<String, Object?>)['map'] as Map).keys.toList(),

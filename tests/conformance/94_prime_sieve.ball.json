@@ -113,12 +113,12 @@
                     "name": "sieve",
                     "value": {
                       "call": {
-                        "function": "list_filled",
+                        "function": "filled",
                         "input": {
                           "messageCreation": {
                             "fields": [
                               {
-                                "name": "list",
+                                "name": "self",
                                 "value": {
                                   "reference": {
                                     "name": "List"
@@ -167,8 +167,7 @@
                               }
                             ]
                           }
-                        },
-                        "module": "std_collections"
+                        }
                       }
                     },
                     "metadata": {

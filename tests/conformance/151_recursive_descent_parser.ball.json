@@ -75,7 +75,15 @@
           "isBase": true
         },
         {
+          "name": "string_code_unit_at",
+          "isBase": true
+        },
+        {
           "name": "lte",
+          "isBase": true
+        },
+        {
+          "name": "string_substring",
           "isBase": true
         },
         {
@@ -400,12 +408,13 @@
                                                                   "name": "left",
                                                                   "value": {
                                                                     "call": {
-                                                                      "function": "codeUnitAt",
+                                                                      "module": "std",
+                                                                      "function": "string_code_unit_at",
                                                                       "input": {
                                                                         "messageCreation": {
                                                                           "fields": [
                                                                             {
-                                                                              "name": "self",
+                                                                              "name": "value",
                                                                               "value": {
                                                                                 "reference": {
                                                                                   "name": "input"
@@ -413,7 +422,7 @@
                                                                               }
                                                                             },
                                                                             {
-                                                                              "name": "arg0",
+                                                                              "name": "index",
                                                                               "value": {
                                                                                 "reference": {
                                                                                   "name": "pos"
@@ -460,12 +469,13 @@
                                                       "name": "left",
                                                       "value": {
                                                         "call": {
-                                                          "function": "codeUnitAt",
+                                                          "module": "std",
+                                                          "function": "string_code_unit_at",
                                                           "input": {
                                                             "messageCreation": {
                                                               "fields": [
                                                                 {
-                                                                  "name": "self",
+                                                                  "name": "value",
                                                                   "value": {
                                                                     "reference": {
                                                                       "name": "input"
@@ -473,7 +483,7 @@
                                                                   }
                                                                 },
                                                                 {
-                                                                  "name": "arg0",
+                                                                  "name": "index",
                                                                   "value": {
                                                                     "reference": {
                                                                       "name": "pos"
@@ -549,12 +559,13 @@
                           "name": "value",
                           "value": {
                             "call": {
-                              "function": "substring",
+                              "module": "std",
+                              "function": "string_substring",
                               "input": {
                                 "messageCreation": {
                                   "fields": [
                                     {
-                                      "name": "self",
+                                      "name": "value",
                                       "value": {
                                         "reference": {
                                           "name": "input"
@@ -562,7 +573,7 @@
                                       }
                                     },
                                     {
-                                      "name": "arg0",
+                                      "name": "start",
                                       "value": {
                                         "reference": {
                                           "name": "start"
@@ -570,7 +581,7 @@
                                       }
                                     },
                                     {
-                                      "name": "arg1",
+                                      "name": "end",
                                       "value": {
                                         "reference": {
                                           "name": "pos"

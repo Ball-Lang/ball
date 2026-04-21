@@ -91,6 +91,9 @@ class DartEncoder {
   /// Set of std base function names discovered during encoding.
   final Set<String> _usedBaseFunctions = {};
 
+  /// Set of std_collections base function names discovered during encoding.
+  final Set<String> _usedCollectionsFunctions = {};
+
   /// Ball module name for the file currently being encoded.
   /// All user-defined type names are prefixed with `"$_moduleName:"`.
   String _moduleName = 'main';
@@ -132,6 +135,7 @@ class DartEncoder {
     _prefixToModule.clear();
     _importedModules.clear();
     _usedBaseFunctions.clear();
+    _usedCollectionsFunctions.clear();
     _importDetails.clear();
     _exportDetails.clear();
     _partDetails.clear();
@@ -213,14 +217,17 @@ class DartEncoder {
   ///
   /// Use after a sequence of [encodeModule] calls to obtain the shared base
   /// modules for a whole package.
-  ({Module stdModule, Module? dartStdModule}) buildStdModules() =>
-      (stdModule: _buildStdModule(), dartStdModule: _buildDartStdModule());
+  ({Module stdModule, Module? dartStdModule, Module? collectionsModule}) buildStdModules() =>
+      (stdModule: _buildStdModule(), dartStdModule: _buildDartStdModule(), collectionsModule: _buildCollectionsModule());
 
   /// Clear the accumulated set of used base functions.
   ///
   /// Call this between encoding independent packages when reusing a single
   /// [DartEncoder] instance.
-  void clearStdAccumulator() => _usedBaseFunctions.clear();
+  void clearStdAccumulator() {
+    _usedBaseFunctions.clear();
+    _usedCollectionsFunctions.clear();
+  }
 
   // ============================================================
   // Import resolution
@@ -378,13 +385,14 @@ class DartEncoder {
     final (:module, :importStubs) = _buildModule(unit, moduleName: 'main');
     final stdModule = _buildStdModule();
     final dartStdModule = _buildDartStdModule();
+    final collectionsModule = _buildCollectionsModule();
 
     return Program()
       ..name = name
       ..version = version
       ..entryModule = 'main'
       ..entryFunction = 'main'
-      ..modules.addAll([stdModule, ?dartStdModule, ...importStubs, module]);
+      ..modules.addAll([stdModule, ?dartStdModule, ?collectionsModule, ...importStubs, module]);
   }
 
   /// Builds a single ball [Module] from a parsed compilation unit.
@@ -639,6 +647,24 @@ class DartEncoder {
     return Module()
       ..name = 'dart_std'
       ..description = 'Dart-specific standard library base module'
+      ..functions.addAll(functions);
+  }
+
+  Module? _buildCollectionsModule() {
+    if (_usedCollectionsFunctions.isEmpty) return null;
+
+    final functions = <FunctionDefinition>[];
+    for (final name in _usedCollectionsFunctions.toList()..sort()) {
+      functions.add(
+        FunctionDefinition()
+          ..name = name
+          ..isBase = true,
+      );
+    }
+
+    return Module()
+      ..name = 'std_collections'
+      ..description = 'Collections standard library base module'
       ..functions.addAll(functions);
   }
 
@@ -2796,8 +2822,139 @@ class DartEncoder {
       return _buildStdCall('null_aware_call', naFields);
     }
 
-    // Generic method call on an object.
+    // Collection/built-in method calls route to std_collections or std
+    // with explicit module + descriptive function names. This ensures the
+    // compiled engine (which dispatches by module.function) handles them
+    // correctly instead of conflating e.g. list.add with arithmetic add.
     if (realTarget != null) {
+      const collectionRoutes = <String, (String, String, String)>{
+        // methodName -> (module, function, selfFieldName)
+        // Names MUST match the Dart engine's _buildStdDispatch keys.
+        'add': ('std_collections', 'list_push', 'list'),
+        'addAll': ('std_collections', 'list_concat', 'list'),
+        'removeLast': ('std_collections', 'list_pop', 'list'),
+        'removeAt': ('std_collections', 'list_remove_at', 'list'),
+        'insert': ('std_collections', 'list_insert', 'list'),
+        'clear': ('std_collections', 'list_clear', 'list'),
+        'contains': ('std_collections', 'list_contains', 'list'),
+        'indexOf': ('std_collections', 'list_index_of', 'list'),
+        'join': ('std_collections', 'list_join', 'list'),
+        'sublist': ('std_collections', 'list_slice', 'list'),
+        'sort': ('std_collections', 'list_sort', 'list'),
+        'reversed': ('std_collections', 'list_reverse', 'list'),
+        'toList': ('std_collections', 'list_to_list', 'list'),
+        'map': ('std_collections', 'list_map', 'list'),
+        'where': ('std_collections', 'list_filter', 'list'),
+        'forEach': ('std_collections', 'list_foreach', 'list'),
+        'any': ('std_collections', 'list_any', 'list'),
+        'every': ('std_collections', 'list_all', 'list'),
+        'reduce': ('std_collections', 'list_reduce', 'list'),
+        'containsKey': ('std_collections', 'map_contains_key', 'map'),
+        'containsValue': ('std_collections', 'map_contains_value', 'map'),
+        'putIfAbsent': ('std_collections', 'map_put_if_absent', 'map'),
+        'toDouble': ('std', 'to_double', 'value'),
+        'toInt': ('std', 'to_int', 'value'),
+        'clamp': ('std', 'math_clamp', 'value'),
+        'compareTo': ('std', 'compare_to', 'value'),
+        'toStringAsFixed': ('std', 'to_string_as_fixed', 'value'),
+        'substring': ('std', 'string_substring', 'value'),
+        'split': ('std', 'string_split', 'value'),
+        'replaceAll': ('std', 'string_replace', 'value'),
+        'startsWith': ('std', 'string_starts_with', 'value'),
+        'endsWith': ('std', 'string_ends_with', 'value'),
+        'padLeft': ('std', 'string_pad_left', 'value'),
+        'padRight': ('std', 'string_pad_right', 'value'),
+        'codeUnitAt': ('std', 'string_code_unit_at', 'value'),
+      };
+
+      final route = collectionRoutes[methodName];
+      if (route != null) {
+        final (module, fnName, selfField) = route;
+        _usedBaseFunctions.add(fnName);
+        if (module == 'std_collections') _usedCollectionsFunctions.add(fnName);
+        // Rename generic arg0/arg1 to meaningful field names for the
+        // target std function so engines can dispatch by field name.
+        final renamedArgs = <FieldValuePair>[...args];
+        for (var i = 0; i < renamedArgs.length; i++) {
+          final a = renamedArgs[i];
+          if (a.name == 'arg0') {
+            a.name = switch (fnName) {
+              'list_add' || 'list_contains' || 'list_index_of' => 'value',
+              'list_join' => 'separator',
+              'list_insert' => 'index',
+              'list_remove_at' => 'index',
+              'list_sublist' => 'start',
+              'map_contains_key' => 'key',
+              'map_contains_value' => 'value',
+              'map_remove' => 'key',
+              'map_put_if_absent' => 'key',
+              'string_substring' => 'start',
+              'string_split' => 'separator',
+              'string_replace' => 'from',
+              'string_starts_with' || 'string_ends_with' => 'pattern',
+              'string_pad_left' || 'string_pad_right' => 'width',
+              'string_code_unit_at' => 'index',
+              'math_clamp' => 'min',
+              'compare_to' => 'other',
+              'to_string_as_fixed' => 'digits',
+              _ => 'value',
+            };
+          } else if (a.name == 'arg1') {
+            a.name = switch (fnName) {
+              'list_insert' => 'value',
+              'list_sublist' => 'end',
+              'map_put_if_absent' => 'value',
+              'string_substring' => 'end',
+              'string_replace' => 'to',
+              'string_pad_left' || 'string_pad_right' => 'fill',
+              'math_clamp' => 'max',
+              _ => 'value',
+            };
+          }
+        }
+        final encodedTarget = _encodeExpr(realTarget);
+        final routedFields = <FieldValuePair>[
+          FieldValuePair()
+            ..name = selfField
+            ..value = encodedTarget,
+          ...renamedArgs,
+        ];
+        final callExpr = Expression()
+          ..call = (FunctionCall()
+            ..module = module
+            ..function = fnName
+            ..input = (Expression()
+              ..messageCreation = (MessageCreation()
+                ..fields.addAll(routedFields))));
+
+        // Mutating methods: wrap in assign(target, value) so the
+        // variable in scope gets the new/mutated collection.
+        const mutatingMethods = {
+          'list_push', 'list_clear', 'list_sort',
+          'list_insert', 'list_remove_at', 'list_concat',
+        };
+        if (mutatingMethods.contains(fnName) &&
+            realTarget is ast.SimpleIdentifier) {
+          _usedBaseFunctions.add('assign');
+          return Expression()
+            ..call = (FunctionCall()
+              ..module = _moduleForFunction('assign')
+              ..function = 'assign'
+              ..input = (Expression()
+                ..messageCreation = (MessageCreation()
+                  ..fields.addAll([
+                    FieldValuePair()
+                      ..name = 'target'
+                      ..value = encodedTarget,
+                    FieldValuePair()
+                      ..name = 'value'
+                      ..value = callExpr,
+                  ]))));
+        }
+        return callExpr;
+      }
+
+      // Generic method call on an object — fallback for unknown methods.
       final call = FunctionCall()..function = methodName;
       final methodArgs = <FieldValuePair>[
         FieldValuePair()

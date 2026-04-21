@@ -63,15 +63,19 @@
           "isBase": true
         },
         {
+          "name": "list_push",
+          "isBase": true
+        },
+        {
+          "name": "assign",
+          "isBase": true
+        },
+        {
           "name": "if",
           "isBase": true
         },
         {
           "name": "greater_than",
-          "isBase": true
-        },
-        {
-          "name": "assign",
           "isBase": true
         },
         {
@@ -92,6 +96,16 @@
         }
       ],
       "description": "Universal standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_push",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -166,12 +180,13 @@
                               "name": "body",
                               "value": {
                                 "call": {
-                                  "function": "add",
+                                  "module": "std",
+                                  "function": "assign",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "target",
                                           "value": {
                                             "reference": {
                                               "name": "output"
@@ -179,17 +194,24 @@
                                           }
                                         },
                                         {
-                                          "name": "arg0",
+                                          "name": "value",
                                           "value": {
                                             "call": {
-                                              "module": "std",
-                                              "function": "concat",
+                                              "module": "std_collections",
+                                              "function": "list_push",
                                               "input": {
                                                 "messageCreation": {
-                                                  "typeName": "",
                                                   "fields": [
                                                     {
-                                                      "name": "left",
+                                                      "name": "list",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "output"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "value",
                                                       "value": {
                                                         "call": {
                                                           "module": "std",
@@ -203,16 +225,40 @@
                                                                   "value": {
                                                                     "call": {
                                                                       "module": "std",
-                                                                      "function": "to_string",
+                                                                      "function": "concat",
                                                                       "input": {
                                                                         "messageCreation": {
                                                                           "typeName": "",
                                                                           "fields": [
                                                                             {
-                                                                              "name": "value",
+                                                                              "name": "left",
                                                                               "value": {
-                                                                                "reference": {
-                                                                                  "name": "name"
+                                                                                "call": {
+                                                                                  "module": "std",
+                                                                                  "function": "to_string",
+                                                                                  "input": {
+                                                                                    "messageCreation": {
+                                                                                      "typeName": "",
+                                                                                      "fields": [
+                                                                                        {
+                                                                                          "name": "value",
+                                                                                          "value": {
+                                                                                            "reference": {
+                                                                                              "name": "name"
+                                                                                            }
+                                                                                          }
+                                                                                        }
+                                                                                      ]
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              }
+                                                                            },
+                                                                            {
+                                                                              "name": "right",
+                                                                              "value": {
+                                                                                "literal": {
+                                                                                  "stringValue": ": "
                                                                                 }
                                                                               }
                                                                             }
@@ -225,32 +271,24 @@
                                                                 {
                                                                   "name": "right",
                                                                   "value": {
-                                                                    "literal": {
-                                                                      "stringValue": ": "
-                                                                    }
-                                                                  }
-                                                                }
-                                                              ]
-                                                            }
-                                                          }
-                                                        }
-                                                      }
-                                                    },
-                                                    {
-                                                      "name": "right",
-                                                      "value": {
-                                                        "call": {
-                                                          "module": "std",
-                                                          "function": "to_string",
-                                                          "input": {
-                                                            "messageCreation": {
-                                                              "typeName": "",
-                                                              "fields": [
-                                                                {
-                                                                  "name": "value",
-                                                                  "value": {
-                                                                    "reference": {
-                                                                      "name": "step"
+                                                                    "call": {
+                                                                      "module": "std",
+                                                                      "function": "to_string",
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "typeName": "",
+                                                                          "fields": [
+                                                                            {
+                                                                              "name": "value",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "step"
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      }
                                                                     }
                                                                   }
                                                                 }
@@ -626,12 +664,13 @@
                                                               "name": "then",
                                                               "value": {
                                                                 "call": {
-                                                                  "function": "add",
+                                                                  "module": "std",
+                                                                  "function": "assign",
                                                                   "input": {
                                                                     "messageCreation": {
                                                                       "fields": [
                                                                         {
-                                                                          "name": "self",
+                                                                          "name": "target",
                                                                           "value": {
                                                                             "reference": {
                                                                               "name": "result"
@@ -639,28 +678,51 @@
                                                                           }
                                                                         },
                                                                         {
-                                                                          "name": "arg0",
+                                                                          "name": "value",
                                                                           "value": {
                                                                             "call": {
-                                                                              "module": "std",
-                                                                              "function": "index",
+                                                                              "module": "std_collections",
+                                                                              "function": "list_push",
                                                                               "input": {
                                                                                 "messageCreation": {
-                                                                                  "typeName": "",
                                                                                   "fields": [
                                                                                     {
-                                                                                      "name": "target",
+                                                                                      "name": "list",
                                                                                       "value": {
                                                                                         "reference": {
-                                                                                          "name": "t"
+                                                                                          "name": "result"
                                                                                         }
                                                                                       }
                                                                                     },
                                                                                     {
-                                                                                      "name": "index",
+                                                                                      "name": "value",
                                                                                       "value": {
-                                                                                        "reference": {
-                                                                                          "name": "i"
+                                                                                        "call": {
+                                                                                          "module": "std",
+                                                                                          "function": "index",
+                                                                                          "input": {
+                                                                                            "messageCreation": {
+                                                                                              "typeName": "",
+                                                                                              "fields": [
+                                                                                                {
+                                                                                                  "name": "target",
+                                                                                                  "value": {
+                                                                                                    "reference": {
+                                                                                                      "name": "t"
+                                                                                                    }
+                                                                                                  }
+                                                                                                },
+                                                                                                {
+                                                                                                  "name": "index",
+                                                                                                  "value": {
+                                                                                                    "reference": {
+                                                                                                      "name": "i"
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                              ]
+                                                                                            }
+                                                                                          }
                                                                                         }
                                                                                       }
                                                                                     }

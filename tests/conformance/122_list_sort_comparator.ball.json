@@ -47,6 +47,18 @@
       ],
       "functions": [
         {
+          "name": "compare_to",
+          "isBase": true
+        },
+        {
+          "name": "list_sort",
+          "isBase": true
+        },
+        {
+          "name": "assign",
+          "isBase": true
+        },
+        {
           "name": "concat",
           "isBase": true
         },
@@ -60,6 +72,16 @@
         }
       ],
       "description": "Universal standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_sort",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -120,12 +142,13 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "sort",
+                      "module": "std",
+                      "function": "assign",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "target",
                               "value": {
                                 "reference": {
                                   "name": "nums"
@@ -133,49 +156,73 @@
                               }
                             },
                             {
-                              "name": "arg0",
+                              "name": "value",
                               "value": {
-                                "lambda": {
-                                  "name": "",
-                                  "body": {
-                                    "call": {
-                                      "function": "compareTo",
-                                      "input": {
-                                        "messageCreation": {
-                                          "fields": [
-                                            {
-                                              "name": "self",
-                                              "value": {
-                                                "reference": {
-                                                  "name": "a"
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "list_sort",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "list",
+                                          "value": {
+                                            "reference": {
+                                              "name": "nums"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "lambda": {
+                                              "name": "",
+                                              "body": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "compare_to",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "fields": [
+                                                        {
+                                                          "name": "value",
+                                                          "value": {
+                                                            "reference": {
+                                                              "name": "a"
+                                                            }
+                                                          }
+                                                        },
+                                                        {
+                                                          "name": "other",
+                                                          "value": {
+                                                            "reference": {
+                                                              "name": "b"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
                                                 }
-                                              }
-                                            },
-                                            {
-                                              "name": "arg0",
-                                              "value": {
-                                                "reference": {
-                                                  "name": "b"
-                                                }
+                                              },
+                                              "metadata": {
+                                                "kind": "lambda",
+                                                "expression_body": true,
+                                                "has_return": true,
+                                                "params": [
+                                                  {
+                                                    "name": "a"
+                                                  },
+                                                  {
+                                                    "name": "b"
+                                                  }
+                                                ]
                                               }
                                             }
-                                          ]
+                                          }
                                         }
-                                      }
+                                      ]
                                     }
-                                  },
-                                  "metadata": {
-                                    "kind": "lambda",
-                                    "expression_body": true,
-                                    "has_return": true,
-                                    "params": [
-                                      {
-                                        "name": "a"
-                                      },
-                                      {
-                                        "name": "b"
-                                      }
-                                    ]
                                   }
                                 }
                               }
@@ -252,12 +299,13 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "sort",
+                      "module": "std",
+                      "function": "assign",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "target",
                               "value": {
                                 "reference": {
                                   "name": "nums"
@@ -265,49 +313,73 @@
                               }
                             },
                             {
-                              "name": "arg0",
+                              "name": "value",
                               "value": {
-                                "lambda": {
-                                  "name": "",
-                                  "body": {
-                                    "call": {
-                                      "function": "compareTo",
-                                      "input": {
-                                        "messageCreation": {
-                                          "fields": [
-                                            {
-                                              "name": "self",
-                                              "value": {
-                                                "reference": {
-                                                  "name": "b"
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "list_sort",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "list",
+                                          "value": {
+                                            "reference": {
+                                              "name": "nums"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "lambda": {
+                                              "name": "",
+                                              "body": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "compare_to",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "fields": [
+                                                        {
+                                                          "name": "value",
+                                                          "value": {
+                                                            "reference": {
+                                                              "name": "b"
+                                                            }
+                                                          }
+                                                        },
+                                                        {
+                                                          "name": "other",
+                                                          "value": {
+                                                            "reference": {
+                                                              "name": "a"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
                                                 }
-                                              }
-                                            },
-                                            {
-                                              "name": "arg0",
-                                              "value": {
-                                                "reference": {
-                                                  "name": "a"
-                                                }
+                                              },
+                                              "metadata": {
+                                                "kind": "lambda",
+                                                "expression_body": true,
+                                                "has_return": true,
+                                                "params": [
+                                                  {
+                                                    "name": "a"
+                                                  },
+                                                  {
+                                                    "name": "b"
+                                                  }
+                                                ]
                                               }
                                             }
-                                          ]
+                                          }
                                         }
-                                      }
+                                      ]
                                     }
-                                  },
-                                  "metadata": {
-                                    "kind": "lambda",
-                                    "expression_body": true,
-                                    "has_return": true,
-                                    "params": [
-                                      {
-                                        "name": "a"
-                                      },
-                                      {
-                                        "name": "b"
-                                      }
-                                    ]
                                   }
                                 }
                               }
@@ -421,12 +493,13 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "sort",
+                      "module": "std",
+                      "function": "assign",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "target",
                               "value": {
                                 "reference": {
                                   "name": "words"
@@ -434,59 +507,83 @@
                               }
                             },
                             {
-                              "name": "arg0",
+                              "name": "value",
                               "value": {
-                                "lambda": {
-                                  "name": "",
-                                  "body": {
-                                    "call": {
-                                      "function": "compareTo",
-                                      "input": {
-                                        "messageCreation": {
-                                          "fields": [
-                                            {
-                                              "name": "self",
-                                              "value": {
-                                                "fieldAccess": {
-                                                  "object": {
-                                                    "reference": {
-                                                      "name": "a"
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "list_sort",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "list",
+                                          "value": {
+                                            "reference": {
+                                              "name": "words"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "lambda": {
+                                              "name": "",
+                                              "body": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "compare_to",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "fields": [
+                                                        {
+                                                          "name": "value",
+                                                          "value": {
+                                                            "fieldAccess": {
+                                                              "object": {
+                                                                "reference": {
+                                                                  "name": "a"
+                                                                }
+                                                              },
+                                                              "field": "length"
+                                                            }
+                                                          }
+                                                        },
+                                                        {
+                                                          "name": "other",
+                                                          "value": {
+                                                            "fieldAccess": {
+                                                              "object": {
+                                                                "reference": {
+                                                                  "name": "b"
+                                                                }
+                                                              },
+                                                              "field": "length"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
                                                     }
-                                                  },
-                                                  "field": "length"
+                                                  }
                                                 }
-                                              }
-                                            },
-                                            {
-                                              "name": "arg0",
-                                              "value": {
-                                                "fieldAccess": {
-                                                  "object": {
-                                                    "reference": {
-                                                      "name": "b"
-                                                    }
+                                              },
+                                              "metadata": {
+                                                "kind": "lambda",
+                                                "expression_body": true,
+                                                "has_return": true,
+                                                "params": [
+                                                  {
+                                                    "name": "a"
                                                   },
-                                                  "field": "length"
-                                                }
+                                                  {
+                                                    "name": "b"
+                                                  }
+                                                ]
                                               }
                                             }
-                                          ]
+                                          }
                                         }
-                                      }
+                                      ]
                                     }
-                                  },
-                                  "metadata": {
-                                    "kind": "lambda",
-                                    "expression_body": true,
-                                    "has_return": true,
-                                    "params": [
-                                      {
-                                        "name": "a"
-                                      },
-                                      {
-                                        "name": "b"
-                                      }
-                                    ]
                                   }
                                 }
                               }
@@ -563,12 +660,13 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "sort",
+                      "module": "std",
+                      "function": "assign",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "target",
                               "value": {
                                 "reference": {
                                   "name": "words"
@@ -576,49 +674,73 @@
                               }
                             },
                             {
-                              "name": "arg0",
+                              "name": "value",
                               "value": {
-                                "lambda": {
-                                  "name": "",
-                                  "body": {
-                                    "call": {
-                                      "function": "compareTo",
-                                      "input": {
-                                        "messageCreation": {
-                                          "fields": [
-                                            {
-                                              "name": "self",
-                                              "value": {
-                                                "reference": {
-                                                  "name": "a"
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "list_sort",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "list",
+                                          "value": {
+                                            "reference": {
+                                              "name": "words"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "lambda": {
+                                              "name": "",
+                                              "body": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "compare_to",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "fields": [
+                                                        {
+                                                          "name": "value",
+                                                          "value": {
+                                                            "reference": {
+                                                              "name": "a"
+                                                            }
+                                                          }
+                                                        },
+                                                        {
+                                                          "name": "other",
+                                                          "value": {
+                                                            "reference": {
+                                                              "name": "b"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
                                                 }
-                                              }
-                                            },
-                                            {
-                                              "name": "arg0",
-                                              "value": {
-                                                "reference": {
-                                                  "name": "b"
-                                                }
+                                              },
+                                              "metadata": {
+                                                "kind": "lambda",
+                                                "expression_body": true,
+                                                "has_return": true,
+                                                "params": [
+                                                  {
+                                                    "name": "a"
+                                                  },
+                                                  {
+                                                    "name": "b"
+                                                  }
+                                                ]
                                               }
                                             }
-                                          ]
+                                          }
                                         }
-                                      }
+                                      ]
                                     }
-                                  },
-                                  "metadata": {
-                                    "kind": "lambda",
-                                    "expression_body": true,
-                                    "has_return": true,
-                                    "params": [
-                                      {
-                                        "name": "a"
-                                      },
-                                      {
-                                        "name": "b"
-                                      }
-                                    ]
                                   }
                                 }
                               }

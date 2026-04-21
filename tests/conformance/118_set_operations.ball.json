@@ -51,6 +51,10 @@
           "isBase": true
         },
         {
+          "name": "list_to_list",
+          "isBase": true
+        },
+        {
           "name": "concat",
           "isBase": true
         },
@@ -60,6 +64,10 @@
         },
         {
           "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "list_contains",
           "isBase": true
         }
       ],
@@ -74,6 +82,20 @@
         }
       ],
       "description": "Dart-specific standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_contains",
+          "isBase": true
+        },
+        {
+          "name": "list_to_list",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -251,12 +273,13 @@
                                 "name": "target",
                                 "value": {
                                   "call": {
-                                    "function": "toList",
+                                    "module": "std_collections",
+                                    "function": "list_to_list",
                                     "input": {
                                       "messageCreation": {
                                         "fields": [
                                           {
-                                            "name": "self",
+                                            "name": "list",
                                             "value": {
                                               "reference": {
                                                 "name": "union"
@@ -424,12 +447,13 @@
                                 "name": "target",
                                 "value": {
                                   "call": {
-                                    "function": "toList",
+                                    "module": "std_collections",
+                                    "function": "list_to_list",
                                     "input": {
                                       "messageCreation": {
                                         "fields": [
                                           {
-                                            "name": "self",
+                                            "name": "list",
                                             "value": {
                                               "reference": {
                                                 "name": "intersection"
@@ -597,12 +621,13 @@
                                 "name": "target",
                                 "value": {
                                   "call": {
-                                    "function": "toList",
+                                    "module": "std_collections",
+                                    "function": "list_to_list",
                                     "input": {
                                       "messageCreation": {
                                         "fields": [
                                           {
-                                            "name": "self",
+                                            "name": "list",
                                             "value": {
                                               "reference": {
                                                 "name": "diff"
@@ -760,12 +785,13 @@
                                                       "name": "value",
                                                       "value": {
                                                         "call": {
-                                                          "function": "contains",
+                                                          "module": "std_collections",
+                                                          "function": "list_contains",
                                                           "input": {
                                                             "messageCreation": {
                                                               "fields": [
                                                                 {
-                                                                  "name": "self",
+                                                                  "name": "list",
                                                                   "value": {
                                                                     "reference": {
                                                                       "name": "a"
@@ -773,7 +799,7 @@
                                                                   }
                                                                 },
                                                                 {
-                                                                  "name": "arg0",
+                                                                  "name": "value",
                                                                   "value": {
                                                                     "literal": {
                                                                       "intValue": "3"
@@ -845,12 +871,13 @@
                                                       "name": "value",
                                                       "value": {
                                                         "call": {
-                                                          "function": "contains",
+                                                          "module": "std_collections",
+                                                          "function": "list_contains",
                                                           "input": {
                                                             "messageCreation": {
                                                               "fields": [
                                                                 {
-                                                                  "name": "self",
+                                                                  "name": "list",
                                                                   "value": {
                                                                     "reference": {
                                                                       "name": "a"
@@ -858,7 +885,7 @@
                                                                   }
                                                                 },
                                                                 {
-                                                                  "name": "arg0",
+                                                                  "name": "value",
                                                                   "value": {
                                                                     "literal": {
                                                                       "intValue": "9"

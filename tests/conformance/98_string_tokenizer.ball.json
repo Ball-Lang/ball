@@ -71,6 +71,10 @@
           "isBase": true
         },
         {
+          "name": "list_push",
+          "isBase": true
+        },
+        {
           "name": "assign",
           "isBase": true
         },
@@ -84,6 +88,16 @@
         }
       ],
       "description": "Universal standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_push",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -298,12 +312,13 @@
                                                             {
                                                               "expression": {
                                                                 "call": {
-                                                                  "function": "list_add",
+                                                                  "module": "std",
+                                                                  "function": "assign",
                                                                   "input": {
                                                                     "messageCreation": {
                                                                       "fields": [
                                                                         {
-                                                                          "name": "list",
+                                                                          "name": "target",
                                                                           "value": {
                                                                             "reference": {
                                                                               "name": "tokens"
@@ -311,17 +326,39 @@
                                                                           }
                                                                         },
                                                                         {
-                                                                          "name": "arg0",
+                                                                          "name": "value",
                                                                           "value": {
-                                                                            "reference": {
-                                                                              "name": "current"
+                                                                            "call": {
+                                                                              "module": "std_collections",
+                                                                              "function": "list_push",
+                                                                              "input": {
+                                                                                "messageCreation": {
+                                                                                  "fields": [
+                                                                                    {
+                                                                                      "name": "list",
+                                                                                      "value": {
+                                                                                        "reference": {
+                                                                                          "name": "tokens"
+                                                                                        }
+                                                                                      }
+                                                                                    },
+                                                                                    {
+                                                                                      "name": "value",
+                                                                                      "value": {
+                                                                                        "reference": {
+                                                                                          "name": "current"
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  ]
+                                                                                }
+                                                                              }
                                                                             }
                                                                           }
                                                                         }
                                                                       ]
                                                                     }
-                                                                  },
-                                                                  "module": "std_collections"
+                                                                  }
                                                                 }
                                                               }
                                                             },
@@ -468,12 +505,13 @@
                               "name": "then",
                               "value": {
                                 "call": {
-                                  "function": "list_add",
+                                  "module": "std",
+                                  "function": "assign",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "list",
+                                          "name": "target",
                                           "value": {
                                             "reference": {
                                               "name": "tokens"
@@ -481,17 +519,39 @@
                                           }
                                         },
                                         {
-                                          "name": "arg0",
+                                          "name": "value",
                                           "value": {
-                                            "reference": {
-                                              "name": "current"
+                                            "call": {
+                                              "module": "std_collections",
+                                              "function": "list_push",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "list",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "tokens"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "current"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
                                             }
                                           }
                                         }
                                       ]
                                     }
-                                  },
-                                  "module": "std_collections"
+                                  }
                                 }
                               }
                             }

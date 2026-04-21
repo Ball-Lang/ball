@@ -59,6 +59,14 @@
           "isBase": true
         },
         {
+          "name": "list_push",
+          "isBase": true
+        },
+        {
+          "name": "assign",
+          "isBase": true
+        },
+        {
           "name": "for_in",
           "isBase": true
         },
@@ -72,6 +80,16 @@
         }
       ],
       "description": "Universal standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_push",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -174,12 +192,13 @@
                               "name": "body",
                               "value": {
                                 "call": {
-                                  "function": "list_add",
+                                  "module": "std",
+                                  "function": "assign",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "list",
+                                          "name": "target",
                                           "value": {
                                             "reference": {
                                               "name": "result"
@@ -187,17 +206,39 @@
                                           }
                                         },
                                         {
-                                          "name": "arg0",
+                                          "name": "value",
                                           "value": {
-                                            "reference": {
-                                              "name": "i"
+                                            "call": {
+                                              "module": "std_collections",
+                                              "function": "list_push",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "list",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "result"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "i"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
                                             }
                                           }
                                         }
                                       ]
                                     }
-                                  },
-                                  "module": "std_collections"
+                                  }
                                 }
                               }
                             }
@@ -322,12 +363,13 @@
                               "name": "body",
                               "value": {
                                 "call": {
-                                  "function": "list_add",
+                                  "module": "std",
+                                  "function": "assign",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "list",
+                                          "name": "target",
                                           "value": {
                                             "reference": {
                                               "name": "squares"
@@ -335,28 +377,51 @@
                                           }
                                         },
                                         {
-                                          "name": "arg0",
+                                          "name": "value",
                                           "value": {
                                             "call": {
-                                              "module": "std",
-                                              "function": "multiply",
+                                              "module": "std_collections",
+                                              "function": "list_push",
                                               "input": {
                                                 "messageCreation": {
-                                                  "typeName": "",
                                                   "fields": [
                                                     {
-                                                      "name": "left",
+                                                      "name": "list",
                                                       "value": {
                                                         "reference": {
-                                                          "name": "n"
+                                                          "name": "squares"
                                                         }
                                                       }
                                                     },
                                                     {
-                                                      "name": "right",
+                                                      "name": "value",
                                                       "value": {
-                                                        "reference": {
-                                                          "name": "n"
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "multiply",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "left",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "n"
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "right",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "n"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
                                                         }
                                                       }
                                                     }
@@ -368,8 +433,7 @@
                                         }
                                       ]
                                     }
-                                  },
-                                  "module": "std_collections"
+                                  }
                                 }
                               }
                             }

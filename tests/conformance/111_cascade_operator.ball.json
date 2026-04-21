@@ -19,6 +19,22 @@
       ],
       "functions": [
         {
+          "name": "list_push",
+          "isBase": true
+        },
+        {
+          "name": "assign",
+          "isBase": true
+        },
+        {
+          "name": "list_clear",
+          "isBase": true
+        },
+        {
+          "name": "list_join",
+          "isBase": true
+        },
+        {
           "name": "print",
           "isBase": true
         }
@@ -34,6 +50,24 @@
         }
       ],
       "description": "Dart-specific standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_clear",
+          "isBase": true
+        },
+        {
+          "name": "list_join",
+          "isBase": true
+        },
+        {
+          "name": "list_push",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -57,12 +91,13 @@
           "outputType": "void",
           "body": {
             "call": {
-              "function": "add",
+              "module": "std",
+              "function": "assign",
               "input": {
                 "messageCreation": {
                   "fields": [
                     {
-                      "name": "self",
+                      "name": "target",
                       "value": {
                         "reference": {
                           "name": "parts"
@@ -70,10 +105,33 @@
                       }
                     },
                     {
-                      "name": "arg0",
+                      "name": "value",
                       "value": {
-                        "reference": {
-                          "name": "part"
+                        "call": {
+                          "module": "std_collections",
+                          "function": "list_push",
+                          "input": {
+                            "messageCreation": {
+                              "fields": [
+                                {
+                                  "name": "list",
+                                  "value": {
+                                    "reference": {
+                                      "name": "parts"
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "reference": {
+                                      "name": "part"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
                         }
                       }
                     }
@@ -97,15 +155,39 @@
           "outputType": "void",
           "body": {
             "call": {
-              "function": "clear",
+              "module": "std",
+              "function": "assign",
               "input": {
                 "messageCreation": {
                   "fields": [
                     {
-                      "name": "self",
+                      "name": "target",
                       "value": {
                         "reference": {
                           "name": "parts"
+                        }
+                      }
+                    },
+                    {
+                      "name": "value",
+                      "value": {
+                        "call": {
+                          "module": "std_collections",
+                          "function": "list_clear",
+                          "input": {
+                            "messageCreation": {
+                              "fields": [
+                                {
+                                  "name": "list",
+                                  "value": {
+                                    "reference": {
+                                      "name": "parts"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
                         }
                       }
                     }
@@ -123,12 +205,13 @@
           "outputType": "String",
           "body": {
             "call": {
-              "function": "join",
+              "module": "std_collections",
+              "function": "list_join",
               "input": {
                 "messageCreation": {
                   "fields": [
                     {
-                      "name": "self",
+                      "name": "list",
                       "value": {
                         "reference": {
                           "name": "parts"
@@ -136,7 +219,7 @@
                       }
                     },
                     {
-                      "name": "arg0",
+                      "name": "separator",
                       "value": {
                         "literal": {
                           "stringValue": ", "

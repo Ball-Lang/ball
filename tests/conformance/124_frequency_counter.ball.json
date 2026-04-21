@@ -47,6 +47,10 @@
       ],
       "functions": [
         {
+          "name": "string_split",
+          "isBase": true
+        },
+        {
           "name": "set_create",
           "isBase": true
         },
@@ -75,6 +79,10 @@
           "isBase": true
         },
         {
+          "name": "list_to_list",
+          "isBase": true
+        },
+        {
           "name": "concat",
           "isBase": true
         },
@@ -98,6 +106,16 @@
         }
       ],
       "description": "Dart-specific standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_to_list",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -127,12 +145,13 @@
                     "name": "words",
                     "value": {
                       "call": {
-                        "function": "split",
+                        "module": "std",
+                        "function": "string_split",
                         "input": {
                           "messageCreation": {
                             "fields": [
                               {
-                                "name": "self",
+                                "name": "value",
                                 "value": {
                                   "reference": {
                                     "name": "text"
@@ -140,7 +159,7 @@
                                 }
                               },
                               {
-                                "name": "arg0",
+                                "name": "separator",
                                 "value": {
                                   "literal": {
                                     "stringValue": " "
@@ -370,12 +389,13 @@
                                 "name": "target",
                                 "value": {
                                   "call": {
-                                    "function": "toList",
+                                    "module": "std_collections",
+                                    "function": "list_to_list",
                                     "input": {
                                       "messageCreation": {
                                         "fields": [
                                           {
-                                            "name": "self",
+                                            "name": "list",
                                             "value": {
                                               "fieldAccess": {
                                                 "object": {

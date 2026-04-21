@@ -75,6 +75,10 @@
           "isBase": true
         },
         {
+          "name": "list_push",
+          "isBase": true
+        },
+        {
           "name": "for_in",
           "isBase": true
         },
@@ -84,6 +88,16 @@
         }
       ],
       "description": "Universal standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_push",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -272,12 +286,13 @@
                                     {
                                       "expression": {
                                         "call": {
-                                          "function": "add",
+                                          "module": "std",
+                                          "function": "assign",
                                           "input": {
                                             "messageCreation": {
                                               "fields": [
                                                 {
-                                                  "name": "self",
+                                                  "name": "target",
                                                   "value": {
                                                     "reference": {
                                                       "name": "result"
@@ -285,29 +300,28 @@
                                                   }
                                                 },
                                                 {
-                                                  "name": "arg0",
+                                                  "name": "value",
                                                   "value": {
                                                     "call": {
-                                                      "module": "std",
-                                                      "function": "divide_double",
+                                                      "module": "std_collections",
+                                                      "function": "list_push",
                                                       "input": {
                                                         "messageCreation": {
-                                                          "typeName": "",
                                                           "fields": [
                                                             {
-                                                              "name": "left",
+                                                              "name": "list",
                                                               "value": {
                                                                 "reference": {
-                                                                  "name": "sum"
+                                                                  "name": "result"
                                                                 }
                                                               }
                                                             },
                                                             {
-                                                              "name": "right",
+                                                              "name": "value",
                                                               "value": {
                                                                 "call": {
                                                                   "module": "std",
-                                                                  "function": "add",
+                                                                  "function": "divide_double",
                                                                   "input": {
                                                                     "messageCreation": {
                                                                       "typeName": "",
@@ -316,15 +330,39 @@
                                                                           "name": "left",
                                                                           "value": {
                                                                             "reference": {
-                                                                              "name": "i"
+                                                                              "name": "sum"
                                                                             }
                                                                           }
                                                                         },
                                                                         {
                                                                           "name": "right",
                                                                           "value": {
-                                                                            "literal": {
-                                                                              "intValue": "1"
+                                                                            "call": {
+                                                                              "module": "std",
+                                                                              "function": "add",
+                                                                              "input": {
+                                                                                "messageCreation": {
+                                                                                  "typeName": "",
+                                                                                  "fields": [
+                                                                                    {
+                                                                                      "name": "left",
+                                                                                      "value": {
+                                                                                        "reference": {
+                                                                                          "name": "i"
+                                                                                        }
+                                                                                      }
+                                                                                    },
+                                                                                    {
+                                                                                      "name": "right",
+                                                                                      "value": {
+                                                                                        "literal": {
+                                                                                          "intValue": "1"
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  ]
+                                                                                }
+                                                                              }
                                                                             }
                                                                           }
                                                                         }

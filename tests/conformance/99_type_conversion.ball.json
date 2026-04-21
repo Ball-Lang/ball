@@ -47,7 +47,15 @@
       ],
       "functions": [
         {
+          "name": "to_double",
+          "isBase": true
+        },
+        {
           "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "to_int",
           "isBase": true
         },
         {
@@ -93,6 +101,7 @@
                     "name": "b",
                     "value": {
                       "call": {
+                        "module": "std",
                         "function": "to_double",
                         "input": {
                           "messageCreation": {
@@ -107,8 +116,7 @@
                               }
                             ]
                           }
-                        },
-                        "module": "std"
+                        }
                       }
                     },
                     "metadata": {
@@ -159,6 +167,7 @@
                     "name": "d",
                     "value": {
                       "call": {
+                        "module": "std",
                         "function": "to_int",
                         "input": {
                           "messageCreation": {
@@ -173,8 +182,7 @@
                               }
                             ]
                           }
-                        },
-                        "module": "std"
+                        }
                       }
                     },
                     "metadata": {

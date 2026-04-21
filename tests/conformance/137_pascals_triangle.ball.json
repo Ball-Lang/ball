@@ -75,6 +75,10 @@
           "isBase": true
         },
         {
+          "name": "list_push",
+          "isBase": true
+        },
+        {
           "name": "for_in",
           "isBase": true
         },
@@ -84,6 +88,16 @@
         }
       ],
       "description": "Universal standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_push",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
@@ -613,12 +627,13 @@
                                     {
                                       "expression": {
                                         "call": {
-                                          "function": "add",
+                                          "module": "std",
+                                          "function": "assign",
                                           "input": {
                                             "messageCreation": {
                                               "fields": [
                                                 {
-                                                  "name": "self",
+                                                  "name": "target",
                                                   "value": {
                                                     "reference": {
                                                       "name": "triangle"
@@ -626,10 +641,33 @@
                                                   }
                                                 },
                                                 {
-                                                  "name": "arg0",
+                                                  "name": "value",
                                                   "value": {
-                                                    "reference": {
-                                                      "name": "row"
+                                                    "call": {
+                                                      "module": "std_collections",
+                                                      "function": "list_push",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "fields": [
+                                                            {
+                                                              "name": "list",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "triangle"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "value",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "row"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
                                                     }
                                                   }
                                                 }

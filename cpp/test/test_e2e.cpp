@@ -383,6 +383,13 @@ int main() {
         "73_power",
         "74_fibonacci_sequence",
         "75_sum_of_squares",
+        // Conformance programs 76-100 (subset: those not requiring
+        // collection method dispatch which the C++ compiler lacks)
+        "79_nested_loops_pattern",
+        "84_exception_chain",
+        "89_tower_of_hanoi",
+        "91_nested_try_catch",
+        "100_complex_control_flow",
     };
 
     fs::path conformance_dir(BALL_CONFORMANCE_DIR);

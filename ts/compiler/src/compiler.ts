@@ -1346,19 +1346,23 @@ export class BallCompiler {
   }
 
   private emitIsCheck(value: string, type: string): string {
-    switch (type) {
+    // Strip generic args: Map<String, Object?> → Map
+    const baseType = type.includes("<") ? type.slice(0, type.indexOf("<")).trim() : type.trim();
+    // Strip nullable: Map? → Map
+    const t = baseType.endsWith("?") ? baseType.slice(0, -1) : baseType;
+    switch (t) {
       case "int": return `(typeof ${value} === 'number' && Number.isInteger(${value}))`;
       case "double": case "num": case "number": return `(typeof ${value} === 'number')`;
       case "String": case "string": return `(typeof ${value} === 'string')`;
       case "bool": case "boolean": return `(typeof ${value} === 'boolean')`;
-      case "List": return `Array.isArray(${value})`;
-      case "Map": return `(${value} instanceof Map || (typeof ${value} === 'object' && ${value} !== null && !Array.isArray(${value})))`;
+      case "List": case "Iterable": return `Array.isArray(${value})`;
+      case "Map": return `(typeof ${value} === 'object' && ${value} !== null && !Array.isArray(${value}))`;
+      case "Set": return `(${value} instanceof Set)`;
       case "Null": return `(${value} == null)`;
+      case "Function": return `(typeof ${value} === 'function')`;
       default:
-        // User-defined class → instanceof. Falls through to a
-        // broad null-check for unknown types.
-        if (this.typeIsUserDefinedClass(`main:${type}`) || this.typeIsUserDefinedClass(type)) {
-          return `(${value} instanceof ${classTsName(type)})`;
+        if (this.typeIsUserDefinedClass(`main:${t}`) || this.typeIsUserDefinedClass(t)) {
+          return `(${value} instanceof ${classTsName(t)})`;
         }
         return `(${value} != null)`;
     }

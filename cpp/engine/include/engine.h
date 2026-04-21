@@ -233,6 +233,9 @@ private:
     BallValue eval_assign(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_inc_dec(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
 
+    // Mini expression evaluator for legacy for-loop init strings like "i + 1" or "s.length - 1".
+    BallValue eval_init_string_expr(const std::string& expr, std::shared_ptr<Scope> scope);
+
     BallValue eval_memory(const std::string& function, const BallMap& args);
     BallValue eval_convert(const std::string& function, BallValue input);
     BallValue eval_fs(const std::string& function, BallValue input);

@@ -31,6 +31,15 @@ target_link_libraries(test_conformance ball_cpp_engine ball_shared)
 target_compile_definitions(test_conformance PRIVATE
     BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
 )
+# Bump the thread stack to 16 MB so deep-recursion conformance programs
+# (e.g. 59_deep_recursion with depth 100) don't overflow the default 1 MB stack.
+if(MSVC)
+    target_link_options(test_conformance PRIVATE /STACK:16777216)
+elseif(APPLE)
+    target_link_options(test_conformance PRIVATE -Wl,-stack_size,0x1000000)
+else()
+    target_link_options(test_conformance PRIVATE -Wl,-z,stacksize=16777216)
+endif()
 
 # End-to-end compiler tests — compile selected conformance programs to C++
 # source, invoke the system C++ compiler to build a binary, run it, and

@@ -484,6 +484,45 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
         }
     }
 
+    // map_create: special handling for repeated "entry" fields that get lost in
+    // BallMap. We read from the raw proto to collect all entries properly.
+    if ((mod == "std" || mod == "dart_std" || mod == "std_collections") && fn == "map_create") {
+        if (call.has_input() &&
+            call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+            BallMap result;
+            for (const auto& f : call.input().message_creation().fields()) {
+                if (f.name() == "entry") {
+                    auto entry_val = eval_expr(f.value(), scope);
+                    if (is_map(entry_val)) {
+                        const auto& entry = std::any_cast<const BallMap&>(entry_val);
+                        auto key_it = entry.find("key");
+                        auto val_it = entry.find("value");
+                        if (key_it != entry.end() && val_it != entry.end()) {
+                            result[ball::to_string(key_it->second)] = val_it->second;
+                        }
+                    }
+                } else if (f.name() == "entries") {
+                    auto entries_val = eval_expr(f.value(), scope);
+                    if (is_list(entries_val)) {
+                        const auto& entries = std::any_cast<const BallList&>(entries_val);
+                        for (const auto& e : entries) {
+                            if (is_map(e)) {
+                                const auto& entry = std::any_cast<const BallMap&>(e);
+                                auto key_it = entry.find("name");
+                                auto val_it = entry.find("value");
+                                if (key_it != entry.end() && val_it != entry.end()) {
+                                    result[ball::to_string(key_it->second)] = val_it->second;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return result;
+        }
+        // Fallthrough for non-message-creation inputs
+    }
+
     // cpp_scope_exit: register cleanup lazily without evaluating the expression.
     if (mod == "cpp_std" && fn == "cpp_scope_exit") {
         return eval_cpp_scope_exit(call, scope);
@@ -556,6 +595,365 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
         }
     }
 
+    // Built-in method dispatch for primitive types (list, string, int, double, map).
+    // When a call has no module and input has a "self" field with a primitive type,
+    // dispatch as a built-in method. Mutating methods (add, removeLast, etc.) write
+    // the result back to the scope variable that 'self' came from.
+    if (call.module().empty() && is_map(input)) {
+        const auto& inp_map = std::any_cast<const BallMap&>(input);
+        auto self_it = inp_map.find("self");
+        if (self_it != inp_map.end()) {
+            const auto& self_val = self_it->second;
+            const auto& fn_name = call.function();
+
+            // Helper: find the variable name for 'self' from the input expression tree.
+            std::string self_var_name;
+            if (call.has_input() &&
+                call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+                for (const auto& f : call.input().message_creation().fields()) {
+                    if (f.name() == "self" &&
+                        f.value().expr_case() == ball::v1::Expression::kReference) {
+                        self_var_name = f.value().reference().name();
+                        break;
+                    }
+                }
+            }
+
+            // Lambda to write back a mutated value to the scope variable.
+            auto write_back = [&](BallValue new_val) {
+                if (!self_var_name.empty() && scope->has(self_var_name)) {
+                    scope->set(self_var_name, new_val);
+                }
+            };
+
+            // ── List methods ──
+            if (is_list(self_val)) {
+                auto lst = std::any_cast<BallList>(self_val);
+                if (fn_name == "add") {
+                    auto arg = extract_field(input, "arg0");
+                    lst.push_back(arg);
+                    write_back(BallValue(lst));
+                    return {};
+                }
+                if (fn_name == "removeLast") {
+                    if (lst.empty()) throw BallRuntimeError("removeLast on empty list");
+                    auto last = lst.back();
+                    lst.pop_back();
+                    write_back(BallValue(lst));
+                    return last;
+                }
+                if (fn_name == "removeAt") {
+                    auto idx = to_int(extract_field(input, "arg0"));
+                    if (idx < 0 || static_cast<size_t>(idx) >= lst.size())
+                        throw BallRuntimeError("removeAt: index out of range");
+                    auto removed = lst[idx];
+                    lst.erase(lst.begin() + idx);
+                    write_back(BallValue(lst));
+                    return removed;
+                }
+                if (fn_name == "insert") {
+                    auto idx = to_int(extract_field(input, "arg0"));
+                    auto val = extract_field(input, "arg1");
+                    lst.insert(lst.begin() + idx, val);
+                    write_back(BallValue(lst));
+                    return {};
+                }
+                if (fn_name == "clear") {
+                    lst.clear();
+                    write_back(BallValue(lst));
+                    return {};
+                }
+                if (fn_name == "contains") {
+                    auto val = extract_field(input, "arg0");
+                    for (const auto& item : lst) {
+                        if (values_equal(item, val)) return true;
+                    }
+                    return false;
+                }
+                if (fn_name == "indexOf") {
+                    auto val = extract_field(input, "arg0");
+                    for (size_t i = 0; i < lst.size(); ++i) {
+                        if (values_equal(lst[i], val)) return static_cast<int64_t>(i);
+                    }
+                    return static_cast<int64_t>(-1);
+                }
+                if (fn_name == "join") {
+                    auto sep = ball::to_string(extract_field(input, "arg0"));
+                    std::string result;
+                    for (size_t i = 0; i < lst.size(); ++i) {
+                        if (i > 0) result += sep;
+                        result += ball::to_string(lst[i]);
+                    }
+                    return result;
+                }
+                if (fn_name == "sublist") {
+                    auto start = to_int(extract_field(input, "arg0"));
+                    auto end_field = extract_field(input, "arg1");
+                    int64_t end = end_field.has_value() ? to_int(end_field) : static_cast<int64_t>(lst.size());
+                    BallList sub(lst.begin() + start, lst.begin() + end);
+                    return sub;
+                }
+                if (fn_name == "sort") {
+                    std::sort(lst.begin(), lst.end(), [](const BallValue& a, const BallValue& b) {
+                        if (is_int(a) && is_int(b)) return to_int(a) < to_int(b);
+                        if (is_double(a) || is_double(b)) return to_double(a) < to_double(b);
+                        if (is_string(a) && is_string(b))
+                            return std::any_cast<const std::string&>(a) < std::any_cast<const std::string&>(b);
+                        return false;
+                    });
+                    write_back(BallValue(lst));
+                    return {};
+                }
+                if (fn_name == "map") {
+                    auto fn_val = extract_field(input, "arg0");
+                    if (!is_function(fn_val)) throw BallRuntimeError("list.map: arg is not a function");
+                    auto& callback = std::any_cast<BallFunction&>(fn_val);
+                    BallList result;
+                    for (const auto& item : lst) result.push_back(callback(item));
+                    return result;
+                }
+                if (fn_name == "where") {
+                    auto fn_val = extract_field(input, "arg0");
+                    if (!is_function(fn_val)) throw BallRuntimeError("list.where: arg is not a function");
+                    auto& callback = std::any_cast<BallFunction&>(fn_val);
+                    BallList result;
+                    for (const auto& item : lst) {
+                        if (to_bool(callback(item))) result.push_back(item);
+                    }
+                    return result;
+                }
+                if (fn_name == "forEach") {
+                    auto fn_val = extract_field(input, "arg0");
+                    if (!is_function(fn_val)) throw BallRuntimeError("list.forEach: arg is not a function");
+                    auto& callback = std::any_cast<BallFunction&>(fn_val);
+                    for (const auto& item : lst) callback(item);
+                    return {};
+                }
+                if (fn_name == "any") {
+                    auto fn_val = extract_field(input, "arg0");
+                    if (!is_function(fn_val)) throw BallRuntimeError("list.any: arg is not a function");
+                    auto& callback = std::any_cast<BallFunction&>(fn_val);
+                    for (const auto& item : lst) {
+                        if (to_bool(callback(item))) return true;
+                    }
+                    return false;
+                }
+                if (fn_name == "every") {
+                    auto fn_val = extract_field(input, "arg0");
+                    if (!is_function(fn_val)) throw BallRuntimeError("list.every: arg is not a function");
+                    auto& callback = std::any_cast<BallFunction&>(fn_val);
+                    for (const auto& item : lst) {
+                        if (!to_bool(callback(item))) return false;
+                    }
+                    return true;
+                }
+                if (fn_name == "reduce") {
+                    auto fn_val = extract_field(input, "arg0");
+                    if (!is_function(fn_val)) throw BallRuntimeError("list.reduce: arg is not a function");
+                    auto& callback = std::any_cast<BallFunction&>(fn_val);
+                    if (lst.empty()) throw BallRuntimeError("list.reduce: empty list");
+                    BallValue acc = lst[0];
+                    for (size_t i = 1; i < lst.size(); ++i) {
+                        BallMap args;
+                        args["arg0"] = acc;
+                        args["arg1"] = lst[i];
+                        acc = callback(BallValue(args));
+                    }
+                    return acc;
+                }
+                if (fn_name == "toList") {
+                    return self_val; // already a list
+                }
+                // 'filled' is a static constructor: List.filled(n, value)
+                if (fn_name == "filled") {
+                    auto n = to_int(extract_field(input, "arg0"));
+                    auto fill_val = extract_field(input, "arg1");
+                    BallList filled(n, fill_val);
+                    return filled;
+                }
+            }
+
+            // ── Map methods ──
+            if (is_map(self_val)) {
+                auto m = std::any_cast<BallMap>(self_val);
+                // Skip typed objects (they have __type__ and use class dispatch above)
+                auto type_it = m.find("__type__");
+                if (type_it == m.end() || !is_string(type_it->second)) {
+                    if (fn_name == "containsKey") {
+                        auto key = ball::to_string(extract_field(input, "arg0"));
+                        return m.find(key) != m.end();
+                    }
+                    if (fn_name == "containsValue") {
+                        auto val = extract_field(input, "arg0");
+                        for (const auto& [k, v] : m) {
+                            if (values_equal(v, val)) return true;
+                        }
+                        return false;
+                    }
+                    if (fn_name == "remove") {
+                        auto key = ball::to_string(extract_field(input, "arg0"));
+                        auto it = m.find(key);
+                        BallValue removed;
+                        if (it != m.end()) {
+                            removed = it->second;
+                            m.erase(it);
+                        }
+                        write_back(BallValue(m));
+                        return removed;
+                    }
+                    if (fn_name == "putIfAbsent") {
+                        auto key = ball::to_string(extract_field(input, "arg0"));
+                        auto val = extract_field(input, "arg1");
+                        auto it = m.find(key);
+                        if (it == m.end()) {
+                            m[key] = val;
+                            write_back(BallValue(m));
+                            return val;
+                        }
+                        return it->second;
+                    }
+                }
+            }
+
+            // ── String methods ──
+            if (is_string(self_val)) {
+                const auto& s = std::any_cast<const std::string&>(self_val);
+                if (fn_name == "contains") {
+                    auto sub = ball::to_string(extract_field(input, "arg0"));
+                    return s.find(sub) != std::string::npos;
+                }
+                if (fn_name == "substring") {
+                    auto start = to_int(extract_field(input, "arg0"));
+                    auto end_field = extract_field(input, "arg1");
+                    size_t end = end_field.has_value() ? static_cast<size_t>(to_int(end_field)) : s.size();
+                    return s.substr(start, end - start);
+                }
+                if (fn_name == "indexOf") {
+                    auto sub = ball::to_string(extract_field(input, "arg0"));
+                    auto pos = s.find(sub);
+                    return pos != std::string::npos ? static_cast<int64_t>(pos) : static_cast<int64_t>(-1);
+                }
+                if (fn_name == "split") {
+                    auto sep = ball::to_string(extract_field(input, "arg0"));
+                    BallList result;
+                    if (sep.empty()) {
+                        for (char c : s) result.push_back(std::string(1, c));
+                    } else {
+                        size_t start = 0, found;
+                        while ((found = s.find(sep, start)) != std::string::npos) {
+                            result.push_back(s.substr(start, found - start));
+                            start = found + sep.size();
+                        }
+                        result.push_back(s.substr(start));
+                    }
+                    return result;
+                }
+                if (fn_name == "trim") {
+                    auto first = s.find_first_not_of(" \t\n\r");
+                    if (first == std::string::npos) return std::string();
+                    return s.substr(first, s.find_last_not_of(" \t\n\r") - first + 1);
+                }
+                if (fn_name == "toUpperCase") {
+                    std::string r = s;
+                    std::transform(r.begin(), r.end(), r.begin(), ::toupper);
+                    return r;
+                }
+                if (fn_name == "toLowerCase") {
+                    std::string r = s;
+                    std::transform(r.begin(), r.end(), r.begin(), ::tolower);
+                    return r;
+                }
+                if (fn_name == "replaceAll") {
+                    auto from = ball::to_string(extract_field(input, "arg0"));
+                    auto to = ball::to_string(extract_field(input, "arg1"));
+                    std::string result = s;
+                    size_t pos = 0;
+                    while ((pos = result.find(from, pos)) != std::string::npos) {
+                        result.replace(pos, from.size(), to);
+                        pos += to.size();
+                    }
+                    return result;
+                }
+                if (fn_name == "startsWith") {
+                    auto prefix = ball::to_string(extract_field(input, "arg0"));
+                    return s.size() >= prefix.size() && s.substr(0, prefix.size()) == prefix;
+                }
+                if (fn_name == "endsWith") {
+                    auto suffix = ball::to_string(extract_field(input, "arg0"));
+                    return s.size() >= suffix.size() && s.substr(s.size() - suffix.size()) == suffix;
+                }
+                if (fn_name == "padLeft") {
+                    auto width = to_int(extract_field(input, "arg0"));
+                    auto pad_field = extract_field(input, "arg1");
+                    std::string pad = pad_field.has_value() ? ball::to_string(pad_field) : " ";
+                    std::string result = s;
+                    while (static_cast<int64_t>(result.size()) < width) result = pad + result;
+                    return result;
+                }
+                if (fn_name == "padRight") {
+                    auto width = to_int(extract_field(input, "arg0"));
+                    auto pad_field = extract_field(input, "arg1");
+                    std::string pad = pad_field.has_value() ? ball::to_string(pad_field) : " ";
+                    std::string result = s;
+                    while (static_cast<int64_t>(result.size()) < width) result = result + pad;
+                    return result;
+                }
+                if (fn_name == "toString") return s;
+            }
+
+            // ── Number methods ──
+            if (is_int(self_val)) {
+                int64_t n = std::any_cast<int64_t>(self_val);
+                if (fn_name == "toDouble") return static_cast<double>(n);
+                if (fn_name == "toInt") return n;
+                if (fn_name == "toString") return std::to_string(n);
+                if (fn_name == "abs") return static_cast<int64_t>(std::abs(n));
+                if (fn_name == "round") return n;
+                if (fn_name == "floor") return n;
+                if (fn_name == "ceil") return n;
+                if (fn_name == "compareTo") {
+                    auto other = to_int(extract_field(input, "arg0"));
+                    return static_cast<int64_t>(n < other ? -1 : (n > other ? 1 : 0));
+                }
+                if (fn_name == "clamp") {
+                    auto lo = to_int(extract_field(input, "arg0"));
+                    auto hi = to_int(extract_field(input, "arg1"));
+                    return std::max(lo, std::min(n, hi));
+                }
+            }
+            if (is_double(self_val)) {
+                double d = std::any_cast<double>(self_val);
+                if (fn_name == "toDouble") return d;
+                if (fn_name == "toInt") return static_cast<int64_t>(d);
+                if (fn_name == "toString") return ball_to_string(d);
+                if (fn_name == "abs") return std::abs(d);
+                if (fn_name == "round") return static_cast<int64_t>(std::round(d));
+                if (fn_name == "floor") return static_cast<int64_t>(std::floor(d));
+                if (fn_name == "ceil") return static_cast<int64_t>(std::ceil(d));
+                if (fn_name == "compareTo") {
+                    auto other = to_double(extract_field(input, "arg0"));
+                    return static_cast<int64_t>(d < other ? -1 : (d > other ? 1 : 0));
+                }
+                if (fn_name == "clamp") {
+                    auto lo = to_double(extract_field(input, "arg0"));
+                    auto hi = to_double(extract_field(input, "arg1"));
+                    return std::max(lo, std::min(d, hi));
+                }
+                if (fn_name == "truncate") return static_cast<int64_t>(d);
+            }
+
+            // 'List' or 'String' as self (static methods like List.filled)
+            if (is_string(self_val) && std::any_cast<const std::string&>(self_val) == "List") {
+                if (fn_name == "filled") {
+                    auto n = to_int(extract_field(input, "arg0"));
+                    auto fill_val = extract_field(input, "arg1");
+                    BallList filled(n, fill_val);
+                    return filled;
+                }
+            }
+        }
+    }
+
     return resolve_and_call(call.module(), call.function(), std::move(input));
 }
 
@@ -618,6 +1016,11 @@ BallValue Engine::eval_reference(const ball::v1::Reference& ref, std::shared_ptr
     auto enum_it = enum_values_.find(name);
     if (enum_it != enum_values_.end()) {
         return enum_it->second;
+    }
+
+    // Built-in type names as values (for static method dispatch like List.filled).
+    if (name == "List" || name == "Map" || name == "String" || name == "int" || name == "double") {
+        return std::string(name);
     }
 
     // Fall back to scope lookup (will throw with the normal error message).
@@ -905,6 +1308,88 @@ std::string Engine::string_field_val(
     return "";
 }
 
+BallValue Engine::eval_init_string_expr(const std::string& expr, std::shared_ptr<Scope> scope) {
+    // Evaluate a mini expression from a legacy for-loop init string.
+    // Handles: variable, variable.field, expr +/- literal, expr +/- variable
+
+    // Try simple variable first.
+    if (scope->has(expr)) return scope->lookup(expr);
+
+    // Try "a.field" pattern.
+    static const std::regex dot_pat(R"(^(\w+)\.(\w+)$)");
+    std::smatch dot_m;
+    if (std::regex_match(expr, dot_m, dot_pat)) {
+        const auto& var = dot_m[1].str();
+        const auto& field = dot_m[2].str();
+        if (scope->has(var)) {
+            auto obj = scope->lookup(var);
+            if (is_string(obj) && field == "length")
+                return static_cast<int64_t>(std::any_cast<const std::string&>(obj).size());
+            if (is_list(obj) && field == "length")
+                return static_cast<int64_t>(std::any_cast<const BallList&>(obj).size());
+            if (is_map(obj)) {
+                const auto& m = std::any_cast<const BallMap&>(obj);
+                auto it = m.find(field);
+                if (it != m.end()) return it->second;
+            }
+        }
+    }
+
+    // Try "expr op expr" pattern for +, -, *, /, %
+    // Scan right-to-left, lower precedence first (+ and - before * / %)
+    auto try_binary = [&](const std::string& ops) -> std::optional<BallValue> {
+        for (int pos = static_cast<int>(expr.size()) - 1; pos > 0; --pos) {
+            char c = expr[pos];
+            if (ops.find(c) != std::string::npos && pos > 0 && expr[pos-1] == ' ') {
+                std::string left_str = expr.substr(0, pos);
+                std::string right_str = expr.substr(pos + 1);
+                while (!left_str.empty() && left_str.back() == ' ') left_str.pop_back();
+                while (!right_str.empty() && right_str.front() == ' ') right_str.erase(right_str.begin());
+                if (left_str.empty() || right_str.empty()) continue;
+
+                auto left_val = eval_init_string_expr(left_str, scope);
+                auto right_val = eval_init_string_expr(right_str, scope);
+                if (left_val.has_value() && right_val.has_value()) {
+                    bool both_int = is_int(left_val) && is_int(right_val);
+                    switch (c) {
+                        case '+': return both_int ? BallValue(to_int(left_val) + to_int(right_val))
+                                                  : BallValue(to_num(left_val) + to_num(right_val));
+                        case '-': return both_int ? BallValue(to_int(left_val) - to_int(right_val))
+                                                  : BallValue(to_num(left_val) - to_num(right_val));
+                        case '*': return both_int ? BallValue(to_int(left_val) * to_int(right_val))
+                                                  : BallValue(to_num(left_val) * to_num(right_val));
+                        case '/': return both_int ? BallValue(to_int(left_val) / to_int(right_val))
+                                                  : BallValue(to_num(left_val) / to_num(right_val));
+                        case '%': return BallValue(to_int(left_val) % to_int(right_val));
+                    }
+                }
+                break;
+            }
+        }
+        return std::nullopt;
+    };
+    // Try lower-precedence operators first (left-to-right evaluation)
+    auto result = try_binary("+-");
+    if (result) return *result;
+    result = try_binary("*/%");
+    if (result) return *result;
+
+    // Try parsing as a number literal
+    try {
+        size_t consumed = 0;
+        auto i = std::stoll(expr, &consumed);
+        if (consumed == expr.size()) return static_cast<int64_t>(i);
+    } catch (...) {}
+    try {
+        size_t consumed = 0;
+        auto d = std::stod(expr, &consumed);
+        if (consumed == expr.size()) return d;
+    } catch (...) {}
+
+    // Give up — return as string.
+    return std::string(expr);
+}
+
 BallValue Engine::eval_lazy_if(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope) {
     auto fields = lazy_fields(call);
     auto cond_it = fields.find("condition");
@@ -958,7 +1443,10 @@ BallValue Engine::eval_lazy_for(const ball::v1::FunctionCall& call, std::shared_
                 if (!parsed.has_value()) {
                     if (raw_val == "true") parsed = true;
                     else if (raw_val == "false") parsed = false;
-                    else parsed = raw_val;
+                    else {
+                        // Try to evaluate as a mini expression from the enclosing scope.
+                        parsed = eval_init_string_expr(raw_val, scope);
+                    }
                 }
                 for_scope->bind(name, parsed);
             }
@@ -1474,10 +1962,69 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
         auto idx_fields = lazy_fields(ti->second.call());
         auto iti = idx_fields.find("target"), ixi = idx_fields.find("index");
         if (iti != idx_fields.end() && ixi != idx_fields.end()) {
-            auto lst = eval_expr(iti->second, scope);
             auto idx = eval_expr(ixi->second, scope);
-            if (is_list(lst) && is_int(idx)) {
-                std::any_cast<BallList&>(lst)[to_int(idx)] = val; return val;
+            // For index assignment we need to mutate the original variable in scope.
+            // Find the variable name from the target expression.
+            if (iti->second.expr_case() == ball::v1::Expression::kReference) {
+                const auto& var_name = iti->second.reference().name();
+                auto container = scope->lookup(var_name);
+                if (is_list(container) && (is_int(idx) || is_double(idx))) {
+                    auto& lst = std::any_cast<BallList&>(container);
+                    auto i = to_int(idx);
+                    if (!op.empty() && op != "=") {
+                        val = apply_compound_op(op, lst[i], val);
+                    }
+                    lst[i] = val;
+                    scope->set(var_name, container);
+                    return val;
+                }
+                if (is_map(container)) {
+                    auto& m = std::any_cast<BallMap&>(container);
+                    auto key = ball::to_string(idx);
+                    if (!op.empty() && op != "=") {
+                        auto fit = m.find(key);
+                        BallValue current = (fit != m.end()) ? fit->second : BallValue{};
+                        val = apply_compound_op(op, current, val);
+                    }
+                    m[key] = val;
+                    scope->set(var_name, container);
+                    return val;
+                }
+            }
+            // Nested index: target is itself an index call (e.g. matrix[i][j] = val)
+            if (iti->second.expr_case() == ball::v1::Expression::kCall &&
+                iti->second.call().module() == "std" && iti->second.call().function() == "index") {
+                auto outer_fields = lazy_fields(iti->second.call());
+                auto oiti = outer_fields.find("target"), oixi = outer_fields.find("index");
+                if (oiti != outer_fields.end() && oixi != outer_fields.end() &&
+                    oiti->second.expr_case() == ball::v1::Expression::kReference) {
+                    const auto& var_name = oiti->second.reference().name();
+                    auto outer_idx = eval_expr(oixi->second, scope);
+                    auto outer_container = scope->lookup(var_name);
+                    if (is_list(outer_container) && is_int(outer_idx)) {
+                        auto& outer_lst = std::any_cast<BallList&>(outer_container);
+                        auto oi = to_int(outer_idx);
+                        if (is_list(outer_lst[oi]) && is_int(idx)) {
+                            auto inner = std::any_cast<BallList>(outer_lst[oi]);
+                            auto ii = to_int(idx);
+                            if (!op.empty() && op != "=") {
+                                val = apply_compound_op(op, inner[ii], val);
+                            }
+                            inner[ii] = val;
+                            outer_lst[oi] = BallValue(inner);
+                            scope->set(var_name, outer_container);
+                            return val;
+                        }
+                    }
+                }
+            }
+            // Fallback: evaluate target and try to mutate (may not propagate back)
+            auto container = eval_expr(iti->second, scope);
+            if (is_list(container) && is_int(idx)) {
+                std::any_cast<BallList&>(container)[to_int(idx)] = val;
+            }
+            if (is_map(container) && is_string(idx)) {
+                std::any_cast<BallMap&>(container)[std::any_cast<const std::string&>(idx)] = val;
             }
         }
     }
@@ -1701,7 +2248,11 @@ std::optional<BallValue> Engine::try_operator_override(const std::string& functi
 
 BallValue Engine::apply_compound_op(const std::string& op, BallValue current, BallValue val) {
     bool both_int = is_int(current) && is_int(val);
-    if (op == "+=") { if (both_int) return to_int(current) + to_int(val); return to_num(current) + to_num(val); }
+    if (op == "+=") {
+        if (is_string(current) || is_string(val)) return ball::to_string(current) + ball::to_string(val);
+        if (both_int) return to_int(current) + to_int(val);
+        return to_num(current) + to_num(val);
+    }
     if (op == "-=") { if (both_int) return to_int(current) - to_int(val); return to_num(current) - to_num(val); }
     if (op == "*=") { if (both_int) return to_int(current) * to_int(val); return to_num(current) * to_num(val); }
     if (op == "/=") { auto d = to_num(val); if (d == 0.0) return static_cast<int64_t>(0); if (both_int) return to_int(current) / to_int(val); return to_num(current) / d; }
@@ -1831,9 +2382,14 @@ Engine::build_std_dispatch() {
         {"as", [](BallValue i) -> BallValue { return extract_unary(i); }},
         {"index", [](BallValue i) -> BallValue {
             auto tgt=extract_field(i,"target"); auto idx=extract_field(i,"index");
-            if(is_list(tgt)&&is_int(idx)) return std::any_cast<BallList>(tgt)[to_int(idx)];
-            if(is_string(tgt)&&is_int(idx)){auto s=std::any_cast<std::string>(tgt);return std::string(1,s[to_int(idx)]);}
-            if(is_map(tgt)&&is_string(idx)) return extract_field(tgt,std::any_cast<std::string>(idx));
+            if(is_list(tgt)&&(is_int(idx)||is_double(idx))) return std::any_cast<BallList>(tgt)[to_int(idx)];
+            if(is_string(tgt)&&(is_int(idx)||is_double(idx))){auto s=std::any_cast<std::string>(tgt);return std::string(1,s[to_int(idx)]);}
+            if(is_map(tgt)) {
+                auto key = ball::to_string(idx);
+                auto& m = std::any_cast<const BallMap&>(tgt);
+                auto it = m.find(key);
+                return (it != m.end()) ? it->second : BallValue{};
+            }
             throw BallRuntimeError("std.index: unsupported types");
         }},
         {"cascade", [](BallValue i) -> BallValue { return extract_field(i,"target"); }},
@@ -2006,7 +2562,13 @@ Engine::build_std_dispatch() {
         {"math_gcd", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return static_cast<int64_t>(std::gcd(to_int(l),to_int(r))); }},
         {"math_lcm", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); auto a=to_int(l),b=to_int(r); return static_cast<int64_t>(std::abs(a*b)/std::gcd(a,b)); }},
         {"map_create", [](BallValue) -> BallValue { return BallMap{}; }},
-        {"set_create", [](BallValue) -> BallValue { return BallList{}; }},
+        {"set_create", [](BallValue i) -> BallValue {
+            // Empty {} in Dart is a Map literal. Return BallMap for empty sets.
+            auto elems = extract_field(i, "elements");
+            if (is_list(elems) && !std::any_cast<const BallList&>(elems).empty())
+                return std::any_cast<BallList>(elems);
+            return BallMap{};
+        }},
         {"record", [](BallValue i) -> BallValue { return i; }},
         {"collection_if", [](BallValue) -> BallValue { return {}; }},
         {"collection_for", [](BallValue) -> BallValue { return {}; }},
@@ -2462,8 +3024,15 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     dispatch_["map_create"] = [](BallValue, BallCallable) -> BallValue { return BallMap{}; };
     dispatch_["set_create"] = [](BallValue input, BallCallable) -> BallValue {
         auto elems = extract_field(input, "elements");
-        if (is_list(elems)) return std::any_cast<BallList>(elems); // sets are lists in C++
-        return BallList{};
+        if (is_list(elems)) {
+            const auto& lst = std::any_cast<const BallList&>(elems);
+            // Non-empty elements → set (backed by BallList)
+            if (!lst.empty()) return std::any_cast<BallList>(elems);
+        }
+        // Empty `{}` in Dart is a Map literal, not a Set literal.
+        // When elements is empty, return BallMap so that map operations
+        // (index, containsKey, assign-via-index) work correctly.
+        return BallMap{};
     };
 
     // ── Set operations (using sorted BallList as backing store) ──

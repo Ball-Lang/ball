@@ -50,6 +50,19 @@ jobs:
         working-directory: ts/cli
         run: npm test
 
+      # ── @ball-lang/compiler ────────────────────────────────────────
+      - name: Install compiler dependencies
+        working-directory: ts/compiler
+        run: npm ci
+
+      - name: Build compiler
+        working-directory: ts/compiler
+        run: npm run build
+
+      - name: Test compiler
+        working-directory: ts/compiler
+        run: npm test
+
       # Upgrade npm to 11.5.1+ for OIDC trusted publishing.
       # Bypass the broken pre-installed npm (missing promise-retry) by
       # downloading the tarball directly and extracting to the node lib
@@ -75,4 +88,8 @@ jobs:
 
       - name: Publish cli with provenance (OIDC trusted publishing)
         working-directory: ts/cli
+        run: npm publish --provenance --access public
+
+      - name: Publish compiler with provenance (OIDC trusted publishing)
+        working-directory: ts/compiler
         run: npm publish --provenance --access public

@@ -383,12 +383,31 @@ int main() {
         "73_power",
         "74_fibonacci_sequence",
         "75_sum_of_squares",
-        // Conformance programs 76-100 (subset: those not requiring
-        // collection method dispatch which the C++ compiler lacks)
+        // Conformance programs 76-100
+        "76_list_map_filter",
+        "77_string_builder",
+        "78_map_operations",
         "79_nested_loops_pattern",
+        "80_bubble_sort",
+        "81_binary_search",
+        "82_string_reverse",
+        "83_matrix_multiply",
         "84_exception_chain",
+        "85_closure_counter",
+        "86_linked_list",
+        "87_string_count",
+        "88_selection_sort",
         "89_tower_of_hanoi",
+        "90_number_patterns",
         "91_nested_try_catch",
+        "92_list_comprehension",
+        "93_multi_return",
+        "94_prime_sieve",
+        "95_fibonacci_memo",
+        "96_roman_numerals",
+        "97_stack_operations",
+        "98_string_tokenizer",
+        "99_type_conversion",
         "100_complex_control_flow",
     };
 

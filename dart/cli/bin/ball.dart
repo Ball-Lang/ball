@@ -736,10 +736,12 @@ Future<void> _resolve(List<String> args) async {
       final regName = spec['registry'] as String;
       final pkg = spec['package'] as String? ?? name;
       final version = spec['version'] as String? ?? 'any';
+      final regUrl = spec['registry_url'] as String? ?? '';
       import_.registry = (RegistrySource()
         ..package = pkg
         ..version = version
-        ..registry = _parseRegistry(regName));
+        ..registry = _parseRegistry(regName)
+        ..registryUrl = regUrl);
     } else if (spec.containsKey('git')) {
       final git = spec['git'] as YamlMap;
       import_.git = (GitSource()

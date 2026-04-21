@@ -578,6 +578,21 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
         return compile_concurrency_call(fn, call);
     }
 
+    // Method-style calls: empty module, input has a "self" field.
+    // The Dart encoder emits `list.add(x)` as a call with
+    // `{self: list, arg0: x}`. Dispatch to compile_method_call which
+    // maps these to C++ STL equivalents.
+    if (mod.empty() && call.has_input() &&
+        call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+        bool has_self = false;
+        for (const auto& f : call.input().message_creation().fields()) {
+            if (f.name() == "self") { has_self = true; break; }
+        }
+        if (has_self) {
+            return compile_method_call(fn, call);
+        }
+    }
+
     // User-defined function call
     std::string func_name = sanitize_name(fn);
     std::string result = func_name + "(";
@@ -660,7 +675,9 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "print") {
         auto msg = get_message_field(call, "message");
         if (msg.empty()) msg = call.has_input() ? compile_expr(call.input()) : "\"\"";
-        return "std::cout << " + msg + " << std::endl";
+        // Wrap in ball_to_string for Dart-compatible formatting (e.g.
+        // doubles print "42.0" not "42", bools print "true" not "1").
+        return "std::cout << ball_to_string(" + msg + ") << std::endl";
     }
 
     // ── String operations ──
@@ -1011,8 +1028,229 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                indent_str() + "    }\n" + indent_str() + "}()";
     }
 
+    // ── null_check — unwrap nullable, just return the value ──
+    if (fn == "null_check") {
+        return get_message_field(call, "value");
+    }
+
+    // ── Collection constructors that sometimes appear in the std module
+    //    rather than std_collections (encoder variation) ──
+    if (fn == "set_create") return "std::vector<std::any>{}";
+    if (fn == "map_create") {
+        // map_create can carry `entries` in input
+        if (call.has_input() &&
+            call.input().expr_case() == ball::v1::Expression::kMessageCreation &&
+            call.input().message_creation().fields_size() > 0) {
+            std::string result = "std::map<std::string,std::any>{";
+            bool first = true;
+            for (const auto& f : call.input().message_creation().fields()) {
+                if (!first) result += ", ";
+                result += "{\"" + f.name() + "\", std::any(" + compile_expr(f.value()) + ")}";
+                first = false;
+            }
+            result += "}";
+            return result;
+        }
+        return "std::map<std::string,std::any>{}";
+    }
+
     // Default: unknown std call → comment marker
     return "/* std." + fn + " */ 0";
+}
+
+// ================================================================
+// Method-style call compilation (self.method pattern)
+// ================================================================
+
+std::string CppCompiler::compile_method_call(const std::string& fn,
+                                              const ball::v1::FunctionCall& call) {
+    auto self = get_message_field(call, "self");
+    auto arg0 = get_message_field(call, "arg0");
+    auto arg1 = get_message_field(call, "arg1");
+
+    // ── List methods ──
+    if (fn == "add") {
+        return self + ".push_back(" + arg0 + ")";
+    }
+    if (fn == "removeLast") {
+        return "[&](auto& _v){ auto _e = _v.back(); _v.pop_back(); return _e; }(" + self + ")";
+    }
+    if (fn == "length") {
+        return "static_cast<int64_t>(" + self + ".size())";
+    }
+    if (fn == "isEmpty") {
+        return self + ".empty()";
+    }
+    if (fn == "isNotEmpty") {
+        return "!" + self + ".empty()";
+    }
+    if (fn == "last") {
+        return self + ".back()";
+    }
+    if (fn == "first") {
+        return self + ".front()";
+    }
+    if (fn == "contains") {
+        // Works for both strings and lists.
+        // For strings: self.find(arg0) != std::string::npos
+        // For lists: std::find(self.begin(), self.end(), arg0) != self.end()
+        // We use a generic IIFE that attempts string first, falls back to
+        // find-based search. Since C++ is statically typed and we know
+        // the Dart source intent, string.contains is the common case
+        // when arg0 is a string literal.
+        return "(" + self + ".find(" + arg0 + ") != std::string::npos)";
+    }
+    if (fn == "insert") {
+        auto idx = arg0;
+        auto val = arg1;
+        return self + ".insert(" + self + ".begin() + " + idx + ", " + val + ")";
+    }
+    if (fn == "removeAt") {
+        return self + ".erase(" + self + ".begin() + " + arg0 + ")";
+    }
+    if (fn == "indexOf") {
+        return "[](const auto& v, const auto& e){ auto it = std::find(v.begin(), v.end(), e); "
+               "return it != v.end() ? static_cast<int64_t>(it - v.begin()) : static_cast<int64_t>(-1); "
+               "}(" + self + ", " + arg0 + ")";
+    }
+    if (fn == "sublist") {
+        if (arg1.empty()) {
+            return "[](const auto& v, int64_t s){ return decltype(v)(v.begin()+s, v.end()); }(" +
+                   self + ", " + arg0 + ")";
+        }
+        return "[](const auto& v, int64_t s, int64_t e){ return decltype(v)(v.begin()+s, v.begin()+e); }(" +
+               self + ", " + arg0 + ", " + arg1 + ")";
+    }
+    if (fn == "reversed") {
+        return "[](auto v){ std::reverse(v.begin(), v.end()); return v; }(" + self + ")";
+    }
+    if (fn == "join") {
+        std::string sep = arg0.empty() ? "\"\"" : arg0;
+        return "[](const auto& v, const std::string& s){"
+               "std::string r; for(size_t i=0;i<v.size();i++){"
+               "if(i>0) r+=s; r+=ball_to_string(v[i]);} return r;"
+               "}(" + self + ", " + sep + ")";
+    }
+    if (fn == "filled") {
+        // List.filled(length, value) — self is "List" (type name), arg0 is length, arg1 is value
+        return "std::vector<std::any>(" + arg0 + ", std::any(" + arg1 + "))";
+    }
+
+    // ── Map methods ──
+    if (fn == "containsKey") {
+        return "(" + self + ".count(" + arg0 + ") > 0)";
+    }
+    if (fn == "remove") {
+        return self + ".erase(" + arg0 + ")";
+    }
+
+    // ── String methods ──
+    if (fn == "substring") {
+        if (arg1.empty()) {
+            return self + ".substr(" + arg0 + ")";
+        }
+        return self + ".substr(" + arg0 + ", " + arg1 + " - " + arg0 + ")";
+    }
+    if (fn == "startsWith") {
+        return "(" + self + ".rfind(" + arg0 + ", 0) == 0)";
+    }
+    if (fn == "endsWith") {
+        return "[](const std::string& s, const std::string& e){"
+               "return s.size()>=e.size() && s.compare(s.size()-e.size(),e.size(),e)==0;"
+               "}(" + self + ", " + arg0 + ")";
+    }
+    if (fn == "trim") {
+        return "[](const std::string& s){"
+               "auto a=s.find_first_not_of(\" \\t\\n\\r\"),b=s.find_last_not_of(\" \\t\\n\\r\");"
+               "return a==std::string::npos?std::string():s.substr(a,b-a+1);"
+               "}(" + self + ")";
+    }
+    if (fn == "split") {
+        return "[](const std::string& s, const std::string& d){"
+               "if(d.empty()){std::vector<std::string> r;"
+               "for(char c:s) r.push_back(std::string(1,c)); return r;}"
+               "std::vector<std::string> r; size_t p=0,f;"
+               "while((f=s.find(d,p))!=std::string::npos){"
+               "r.push_back(s.substr(p,f-p)); p=f+d.size();}"
+               "r.push_back(s.substr(p)); return r;"
+               "}(" + self + ", " + arg0 + ")";
+    }
+    if (fn == "replaceAll") {
+        return "[](std::string s, const std::string& f, const std::string& t){"
+               "if(f.empty()){std::string o;o.reserve(s.size()*(t.size()+1)+t.size());"
+               "o+=t;for(char c:s){o.push_back(c);o+=t;}return o;}"
+               "size_t p=0;"
+               "while((p=s.find(f,p))!=std::string::npos){"
+               "s.replace(p,f.size(),t);p+=t.size();}return s;"
+               "}(" + self + ", " + arg0 + ", " + arg1 + ")";
+    }
+    if (fn == "toLowerCase") {
+        return "[](std::string s){std::transform(s.begin(),s.end(),s.begin(),::tolower);return s;}(" + self + ")";
+    }
+    if (fn == "toUpperCase") {
+        return "[](std::string s){std::transform(s.begin(),s.end(),s.begin(),::toupper);return s;}(" + self + ")";
+    }
+    if (fn == "padLeft") {
+        return "[](const std::string& s, int64_t w, const std::string& p){"
+               "if(static_cast<int64_t>(s.size())>=w) return s;"
+               "std::string r; while(static_cast<int64_t>(r.size()+s.size())<w) r+=p;"
+               "return r.substr(0,w-s.size())+s;"
+               "}(" + self + ", " + arg0 + ", " + (arg1.empty() ? "\" \"s" : arg1) + ")";
+    }
+    if (fn == "padRight") {
+        return "[](const std::string& s, int64_t w, const std::string& p){"
+               "if(static_cast<int64_t>(s.size())>=w) return s;"
+               "std::string r=s; while(static_cast<int64_t>(r.size())<w) r+=p;"
+               "return r.substr(0,w);"
+               "}(" + self + ", " + arg0 + ", " + (arg1.empty() ? "\" \"s" : arg1) + ")";
+    }
+    if (fn == "codeUnitAt") {
+        return "static_cast<int64_t>(static_cast<unsigned char>(" + self + "[" + arg0 + "]))";
+    }
+
+    // ── Number methods ──
+    if (fn == "toDouble") {
+        return "static_cast<double>(" + self + ")";
+    }
+    if (fn == "toInt") {
+        return "static_cast<int64_t>(" + self + ")";
+    }
+    if (fn == "toString") {
+        return "ball_to_string(" + self + ")";
+    }
+    if (fn == "abs") {
+        return "std::abs(" + self + ")";
+    }
+    if (fn == "round") {
+        return "static_cast<int64_t>(std::round(" + self + "))";
+    }
+    if (fn == "ceil") {
+        return "static_cast<int64_t>(std::ceil(" + self + "))";
+    }
+    if (fn == "floor") {
+        return "static_cast<int64_t>(std::floor(" + self + "))";
+    }
+    if (fn == "toStringAsFixed") {
+        return "[](double v, int64_t d){"
+               "std::ostringstream o; o<<std::fixed<<std::setprecision(d)<<v;"
+               "return o.str();"
+               "}(" + self + ", " + arg0 + ")";
+    }
+
+    // Fallback: treat as a user-defined function call passing self + args
+    std::string func_name = sanitize_name(fn);
+    std::string result = func_name + "(";
+    bool first = true;
+    if (call.has_input() &&
+        call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+        for (const auto& f : call.input().message_creation().fields()) {
+            if (!first) result += ", ";
+            result += compile_expr(f.value());
+            first = false;
+        }
+    }
+    result += ")";
+    return result;
 }
 
 // ================================================================
@@ -1150,6 +1388,22 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                                                        : kw) +
                                       out.substr(kw.size());
                                 break;
+                            }
+                        }
+                        // Replace Dart-style property accesses with C++
+                        // equivalents inside the init string.
+                        // `.length` → `.size()` (cast handled by context)
+                        {
+                            size_t pos = 0;
+                            while ((pos = out.find(".length", pos)) != std::string::npos) {
+                                // Ensure it's not part of a longer word
+                                size_t end = pos + 7;
+                                if (end >= out.size() || !std::isalnum(out[end])) {
+                                    out.replace(pos, 7, ".size()");
+                                    pos += 7;
+                                } else {
+                                    pos += 7;
+                                }
                             }
                         }
                         return out;

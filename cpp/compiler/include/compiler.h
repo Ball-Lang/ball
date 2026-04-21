@@ -96,6 +96,8 @@ private:
     // std function compilation
     std::string compile_std_call(const std::string& function,
                                   const ball::v1::FunctionCall& call);
+    std::string compile_method_call(const std::string& function,
+                                     const ball::v1::FunctionCall& call);
     std::string compile_collections_call(const std::string& function,
                                           const ball::v1::FunctionCall& call);
     std::string compile_io_call(const std::string& function,

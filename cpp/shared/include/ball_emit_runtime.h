@@ -69,6 +69,18 @@ template<typename T> inline std::string ball_to_string(const std::vector<T>& v);
 
 template<typename T> inline std::string ball_to_string(T v) { return std::to_string(v); }
 
+// std::any — attempt known types, fallback to type name.
+inline std::string ball_to_string(const std::any& v) {
+    if (!v.has_value()) return "null";
+    if (v.type() == typeid(int64_t)) return std::to_string(std::any_cast<int64_t>(v));
+    if (v.type() == typeid(int)) return std::to_string(std::any_cast<int>(v));
+    if (v.type() == typeid(double)) return ball_to_string(std::any_cast<double>(v));
+    if (v.type() == typeid(bool)) return ball_to_string(std::any_cast<bool>(v));
+    if (v.type() == typeid(std::string)) return std::any_cast<std::string>(v);
+    if (v.type() == typeid(const char*)) return std::any_cast<const char*>(v);
+    return "<any>";
+}
+
 // Lists render as Dart-style `[a, b, c]`. Each element uses
 // ball_to_string so nested structures / bools / doubles all follow
 // the Dart conventions.

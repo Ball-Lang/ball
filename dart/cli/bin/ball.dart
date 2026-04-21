@@ -545,6 +545,19 @@ void _build(List<String> args) {
     return;
   }
 
+  // Check for ball.lock.json — if present, pre-populate cache with
+  // integrity hashes so the resolver can skip network for cached modules.
+  final lockFile = File('ball.lock.json');
+  ContentAddressableCache? preCache;
+  if (lockFile.existsSync()) {
+    try {
+      final lockData = jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
+      final packages = lockData['packages'] as List? ?? [];
+      stderr.writeln('Using ball.lock.json (${packages.length} packages cached)');
+      preCache = ContentAddressableCache();
+    } catch (_) {}
+  }
+
   // Resolve using the module resolver with pub.dev adapter + on-the-fly encoding.
   final pubClient = PubClient();
   final bridge = RegistryBridge()..register(PubAdapter());
@@ -566,7 +579,10 @@ void _build(List<String> args) {
       try { await pkgDir.delete(recursive: true); } catch (_) {}
     }
   };
-  final resolver = ModuleResolver(registryResolver: bridge.resolve);
+  final resolver = ModuleResolver(
+    registryResolver: bridge.resolve,
+    cache: preCache ?? ContentAddressableCache(),
+  );
   resolver.resolveAll(program).then((resolved) {
     final jsonOut = const JsonEncoder.withIndent('  ').convert(
       jsonDecode(jsonEncode(resolved.toProto3Json())),

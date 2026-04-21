@@ -121,6 +121,16 @@ Engine::Engine(const ball::v1::Program& program,
     handlers_.push_back(std::make_unique<StdCollectionsModuleHandler>());
     handlers_.push_back(std::make_unique<StdIoModuleHandler>(&stdout_fn));
     for (auto& h : handlers_) h->init(*this);
+    // Wire std → std_collections fallthrough so programs declaring
+    // collection functions under "std" (e.g. list_push, list_contains)
+    // resolve correctly.
+    auto* std_handler = dynamic_cast<StdModuleHandler*>(handlers_[0].get());
+    auto* collections_handler = dynamic_cast<StdCollectionsModuleHandler*>(handlers_[1].get());
+    if (std_handler && collections_handler) {
+        std_handler->set_fallback([collections_handler](const std::string& fn, BallValue input, BallCallable engine) {
+            return collections_handler->call(fn, std::move(input), engine);
+        });
+    }
 
     build_lookup_tables();
     validate_no_unresolved_imports();
@@ -1576,6 +1586,7 @@ BallValue Engine::eval_lazy_switch(const ball::v1::FunctionCall& call, std::shar
     if (ce.expr_case() != ball::v1::Expression::kLiteral ||
         ce.literal().value_case() != ball::v1::Literal::kListValue) return {};
     const ball::v1::Expression* def = nullptr;
+    bool fall_through = false;
     for (const auto& cx : ce.literal().list_value().elements()) {
         if (cx.expr_case() != ball::v1::Expression::kMessageCreation) continue;
         std::unordered_map<std::string, const ball::v1::Expression*> cf;
@@ -1585,21 +1596,46 @@ BallValue Engine::eval_lazy_switch(const ball::v1::FunctionCall& call, std::shar
             di->second->literal().bool_value()) {
             auto bi = cf.find("body"); if (bi != cf.end()) def = bi->second; continue;
         }
-        // Pattern matching: check for 'pattern' field
+        // Pattern matching: check for 'pattern' or 'pattern_expr' field
         auto pi = cf.find("pattern");
-        if (pi != cf.end()) {
-            auto pattern_val = eval_expr(*pi->second, scope);
+        auto pei = cf.find("pattern_expr");
+        if (pi != cf.end() || pei != cf.end()) {
+            bool matched = fall_through;
             BallMap bindings;
-            if (match_pattern(sub_val, pattern_val, bindings)) {
+            if (!matched && pi != cf.end()) {
+                auto pattern_val = eval_expr(*pi->second, scope);
+                matched = match_pattern(sub_val, pattern_val, bindings);
+            }
+            // Also try pattern_expr (ConstPattern with unquoted value).
+            if (!matched && pei != cf.end()) {
+                auto pe_val = eval_expr(*pei->second, scope);
+                if (is_map(pe_val)) {
+                    const auto& pe_map = std::any_cast<const BallMap&>(pe_val);
+                    auto val_it = pe_map.find("value");
+                    if (val_it != pe_map.end()) {
+                        matched = values_equal(sub_val, val_it->second);
+                    }
+                } else {
+                    matched = values_equal(sub_val, pe_val);
+                }
+            }
+            if (matched) {
                 // Check guard
                 auto gi = cf.find("guard");
                 if (gi != cf.end()) {
                     auto guard_scope = std::make_shared<Scope>(scope);
                     for (auto& [k, v] : bindings) guard_scope->bind(k, v);
-                    if (!to_bool(eval_expr(*gi->second, guard_scope))) continue;
+                    if (!to_bool(eval_expr(*gi->second, guard_scope))) { fall_through = false; continue; }
                 }
                 auto bi = cf.find("body");
                 if (bi != cf.end()) {
+                    // Empty body (block with no statements) → fall through
+                    const auto& body_expr = *bi->second;
+                    if (body_expr.expr_case() == ball::v1::Expression::kBlock &&
+                        body_expr.block().statements().empty()) {
+                        fall_through = true;
+                        continue;
+                    }
                     auto body_scope = std::make_shared<Scope>(scope);
                     for (auto& [k, v] : bindings) body_scope->bind(k, v);
                     return eval_expr(*bi->second, body_scope);
@@ -1609,7 +1645,7 @@ BallValue Engine::eval_lazy_switch(const ball::v1::FunctionCall& call, std::shar
         }
         // Value matching
         auto vi = cf.find("value");
-        if (vi != cf.end() && values_equal(eval_expr(*vi->second, scope), sub_val)) {
+        if (vi != cf.end() && (values_equal(eval_expr(*vi->second, scope), sub_val) || fall_through)) {
             auto bi = cf.find("body"); if (bi != cf.end()) return eval_expr(*bi->second, scope);
         }
     }
@@ -1764,6 +1800,16 @@ bool Engine::match_string_pattern(const BallValue& value, const std::string& pat
 
     // Simple type pattern: 'int', 'String', etc.
     if (matches_type_pattern(value, pattern)) return true;
+
+    // Quoted string literal: "'Monday'" → match against "Monday"
+    if (pattern.size() >= 2 && pattern.front() == '\'' && pattern.back() == '\'') {
+        auto unquoted = pattern.substr(1, pattern.size() - 2);
+        return is_string(value) && std::any_cast<const std::string&>(value) == unquoted;
+    }
+    if (pattern.size() >= 2 && pattern.front() == '"' && pattern.back() == '"') {
+        auto unquoted = pattern.substr(1, pattern.size() - 2);
+        return is_string(value) && std::any_cast<const std::string&>(value) == unquoted;
+    }
 
     // Direct value equality
     return pattern == ball::to_string(value);
@@ -2315,6 +2361,8 @@ Engine::build_std_dispatch() {
         {"post_decrement", [](BallValue i) -> BallValue { return to_int(extract_unary(i))-1; }},
         {"concat", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return ball::to_string(l)+ball::to_string(r); }},
         {"to_string", [](BallValue i) -> BallValue { return ball::to_string(extract_unary(i)); }},
+        {"to_int", [](BallValue i) -> BallValue { return to_int(extract_unary(i)); }},
+        {"to_double", [](BallValue i) -> BallValue { return to_double(extract_unary(i)); }},
         {"length", [](BallValue i) -> BallValue {
             auto v=extract_unary(i);
             if(is_string(v)) return static_cast<int64_t>(std::any_cast<std::string>(v).size());
@@ -2460,6 +2508,12 @@ Engine::build_std_dispatch() {
         }},
         {"string_char_at", [](BallValue i) -> BallValue { auto s=ball::to_string(extract_field(i,"target")); return std::string(1,s[to_int(extract_field(i,"index"))]); }},
         {"string_char_code_at", [](BallValue i) -> BallValue { auto s=ball::to_string(extract_field(i,"target")); return static_cast<int64_t>(static_cast<unsigned char>(s[to_int(extract_field(i,"index"))])); }},
+        {"string_code_unit_at", [](BallValue i) -> BallValue {
+            auto s=ball::to_string(extract_field(i,"value"));
+            auto idx=to_int(extract_field(i,"index"));
+            if (idx < 0 || idx >= static_cast<int64_t>(s.size())) return BallValue{};
+            return static_cast<int64_t>(static_cast<unsigned char>(s[idx]));
+        }},
         {"string_from_char_code", [](BallValue i) -> BallValue { return std::string(1,static_cast<char>(to_int(extract_unary(i)))); }},
         {"string_to_upper", [](BallValue i) -> BallValue { auto s=ball::to_string(extract_unary(i)); std::transform(s.begin(),s.end(),s.begin(),::toupper); return s; }},
         {"string_to_lower", [](BallValue i) -> BallValue { auto s=ball::to_string(extract_unary(i)); std::transform(s.begin(),s.end(),s.begin(),::tolower); return s; }},
@@ -2668,8 +2722,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         auto list = std::any_cast<BallList>(extract_field(input, "list"));
         if (list.empty()) throw BallRuntimeError("list_pop: empty list");
         auto last = list.back();
-        list.pop_back();
-        return BallMap{{"value", last}, {"list", BallValue(list)}};
+        return last;
     };
 
     dispatch_["list_insert"] = [](BallValue input, BallCallable) -> BallValue {
@@ -2730,8 +2783,15 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_contains"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list_val = extract_field(input, "list");
         auto target = extract_field(input, "value");
+        // String.contains(substring) check.
+        if (is_string(list_val)) {
+            auto s = std::any_cast<std::string>(list_val);
+            auto sub = ball::to_string(target);
+            return s.find(sub) != std::string::npos;
+        }
+        auto list = std::any_cast<BallList>(list_val);
         for (const auto& item : list) {
             if (values_equal(item, target)) return true;
         }
@@ -2815,9 +2875,26 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
 
     dispatch_["list_sort"] = [](BallValue input, BallCallable) -> BallValue {
         auto list = std::any_cast<BallList>(extract_field(input, "list"));
-        std::sort(list.begin(), list.end(), [](const BallValue& a, const BallValue& b) {
-            return to_string(a) < to_string(b);
-        });
+        // Check for comparator function in "function" or "value" fields.
+        auto comp_val = extract_field(input, "function");
+        if (!comp_val.has_value() || !is_function(comp_val)) {
+            comp_val = extract_field(input, "value");
+        }
+        if (comp_val.has_value() && is_function(comp_val)) {
+            auto comp_fn = std::any_cast<BallFunction>(comp_val);
+            std::stable_sort(list.begin(), list.end(), [&comp_fn](const BallValue& a, const BallValue& b) {
+                auto result = comp_fn(BallValue(BallMap{{"left", a}, {"right", b}}));
+                return to_int(result) < 0;
+            });
+        } else {
+            // Default: sort by numeric value if possible, otherwise by string
+            std::stable_sort(list.begin(), list.end(), [](const BallValue& a, const BallValue& b) {
+                if ((is_int(a) || is_double(a)) && (is_int(b) || is_double(b))) {
+                    return to_num(a) < to_num(b);
+                }
+                return to_string(a) < to_string(b);
+            });
+        }
         return list;
     };
 
@@ -3033,6 +3110,45 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         // When elements is empty, return BallMap so that map operations
         // (index, containsKey, assign-via-index) work correctly.
         return BallMap{};
+    };
+
+    dispatch_["list_foreach"] = [](BallValue input, BallCallable engine) -> BallValue {
+        auto list_val = extract_field(input, "list");
+        // The callback may be in "function" or "value" field depending on encoding.
+        auto func_val = extract_field(input, "function");
+        if (!func_val.has_value() || !is_function(func_val)) {
+            func_val = extract_field(input, "value");
+        }
+        auto func = std::any_cast<BallFunction>(func_val);
+        if (is_list(list_val)) {
+            for (const auto& item : std::any_cast<const BallList&>(list_val)) {
+                func(item);
+            }
+        } else if (is_map(list_val)) {
+            // Iterate over map entries as {key, value} pairs.
+            const auto& m = std::any_cast<const BallMap&>(list_val);
+            for (const auto& [k, v] : m) {
+                func(BallValue(BallMap{{"key", std::string(k)}, {"value", v}}));
+            }
+        }
+        return {};
+    };
+
+    dispatch_["list_to_list"] = [](BallValue input, BallCallable) -> BallValue {
+        auto set_val = extract_field(input, "set");
+        if (is_list(set_val)) return set_val;
+        // If it's a map (empty set created as map), return empty list
+        return BallList{};
+    };
+
+    dispatch_["list_generate"] = [](BallValue input, BallCallable engine) -> BallValue {
+        auto count = std::any_cast<int64_t>(extract_field(input, "count"));
+        auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
+        BallList result;
+        for (int64_t i = 0; i < count; i++) {
+            result.push_back(func(BallValue(i)));
+        }
+        return result;
     };
 
     // ── Set operations (using sorted BallList as backing store) ──

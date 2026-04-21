@@ -104,6 +104,28 @@ inline std::string to_string(const BallValue& v) {
     if (!v.has_value()) return "null";
     if (v.type() == typeid(BallFuture)) return "<future>";
     if (v.type() == typeid(BallGenerator)) return "<generator>";
+    if (v.type() == typeid(BallList)) {
+        const auto& lst = std::any_cast<const BallList&>(v);
+        std::string result = "[";
+        for (size_t i = 0; i < lst.size(); i++) {
+            if (i > 0) result += ", ";
+            result += to_string(lst[i]);
+        }
+        result += "]";
+        return result;
+    }
+    if (v.type() == typeid(BallMap)) {
+        const auto& m = std::any_cast<const BallMap&>(v);
+        std::string result = "{";
+        bool first = true;
+        for (const auto& [k, val] : m) {
+            if (!first) result += ", ";
+            first = false;
+            result += k + ": " + to_string(val);
+        }
+        result += "}";
+        return result;
+    }
     return "<object>";
 }
 

@@ -1684,24 +1684,18 @@ TEST(list_push) {
 }
 
 TEST(list_pop_returns_value_and_list) {
+    // list_pop now returns just the removed element (matching Dart engine).
     auto pop_call = call("std_collections", "list_pop", make_msg("", {
         {"list", lit_list({lit_int(1), lit_int(2), lit_int(3)})}
     }));
-    auto remaining_list = access(call("std_collections", "list_pop", make_msg("", {
-        {"list", lit_list({lit_int(1), lit_int(2), lit_int(3)})}
-    })), "list");
     auto prog = build_program_block(
         {
-            expr_stmt(print_call(std_unary("to_string", access(pop_call, "value")))),
-            expr_stmt(print_call(std_unary("to_string", call("std_collections", "list_length", make_msg("", {
-                {"list", remaining_list}
-            }))))),
+            expr_stmt(print_call(std_unary("to_string", pop_call))),
         },
         lit_int(0));
     auto out = run_program(prog);
-    ASSERT_EQ(out.size(), 2u);
+    ASSERT_EQ(out.size(), 1u);
     ASSERT_EQ(out[0], "3");
-    ASSERT_EQ(out[1], "2");
 }
 
 TEST(list_get_and_set) {

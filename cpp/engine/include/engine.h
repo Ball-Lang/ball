@@ -289,14 +289,23 @@ public:
         dispatch_ = engine.build_std_dispatch();
     }
 
-    BallValue call(const std::string& function, BallValue input, BallCallable /*engine*/) override {
+    BallValue call(const std::string& function, BallValue input, BallCallable engine) override {
         auto it = dispatch_.find(function);
         if (it != dispatch_.end()) return it->second(std::move(input));
+        // Fall through to collections handler — many Ball programs declare
+        // collection functions (list_push, list_contains, etc.) under "std".
+        if (fallback_) {
+            return fallback_(function, std::move(input), engine);
+        }
         throw BallRuntimeError("Unknown std function: \"" + function + "\"");
     }
 
+    using FallbackFn = std::function<BallValue(const std::string&, BallValue, BallCallable)>;
+    void set_fallback(FallbackFn fn) { fallback_ = std::move(fn); }
+
 private:
     std::unordered_map<std::string, std::function<BallValue(BallValue)>> dispatch_;
+    FallbackFn fallback_;
 };
 
 // ================================================================

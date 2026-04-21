@@ -685,6 +685,14 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "to_string" || fn == "int_to_string" || fn == "double_to_string") {
         return "ball_to_string(" + get_message_field(call, "value") + ")";
     }
+    if (fn == "to_int") {
+        auto v = get_message_field(call, "value");
+        return "static_cast<int64_t>(" + v + ")";
+    }
+    if (fn == "to_double") {
+        auto v = get_message_field(call, "value");
+        return "static_cast<double>(" + v + ")";
+    }
     if (fn == "string_to_int") {
         // Wrap in an IIFE that converts std::invalid_argument /
         // std::out_of_range into a `BallException("FormatException", …)`

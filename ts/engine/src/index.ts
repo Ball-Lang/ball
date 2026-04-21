@@ -485,10 +485,14 @@ export class BallEngine {
     }
 
     // Top-level variables: compute once and cache.
-    if (kind === 'top_level_variable') {
+    if (kind === 'top_level_variable' || kind === 'static_field') {
       const key = `${moduleName}.${fn.name}`;
       if (this.topLevelVars.has(key)) return this.topLevelVars.get(key);
-      const val = this.evalExpr(fn.body, parentScope);
+      let val = this.evalExpr(fn.body, parentScope);
+      // If outputType says Map but we got an empty array, convert to object
+      if (fn.outputType && fn.outputType.startsWith('Map') && Array.isArray(val) && val.length === 0) {
+        val = {};
+      }
       this.topLevelVars.set(key, val);
       return val;
     }
@@ -497,7 +501,11 @@ export class BallEngine {
     this.currentModule = moduleName;
 
     const fnScope = parentScope.child();
-    fnScope.bind('input', input);
+    // Only bind 'input' if the function actually receives input.
+    // Binding null would shadow top-level variables named 'input'.
+    if (input !== null && input !== undefined) {
+      fnScope.bind('input', input);
+    }
 
     // Bind 'self' for instance method/constructor calls so field references resolve.
     const selfObj = (input && typeof input === 'object' && !Array.isArray(input) && 'self' in input) ? input.self : null;
@@ -881,6 +889,11 @@ export class BallEngine {
           if (f.metadata?.kind === 'top_level_variable') {
             return this.callFunction(mod.name, f, null, scope);
           }
+          // Function tear-off: return a closure that calls the function.
+          if (f.metadata?.kind === 'function' && f.body) {
+            const modName = mod.name;
+            return (input: BallValue) => this.callFunction(modName, f, input, scope);
+          }
         }
       }
     }
@@ -1029,8 +1042,22 @@ export class BallEngine {
   private evalMessageCreation(mc: { typeName?: string; fields?: FieldValuePair[] }, scope: Scope): BallValue {
     const result: Record<string, BallValue> = {};
     const fields = mc.fields ?? [];
+    // Track duplicate field names and convert to positional args
+    const seenNames = new Map<string, number>(); // name -> count
     for (const f of fields) {
-      result[f.name] = this.evalExpr(f.value, scope);
+      const val = this.evalExpr(f.value, scope);
+      const prevCount = seenNames.get(f.name) ?? 0;
+      if (prevCount > 0) {
+        // This is a duplicate field. Store the first occurrence's value as arg0
+        // (if not already stored) and this one as arg1, arg2, etc.
+        if (prevCount === 1) {
+          // Move the first value to arg0
+          result['arg0'] = result[f.name];
+        }
+        result[`arg${prevCount}`] = val;
+      }
+      result[f.name] = val;
+      seenNames.set(f.name, prevCount + 1);
     }
 
     const typeName = mc.typeName;
@@ -1103,13 +1130,17 @@ export class BallEngine {
                   if (val === 'true') instance[init.name] = true;
                   else if (val === 'false') instance[init.name] = false;
                   else if (!isNaN(Number(val))) {
-              const numVal = Number(val);
-              instance[init.name] = val.includes('.') ? new BallDouble(numVal) : numVal;
-            }
+                    const numVal = Number(val);
+                    instance[init.name] = val.includes('.') ? new BallDouble(numVal) : numVal;
+                  }
                   else instance[init.name] = val;
                 } else {
                   instance[init.name] = val ?? null;
                 }
+              }
+              // Handle super constructor initializer
+              if (init.kind === 'super' && typeof init.args === 'string') {
+                this.applySuperInitializer(instance, classInfo, typeName!, resolvedArgs, init.args, scope);
               }
             }
           }
@@ -1124,6 +1155,53 @@ export class BallEngine {
 
         return instance;
       } else {
+        // Check if typeName is actually a function/method call (encoder sometimes encodes
+        // method calls as messageCreation with typeName = "module:ClassName.method" or "module:method").
+        // Try direct lookup first.
+        const fnKey = `${this.currentModule}.${typeName}`;
+        const fnMatch = this.functions.get(fnKey);
+        if (fnMatch && !fnMatch.isBase) {
+          if (scope.has('self') && fnMatch.metadata?.kind === 'method') {
+            try {
+              const selfObj = scope.lookup('self');
+              return this.callFunction(this.currentModule, fnMatch, { ...result, self: selfObj }, scope);
+            } catch { /* fall through */ }
+          }
+          return this.callFunction(this.currentModule, fnMatch, result, scope);
+        }
+
+        // Try resolving via self's type: typeName "module:_gcd" -> "module:ClassName._gcd"
+        if (scope.has('self')) {
+          try {
+            const selfObj = scope.lookup('self');
+            if (selfObj && typeof selfObj === 'object' && selfObj.__type__) {
+              const selfType: string = selfObj.__type__;
+              // Extract method name from typeName (e.g., "main:_gcd" -> "_gcd")
+              const colonIdx = typeName.indexOf(':');
+              const methodName = colonIdx >= 0 ? typeName.substring(colonIdx + 1) : typeName;
+              // Try resolving as a method on the self type
+              const resolved = this.resolveMethod(selfType, methodName);
+              if (resolved) {
+                return this.callFunction(resolved.modPart, resolved.fn, { ...result, self: selfObj }, scope);
+              }
+            }
+          } catch { /* fall through */ }
+        }
+
+        // Also try scanning all modules for the function
+        for (const mod of this.program.modules) {
+          for (const f of mod.functions) {
+            if (f.name === typeName && !f.isBase) {
+              if (scope.has('self') && f.metadata?.kind === 'method') {
+                try {
+                  const selfObj = scope.lookup('self');
+                  return this.callFunction(mod.name, f, { ...result, self: selfObj }, scope);
+                } catch { /* fall through */ }
+              }
+              return this.callFunction(mod.name, f, result, scope);
+            }
+          }
+        }
         // Unknown class type: still set __type__ for dispatch.
         result.__type__ = typeName;
       }
@@ -1157,6 +1235,108 @@ export class BallEngine {
       }
     }
     return superFields;
+  }
+
+  /**
+   * Apply a super constructor initializer to set fields on the super chain.
+   * Parses args like "('Car', horsepower)" and maps them to the super constructor's params.
+   */
+  private applySuperInitializer(
+    instance: Record<string, BallValue>,
+    classInfo: { superclass?: string; fieldNames: string[]; moduleName: string },
+    typeName: string,
+    resolvedArgs: Record<string, BallValue>,
+    argsStr: string,
+    scope: Scope,
+  ): void {
+    if (!classInfo.superclass) return;
+
+    // Resolve super type
+    let superTypeName = classInfo.superclass;
+    if (!superTypeName.includes(':')) {
+      const colonIdx = typeName.indexOf(':');
+      const modPart = colonIdx >= 0 ? typeName.substring(0, colonIdx) : classInfo.moduleName;
+      superTypeName = `${modPart}:${superTypeName}`;
+    }
+
+    // Find the super constructor
+    const superCtorEntry = this.constructors.get(superTypeName);
+    if (!superCtorEntry) return;
+    const superParams = superCtorEntry.fn.metadata?.params;
+    if (!superParams || !Array.isArray(superParams)) return;
+
+    // Parse the args string: "(val1, val2, ...)"
+    let inner = argsStr.trim();
+    if (inner.startsWith('(')) inner = inner.substring(1);
+    if (inner.endsWith(')')) inner = inner.substring(0, inner.length - 1);
+    const argTokens = inner.split(',').map(s => s.trim()).filter(s => s.length > 0);
+
+    // Map args to super constructor params
+    const superFieldNames = this.collectAllFieldNames(superTypeName);
+    for (let i = 0; i < Math.min(argTokens.length, superParams.length); i++) {
+      const p = superParams[i];
+      const pName = typeof p === 'string' ? p : p.name;
+      const isThis = typeof p === 'object' && p.is_this;
+      if (!pName) continue;
+
+      let val: BallValue;
+      const token = argTokens[i];
+      // Parse the token: could be a string literal, number, or variable reference
+      if ((token.startsWith("'") && token.endsWith("'")) || (token.startsWith('"') && token.endsWith('"'))) {
+        val = token.substring(1, token.length - 1);
+      } else if (!isNaN(Number(token))) {
+        val = token.includes('.') ? new BallDouble(Number(token)) : Number(token);
+      } else if (token === 'true') {
+        val = true;
+      } else if (token === 'false') {
+        val = false;
+      } else {
+        // Variable reference: look up in resolvedArgs or scope
+        val = resolvedArgs[token] ?? (scope.has(token) ? scope.lookup(token) : null);
+      }
+
+      // Set on instance and super chain
+      if (isThis || superFieldNames.has(pName)) {
+        instance[pName] = val;
+        // Also set on __super__ chain
+        let superObj = instance.__super__;
+        while (superObj && typeof superObj === 'object') {
+          if (pName in superObj || (superObj.__type__ && this.collectAllFieldNames(superObj.__type__ as string).has(pName))) {
+            superObj[pName] = val;
+          }
+          superObj = superObj.__super__ as Record<string, BallValue> | undefined;
+        }
+      }
+    }
+
+    // Recursively apply super initializers up the chain
+    const superCtorInit = superCtorEntry.fn.metadata?.initializers;
+    if (Array.isArray(superCtorInit)) {
+      const superClassInfo = this.classRegistry.get(superTypeName);
+      if (superClassInfo) {
+        // Build resolved args for the super constructor
+        const superResolvedArgs: Record<string, BallValue> = {};
+        for (let i = 0; i < Math.min(argTokens.length, superParams.length); i++) {
+          const p = superParams[i];
+          const pName = typeof p === 'string' ? p : p.name;
+          if (pName) {
+            const token = argTokens[i];
+            if ((token.startsWith("'") && token.endsWith("'")) || (token.startsWith('"') && token.endsWith('"'))) {
+              superResolvedArgs[pName] = token.substring(1, token.length - 1);
+            } else if (!isNaN(Number(token))) {
+              superResolvedArgs[pName] = Number(token);
+            } else {
+              superResolvedArgs[pName] = resolvedArgs[token] ?? (scope.has(token) ? scope.lookup(token) : null);
+            }
+          }
+        }
+        for (const si of superCtorInit) {
+          if (si.kind === 'super' && typeof si.args === 'string') {
+            this.applySuperInitializer(instance, superClassInfo, superTypeName, superResolvedArgs, si.args, scope);
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -1218,8 +1398,13 @@ export class BallEngine {
 
     for (const stmt of block.statements) {
       if (stmt.let) {
-        const val = this.evalExpr(stmt.let.value, blockScope);
+        let val = this.evalExpr(stmt.let.value, blockScope);
         if (val instanceof FlowSignal) return val;
+        // If the let type says Map but we got an empty array (from set_create), convert to object.
+        const letType = stmt.let.metadata?.type;
+        if (letType && typeof letType === 'string' && letType.startsWith('Map') && Array.isArray(val) && val.length === 0) {
+          val = {};
+        }
         blockScope.bind(stmt.let.name, val);
       }
       if (stmt.expression) {
@@ -1389,24 +1574,46 @@ export class BallEngine {
     const subject = this.evalExpr(fields.subject, scope);
     const cases = fields.cases.literal?.listValue?.elements ?? [];
     let defaultBody: Expression | undefined;
+    let matched = false;
     for (const c of cases) {
       if (!c.messageCreation) continue;
       const cf: Record<string, Expression> = {};
       for (const f of (c.messageCreation.fields ?? [])) cf[f.name] = f.value;
       if (cf.is_default?.literal?.boolValue) { defaultBody = cf.body; continue; }
-      // Standard value-based case
-      if (cf.value) {
-        const caseVal = this.evalExpr(cf.value, scope);
-        if (this.ballEquals(caseVal, subject) && cf.body) return this.evalExpr(cf.body, scope);
+
+      if (!matched) {
+        // Standard value-based case
+        if (cf.value) {
+          const caseVal = this.evalExpr(cf.value, scope);
+          if (this.ballEquals(caseVal, subject)) matched = true;
+        }
+        // Pattern-based case (e.g., ConstPattern)
+        if (!matched && cf.pattern_expr) {
+          const pattern = this.evalExpr(cf.pattern_expr, scope);
+          const patternVal = (pattern && typeof pattern === 'object' && 'value' in pattern) ? pattern.value : pattern;
+          if (this.ballEquals(patternVal, subject)) matched = true;
+        }
       }
-      // Pattern-based case (e.g., ConstPattern)
-      if (cf.pattern_expr) {
-        const pattern = this.evalExpr(cf.pattern_expr, scope);
-        const patternVal = (pattern && typeof pattern === 'object' && 'value' in pattern) ? pattern.value : pattern;
-        if (this.ballEquals(patternVal, subject) && cf.body) return this.evalExpr(cf.body, scope);
+
+      // If matched, execute the body. Support fall-through: if body is empty, continue to next case.
+      if (matched && cf.body) {
+        const isEmpty = cf.body.block && (!cf.body.block.statements || cf.body.block.statements.length === 0) && !cf.body.block.result;
+        if (isEmpty) continue; // fall-through to next case
+        let result = this.evalExpr(cf.body, scope);
+        // Consume unlabeled break (switch break, not loop break)
+        if (result instanceof FlowSignal && result.kind === 'break' && !result.label) {
+          return null;
+        }
+        return result;
       }
     }
-    if (defaultBody) return this.evalExpr(defaultBody, scope);
+    if (defaultBody) {
+      let result = this.evalExpr(defaultBody, scope);
+      if (result instanceof FlowSignal && result.kind === 'break' && !result.label) {
+        return null;
+      }
+      return result;
+    }
     return null;
   }
 
@@ -1425,13 +1632,37 @@ export class BallEngine {
         for (const f of (c.messageCreation.fields ?? [])) cf[f.name] = f.value;
         const catchType = cf.type?.literal?.stringValue;
         if (catchType) {
-          const matches = e instanceof BallException ? e.typeName === catchType : e.constructor?.name === catchType;
+          let matches = false;
+          if (e instanceof BallException) {
+            // Match with or without module prefix: "FormatException" matches "main:FormatException"
+            matches = this.typeNameMatches(e.typeName, catchType);
+          } else {
+            matches = e?.constructor?.name === catchType;
+          }
           if (!matches) continue;
         }
         const variable = cf.variable?.literal?.stringValue ?? 'e';
         if (cf.body) {
           const catchScope = scope.child();
-          catchScope.bind(variable, e instanceof BallException ? e.value : (e instanceof Error ? e.message : String(e)));
+          let exceptionValue: BallValue;
+          if (e instanceof BallException) {
+            const val = e.value;
+            // Create an exception object with a 'message' field for typed exceptions
+            if (val && typeof val === 'object' && !Array.isArray(val)) {
+              exceptionValue = val;
+              // Set message from arg0 if not already set
+              if (!('message' in val) && 'arg0' in val) {
+                val.message = val.arg0;
+              }
+            } else {
+              exceptionValue = val;
+            }
+          } else if (e instanceof Error) {
+            exceptionValue = e.message;
+          } else {
+            exceptionValue = String(e);
+          }
+          catchScope.bind(variable, exceptionValue);
           const prev = this.activeException;
           this.activeException = e;
           try { result = this.evalExpr(cf.body, catchScope); }
@@ -1470,10 +1701,33 @@ export class BallEngine {
   private evalAssign(call: FunctionCall, scope: Scope): BallValue {
     const fields = this.lazyFields(call);
     if (!fields.value) return null;
+
+    // Detect pattern: assign(target: var, value: list_remove_at(list: var, ...))
+    // The list mutation already happens in-place. The return value is the removed element.
+    // We should NOT overwrite the variable with the removed element.
+    const valueExpr = fields.value;
+    const target = fields.target ?? fields.name ?? fields.variable;
+    if (valueExpr?.call && target?.reference) {
+      const valFn = valueExpr.call.function;
+      const valMod = valueExpr.call.module ?? '';
+      if ((valFn === 'list_remove_at' || valFn === 'list_pop' || valFn === 'list_remove_last') &&
+          (valMod === 'std' || valMod === 'std_collections' || valMod === '')) {
+        // Check if the list argument references the same variable as the target
+        const valInput = valueExpr.call.input;
+        if (valInput?.messageCreation?.fields) {
+          const listField = valInput.messageCreation.fields.find((f: any) => f.name === 'list');
+          if (listField?.value?.reference?.name === target.reference.name) {
+            // In-place mutation: evaluate the value (which mutates the list) and return it.
+            // Don't reassign the target variable.
+            const removedVal = this.evalExpr(fields.value, scope);
+            return removedVal;
+          }
+        }
+      }
+    }
+
     const val = this.evalExpr(fields.value, scope);
 
-    // Target can be a reference expression or a string literal name.
-    const target = fields.target ?? fields.name ?? fields.variable;
     if (!target) return null;
 
     // Handle field access assignment: target is a fieldAccess (obj.field = val)
@@ -1637,19 +1891,48 @@ export class BallEngine {
     const valueExpr = fields.value;
     if (!valueExpr) return null;
 
+    const isInc = call.function.includes('increment');
+    const isPre = call.function.startsWith('pre');
+
     if (valueExpr.reference) {
       const name = valueExpr.reference.name;
       const current = this.toNum(scope.lookup(name));
-      const isInc = call.function.includes('increment');
-      const isPre = call.function.startsWith('pre');
       const updated = isInc ? current + 1 : current - 1;
       scope.assign(name, updated);
+      // Sync to self if inside a method
+      this.syncFieldToSelf(scope, name, updated);
       return isPre ? updated : current;
+    }
+
+    // Handle indexed expressions: count[x]++ => post_increment(value: index(target, index))
+    if (valueExpr.call && valueExpr.call.function === 'index' && (valueExpr.call.module === 'std' || !valueExpr.call.module)) {
+      const indexInput = valueExpr.call.input ? this.evalExpr(valueExpr.call.input, scope) : null;
+      if (indexInput) {
+        const container = indexInput.target ?? indexInput.list ?? indexInput.map;
+        const idx = indexInput.index ?? indexInput.key;
+        if (container != null && idx != null) {
+          const current = this.toNum(Array.isArray(container) ? container[idx] : container[idx]);
+          const updated = isInc ? current + 1 : current - 1;
+          container[idx] = updated;
+          return isPre ? updated : current;
+        }
+      }
+    }
+
+    // Handle field access: obj.field++ => post_increment(value: fieldAccess)
+    if (valueExpr.fieldAccess) {
+      const obj = this.evalExpr(valueExpr.fieldAccess.object, scope);
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        const fieldName = valueExpr.fieldAccess.field;
+        const current = this.toNum(obj[fieldName]);
+        const updated = isInc ? current + 1 : current - 1;
+        obj[fieldName] = updated;
+        return isPre ? updated : current;
+      }
     }
 
     // Fallback: just compute
     const val = this.toNum(this.evalExpr(valueExpr, scope));
-    const isInc = call.function.includes('increment');
     return isInc ? val + 1 : val - 1;
   }
 
@@ -1657,14 +1940,155 @@ export class BallEngine {
     const fields = this.lazyFields(call);
     const label = fields.label?.literal?.stringValue;
     if (!fields.body) return null;
-    const result = this.evalExpr(fields.body, scope);
-    if (result instanceof FlowSignal) {
-      if (result.label === label) {
-        if (result.kind === 'break') return null;
-        // Labeled continue is handled by the loop itself, not here.
+
+    // Check if the body contains a for/while/for_in loop. If so, pass the label
+    // to the loop so it can handle labeled break/continue directly.
+    const bodyExpr = fields.body;
+    const loopCall = this.extractLoopFromBody(bodyExpr);
+    if (loopCall && label) {
+      // Evaluate the loop with the label
+      const result = this.evalLabeledLoop(loopCall, label, scope);
+      if (result instanceof FlowSignal &&
+          (result.kind === 'break' || result.kind === 'continue') &&
+          result.label === label) {
+        return null;
       }
+      return result;
+    }
+
+    const result = this.evalExpr(fields.body, scope);
+    if (result instanceof FlowSignal &&
+        (result.kind === 'break' || result.kind === 'continue') &&
+        result.label === label) {
+      return null; // consumed
     }
     return result;
+  }
+
+  /**
+   * Extract the loop call from a labeled body expression.
+   * The body might be a block containing a single for/while/for_in call.
+   */
+  private extractLoopFromBody(expr: Expression): FunctionCall | null {
+    // Direct call to a loop
+    if (expr.call) {
+      const fn = expr.call.function;
+      if (fn === 'for' || fn === 'while' || fn === 'for_in' || fn === 'do_while') {
+        return expr.call;
+      }
+    }
+    // Block containing a single statement that is a loop call
+    if (expr.block?.statements?.length === 1) {
+      const stmt = expr.block.statements[0];
+      if (stmt.expression?.call) {
+        const fn = stmt.expression.call.function;
+        if (fn === 'for' || fn === 'while' || fn === 'for_in' || fn === 'do_while') {
+          return stmt.expression.call;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Evaluate a for/while loop with a label, handling labeled break/continue.
+   */
+  private evalLabeledLoop(loopCall: FunctionCall, label: string, scope: Scope): BallValue {
+    const fn = loopCall.function;
+    if (fn === 'for') return this.evalLabeledFor(loopCall, label, scope);
+    if (fn === 'for_in') return this.evalLabeledForIn(loopCall, label, scope);
+    if (fn === 'while') return this.evalLabeledWhile(loopCall, label, scope);
+    // Fallback: evaluate normally
+    return this.evalExpr({ call: loopCall }, scope);
+  }
+
+  private evalLabeledFor(call: FunctionCall, label: string, scope: Scope): BallValue {
+    const fields = this.lazyFields(call);
+    const forScope = scope.child();
+    if (fields.init) {
+      if (fields.init.literal?.stringValue) {
+        const match = fields.init.literal.stringValue.match(/^(?:var|final|int|double|String)\s+(\w+)\s*=\s*(.+)$/);
+        if (match) {
+          const varName = match[1];
+          const rawVal = match[2].trim();
+          const parsed = this.parseInitValue(rawVal, forScope);
+          forScope.bind(varName, parsed);
+        }
+      } else if (fields.init.block) {
+        this.evalBlock(fields.init.block, forScope);
+      } else {
+        this.evalExpr(fields.init, forScope);
+      }
+    }
+    while (true) {
+      if (fields.condition) {
+        if (!this.toBool(this.evalExpr(fields.condition, forScope))) break;
+      }
+      if (fields.body) {
+        const result = this.evalExpr(fields.body, forScope);
+        if (result instanceof FlowSignal) {
+          if (result.kind === 'return') return result;
+          // Check labeled signals against our label
+          if (result.label === label) {
+            if (result.kind === 'break') break;
+            if (result.kind === 'continue') { if (fields.update) this.evalExpr(fields.update, forScope); continue; }
+          }
+          // Other labeled signals: propagate
+          if (result.label) return result;
+          if (result.kind === 'break') break;
+          if (result.kind === 'continue') { if (fields.update) this.evalExpr(fields.update, forScope); continue; }
+        }
+      }
+      if (fields.update) this.evalExpr(fields.update, forScope);
+    }
+    return null;
+  }
+
+  private evalLabeledForIn(call: FunctionCall, label: string, scope: Scope): BallValue {
+    const fields = this.lazyFields(call);
+    const varName = fields.variable?.literal?.stringValue ?? 'item';
+    if (!fields.iterable || !fields.body) return null;
+    const iterable = this.evalExpr(fields.iterable, scope);
+    if (!Array.isArray(iterable)) throw new BallRuntimeError('for_in: iterable is not a List');
+    for (const item of iterable) {
+      const loopScope = scope.child();
+      loopScope.bind(varName, item);
+      const result = this.evalExpr(fields.body, loopScope);
+      if (result instanceof FlowSignal) {
+        if (result.kind === 'return') return result;
+        if (result.label === label) {
+          if (result.kind === 'break') break;
+          if (result.kind === 'continue') continue;
+        }
+        if (result.label) return result;
+        if (result.kind === 'break') break;
+        if (result.kind === 'continue') continue;
+      }
+    }
+    return null;
+  }
+
+  private evalLabeledWhile(call: FunctionCall, label: string, scope: Scope): BallValue {
+    const fields = this.lazyFields(call);
+    while (true) {
+      if (fields.condition) {
+        if (!this.toBool(this.evalExpr(fields.condition, scope))) break;
+      }
+      if (fields.body) {
+        const result = this.evalExpr(fields.body, scope);
+        if (result instanceof FlowSignal) {
+          if (result.kind === 'return') return result;
+          if (result.label === label) {
+            if (result.kind === 'break') break;
+            if (result.kind === 'continue') continue;
+          }
+          if (result.label) return result;
+          if (result.kind === 'break') break;
+          if (result.kind === 'continue') continue;
+        }
+      }
+    }
+    return null;
   }
 
   /**
@@ -1801,6 +2225,23 @@ export class BallEngine {
           case 'empty': return [];
           case 'from': return Array.isArray(arg0) ? [...arg0] : [];
           case 'of': return Array.isArray(arg0) ? [...arg0] : [arg0];
+        }
+      }
+      if (typeName === 'Map') {
+        switch (method) {
+          case 'fromEntries': {
+            const entries = Array.isArray(arg0) ? arg0 : [];
+            const result: Record<string, BallValue> = {};
+            for (const entry of entries) {
+              if (entry && typeof entry === 'object') {
+                // MapEntry: {key, value} or {arg0, arg1} or {__type__: ...MapEntry, arg0, arg1}
+                const k = entry.key ?? entry.arg0;
+                const v = entry.value ?? entry.arg1;
+                if (k !== undefined) result[String(k)] = v;
+              }
+            }
+            return result;
+          }
         }
       }
       return undefined;
@@ -2146,11 +2587,11 @@ export class BallEngine {
         if (Array.isArray(v)) return v.includes(search);
         return false;
       }
-      case 'string_substring': return String(input?.string ?? '').substring(input?.start ?? 0, input?.end);
+      case 'string_substring': return String(input?.string ?? input?.value ?? '').substring(input?.start ?? 0, input?.end);
       case 'string_to_upper': return String(value ?? input).toUpperCase();
       case 'string_to_lower': return String(value ?? input).toLowerCase();
       case 'string_trim': return String(value ?? input).trim();
-      case 'string_split': return String(input?.string ?? '').split(String(input?.delimiter ?? ''));
+      case 'string_split': return String(input?.string ?? input?.value ?? '').split(String(input?.delimiter ?? input?.separator ?? ''));
       case 'string_replace': return String(input?.string ?? '').replace(String(input?.from ?? ''), String(input?.to ?? ''));
       case 'string_replace_all': return String(input?.string ?? '').replaceAll(String(input?.from ?? ''), String(input?.to ?? ''));
       case 'string_starts_with': return String(input?.string ?? '').startsWith(String(input?.prefix ?? ''));
@@ -2192,7 +2633,7 @@ export class BallEngine {
       // Error handling
       case 'throw': {
         const rawVal = input?.value ?? input?.message ?? input;
-        const typeName = input?.type ?? rawVal?.__type ?? 'Exception';
+        const typeName = input?.type ?? rawVal?.__type__ ?? rawVal?.__type ?? 'Exception';
         throw new BallException(typeName, rawVal);
       }
       case 'rethrow': {
@@ -2243,7 +2684,13 @@ export class BallEngine {
         if (Array.isArray(list)) return list.splice(idx, 1)[0];
         return null;
       }
-      case 'list_contains': return (input?.list ?? []).includes(input?.value);
+      case 'list_contains': {
+        const list = input?.list ?? [];
+        if (typeof list === 'string') return list.includes(String(input?.value ?? ''));
+        if (Array.isArray(list)) return list.includes(input?.value);
+        if (typeof list === 'object' && list !== null) return Object.values(list).includes(input?.value);
+        return false;
+      }
       case 'list_index_of': return (input?.list ?? []).indexOf(input?.value);
       case 'list_set': {
         const list = input?.list ?? [];
@@ -2267,8 +2714,23 @@ export class BallEngine {
       case 'list_to_list': return [...(input?.list ?? [])];
       case 'list_slice': {
         const l = input?.list ?? [];
-        const s = input?.start != null ? this.toNum(input.start) : 0;
-        const e = input?.end != null ? this.toNum(input.end) : undefined;
+        // Support both named fields (start/end) and positional args (arg0/arg1) and 'value' field
+        let s: number, e: number | undefined;
+        if (input?.start != null) {
+          s = this.toNum(input.start);
+          e = input?.end != null ? this.toNum(input.end) : undefined;
+        } else if (input?.arg0 != null && input?.arg1 != null) {
+          // Duplicate 'value' fields were converted to arg0/arg1
+          s = this.toNum(input.arg0);
+          e = this.toNum(input.arg1);
+        } else if (input?.value != null) {
+          // Single 'value' field: treat as start index (end = undefined)
+          s = this.toNum(input.value);
+          e = undefined;
+        } else {
+          s = 0;
+          e = undefined;
+        }
         return l.slice(s, e);
       }
       case 'list_all': {
@@ -2362,7 +2824,7 @@ export class BallEngine {
       }
       case 'set_create': {
         const elems = input?.elements;
-        if (!elems || (Array.isArray(elems) && elems.length === 0)) return {};
+        if (!elems || (Array.isArray(elems) && elems.length === 0)) return [];
         if (Array.isArray(elems)) return [...new Set(elems)];
         return elems;
       }

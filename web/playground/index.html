@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ball Playground</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header class="header">
+    <div class="logo">Ball <span>Playground</span></div>
+    <div class="toolbar">
+      <select id="examples" title="Load example program">
+        <option value="">Examples...</option>
+        <option value="hello_world">Hello World</option>
+        <option value="fibonacci">Fibonacci</option>
+        <option value="fizzbuzz">FizzBuzz</option>
+        <option value="closures">Closures</option>
+        <option value="math_utils">Math Utils</option>
+      </select>
+      <select id="language" title="Input language">
+        <option value="ball_json">Ball JSON</option>
+      </select>
+      <button class="btn" id="formatBtn" title="Format JSON">Format</button>
+      <button class="btn" id="shareBtn" title="Share via URL">Share</button>
+      <button class="btn btn-primary" id="runBtn" title="Run program">Run <kbd>Ctrl+Enter</kbd></button>
+    </div>
+  </header>
+
+  <main class="main">
+    <div class="pane" id="editorPane">
+      <div class="pane-header">Editor</div>
+      <div class="editor-container">
+        <textarea id="editor" spellcheck="false" placeholder="Paste or write a Ball JSON program here..."></textarea>
+      </div>
+    </div>
+    <div class="divider" id="divider"></div>
+    <div class="pane" id="outputPane">
+      <div class="pane-header">Output</div>
+      <div class="output-container" id="output">
+        <div class="output-line output-info">Press Run or Ctrl+Enter to execute.</div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="status-bar">
+    <div class="status-item"><span class="status-dot" id="statusDot"></span><span id="statusText">Ready</span></div>
+    <div class="status-item" id="programName">—</div>
+    <div class="status-item" id="programVersion"></div>
+    <div class="status-item" id="moduleCount"></div>
+    <div class="status-item" id="functionCount"></div>
+  </footer>
+
+  <div class="share-toast" id="shareToast">Link copied to clipboard</div>
+
+  <script src="ball-engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

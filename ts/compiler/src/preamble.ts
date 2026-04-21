@@ -247,29 +247,34 @@ const __no_init__: unique symbol = Symbol('__no_init__');
     get() { return [..._nativeMapValues.call(this)]; },
   });
   // For plain objects — same getters on Object.prototype.
-  Object.defineProperty(op2, 'entries', {
-    configurable: true, enumerable: false,
-    get() {
-      if (this instanceof Map) return [..._nativeMapEntries.call(this)].map(([k, v]: any) => ({ key: k, value: v }));
-      if (this == null || typeof this !== 'object') return [];
-      return Object.entries(this).map(([k, v]: any) => ({ key: k, value: v }));
-    },
+  // Helper: define a getter on Object.prototype that also allows
+  // own-property assignment (setter stores as a data property on the
+  // instance, shadowing the prototype getter for future accesses).
+  function defDartGetter(name: string, getter: () => any) {
+    Object.defineProperty(op2, name, {
+      configurable: true, enumerable: false,
+      get: getter,
+      set(v: any) {
+        Object.defineProperty(this, name, {
+          value: v, writable: true, configurable: true, enumerable: true,
+        });
+      },
+    });
+  }
+  defDartGetter('entries', function (this: any) {
+    if (this instanceof Map) return [..._nativeMapEntries.call(this)].map(([k, v]: any) => ({ key: k, value: v }));
+    if (this == null || typeof this !== 'object') return [];
+    return Object.entries(this).map(([k, v]: any) => ({ key: k, value: v }));
   });
-  Object.defineProperty(op2, 'keys', {
-    configurable: true, enumerable: false,
-    get() {
-      if (this instanceof Map) return [..._nativeMapKeys.call(this)];
-      if (this == null || typeof this !== 'object') return [];
-      return Object.keys(this);
-    },
+  defDartGetter('keys', function (this: any) {
+    if (this instanceof Map) return [..._nativeMapKeys.call(this)];
+    if (this == null || typeof this !== 'object') return [];
+    return Object.keys(this);
   });
-  Object.defineProperty(op2, 'values', {
-    configurable: true, enumerable: false,
-    get() {
-      if (this instanceof Map) return [..._nativeMapValues.call(this)];
-      if (this == null || typeof this !== 'object') return [];
-      return Object.values(this);
-    },
+  defDartGetter('values', function (this: any) {
+    if (this instanceof Map) return [..._nativeMapValues.call(this)];
+    if (this == null || typeof this !== 'object') return [];
+    return Object.values(this);
   });
 
   // Number polyfills for Dart-style methods.

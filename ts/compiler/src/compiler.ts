@@ -201,6 +201,7 @@ export class BallCompiler {
       rawDartType: string;
       isStatic: boolean;
       isReadonly: boolean;
+      dartInitializer?: string;
     }> = [];
     const fieldNames = new Set<string>();
     for (const raw of fieldSpecs) {
@@ -215,6 +216,7 @@ export class BallCompiler {
         rawDartType: typeof r.type === "string" ? r.type : "",
         isStatic: r.is_static === true,
         isReadonly: r.is_final === true,
+        dartInitializer: typeof r.initializer === "string" ? r.initializer : undefined,
       });
     }
     if (properties.length === 0 && td.descriptor?.field) {
@@ -323,7 +325,7 @@ export class BallCompiler {
         type: p.type,
         isStatic: p.isStatic,
         isReadonly: p.isReadonly,
-        initializer: defaultInitializer(p.type, p.rawDartType),
+        initializer: dartInitializerToTs(p.dartInitializer, p.type, p.rawDartType),
       })),
       ctors,
       methods,
@@ -1711,6 +1713,61 @@ function jsStringLiteral(s: string): string {
     else out += "\\u" + cu.toString(16).padStart(4, "0");
   }
   return out + "'";
+}
+
+/** Translate a Dart field initializer string to TS, falling back to
+ *  `defaultInitializer` when no explicit initializer is available.
+ *
+ *  Examples:
+ *    `_Scope()`       → `new _Scope()`
+ *    `<String, int>{}` → `{}`
+ *    `''`              → `''`
+ *    `null`            → `null`
+ */
+function dartInitializerToTs(
+  dartInit: string | undefined,
+  tsType: string,
+  rawDartType?: string,
+): string | undefined {
+  if (dartInit == null || dartInit === "") {
+    return defaultInitializer(tsType, rawDartType);
+  }
+  const s = dartInit.trim();
+  // Already a JS-compatible literal: string, number, bool, null, []
+  if (/^(?:null|true|false|'.*'|".*"|-?\d+(?:\.\d+)?|\[\])$/.test(s)) {
+    return s;
+  }
+  // Dart `{}` can mean either an empty Map or an empty Set depending
+  // on the declared type. Check the raw Dart type to disambiguate.
+  if (s === "{}") {
+    const rawTrimmed = (rawDartType ?? "").replace(/\?$/, "").trim();
+    if (rawTrimmed.startsWith("Set<") || rawTrimmed === "Set") {
+      return "new Set()";
+    }
+    return "{}";
+  }
+  // Dart typed empty map `<K, V>{}` → `{}`
+  if (/^<[^>]+>\{\}$/.test(s)) return "{}";
+  // Dart typed empty list `<T>[]` → `[]`
+  if (/^<[^>]+>\[\]$/.test(s)) return "[]";
+  // Known Dart library constructors that need special TS translation.
+  if (s === "math.Random()" || s === "Random()") {
+    // Dart's math.Random → a shim that uses Math.random().
+    return "({ nextInt(max: number) { return Math.floor(Math.random() * max); }, nextDouble() { return Math.random(); } })";
+  }
+  // Constructor call: `ClassName()` or `ClassName(args)` → `new ClassName(args)`
+  // Matches: `_Scope()`, `Set([])`, `Map.from(other)`, etc.
+  const ctorMatch = s.match(/^([A-Z_][A-Za-z0-9_]*)(\(.*\))$/);
+  if (ctorMatch) {
+    return `new ${ctorMatch[1]}${ctorMatch[2]}`;
+  }
+  // Qualified constructor: `pkg.ClassName()` → `new pkg.ClassName()`
+  const qualCtorMatch = s.match(/^([a-zA-Z_][a-zA-Z0-9_.]*[A-Z][A-Za-z0-9_]*)(\(.*\))$/);
+  if (qualCtorMatch) {
+    return `new ${qualCtorMatch[1]}${qualCtorMatch[2]}`;
+  }
+  // Fall back to default type-based initializer
+  return defaultInitializer(tsType, rawDartType);
 }
 
 /** Return a default initializer expression for a TS type string so

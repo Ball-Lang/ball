@@ -545,8 +545,28 @@ void _build(List<String> args) {
     return;
   }
 
-  // Resolve using the module resolver.
-  final resolver = ModuleResolver();
+  // Resolve using the module resolver with pub.dev adapter + on-the-fly encoding.
+  final pubClient = PubClient();
+  final bridge = RegistryBridge()..register(PubAdapter());
+  bridge.onTheFlyEncoder = (source, version) async {
+    stderr.write('  encoding ${source.package}@$version... ');
+    final vi = await pubClient.resolveVersion(source.package, source.version);
+    final pkgDir = await pubClient.downloadPackage(source.package, vi.version, archiveUrl: vi.archiveUrl);
+    try {
+      final encoder = PackageEncoder(pkgDir);
+      final prog = encoder.encode();
+      for (final m in prog.modules) {
+        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty) continue;
+        if (m.functions.isEmpty && m.typeDefs.isEmpty && m.types.isEmpty) continue;
+        stderr.writeln('OK');
+        return m;
+      }
+      throw StateError('No encodable module in ${source.package}@$version');
+    } finally {
+      try { await pkgDir.delete(recursive: true); } catch (_) {}
+    }
+  };
+  final resolver = ModuleResolver(registryResolver: bridge.resolve);
   resolver.resolveAll(program).then((resolved) {
     final jsonOut = const JsonEncoder.withIndent('  ').convert(
       jsonDecode(jsonEncode(resolved.toProto3Json())),

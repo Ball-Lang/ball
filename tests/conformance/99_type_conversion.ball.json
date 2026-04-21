@@ -61,6 +61,18 @@
         {
           "name": "to_string",
           "isBase": true
+        },
+        {
+          "name": "length",
+          "isBase": true
+        },
+        {
+          "name": "toDouble",
+          "isBase": true
+        },
+        {
+          "name": "toInt",
+          "isBase": true
         }
       ],
       "description": "Universal standard library base module"

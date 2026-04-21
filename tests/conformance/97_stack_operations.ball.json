@@ -25,6 +25,30 @@
         {
           "name": "while",
           "isBase": true
+        },
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "isEmpty",
+          "isBase": true
+        },
+        {
+          "name": "isNotEmpty",
+          "isBase": true
+        },
+        {
+          "name": "last",
+          "isBase": true
+        },
+        {
+          "name": "length",
+          "isBase": true
+        },
+        {
+          "name": "removeLast",
+          "isBase": true
         }
       ],
       "description": "Universal standard library base module"

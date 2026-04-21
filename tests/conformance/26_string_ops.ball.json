@@ -69,6 +69,10 @@
         {
           "name": "add",
           "isBase": true
+        },
+        {
+          "name": "length",
+          "isBase": true
         }
       ],
       "description": "Universal standard library base module"

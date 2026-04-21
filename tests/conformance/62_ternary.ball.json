@@ -69,6 +69,10 @@
         {
           "name": "subtract",
           "isBase": true
+        },
+        {
+          "name": "abs",
+          "isBase": true
         }
       ],
       "description": "Universal standard library base module"

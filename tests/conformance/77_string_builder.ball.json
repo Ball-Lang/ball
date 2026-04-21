@@ -77,6 +77,14 @@
         {
           "name": "print",
           "isBase": true
+        },
+        {
+          "name": "contains",
+          "isBase": true
+        },
+        {
+          "name": "length",
+          "isBase": true
         }
       ],
       "description": "Universal standard library base module"

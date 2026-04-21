@@ -85,6 +85,10 @@
         {
           "name": "print",
           "isBase": true
+        },
+        {
+          "name": "containsKey",
+          "isBase": true
         }
       ],
       "description": "Universal standard library base module"

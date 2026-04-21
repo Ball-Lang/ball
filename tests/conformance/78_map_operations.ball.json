@@ -33,6 +33,14 @@
         {
           "name": "print",
           "isBase": true
+        },
+        {
+          "name": "containsKey",
+          "isBase": true
+        },
+        {
+          "name": "length",
+          "isBase": true
         }
       ],
       "description": "Universal standard library base module"

@@ -69,6 +69,10 @@
         {
           "name": "print",
           "isBase": true
+        },
+        {
+          "name": "add",
+          "isBase": true
         }
       ],
       "description": "Universal standard library base module"

@@ -69,10 +69,6 @@
         {
           "name": "print",
           "isBase": true
-        },
-        {
-          "name": "add",
-          "isBase": true
         }
       ],
       "description": "Universal standard library base module"
@@ -178,12 +174,12 @@
                               "name": "body",
                               "value": {
                                 "call": {
-                                  "function": "add",
+                                  "function": "list_add",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "list",
                                           "value": {
                                             "reference": {
                                               "name": "result"
@@ -200,7 +196,8 @@
                                         }
                                       ]
                                     }
-                                  }
+                                  },
+                                  "module": "std_collections"
                                 }
                               }
                             }
@@ -325,12 +322,12 @@
                               "name": "body",
                               "value": {
                                 "call": {
-                                  "function": "add",
+                                  "function": "list_add",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "list",
                                           "value": {
                                             "reference": {
                                               "name": "squares"
@@ -371,7 +368,8 @@
                                         }
                                       ]
                                     }
-                                  }
+                                  },
+                                  "module": "std_collections"
                                 }
                               }
                             }

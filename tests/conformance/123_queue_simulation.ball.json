@@ -1,0 +1,745 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "while",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "queue",
+                    "value": {
+                      "literal": {
+                        "listValue": {}
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "List<String>"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "function": "add",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "self",
+                              "value": {
+                                "reference": {
+                                  "name": "queue"
+                                }
+                              }
+                            },
+                            {
+                              "name": "arg0",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "Alice"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "function": "add",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "self",
+                              "value": {
+                                "reference": {
+                                  "name": "queue"
+                                }
+                              }
+                            },
+                            {
+                              "name": "arg0",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "Bob"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "function": "add",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "self",
+                              "value": {
+                                "reference": {
+                                  "name": "queue"
+                                }
+                              }
+                            },
+                            {
+                              "name": "arg0",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "Charlie"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "concat",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "Queue: "
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "to_string",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "queue"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "first",
+                    "value": {
+                      "call": {
+                        "function": "removeAt",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "self",
+                                "value": {
+                                  "reference": {
+                                    "name": "queue"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "0"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "String"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "concat",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "Served: "
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "to_string",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "first"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "concat",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "Queue: "
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "to_string",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "queue"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "function": "add",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "self",
+                              "value": {
+                                "reference": {
+                                  "name": "queue"
+                                }
+                              }
+                            },
+                            {
+                              "name": "arg0",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "Diana"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "function": "add",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "self",
+                              "value": {
+                                "reference": {
+                                  "name": "queue"
+                                }
+                              }
+                            },
+                            {
+                              "name": "arg0",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "Eve"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "concat",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "Queue: "
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "to_string",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "queue"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "while",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "condition",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "queue"
+                                    }
+                                  },
+                                  "field": "isNotEmpty"
+                                }
+                              }
+                            },
+                            {
+                              "name": "body",
+                              "value": {
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "served",
+                                        "value": {
+                                          "call": {
+                                            "function": "removeAt",
+                                            "input": {
+                                              "messageCreation": {
+                                                "fields": [
+                                                  {
+                                                    "name": "self",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "queue"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "name": "arg0",
+                                                    "value": {
+                                                      "literal": {
+                                                        "intValue": "0"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "String"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "print",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "PrintInput",
+                                              "fields": [
+                                                {
+                                                  "name": "message",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "concat",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "left",
+                                                              "value": {
+                                                                "literal": {
+                                                                  "stringValue": "Served: "
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "right",
+                                                              "value": {
+                                                                "call": {
+                                                                  "module": "std",
+                                                                  "function": "to_string",
+                                                                  "input": {
+                                                                    "messageCreation": {
+                                                                      "typeName": "",
+                                                                      "fields": [
+                                                                        {
+                                                                          "name": "value",
+                                                                          "value": {
+                                                                            "reference": {
+                                                                              "name": "served"
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "concat",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "Empty: "
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "to_string",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "fieldAccess": {
+                                                          "object": {
+                                                            "reference": {
+                                                              "name": "queue"
+                                                            }
+                                                          },
+                                                          "field": "isEmpty"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

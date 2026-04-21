@@ -1,0 +1,547 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "types": [
+        {
+          "name": "main:Animal",
+          "field": [
+            {
+              "name": "name",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "main:Dog"
+        },
+        {
+          "name": "main:Cat"
+        }
+      ],
+      "functions": [
+        {
+          "name": "main:Animal.new",
+          "outputType": "main:Animal",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "name",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Animal.speak",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "concat",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "to_string",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "reference": {
+                                      "name": "name"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "stringValue": " makes a sound"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Dog.new",
+          "outputType": "main:Dog",
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "super",
+                "args": "(name)"
+              }
+            ],
+            "params": [
+              {
+                "name": "name",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Dog.speak",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "concat",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "to_string",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "reference": {
+                                      "name": "name"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "stringValue": " barks"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Cat.new",
+          "outputType": "main:Cat",
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "super",
+                "args": "(name)"
+              }
+            ],
+            "params": [
+              {
+                "name": "name",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Cat.speak",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "concat",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "to_string",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "reference": {
+                                      "name": "name"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "stringValue": " meows"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "a",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Animal",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "stringValue": "Animal"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Animal"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "speak",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "a"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "d",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Dog",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "stringValue": "Rex"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Dog"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "speak",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "d"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "c",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Cat",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "stringValue": "Whiskers"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Cat"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "speak",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "c"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Animal",
+          "descriptor": {
+            "name": "main:Animal",
+            "field": [
+              {
+                "name": "name",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Animal",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "name",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Dog",
+          "descriptor": {
+            "name": "main:Dog"
+          },
+          "description": "Class metadata for main:Dog",
+          "metadata": {
+            "kind": "class",
+            "superclass": "Animal"
+          }
+        },
+        {
+          "name": "main:Cat",
+          "descriptor": {
+            "name": "main:Cat"
+          },
+          "description": "Class metadata for main:Cat",
+          "metadata": {
+            "kind": "class",
+            "superclass": "Animal"
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

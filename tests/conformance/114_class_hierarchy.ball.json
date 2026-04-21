@@ -1,0 +1,989 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "types": [
+        {
+          "name": "main:Vehicle",
+          "field": [
+            {
+              "name": "type",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "main:MotorVehicle",
+          "field": [
+            {
+              "name": "horsepower",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "main:Car",
+          "field": [
+            {
+              "name": "doors",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "main:Truck",
+          "field": [
+            {
+              "name": "payload",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_DOUBLE"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "main:Vehicle.new",
+          "outputType": "main:Vehicle",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "type",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Vehicle.describe",
+          "outputType": "String",
+          "body": {
+            "reference": {
+              "name": "type"
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:MotorVehicle.new",
+          "outputType": "main:MotorVehicle",
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "super",
+                "args": "(type)"
+              }
+            ],
+            "params": [
+              {
+                "name": "type",
+                "type": "String"
+              },
+              {
+                "name": "horsepower",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:MotorVehicle.describe",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "concat",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "concat",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "concat",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "left",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "to_string",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "",
+                                                      "fields": [
+                                                        {
+                                                          "name": "value",
+                                                          "value": {
+                                                            "call": {
+                                                              "function": "describe",
+                                                              "input": {
+                                                                "messageCreation": {
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "self",
+                                                                      "value": {
+                                                                        "reference": {
+                                                                          "name": "super"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "right",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": " ("
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "to_string",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "horsepower"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "stringValue": " hp)"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Car.new",
+          "outputType": "main:Car",
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "super",
+                "args": "('Car', horsepower)"
+              }
+            ],
+            "params": [
+              {
+                "name": "horsepower",
+                "type": "int"
+              },
+              {
+                "name": "doors",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Car.describe",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "concat",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "concat",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "concat",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "left",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "to_string",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "",
+                                                      "fields": [
+                                                        {
+                                                          "name": "value",
+                                                          "value": {
+                                                            "call": {
+                                                              "function": "describe",
+                                                              "input": {
+                                                                "messageCreation": {
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "self",
+                                                                      "value": {
+                                                                        "reference": {
+                                                                          "name": "super"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "right",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": " "
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "to_string",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "doors"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "stringValue": " doors"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Truck.new",
+          "outputType": "main:Truck",
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "super",
+                "args": "('Truck', horsepower)"
+              }
+            ],
+            "params": [
+              {
+                "name": "horsepower",
+                "type": "int"
+              },
+              {
+                "name": "payload",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Truck.describe",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "concat",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "concat",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "concat",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "left",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "to_string",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "",
+                                                      "fields": [
+                                                        {
+                                                          "name": "value",
+                                                          "value": {
+                                                            "call": {
+                                                              "function": "describe",
+                                                              "input": {
+                                                                "messageCreation": {
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "self",
+                                                                      "value": {
+                                                                        "reference": {
+                                                                          "name": "super"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "right",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": " "
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "to_string",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "payload"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "stringValue": "t payload"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "v",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Vehicle",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "stringValue": "Bicycle"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Vehicle"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "describe",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "v"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "m",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:MotorVehicle",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "stringValue": "Motorcycle"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "intValue": "150"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "MotorVehicle"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "describe",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "m"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "c",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Car",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "200"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "intValue": "4"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Car"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "describe",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "c"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "t",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Truck",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "400"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "doubleValue": 10.5
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Truck"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "describe",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "t"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Vehicle",
+          "descriptor": {
+            "name": "main:Vehicle",
+            "field": [
+              {
+                "name": "type",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Vehicle",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "type",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:MotorVehicle",
+          "descriptor": {
+            "name": "main:MotorVehicle",
+            "field": [
+              {
+                "name": "horsepower",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:MotorVehicle",
+          "metadata": {
+            "kind": "class",
+            "superclass": "Vehicle",
+            "fields": [
+              {
+                "name": "horsepower",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Car",
+          "descriptor": {
+            "name": "main:Car",
+            "field": [
+              {
+                "name": "doors",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Car",
+          "metadata": {
+            "kind": "class",
+            "superclass": "MotorVehicle",
+            "fields": [
+              {
+                "name": "doors",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Truck",
+          "descriptor": {
+            "name": "main:Truck",
+            "field": [
+              {
+                "name": "payload",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_DOUBLE"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Truck",
+          "metadata": {
+            "kind": "class",
+            "superclass": "MotorVehicle",
+            "fields": [
+              {
+                "name": "payload",
+                "type": "double"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

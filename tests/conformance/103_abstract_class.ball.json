@@ -1,0 +1,615 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "multiply",
+          "isBase": true
+        },
+        {
+          "name": "for",
+          "isBase": true
+        },
+        {
+          "name": "for_in",
+          "isBase": true
+        },
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "types": [
+        {
+          "name": "main:Shape"
+        },
+        {
+          "name": "main:Circle",
+          "field": [
+            {
+              "name": "radius",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_DOUBLE"
+            }
+          ]
+        },
+        {
+          "name": "main:Rectangle",
+          "field": [
+            {
+              "name": "width",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_DOUBLE"
+            },
+            {
+              "name": "height",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_DOUBLE"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "main:Shape.area",
+          "outputType": "double",
+          "metadata": {
+            "kind": "method",
+            "is_abstract": true
+          }
+        },
+        {
+          "name": "main:Shape.name",
+          "outputType": "String",
+          "metadata": {
+            "kind": "method",
+            "is_abstract": true
+          }
+        },
+        {
+          "name": "main:Circle.new",
+          "outputType": "main:Circle",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "radius",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Circle.area",
+          "outputType": "double",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "multiply",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "multiply",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "literal": {
+                                      "doubleValue": 3.14159
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "reference": {
+                                      "name": "radius"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "reference": {
+                          "name": "radius"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Circle.name",
+          "outputType": "String",
+          "body": {
+            "literal": {
+              "stringValue": "Circle"
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Rectangle.new",
+          "outputType": "main:Rectangle",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "width",
+                "is_this": true
+              },
+              {
+                "name": "height",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Rectangle.area",
+          "outputType": "double",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "multiply",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "width"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "reference": {
+                          "name": "height"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Rectangle.name",
+          "outputType": "String",
+          "body": {
+            "literal": {
+              "stringValue": "Rectangle"
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "shapes",
+                    "value": {
+                      "literal": {
+                        "listValue": {
+                          "elements": [
+                            {
+                              "messageCreation": {
+                                "typeName": "main:Circle",
+                                "fields": [
+                                  {
+                                    "name": "arg0",
+                                    "value": {
+                                      "literal": {
+                                        "doubleValue": 5
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "messageCreation": {
+                                "typeName": "main:Rectangle",
+                                "fields": [
+                                  {
+                                    "name": "arg0",
+                                    "value": {
+                                      "literal": {
+                                        "doubleValue": 3
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "name": "arg1",
+                                    "value": {
+                                      "literal": {
+                                        "doubleValue": 4
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "messageCreation": {
+                                "typeName": "main:Circle",
+                                "fields": [
+                                  {
+                                    "name": "arg0",
+                                    "value": {
+                                      "literal": {
+                                        "doubleValue": 1
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "List<Shape>"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "for_in",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "variable",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "s"
+                                }
+                              }
+                            },
+                            {
+                              "name": "variable_type",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "Shape"
+                                }
+                              }
+                            },
+                            {
+                              "name": "iterable",
+                              "value": {
+                                "reference": {
+                                  "name": "shapes"
+                                }
+                              }
+                            },
+                            {
+                              "name": "body",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "print",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "PrintInput",
+                                      "fields": [
+                                        {
+                                          "name": "message",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "concat",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "concat",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "left",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "module": "std",
+                                                                      "function": "to_string",
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "typeName": "",
+                                                                          "fields": [
+                                                                            {
+                                                                              "name": "value",
+                                                                              "value": {
+                                                                                "call": {
+                                                                                  "function": "name",
+                                                                                  "input": {
+                                                                                    "messageCreation": {
+                                                                                      "fields": [
+                                                                                        {
+                                                                                          "name": "self",
+                                                                                          "value": {
+                                                                                            "reference": {
+                                                                                              "name": "s"
+                                                                                            }
+                                                                                          }
+                                                                                        }
+                                                                                      ]
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "right",
+                                                                  "value": {
+                                                                    "literal": {
+                                                                      "stringValue": ": "
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "to_string",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "value",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "function": "area",
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "fields": [
+                                                                            {
+                                                                              "name": "self",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "s"
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Shape",
+          "descriptor": {
+            "name": "main:Shape"
+          },
+          "description": "Class metadata for main:Shape",
+          "metadata": {
+            "kind": "class",
+            "is_abstract": true
+          }
+        },
+        {
+          "name": "main:Circle",
+          "descriptor": {
+            "name": "main:Circle",
+            "field": [
+              {
+                "name": "radius",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_DOUBLE"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Circle",
+          "metadata": {
+            "kind": "class",
+            "superclass": "Shape",
+            "fields": [
+              {
+                "name": "radius",
+                "type": "double"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Rectangle",
+          "descriptor": {
+            "name": "main:Rectangle",
+            "field": [
+              {
+                "name": "width",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_DOUBLE"
+              },
+              {
+                "name": "height",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_DOUBLE"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Rectangle",
+          "metadata": {
+            "kind": "class",
+            "superclass": "Shape",
+            "fields": [
+              {
+                "name": "width",
+                "type": "double"
+              },
+              {
+                "name": "height",
+                "type": "double"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

@@ -1,0 +1,9 @@
+Level 1: FormatException - bad format
+Level 1: finally
+Level 2: RangeError - out of range
+Level 2: caught rethrown RangeError
+Level 2: finally
+Level 3: StateError - bad state
+Level 3: finally
+Level 4: success
+Level 4: finally

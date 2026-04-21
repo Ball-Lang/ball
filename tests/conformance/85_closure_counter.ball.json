@@ -69,10 +69,6 @@
         {
           "name": "print",
           "isBase": true
-        },
-        {
-          "name": "add",
-          "isBase": true
         }
       ],
       "description": "Universal standard library base module"
@@ -229,12 +225,12 @@
                                     {
                                       "expression": {
                                         "call": {
-                                          "function": "add",
+                                          "function": "list_add",
                                           "input": {
                                             "messageCreation": {
                                               "fields": [
                                                 {
-                                                  "name": "self",
+                                                  "name": "list",
                                                   "value": {
                                                     "reference": {
                                                       "name": "counters"
@@ -289,7 +285,8 @@
                                                 }
                                               ]
                                             }
-                                          }
+                                          },
+                                          "module": "std_collections"
                                         }
                                       }
                                     }

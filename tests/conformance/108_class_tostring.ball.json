@@ -1,0 +1,827 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "math_abs",
+          "isBase": true
+        },
+        {
+          "name": "divide",
+          "isBase": true
+        },
+        {
+          "name": "while",
+          "isBase": true
+        },
+        {
+          "name": "assign",
+          "isBase": true
+        },
+        {
+          "name": "modulo",
+          "isBase": true
+        },
+        {
+          "name": "not_equals",
+          "isBase": true
+        },
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "types": [
+        {
+          "name": "main:Fraction",
+          "field": [
+            {
+              "name": "numerator",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "denominator",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "main:Fraction.new",
+          "outputType": "main:Fraction",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "numerator",
+                "is_this": true
+              },
+              {
+                "name": "denominator",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Fraction.simplify",
+          "outputType": "Fraction",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "g",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:_gcd",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "call": {
+                                "module": "std",
+                                "function": "math_abs",
+                                "input": {
+                                  "messageCreation": {
+                                    "typeName": "",
+                                    "fields": [
+                                      {
+                                        "name": "value",
+                                        "value": {
+                                          "reference": {
+                                            "name": "numerator"
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "call": {
+                                "module": "std",
+                                "function": "math_abs",
+                                "input": {
+                                  "messageCreation": {
+                                    "typeName": "",
+                                    "fields": [
+                                      {
+                                        "name": "value",
+                                        "value": {
+                                          "reference": {
+                                            "name": "denominator"
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "int"
+                    }
+                  }
+                }
+              ],
+              "result": {
+                "messageCreation": {
+                  "typeName": "main:Fraction",
+                  "fields": [
+                    {
+                      "name": "arg0",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "divide",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "reference": {
+                                      "name": "numerator"
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "reference": {
+                                      "name": "g"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "arg1",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "divide",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "reference": {
+                                      "name": "denominator"
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "reference": {
+                                      "name": "g"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Fraction._gcd",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "while",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "condition",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "not_equals",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "reference": {
+                                              "name": "b"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "0"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "body",
+                              "value": {
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "t",
+                                        "value": {
+                                          "reference": {
+                                            "name": "b"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "assign",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "target",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "b"
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "value",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "modulo",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "left",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "a"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "right",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "b"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "assign",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "target",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "a"
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "value",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "t"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "result": {
+                "reference": {
+                  "name": "a"
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "params": [
+              {
+                "name": "a",
+                "type": "int"
+              },
+              {
+                "name": "b",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Fraction.toString",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "concat",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "concat",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "to_string",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "numerator"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "literal": {
+                                      "stringValue": "/"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "to_string",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "reference": {
+                                      "name": "denominator"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "f1",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Fraction",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "3"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "intValue": "4"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Fraction"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "f1"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "f2",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Fraction",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "6"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "intValue": "8"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Fraction"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "f2"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "simplify",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "f2"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "f3",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Fraction",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "12"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "intValue": "4"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Fraction"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "simplify",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "f3"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Fraction",
+          "descriptor": {
+            "name": "main:Fraction",
+            "field": [
+              {
+                "name": "numerator",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "denominator",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Fraction",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "numerator",
+                "type": "int"
+              },
+              {
+                "name": "denominator",
+                "type": "int"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

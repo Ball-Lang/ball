@@ -1,0 +1,641 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "switch",
+          "isBase": true
+        },
+        {
+          "name": "return",
+          "isBase": true
+        },
+        {
+          "name": "for",
+          "isBase": true
+        },
+        {
+          "name": "for_in",
+          "isBase": true
+        },
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "colorName",
+          "inputType": "Color",
+          "outputType": "String",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "switch",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "subject",
+                              "value": {
+                                "reference": {
+                                  "name": "c"
+                                }
+                              }
+                            },
+                            {
+                              "name": "cases",
+                              "value": {
+                                "literal": {
+                                  "listValue": {
+                                    "elements": [
+                                      {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "pattern",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "Color.red"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "body",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "return",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "",
+                                                      "fields": [
+                                                        {
+                                                          "name": "value",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "Red"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "pattern_expr",
+                                              "value": {
+                                                "messageCreation": {
+                                                  "typeName": "ConstPattern",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "fieldAccess": {
+                                                          "object": {
+                                                            "reference": {
+                                                              "name": "Color"
+                                                            }
+                                                          },
+                                                          "field": "red"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "pattern",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "Color.green"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "body",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "return",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "",
+                                                      "fields": [
+                                                        {
+                                                          "name": "value",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "Green"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "pattern_expr",
+                                              "value": {
+                                                "messageCreation": {
+                                                  "typeName": "ConstPattern",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "fieldAccess": {
+                                                          "object": {
+                                                            "reference": {
+                                                              "name": "Color"
+                                                            }
+                                                          },
+                                                          "field": "green"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "pattern",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "Color.blue"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "body",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "return",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "",
+                                                      "fields": [
+                                                        {
+                                                          "name": "value",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "Blue"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "pattern_expr",
+                                              "value": {
+                                                "messageCreation": {
+                                                  "typeName": "ConstPattern",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "fieldAccess": {
+                                                          "object": {
+                                                            "reference": {
+                                                              "name": "Color"
+                                                            }
+                                                          },
+                                                          "field": "blue"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "pattern",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "Color.yellow"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "body",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "return",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "",
+                                                      "fields": [
+                                                        {
+                                                          "name": "value",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "Yellow"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "pattern_expr",
+                                              "value": {
+                                                "messageCreation": {
+                                                  "typeName": "ConstPattern",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "fieldAccess": {
+                                                          "object": {
+                                                            "reference": {
+                                                              "name": "Color"
+                                                            }
+                                                          },
+                                                          "field": "yellow"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "params": [
+              {
+                "name": "c",
+                "type": "Color"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "for_in",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "variable",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "c"
+                                }
+                              }
+                            },
+                            {
+                              "name": "variable_type",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "Color"
+                                }
+                              }
+                            },
+                            {
+                              "name": "iterable",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "Color"
+                                    }
+                                  },
+                                  "field": "values"
+                                }
+                              }
+                            },
+                            {
+                              "name": "body",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "print",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "PrintInput",
+                                      "fields": [
+                                        {
+                                          "name": "message",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "concat",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "concat",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "left",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "module": "std",
+                                                                      "function": "to_string",
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "typeName": "",
+                                                                          "fields": [
+                                                                            {
+                                                                              "name": "value",
+                                                                              "value": {
+                                                                                "fieldAccess": {
+                                                                                  "object": {
+                                                                                    "reference": {
+                                                                                      "name": "c"
+                                                                                    }
+                                                                                  },
+                                                                                  "field": "index"
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "right",
+                                                                  "value": {
+                                                                    "literal": {
+                                                                      "stringValue": ": "
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "to_string",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "value",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "function": "colorName",
+                                                                      "input": {
+                                                                        "reference": {
+                                                                          "name": "c"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "fieldAccess": {
+                                      "object": {
+                                        "reference": {
+                                          "name": "Color"
+                                        }
+                                      },
+                                      "field": "values"
+                                    }
+                                  },
+                                  "field": "length"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "enums": [
+        {
+          "name": "main:Color",
+          "value": [
+            {
+              "name": "red",
+              "number": 0
+            },
+            {
+              "name": "green",
+              "number": 1
+            },
+            {
+              "name": "blue",
+              "number": 2
+            },
+            {
+              "name": "yellow",
+              "number": 3
+            }
+          ]
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Color",
+          "description": "Enum metadata for main:Color",
+          "metadata": {
+            "kind": "enum",
+            "values": [
+              {
+                "name": "red"
+              },
+              {
+                "name": "green"
+              },
+              {
+                "name": "blue"
+              },
+              {
+                "name": "yellow"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

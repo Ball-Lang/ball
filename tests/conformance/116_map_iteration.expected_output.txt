@@ -1,0 +1,6 @@
+Alice: 95
+Bob: 87
+Charlie: 92
+Diana: 88
+Total: 362
+Count: 4

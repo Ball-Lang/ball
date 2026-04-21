@@ -184,8 +184,114 @@ if (_debugMod) {
   }
 }
 
+// Method dispatch handler — intercepts method-style calls (no module,
+// self field in input) and dispatches to JS built-in collection methods.
+class MethodDispatchHandler {
+  handles(module: any): boolean { return module === '' || module == null; }
+  init(_engine: any): void {}
+  call(fn: string, input: any, _engine: any): any {
+    if (input == null || typeof input !== 'object') return undefined;
+    const self = input.self ?? input['self'];
+    if (self === undefined) return undefined;
+    const arg0 = input.arg0 ?? input['arg0'];
+    const arg1 = input.arg1 ?? input['arg1'];
+    // Array methods
+    if (Array.isArray(self)) {
+      switch (fn) {
+        case 'add': self.push(arg0); return null;
+        case 'removeLast': return self.pop();
+        case 'removeAt': return self.splice(typeof arg0 === 'number' ? arg0 : 0, 1)[0];
+        case 'insert': self.splice(typeof arg0 === 'number' ? arg0 : 0, 0, arg1); return null;
+        case 'clear': self.length = 0; return null;
+        case 'contains': return self.includes(arg0);
+        case 'indexOf': return self.indexOf(arg0);
+        case 'join': return self.join(arg0 ?? ',');
+        case 'sublist': return self.slice(arg0, arg1);
+        case 'sort': self.sort((a: any, b: any) => a < b ? -1 : a > b ? 1 : 0); return null;
+        case 'reversed': return [...self].reverse();
+        case 'length': return self.length;
+        case 'isEmpty': return self.length === 0;
+        case 'isNotEmpty': return self.length > 0;
+        case 'first': return self[0];
+        case 'last': return self[self.length - 1];
+        case 'filled': return Array(typeof arg0 === 'number' ? arg0 : 0).fill(arg1);
+        case 'toList': return [...self];
+        case 'toString': return '[' + self.join(', ') + ']';
+      }
+    }
+    // String methods
+    if (typeof self === 'string') {
+      switch (fn) {
+        case 'contains': return self.includes(String(arg0));
+        case 'substring': return self.substring(arg0, arg1);
+        case 'indexOf': return self.indexOf(String(arg0));
+        case 'split': return self.split(String(arg0));
+        case 'trim': return self.trim();
+        case 'toUpperCase': return self.toUpperCase();
+        case 'toLowerCase': return self.toLowerCase();
+        case 'replaceAll': return self.split(String(arg0)).join(String(arg1));
+        case 'startsWith': return self.startsWith(String(arg0));
+        case 'endsWith': return self.endsWith(String(arg0));
+        case 'padLeft': return self.padStart(arg0, arg1 ?? ' ');
+        case 'padRight': return self.padEnd(arg0, arg1 ?? ' ');
+        case 'length': return self.length;
+        case 'isEmpty': return self.length === 0;
+        case 'isNotEmpty': return self.length > 0;
+        case 'toString': return self;
+      }
+    }
+    // Number methods
+    if (typeof self === 'number') {
+      switch (fn) {
+        case 'toDouble': return self;
+        case 'toInt': return Math.trunc(self);
+        case 'toString': return String(self);
+        case 'toStringAsFixed': return self.toFixed(arg0);
+        case 'abs': return Math.abs(self);
+        case 'round': return Math.round(self);
+        case 'floor': return Math.floor(self);
+        case 'ceil': return Math.ceil(self);
+        case 'compareTo': return self < arg0 ? -1 : self > arg0 ? 1 : 0;
+        case 'clamp': return Math.min(Math.max(self, arg0), arg1);
+      }
+    }
+    // Map/Object methods
+    if (typeof self === 'object' && self !== null && !Array.isArray(self)) {
+      switch (fn) {
+        case 'containsKey': return String(arg0) in self;
+        case 'containsValue': return Object.values(self).includes(arg0);
+        case 'remove': { const v = self[String(arg0)]; delete self[String(arg0)]; return v; }
+        case 'length': return Object.keys(self).length;
+        case 'isEmpty': return Object.keys(self).length === 0;
+        case 'isNotEmpty': return Object.keys(self).length > 0;
+        case 'keys': return Object.keys(self);
+        case 'values': return Object.values(self);
+        case 'entries': return Object.entries(self).map(([k, v]) => ({key: k, value: v}));
+        case 'putIfAbsent': if (!(String(arg0) in self)) self[String(arg0)] = typeof arg1 === 'function' ? arg1() : arg1; return self[String(arg0)];
+        case 'toString': return '{' + Object.entries(self).map(([k,v]) => k + ': ' + v).join(', ') + '}';
+      }
+    }
+    return undefined;
+  }
+}
+
+// Static method dispatch (List.filled, etc.)
+class StaticDispatchHandler {
+  handles(module: any): boolean { return module === '' || module == null; }
+  init(_engine: any): void {}
+  call(fn: string, input: any, _engine: any): any {
+    if (fn === 'filled' && input != null) {
+      const n = input.arg0 ?? input['arg0'] ?? 0;
+      const v = input.arg1 ?? input['arg1'] ?? null;
+      return Array(typeof n === 'number' ? n : 0).fill(v);
+    }
+    return undefined;
+  }
+}
+
 const lines: string[] = [];
 const stdoutFn = (s: string) => lines.push(s);
+const methodHandler = new MethodDispatchHandler();
 const stdHandler = new StdModuleHandler();
 const engine = new BallEngine(
   programJson,     // program
@@ -195,7 +301,7 @@ const engine = new BallEngine(
   undefined,       // envGet
   [],              // args
   false,           // enableProfiling
-  [stdHandler],    // moduleHandlers
+  [methodHandler, stdHandler],  // moduleHandlers
   undefined,       // resolver
 );
 // Engine initialized successfully.

@@ -1,0 +1,2001 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "while",
+          "isBase": true
+        },
+        {
+          "name": "post_increment",
+          "isBase": true
+        },
+        {
+          "name": "and",
+          "isBase": true
+        },
+        {
+          "name": "less_than",
+          "isBase": true
+        },
+        {
+          "name": "equals",
+          "isBase": true
+        },
+        {
+          "name": "index",
+          "isBase": true
+        },
+        {
+          "name": "gte",
+          "isBase": true
+        },
+        {
+          "name": "lte",
+          "isBase": true
+        },
+        {
+          "name": "string_to_int",
+          "isBase": true
+        },
+        {
+          "name": "if",
+          "isBase": true
+        },
+        {
+          "name": "return",
+          "isBase": true
+        },
+        {
+          "name": "assign",
+          "isBase": true
+        },
+        {
+          "name": "or",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "input",
+          "outputType": "String",
+          "body": {
+            "literal": {
+              "stringValue": ""
+            }
+          },
+          "metadata": {
+            "kind": "top_level_variable"
+          }
+        },
+        {
+          "name": "pos",
+          "outputType": "int",
+          "body": {
+            "literal": {
+              "intValue": "0"
+            }
+          },
+          "metadata": {
+            "kind": "top_level_variable"
+          }
+        },
+        {
+          "name": "skipSpaces",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "while",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "condition",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "and",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "less_than",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "pos"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "fieldAccess": {
+                                                          "object": {
+                                                            "reference": {
+                                                              "name": "input"
+                                                            }
+                                                          },
+                                                          "field": "length"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "equals",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "index",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "target",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "input"
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "index",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "pos"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "literal": {
+                                                          "stringValue": " "
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "body",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "post_increment",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "pos"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        },
+        {
+          "name": "parseNumber",
+          "outputType": "int",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "function": "skipSpaces"
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "start",
+                    "value": {
+                      "reference": {
+                        "name": "pos"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "int"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "while",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "condition",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "and",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "and",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "less_than",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "left",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "pos"
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "right",
+                                                                  "value": {
+                                                                    "fieldAccess": {
+                                                                      "object": {
+                                                                        "reference": {
+                                                                          "name": "input"
+                                                                        }
+                                                                      },
+                                                                      "field": "length"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "gte",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "left",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "function": "codeUnitAt",
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "fields": [
+                                                                            {
+                                                                              "name": "self",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "input"
+                                                                                }
+                                                                              }
+                                                                            },
+                                                                            {
+                                                                              "name": "arg0",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "pos"
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "right",
+                                                                  "value": {
+                                                                    "literal": {
+                                                                      "intValue": "48"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "lte",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "call": {
+                                                          "function": "codeUnitAt",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "fields": [
+                                                                {
+                                                                  "name": "self",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "input"
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "arg0",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "pos"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "literal": {
+                                                          "intValue": "57"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "body",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "post_increment",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "pos"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "result": {
+                "call": {
+                  "module": "std",
+                  "function": "string_to_int",
+                  "input": {
+                    "messageCreation": {
+                      "typeName": "",
+                      "fields": [
+                        {
+                          "name": "value",
+                          "value": {
+                            "call": {
+                              "function": "substring",
+                              "input": {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "self",
+                                      "value": {
+                                        "reference": {
+                                          "name": "input"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "arg0",
+                                      "value": {
+                                        "reference": {
+                                          "name": "start"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "arg1",
+                                      "value": {
+                                        "reference": {
+                                          "name": "pos"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        },
+        {
+          "name": "parseFactor",
+          "outputType": "int",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "function": "skipSpaces"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "if",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "condition",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "and",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "less_than",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "pos"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "fieldAccess": {
+                                                          "object": {
+                                                            "reference": {
+                                                              "name": "input"
+                                                            }
+                                                          },
+                                                          "field": "length"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "equals",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "index",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "target",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "input"
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "index",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "pos"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "literal": {
+                                                          "stringValue": "("
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "then",
+                              "value": {
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "post_increment",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "value",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "pos"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "let": {
+                                        "name": "result",
+                                        "value": {
+                                          "call": {
+                                            "function": "parseExpr"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "function": "skipSpaces"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "post_increment",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "value",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "pos"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "return",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "value",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "result"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "result": {
+                "call": {
+                  "function": "parseNumber"
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        },
+        {
+          "name": "parseTerm",
+          "outputType": "int",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "result",
+                    "value": {
+                      "call": {
+                        "function": "parseFactor"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "int"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "function": "skipSpaces"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "while",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "condition",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "and",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "less_than",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "pos"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "fieldAccess": {
+                                                          "object": {
+                                                            "reference": {
+                                                              "name": "input"
+                                                            }
+                                                          },
+                                                          "field": "length"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "or",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "equals",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "left",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "module": "std",
+                                                                      "function": "index",
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "typeName": "",
+                                                                          "fields": [
+                                                                            {
+                                                                              "name": "target",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "input"
+                                                                                }
+                                                                              }
+                                                                            },
+                                                                            {
+                                                                              "name": "index",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "pos"
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "right",
+                                                                  "value": {
+                                                                    "literal": {
+                                                                      "stringValue": "*"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "equals",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "left",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "module": "std",
+                                                                      "function": "index",
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "typeName": "",
+                                                                          "fields": [
+                                                                            {
+                                                                              "name": "target",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "input"
+                                                                                }
+                                                                              }
+                                                                            },
+                                                                            {
+                                                                              "name": "index",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "pos"
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "right",
+                                                                  "value": {
+                                                                    "literal": {
+                                                                      "stringValue": "/"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "body",
+                              "value": {
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "op",
+                                        "value": {
+                                          "call": {
+                                            "module": "std",
+                                            "function": "index",
+                                            "input": {
+                                              "messageCreation": {
+                                                "typeName": "",
+                                                "fields": [
+                                                  {
+                                                    "name": "target",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "input"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "name": "index",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "pos"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "String"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "post_increment",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "value",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "pos"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "let": {
+                                        "name": "right",
+                                        "value": {
+                                          "call": {
+                                            "function": "parseFactor"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "if",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "condition",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "equals",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "left",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "op"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "right",
+                                                              "value": {
+                                                                "literal": {
+                                                                  "stringValue": "*"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "then",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "assign",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "target",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "result"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "op",
+                                                              "value": {
+                                                                "literal": {
+                                                                  "stringValue": "*="
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "value",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "right"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "else",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "assign",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "target",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "result"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "op",
+                                                              "value": {
+                                                                "literal": {
+                                                                  "stringValue": "~/="
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "value",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "right"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "function": "skipSpaces"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "result": {
+                "reference": {
+                  "name": "result"
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        },
+        {
+          "name": "parseExpr",
+          "outputType": "int",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "result",
+                    "value": {
+                      "call": {
+                        "function": "parseTerm"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "int"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "function": "skipSpaces"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "while",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "condition",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "and",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "less_than",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "pos"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "fieldAccess": {
+                                                          "object": {
+                                                            "reference": {
+                                                              "name": "input"
+                                                            }
+                                                          },
+                                                          "field": "length"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "or",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "equals",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "left",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "module": "std",
+                                                                      "function": "index",
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "typeName": "",
+                                                                          "fields": [
+                                                                            {
+                                                                              "name": "target",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "input"
+                                                                                }
+                                                                              }
+                                                                            },
+                                                                            {
+                                                                              "name": "index",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "pos"
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "right",
+                                                                  "value": {
+                                                                    "literal": {
+                                                                      "stringValue": "+"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "equals",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "left",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "module": "std",
+                                                                      "function": "index",
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "typeName": "",
+                                                                          "fields": [
+                                                                            {
+                                                                              "name": "target",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "input"
+                                                                                }
+                                                                              }
+                                                                            },
+                                                                            {
+                                                                              "name": "index",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "pos"
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "right",
+                                                                  "value": {
+                                                                    "literal": {
+                                                                      "stringValue": "-"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "body",
+                              "value": {
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "op",
+                                        "value": {
+                                          "call": {
+                                            "module": "std",
+                                            "function": "index",
+                                            "input": {
+                                              "messageCreation": {
+                                                "typeName": "",
+                                                "fields": [
+                                                  {
+                                                    "name": "target",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "input"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "name": "index",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "pos"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "String"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "post_increment",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "value",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "pos"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "let": {
+                                        "name": "right",
+                                        "value": {
+                                          "call": {
+                                            "function": "parseTerm"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "if",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "condition",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "equals",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "left",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "op"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "right",
+                                                              "value": {
+                                                                "literal": {
+                                                                  "stringValue": "+"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "then",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "assign",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "target",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "result"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "op",
+                                                              "value": {
+                                                                "literal": {
+                                                                  "stringValue": "+="
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "value",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "right"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "else",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "assign",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "target",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "result"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "op",
+                                                              "value": {
+                                                                "literal": {
+                                                                  "stringValue": "-="
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "value",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "right"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "function": "skipSpaces"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "result": {
+                "reference": {
+                  "name": "result"
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        },
+        {
+          "name": "evaluate",
+          "inputType": "String",
+          "outputType": "int",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "assign",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "target",
+                              "value": {
+                                "reference": {
+                                  "name": "input"
+                                }
+                              }
+                            },
+                            {
+                              "name": "value",
+                              "value": {
+                                "reference": {
+                                  "name": "expr"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "assign",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "target",
+                              "value": {
+                                "reference": {
+                                  "name": "pos"
+                                }
+                              }
+                            },
+                            {
+                              "name": "value",
+                              "value": {
+                                "literal": {
+                                  "intValue": "0"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "result": {
+                "call": {
+                  "function": "parseExpr"
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "params": [
+              {
+                "name": "expr",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "evaluate",
+                                  "input": {
+                                    "literal": {
+                                      "stringValue": "3 + 4"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "evaluate",
+                                  "input": {
+                                    "literal": {
+                                      "stringValue": "3 + 4 * 2"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "evaluate",
+                                  "input": {
+                                    "literal": {
+                                      "stringValue": "(3 + 4) * 2"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "evaluate",
+                                  "input": {
+                                    "literal": {
+                                      "stringValue": "10 - 2 * 3"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "evaluate",
+                                  "input": {
+                                    "literal": {
+                                      "stringValue": "100 / 5 / 4"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

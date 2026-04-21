@@ -61,18 +61,6 @@
         {
           "name": "to_string",
           "isBase": true
-        },
-        {
-          "name": "length",
-          "isBase": true
-        },
-        {
-          "name": "toDouble",
-          "isBase": true
-        },
-        {
-          "name": "toInt",
-          "isBase": true
         }
       ],
       "description": "Universal standard library base module"
@@ -105,12 +93,12 @@
                     "name": "b",
                     "value": {
                       "call": {
-                        "function": "toDouble",
+                        "function": "to_double",
                         "input": {
                           "messageCreation": {
                             "fields": [
                               {
-                                "name": "self",
+                                "name": "value",
                                 "value": {
                                   "reference": {
                                     "name": "a"
@@ -119,7 +107,8 @@
                               }
                             ]
                           }
-                        }
+                        },
+                        "module": "std"
                       }
                     },
                     "metadata": {
@@ -170,12 +159,12 @@
                     "name": "d",
                     "value": {
                       "call": {
-                        "function": "toInt",
+                        "function": "to_int",
                         "input": {
                           "messageCreation": {
                             "fields": [
                               {
-                                "name": "self",
+                                "name": "value",
                                 "value": {
                                   "reference": {
                                     "name": "c"
@@ -184,7 +173,8 @@
                               }
                             ]
                           }
-                        }
+                        },
+                        "module": "std"
                       }
                     },
                     "metadata": {

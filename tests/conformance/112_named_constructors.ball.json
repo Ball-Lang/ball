@@ -1,0 +1,524 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "types": [
+        {
+          "name": "main:Point",
+          "field": [
+            {
+              "name": "x",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_DOUBLE"
+            },
+            {
+              "name": "y",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_DOUBLE"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "main:Point.new",
+          "outputType": "main:Point",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "x",
+                "is_this": true
+              },
+              {
+                "name": "y",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Point.origin",
+          "outputType": "main:Point",
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "field",
+                "name": "x",
+                "value": "0.0"
+              },
+              {
+                "kind": "field",
+                "name": "y",
+                "value": "0.0"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Point.fromList",
+          "outputType": "main:Point",
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "field",
+                "name": "x",
+                "value": "coords[0]"
+              },
+              {
+                "kind": "field",
+                "name": "y",
+                "value": "coords[1]"
+              }
+            ],
+            "params": [
+              {
+                "name": "coords",
+                "type": "List<double>"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Point.toString",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "concat",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "concat",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "concat",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "left",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "concat",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "",
+                                                      "fields": [
+                                                        {
+                                                          "name": "left",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "("
+                                                            }
+                                                          }
+                                                        },
+                                                        {
+                                                          "name": "right",
+                                                          "value": {
+                                                            "call": {
+                                                              "module": "std",
+                                                              "function": "to_string",
+                                                              "input": {
+                                                                "messageCreation": {
+                                                                  "typeName": "",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "value",
+                                                                      "value": {
+                                                                        "reference": {
+                                                                          "name": "x"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "right",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": ", "
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "to_string",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "y"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "stringValue": ")"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "p1",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Point",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "doubleValue": 3
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "doubleValue": 4
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Point"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "p1"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "p2",
+                    "value": {
+                      "call": {
+                        "function": "origin",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "self",
+                                "value": {
+                                  "reference": {
+                                    "name": "Point"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Point"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "p2"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "p3",
+                    "value": {
+                      "call": {
+                        "function": "fromList",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "self",
+                                "value": {
+                                  "reference": {
+                                    "name": "Point"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "literal": {
+                                    "listValue": {
+                                      "elements": [
+                                        {
+                                          "literal": {
+                                            "doubleValue": 1.5
+                                          }
+                                        },
+                                        {
+                                          "literal": {
+                                            "doubleValue": 2.5
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Point"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "p3"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Point",
+          "descriptor": {
+            "name": "main:Point",
+            "field": [
+              {
+                "name": "x",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_DOUBLE"
+              },
+              {
+                "name": "y",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_DOUBLE"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Point",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "x",
+                "type": "double"
+              },
+              {
+                "name": "y",
+                "type": "double"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

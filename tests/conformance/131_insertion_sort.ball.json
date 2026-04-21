@@ -1,0 +1,746 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "for",
+          "isBase": true
+        },
+        {
+          "name": "less_than",
+          "isBase": true
+        },
+        {
+          "name": "post_increment",
+          "isBase": true
+        },
+        {
+          "name": "index",
+          "isBase": true
+        },
+        {
+          "name": "subtract",
+          "isBase": true
+        },
+        {
+          "name": "while",
+          "isBase": true
+        },
+        {
+          "name": "assign",
+          "isBase": true
+        },
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "post_decrement",
+          "isBase": true
+        },
+        {
+          "name": "and",
+          "isBase": true
+        },
+        {
+          "name": "gte",
+          "isBase": true
+        },
+        {
+          "name": "greater_than",
+          "isBase": true
+        },
+        {
+          "name": "for_in",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "arr",
+                    "value": {
+                      "literal": {
+                        "listValue": {
+                          "elements": [
+                            {
+                              "literal": {
+                                "intValue": "12"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "11"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "13"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "5"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "6"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "7"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "List<int>"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "for",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "init",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "int i = 1"
+                                }
+                              }
+                            },
+                            {
+                              "name": "condition",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "less_than",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "reference": {
+                                              "name": "i"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "fieldAccess": {
+                                              "object": {
+                                                "reference": {
+                                                  "name": "arr"
+                                                }
+                                              },
+                                              "field": "length"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "update",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "post_increment",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "i"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "body",
+                              "value": {
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "key",
+                                        "value": {
+                                          "call": {
+                                            "module": "std",
+                                            "function": "index",
+                                            "input": {
+                                              "messageCreation": {
+                                                "typeName": "",
+                                                "fields": [
+                                                  {
+                                                    "name": "target",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "arr"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "name": "index",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "i"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "let": {
+                                        "name": "j",
+                                        "value": {
+                                          "call": {
+                                            "module": "std",
+                                            "function": "subtract",
+                                            "input": {
+                                              "messageCreation": {
+                                                "typeName": "",
+                                                "fields": [
+                                                  {
+                                                    "name": "left",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "i"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "name": "right",
+                                                    "value": {
+                                                      "literal": {
+                                                        "intValue": "1"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "while",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "condition",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "and",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "left",
+                                                              "value": {
+                                                                "call": {
+                                                                  "module": "std",
+                                                                  "function": "gte",
+                                                                  "input": {
+                                                                    "messageCreation": {
+                                                                      "typeName": "",
+                                                                      "fields": [
+                                                                        {
+                                                                          "name": "left",
+                                                                          "value": {
+                                                                            "reference": {
+                                                                              "name": "j"
+                                                                            }
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "name": "right",
+                                                                          "value": {
+                                                                            "literal": {
+                                                                              "intValue": "0"
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "right",
+                                                              "value": {
+                                                                "call": {
+                                                                  "module": "std",
+                                                                  "function": "greater_than",
+                                                                  "input": {
+                                                                    "messageCreation": {
+                                                                      "typeName": "",
+                                                                      "fields": [
+                                                                        {
+                                                                          "name": "left",
+                                                                          "value": {
+                                                                            "call": {
+                                                                              "module": "std",
+                                                                              "function": "index",
+                                                                              "input": {
+                                                                                "messageCreation": {
+                                                                                  "typeName": "",
+                                                                                  "fields": [
+                                                                                    {
+                                                                                      "name": "target",
+                                                                                      "value": {
+                                                                                        "reference": {
+                                                                                          "name": "arr"
+                                                                                        }
+                                                                                      }
+                                                                                    },
+                                                                                    {
+                                                                                      "name": "index",
+                                                                                      "value": {
+                                                                                        "reference": {
+                                                                                          "name": "j"
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  ]
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "name": "right",
+                                                                          "value": {
+                                                                            "reference": {
+                                                                              "name": "key"
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "body",
+                                                  "value": {
+                                                    "block": {
+                                                      "statements": [
+                                                        {
+                                                          "expression": {
+                                                            "call": {
+                                                              "module": "std",
+                                                              "function": "assign",
+                                                              "input": {
+                                                                "messageCreation": {
+                                                                  "typeName": "",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "target",
+                                                                      "value": {
+                                                                        "call": {
+                                                                          "module": "std",
+                                                                          "function": "index",
+                                                                          "input": {
+                                                                            "messageCreation": {
+                                                                              "typeName": "",
+                                                                              "fields": [
+                                                                                {
+                                                                                  "name": "target",
+                                                                                  "value": {
+                                                                                    "reference": {
+                                                                                      "name": "arr"
+                                                                                    }
+                                                                                  }
+                                                                                },
+                                                                                {
+                                                                                  "name": "index",
+                                                                                  "value": {
+                                                                                    "call": {
+                                                                                      "module": "std",
+                                                                                      "function": "add",
+                                                                                      "input": {
+                                                                                        "messageCreation": {
+                                                                                          "typeName": "",
+                                                                                          "fields": [
+                                                                                            {
+                                                                                              "name": "left",
+                                                                                              "value": {
+                                                                                                "reference": {
+                                                                                                  "name": "j"
+                                                                                                }
+                                                                                              }
+                                                                                            },
+                                                                                            {
+                                                                                              "name": "right",
+                                                                                              "value": {
+                                                                                                "literal": {
+                                                                                                  "intValue": "1"
+                                                                                                }
+                                                                                              }
+                                                                                            }
+                                                                                          ]
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              ]
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    },
+                                                                    {
+                                                                      "name": "value",
+                                                                      "value": {
+                                                                        "call": {
+                                                                          "module": "std",
+                                                                          "function": "index",
+                                                                          "input": {
+                                                                            "messageCreation": {
+                                                                              "typeName": "",
+                                                                              "fields": [
+                                                                                {
+                                                                                  "name": "target",
+                                                                                  "value": {
+                                                                                    "reference": {
+                                                                                      "name": "arr"
+                                                                                    }
+                                                                                  }
+                                                                                },
+                                                                                {
+                                                                                  "name": "index",
+                                                                                  "value": {
+                                                                                    "reference": {
+                                                                                      "name": "j"
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              ]
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        },
+                                                        {
+                                                          "expression": {
+                                                            "call": {
+                                                              "module": "std",
+                                                              "function": "post_decrement",
+                                                              "input": {
+                                                                "messageCreation": {
+                                                                  "typeName": "",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "value",
+                                                                      "value": {
+                                                                        "reference": {
+                                                                          "name": "j"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "assign",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "target",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "index",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "target",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "arr"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "index",
+                                                              "value": {
+                                                                "call": {
+                                                                  "module": "std",
+                                                                  "function": "add",
+                                                                  "input": {
+                                                                    "messageCreation": {
+                                                                      "typeName": "",
+                                                                      "fields": [
+                                                                        {
+                                                                          "name": "left",
+                                                                          "value": {
+                                                                            "reference": {
+                                                                              "name": "j"
+                                                                            }
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "name": "right",
+                                                                          "value": {
+                                                                            "literal": {
+                                                                              "intValue": "1"
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "value",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "key"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "for_in",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "variable",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "x"
+                                }
+                              }
+                            },
+                            {
+                              "name": "variable_type",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "int"
+                                }
+                              }
+                            },
+                            {
+                              "name": "iterable",
+                              "value": {
+                                "reference": {
+                                  "name": "arr"
+                                }
+                              }
+                            },
+                            {
+                              "name": "body",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "print",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "PrintInput",
+                                      "fields": [
+                                        {
+                                          "name": "message",
+                                          "value": {
+                                            "reference": {
+                                              "name": "x"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

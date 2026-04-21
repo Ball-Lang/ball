@@ -1,0 +1,13 @@
+0: divisible by 4
+1: remainder 1
+2: remainder 2
+3: remainder 3
+4: divisible by 4
+5: remainder 1
+6: remainder 2
+7: remainder 3
+Monday: weekday
+Saturday: weekend
+Wednesday: weekday
+Sunday: weekend
+Holiday: invalid

@@ -287,7 +287,7 @@ export class BallEngine {
     const moduleName = call.module || this.currentModule;
 
     // Lazy control flow
-    if (moduleName === 'std' || moduleName === 'dart_std') {
+    if (moduleName === 'std' || moduleName === 'dart_std' || moduleName === 'std_collections' || moduleName === 'std_io') {
       switch (call.function) {
         case 'if': return this.evalLazyIf(call, scope);
         case 'for': return this.evalLazyFor(call, scope);
@@ -314,7 +314,7 @@ export class BallEngine {
     const input = call.input ? this.evalExpr(call.input, scope) : null;
 
     // Fast path for explicit std calls
-    if (call.module === 'std' || call.module === 'dart_std') {
+    if (call.module === 'std' || call.module === 'dart_std' || call.module === 'std_collections' || call.module === 'std_io') {
       return this.callBaseFunction(call.module, call.function, input);
     }
 
@@ -1202,7 +1202,14 @@ export class BallEngine {
       case 'concat': return String(left ?? '') + String(right ?? '');
       case 'to_string': return this.ballToString(value ?? input);
       case 'string_length': return String(value ?? input).length;
-      case 'string_contains': return String(input?.string ?? '').includes(String(input?.substring ?? ''));
+      case 'contains':
+      case 'string_contains': {
+        const v = value ?? input?.value ?? input?.string ?? input;
+        const search = input?.arg0 ?? input?.value ?? input?.substring ?? '';
+        if (typeof v === 'string') return v.includes(String(search));
+        if (Array.isArray(v)) return v.includes(search);
+        return false;
+      }
       case 'string_substring': return String(input?.string ?? '').substring(input?.start ?? 0, input?.end);
       case 'string_to_upper': return String(value ?? input).toUpperCase();
       case 'string_to_lower': return String(value ?? input).toLowerCase();

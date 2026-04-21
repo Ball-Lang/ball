@@ -81,10 +81,6 @@
         {
           "name": "contains",
           "isBase": true
-        },
-        {
-          "name": "length",
-          "isBase": true
         }
       ],
       "description": "Universal standard library base module"
@@ -411,7 +407,7 @@
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "value",
                                           "value": {
                                             "reference": {
                                               "name": "result"
@@ -428,7 +424,8 @@
                                         }
                                       ]
                                     }
-                                  }
+                                  },
+                                  "module": "std"
                                 }
                               }
                             }
@@ -456,7 +453,7 @@
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "value",
                                           "value": {
                                             "reference": {
                                               "name": "result"
@@ -473,7 +470,8 @@
                                         }
                                       ]
                                     }
-                                  }
+                                  },
+                                  "module": "std"
                                 }
                               }
                             }

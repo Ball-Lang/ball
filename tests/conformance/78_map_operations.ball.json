@@ -35,11 +35,7 @@
           "isBase": true
         },
         {
-          "name": "containsKey",
-          "isBase": true
-        },
-        {
-          "name": "length",
+          "name": "map_contains_key",
           "isBase": true
         }
       ],
@@ -356,12 +352,12 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "containsKey",
+                                  "function": "map_contains_key",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "map",
                                           "value": {
                                             "reference": {
                                               "name": "scores"
@@ -378,7 +374,8 @@
                                         }
                                       ]
                                     }
-                                  }
+                                  },
+                                  "module": "std_collections"
                                 }
                               }
                             }
@@ -401,12 +398,12 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "containsKey",
+                                  "function": "map_contains_key",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "map",
                                           "value": {
                                             "reference": {
                                               "name": "scores"
@@ -423,7 +420,8 @@
                                         }
                                       ]
                                     }
-                                  }
+                                  },
+                                  "module": "std_collections"
                                 }
                               }
                             }

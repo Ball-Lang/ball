@@ -1,0 +1,9 @@
+A: start
+B: init
+C: begin
+A: work
+B: process
+C: end
+A: done
+B: save
+B: close

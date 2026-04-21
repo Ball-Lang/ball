@@ -1,0 +1,6 @@
+Hello from Base
+10
+Hello from Base and Child
+20
+Hello from Base and Child and GrandChild
+120

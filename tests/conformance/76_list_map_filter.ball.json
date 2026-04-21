@@ -66,14 +66,6 @@
         {
           "name": "print",
           "isBase": true
-        },
-        {
-          "name": "add",
-          "isBase": true
-        },
-        {
-          "name": "length",
-          "isBase": true
         }
       ],
       "description": "Universal standard library base module"
@@ -271,12 +263,12 @@
                                           "name": "then",
                                           "value": {
                                             "call": {
-                                              "function": "add",
+                                              "function": "list_add",
                                               "input": {
                                                 "messageCreation": {
                                                   "fields": [
                                                     {
-                                                      "name": "self",
+                                                      "name": "list",
                                                       "value": {
                                                         "reference": {
                                                           "name": "evens"
@@ -293,7 +285,8 @@
                                                     }
                                                   ]
                                                 }
-                                              }
+                                              },
+                                              "module": "std_collections"
                                             }
                                           }
                                         }
@@ -360,12 +353,12 @@
                               "name": "body",
                               "value": {
                                 "call": {
-                                  "function": "add",
+                                  "function": "list_add",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "list",
                                           "value": {
                                             "reference": {
                                               "name": "doubled"
@@ -406,7 +399,8 @@
                                         }
                                       ]
                                     }
-                                  }
+                                  },
+                                  "module": "std_collections"
                                 }
                               }
                             }

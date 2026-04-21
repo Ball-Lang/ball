@@ -1,0 +1,671 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "multiply",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "words",
+                    "value": {
+                      "literal": {
+                        "listValue": {
+                          "elements": [
+                            {
+                              "literal": {
+                                "stringValue": "apple"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "stringValue": "banana"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "stringValue": "cherry"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "stringValue": "date"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "stringValue": "elderberry"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "List<String>"
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "wordLengths",
+                    "value": {
+                      "call": {
+                        "function": "fromEntries",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "self",
+                                "value": {
+                                  "reference": {
+                                    "name": "Map"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "call": {
+                                    "function": "map",
+                                    "input": {
+                                      "messageCreation": {
+                                        "fields": [
+                                          {
+                                            "name": "self",
+                                            "value": {
+                                              "reference": {
+                                                "name": "words"
+                                              }
+                                            }
+                                          },
+                                          {
+                                            "name": "arg0",
+                                            "value": {
+                                              "lambda": {
+                                                "name": "",
+                                                "body": {
+                                                  "messageCreation": {
+                                                    "typeName": "main:MapEntry",
+                                                    "fields": [
+                                                      {
+                                                        "name": "arg0",
+                                                        "value": {
+                                                          "reference": {
+                                                            "name": "w"
+                                                          }
+                                                        }
+                                                      },
+                                                      {
+                                                        "name": "arg1",
+                                                        "value": {
+                                                          "fieldAccess": {
+                                                            "object": {
+                                                              "reference": {
+                                                                "name": "w"
+                                                              }
+                                                            },
+                                                            "field": "length"
+                                                          }
+                                                        }
+                                                      }
+                                                    ]
+                                                  }
+                                                },
+                                                "metadata": {
+                                                  "kind": "lambda",
+                                                  "expression_body": true,
+                                                  "has_return": true,
+                                                  "params": [
+                                                    {
+                                                      "name": "w"
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Map<String, int>"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "function": "forEach",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "self",
+                              "value": {
+                                "reference": {
+                                  "name": "wordLengths"
+                                }
+                              }
+                            },
+                            {
+                              "name": "arg0",
+                              "value": {
+                                "lambda": {
+                                  "name": "",
+                                  "body": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "print",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "PrintInput",
+                                          "fields": [
+                                            {
+                                              "name": "message",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "concat",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "",
+                                                      "fields": [
+                                                        {
+                                                          "name": "left",
+                                                          "value": {
+                                                            "call": {
+                                                              "module": "std",
+                                                              "function": "concat",
+                                                              "input": {
+                                                                "messageCreation": {
+                                                                  "typeName": "",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "left",
+                                                                      "value": {
+                                                                        "call": {
+                                                                          "module": "std",
+                                                                          "function": "to_string",
+                                                                          "input": {
+                                                                            "messageCreation": {
+                                                                              "typeName": "",
+                                                                              "fields": [
+                                                                                {
+                                                                                  "name": "value",
+                                                                                  "value": {
+                                                                                    "reference": {
+                                                                                      "name": "word"
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              ]
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    },
+                                                                    {
+                                                                      "name": "right",
+                                                                      "value": {
+                                                                        "literal": {
+                                                                          "stringValue": ": "
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        },
+                                                        {
+                                                          "name": "right",
+                                                          "value": {
+                                                            "call": {
+                                                              "module": "std",
+                                                              "function": "to_string",
+                                                              "input": {
+                                                                "messageCreation": {
+                                                                  "typeName": "",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "value",
+                                                                      "value": {
+                                                                        "reference": {
+                                                                          "name": "len"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "metadata": {
+                                    "kind": "lambda",
+                                    "params": [
+                                      {
+                                        "name": "word"
+                                      },
+                                      {
+                                        "name": "len"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "nums",
+                    "value": {
+                      "literal": {
+                        "listValue": {
+                          "elements": [
+                            {
+                              "literal": {
+                                "intValue": "1"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "2"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "3"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "4"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "5"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "List<int>"
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "squareMap",
+                    "value": {
+                      "call": {
+                        "function": "fromEntries",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "self",
+                                "value": {
+                                  "reference": {
+                                    "name": "Map"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "call": {
+                                    "function": "map",
+                                    "input": {
+                                      "messageCreation": {
+                                        "fields": [
+                                          {
+                                            "name": "self",
+                                            "value": {
+                                              "reference": {
+                                                "name": "nums"
+                                              }
+                                            }
+                                          },
+                                          {
+                                            "name": "arg0",
+                                            "value": {
+                                              "lambda": {
+                                                "name": "",
+                                                "body": {
+                                                  "messageCreation": {
+                                                    "typeName": "main:MapEntry",
+                                                    "fields": [
+                                                      {
+                                                        "name": "arg0",
+                                                        "value": {
+                                                          "reference": {
+                                                            "name": "n"
+                                                          }
+                                                        }
+                                                      },
+                                                      {
+                                                        "name": "arg1",
+                                                        "value": {
+                                                          "call": {
+                                                            "module": "std",
+                                                            "function": "multiply",
+                                                            "input": {
+                                                              "messageCreation": {
+                                                                "typeName": "",
+                                                                "fields": [
+                                                                  {
+                                                                    "name": "left",
+                                                                    "value": {
+                                                                      "reference": {
+                                                                        "name": "n"
+                                                                      }
+                                                                    }
+                                                                  },
+                                                                  {
+                                                                    "name": "right",
+                                                                    "value": {
+                                                                      "reference": {
+                                                                        "name": "n"
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                ]
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    ]
+                                                  }
+                                                },
+                                                "metadata": {
+                                                  "kind": "lambda",
+                                                  "expression_body": true,
+                                                  "has_return": true,
+                                                  "params": [
+                                                    {
+                                                      "name": "n"
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Map<int, int>"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "function": "forEach",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "self",
+                              "value": {
+                                "reference": {
+                                  "name": "squareMap"
+                                }
+                              }
+                            },
+                            {
+                              "name": "arg0",
+                              "value": {
+                                "lambda": {
+                                  "name": "",
+                                  "body": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "print",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "PrintInput",
+                                          "fields": [
+                                            {
+                                              "name": "message",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "concat",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "",
+                                                      "fields": [
+                                                        {
+                                                          "name": "left",
+                                                          "value": {
+                                                            "call": {
+                                                              "module": "std",
+                                                              "function": "concat",
+                                                              "input": {
+                                                                "messageCreation": {
+                                                                  "typeName": "",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "left",
+                                                                      "value": {
+                                                                        "call": {
+                                                                          "module": "std",
+                                                                          "function": "to_string",
+                                                                          "input": {
+                                                                            "messageCreation": {
+                                                                              "typeName": "",
+                                                                              "fields": [
+                                                                                {
+                                                                                  "name": "value",
+                                                                                  "value": {
+                                                                                    "reference": {
+                                                                                      "name": "k"
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              ]
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    },
+                                                                    {
+                                                                      "name": "right",
+                                                                      "value": {
+                                                                        "literal": {
+                                                                          "stringValue": " -> "
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        },
+                                                        {
+                                                          "name": "right",
+                                                          "value": {
+                                                            "call": {
+                                                              "module": "std",
+                                                              "function": "to_string",
+                                                              "input": {
+                                                                "messageCreation": {
+                                                                  "typeName": "",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "value",
+                                                                      "value": {
+                                                                        "reference": {
+                                                                          "name": "v"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "metadata": {
+                                    "kind": "lambda",
+                                    "params": [
+                                      {
+                                        "name": "k"
+                                      },
+                                      {
+                                        "name": "v"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

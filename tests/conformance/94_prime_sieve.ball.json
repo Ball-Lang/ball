@@ -81,10 +81,6 @@
         {
           "name": "print",
           "isBase": true
-        },
-        {
-          "name": "filled",
-          "isBase": true
         }
       ],
       "description": "Universal standard library base module"
@@ -117,12 +113,12 @@
                     "name": "sieve",
                     "value": {
                       "call": {
-                        "function": "filled",
+                        "function": "list_filled",
                         "input": {
                           "messageCreation": {
                             "fields": [
                               {
-                                "name": "self",
+                                "name": "list",
                                 "value": {
                                   "reference": {
                                     "name": "List"
@@ -171,7 +167,8 @@
                               }
                             ]
                           }
-                        }
+                        },
+                        "module": "std_collections"
                       }
                     },
                     "metadata": {

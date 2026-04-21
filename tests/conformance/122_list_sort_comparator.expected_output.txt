@@ -1,0 +1,4 @@
+Ascending: [1, 2, 3, 5, 8, 9]
+Descending: [9, 8, 5, 3, 2, 1]
+By length: [date, apple, banana, cherry]
+Alphabetical: [apple, banana, cherry, date]

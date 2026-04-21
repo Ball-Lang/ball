@@ -1,0 +1,824 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "types": [
+        {
+          "name": "main:Pair",
+          "field": [
+            {
+              "name": "first",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_MESSAGE"
+            },
+            {
+              "name": "second",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_MESSAGE"
+            }
+          ]
+        },
+        {
+          "name": "main:Stack",
+          "field": [
+            {
+              "name": "_items",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_BYTES"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "main:Pair.new",
+          "outputType": "main:Pair",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "first",
+                "is_this": true
+              },
+              {
+                "name": "second",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Pair.toString",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "concat",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "concat",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "concat",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "left",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "concat",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "",
+                                                      "fields": [
+                                                        {
+                                                          "name": "left",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "("
+                                                            }
+                                                          }
+                                                        },
+                                                        {
+                                                          "name": "right",
+                                                          "value": {
+                                                            "call": {
+                                                              "module": "std",
+                                                              "function": "to_string",
+                                                              "input": {
+                                                                "messageCreation": {
+                                                                  "typeName": "",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "value",
+                                                                      "value": {
+                                                                        "reference": {
+                                                                          "name": "first"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "right",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": ", "
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "to_string",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "second"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "stringValue": ")"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Stack.push",
+          "inputType": "T",
+          "outputType": "void",
+          "body": {
+            "call": {
+              "function": "add",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    {
+                      "name": "self",
+                      "value": {
+                        "reference": {
+                          "name": "_items"
+                        }
+                      }
+                    },
+                    {
+                      "name": "arg0",
+                      "value": {
+                        "reference": {
+                          "name": "item"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "params": [
+              {
+                "name": "item",
+                "type": "T"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Stack.pop",
+          "outputType": "T",
+          "body": {
+            "call": {
+              "function": "removeLast",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    {
+                      "name": "self",
+                      "value": {
+                        "reference": {
+                          "name": "_items"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Stack.peek",
+          "outputType": "T",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "_items"
+                }
+              },
+              "field": "last"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_getter": true,
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Stack.isEmpty",
+          "outputType": "bool",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "_items"
+                }
+              },
+              "field": "isEmpty"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_getter": true,
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Stack.size",
+          "outputType": "int",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "_items"
+                }
+              },
+              "field": "length"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_getter": true,
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "p",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Pair",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "1"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "stringValue": "hello"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Pair<int, String>"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "p"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "p2",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Pair",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "stringValue": "test"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "boolValue": true
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Pair<String, bool>"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "p2"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "s",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Stack",
+                        "fields": [
+                          {
+                            "name": "__type_args__",
+                            "value": {
+                              "literal": {
+                                "stringValue": "<int>"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Stack<int>"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "function": "push",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "self",
+                              "value": {
+                                "reference": {
+                                  "name": "s"
+                                }
+                              }
+                            },
+                            {
+                              "name": "arg0",
+                              "value": {
+                                "literal": {
+                                  "intValue": "10"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "function": "push",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "self",
+                              "value": {
+                                "reference": {
+                                  "name": "s"
+                                }
+                              }
+                            },
+                            {
+                              "name": "arg0",
+                              "value": {
+                                "literal": {
+                                  "intValue": "20"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "function": "push",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "self",
+                              "value": {
+                                "reference": {
+                                  "name": "s"
+                                }
+                              }
+                            },
+                            {
+                              "name": "arg0",
+                              "value": {
+                                "literal": {
+                                  "intValue": "30"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "s"
+                                    }
+                                  },
+                                  "field": "peek"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "pop",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "s"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "s"
+                                    }
+                                  },
+                                  "field": "size"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "s"
+                                    }
+                                  },
+                                  "field": "isEmpty"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Pair",
+          "descriptor": {
+            "name": "main:Pair",
+            "field": [
+              {
+                "name": "first",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              },
+              {
+                "name": "second",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              }
+            ]
+          },
+          "typeParams": [
+            {
+              "name": "A"
+            },
+            {
+              "name": "B"
+            }
+          ],
+          "description": "Class metadata for main:Pair",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "first",
+                "type": "A"
+              },
+              {
+                "name": "second",
+                "type": "B"
+              }
+            ],
+            "type_params": [
+              "A",
+              "B"
+            ]
+          }
+        },
+        {
+          "name": "main:Stack",
+          "descriptor": {
+            "name": "main:Stack",
+            "field": [
+              {
+                "name": "_items",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_BYTES"
+              }
+            ]
+          },
+          "typeParams": [
+            {
+              "name": "T"
+            }
+          ],
+          "description": "Class metadata for main:Stack",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "_items",
+                "type": "List<T>",
+                "initializer": "[]"
+              }
+            ],
+            "type_params": [
+              "T"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

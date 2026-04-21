@@ -81,18 +81,6 @@
         {
           "name": "for_in",
           "isBase": true
-        },
-        {
-          "name": "add",
-          "isBase": true
-        },
-        {
-          "name": "isNotEmpty",
-          "isBase": true
-        },
-        {
-          "name": "length",
-          "isBase": true
         }
       ],
       "description": "Universal standard library base module"
@@ -310,12 +298,12 @@
                                                             {
                                                               "expression": {
                                                                 "call": {
-                                                                  "function": "add",
+                                                                  "function": "list_add",
                                                                   "input": {
                                                                     "messageCreation": {
                                                                       "fields": [
                                                                         {
-                                                                          "name": "self",
+                                                                          "name": "list",
                                                                           "value": {
                                                                             "reference": {
                                                                               "name": "tokens"
@@ -332,7 +320,8 @@
                                                                         }
                                                                       ]
                                                                     }
-                                                                  }
+                                                                  },
+                                                                  "module": "std_collections"
                                                                 }
                                                               }
                                                             },
@@ -479,12 +468,12 @@
                               "name": "then",
                               "value": {
                                 "call": {
-                                  "function": "add",
+                                  "function": "list_add",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "list",
                                           "value": {
                                             "reference": {
                                               "name": "tokens"
@@ -501,7 +490,8 @@
                                         }
                                       ]
                                     }
-                                  }
+                                  },
+                                  "module": "std_collections"
                                 }
                               }
                             }

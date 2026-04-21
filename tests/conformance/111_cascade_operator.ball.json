@@ -1,0 +1,511 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "dart_std",
+      "functions": [
+        {
+          "name": "cascade",
+          "isBase": true
+        }
+      ],
+      "description": "Dart-specific standard library base module"
+    },
+    {
+      "name": "main",
+      "types": [
+        {
+          "name": "main:Builder",
+          "field": [
+            {
+              "name": "parts",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_BYTES"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "main:Builder.addPart",
+          "inputType": "String",
+          "outputType": "void",
+          "body": {
+            "call": {
+              "function": "add",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    {
+                      "name": "self",
+                      "value": {
+                        "reference": {
+                          "name": "parts"
+                        }
+                      }
+                    },
+                    {
+                      "name": "arg0",
+                      "value": {
+                        "reference": {
+                          "name": "part"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "params": [
+              {
+                "name": "part",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Builder.reset",
+          "outputType": "void",
+          "body": {
+            "call": {
+              "function": "clear",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    {
+                      "name": "self",
+                      "value": {
+                        "reference": {
+                          "name": "parts"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Builder.build",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "function": "join",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    {
+                      "name": "self",
+                      "value": {
+                        "reference": {
+                          "name": "parts"
+                        }
+                      }
+                    },
+                    {
+                      "name": "arg0",
+                      "value": {
+                        "literal": {
+                          "stringValue": ", "
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "b",
+                    "value": {
+                      "call": {
+                        "module": "dart_std",
+                        "function": "cascade",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "",
+                            "fields": [
+                              {
+                                "name": "target",
+                                "value": {
+                                  "messageCreation": {
+                                    "typeName": "main:Builder"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "sections",
+                                "value": {
+                                  "literal": {
+                                    "listValue": {
+                                      "elements": [
+                                        {
+                                          "call": {
+                                            "function": "addPart",
+                                            "input": {
+                                              "messageCreation": {
+                                                "fields": [
+                                                  {
+                                                    "name": "self",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "__cascade_self__"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "name": "arg0",
+                                                    "value": {
+                                                      "literal": {
+                                                        "stringValue": "engine"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "call": {
+                                            "function": "addPart",
+                                            "input": {
+                                              "messageCreation": {
+                                                "fields": [
+                                                  {
+                                                    "name": "self",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "__cascade_self__"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "name": "arg0",
+                                                    "value": {
+                                                      "literal": {
+                                                        "stringValue": "wheels"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "call": {
+                                            "function": "addPart",
+                                            "input": {
+                                              "messageCreation": {
+                                                "fields": [
+                                                  {
+                                                    "name": "self",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "__cascade_self__"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "name": "arg0",
+                                                    "value": {
+                                                      "literal": {
+                                                        "stringValue": "body"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Builder"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "build",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "b"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "dart_std",
+                      "function": "cascade",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "target",
+                              "value": {
+                                "reference": {
+                                  "name": "b"
+                                }
+                              }
+                            },
+                            {
+                              "name": "sections",
+                              "value": {
+                                "literal": {
+                                  "listValue": {
+                                    "elements": [
+                                      {
+                                        "call": {
+                                          "function": "reset",
+                                          "input": {
+                                            "messageCreation": {
+                                              "fields": [
+                                                {
+                                                  "name": "self",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "__cascade_self__"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "call": {
+                                          "function": "addPart",
+                                          "input": {
+                                            "messageCreation": {
+                                              "fields": [
+                                                {
+                                                  "name": "self",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "__cascade_self__"
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "arg0",
+                                                  "value": {
+                                                    "literal": {
+                                                      "stringValue": "frame"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "call": {
+                                          "function": "addPart",
+                                          "input": {
+                                            "messageCreation": {
+                                              "fields": [
+                                                {
+                                                  "name": "self",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "__cascade_self__"
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "arg0",
+                                                  "value": {
+                                                    "literal": {
+                                                      "stringValue": "glass"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "build",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "b"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        },
+        {
+          "name": "dart_std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Builder",
+          "descriptor": {
+            "name": "main:Builder",
+            "field": [
+              {
+                "name": "parts",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_BYTES"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Builder",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "parts",
+                "type": "List<String>",
+                "initializer": "[]"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

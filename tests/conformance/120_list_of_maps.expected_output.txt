@@ -1,0 +1,6 @@
+Alice lives in NYC
+Bob lives in LA
+Charlie lives in NYC
+Diana lives in LA
+Eve lives in Chicago
+NYC residents: 2

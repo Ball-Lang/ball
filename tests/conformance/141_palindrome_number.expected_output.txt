@@ -1,0 +1,8 @@
+121: true
+12321: true
+123: false
+0: true
+1: true
+1001: true
+1234321: true
+100: false

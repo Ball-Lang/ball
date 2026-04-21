@@ -27,27 +27,7 @@
           "isBase": true
         },
         {
-          "name": "add",
-          "isBase": true
-        },
-        {
-          "name": "isEmpty",
-          "isBase": true
-        },
-        {
-          "name": "isNotEmpty",
-          "isBase": true
-        },
-        {
-          "name": "last",
-          "isBase": true
-        },
-        {
-          "name": "length",
-          "isBase": true
-        },
-        {
-          "name": "removeLast",
+          "name": "list_remove_last",
           "isBase": true
         }
       ],
@@ -79,12 +59,12 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "add",
+                      "function": "list_add",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "stack"
@@ -101,19 +81,20 @@
                             }
                           ]
                         }
-                      }
+                      },
+                      "module": "std_collections"
                     }
                   }
                 },
                 {
                   "expression": {
                     "call": {
-                      "function": "add",
+                      "function": "list_add",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "stack"
@@ -130,19 +111,20 @@
                             }
                           ]
                         }
-                      }
+                      },
+                      "module": "std_collections"
                     }
                   }
                 },
                 {
                   "expression": {
                     "call": {
-                      "function": "add",
+                      "function": "list_add",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "stack"
@@ -159,7 +141,8 @@
                             }
                           ]
                         }
-                      }
+                      },
+                      "module": "std_collections"
                     }
                   }
                 },
@@ -194,12 +177,12 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "removeLast",
+                      "function": "list_remove_last",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "stack"
@@ -208,7 +191,8 @@
                             }
                           ]
                         }
-                      }
+                      },
+                      "module": "std_collections"
                     }
                   }
                 },
@@ -243,12 +227,12 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "add",
+                      "function": "list_add",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "stack"
@@ -265,7 +249,8 @@
                             }
                           ]
                         }
-                      }
+                      },
+                      "module": "std_collections"
                     }
                   }
                 },
@@ -333,12 +318,12 @@
                                           "name": "message",
                                           "value": {
                                             "call": {
-                                              "function": "removeLast",
+                                              "function": "list_remove_last",
                                               "input": {
                                                 "messageCreation": {
                                                   "fields": [
                                                     {
-                                                      "name": "self",
+                                                      "name": "list",
                                                       "value": {
                                                         "reference": {
                                                           "name": "stack"
@@ -347,7 +332,8 @@
                                                     }
                                                   ]
                                                 }
-                                              }
+                                              },
+                                              "module": "std_collections"
                                             }
                                           }
                                         }

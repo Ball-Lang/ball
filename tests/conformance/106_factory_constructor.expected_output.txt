@@ -1,0 +1,5 @@
+[App] started
+[App] running
+[DB] connected
+true
+false

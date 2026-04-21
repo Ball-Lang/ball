@@ -1,0 +1,9 @@
+Queue: [Alice, Bob, Charlie]
+Served: Alice
+Queue: [Bob, Charlie]
+Queue: [Bob, Charlie, Diana, Eve]
+Served: Bob
+Served: Charlie
+Served: Diana
+Served: Eve
+Empty: true

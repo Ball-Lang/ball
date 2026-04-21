@@ -1,0 +1,4 @@
+Bicycle
+Motorcycle (150 hp)
+Car (200 hp) 4 doors
+Truck (400 hp) 10.5t payload

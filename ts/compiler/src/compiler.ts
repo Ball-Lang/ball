@@ -564,7 +564,7 @@ export class BallCompiler {
 
   private isControlFlow(call: FunctionCall): boolean {
     const kinds = new Set([
-      "if", "for", "for_in", "while", "do_while", "try",
+      "if", "for", "for_in", "for_each", "while", "do_while", "try",
       "return", "break", "continue", "labeled", "throw", "rethrow",
       "assign", "switch", "switch_expr",
     ]);
@@ -579,6 +579,7 @@ export class BallCompiler {
       case "if":        this.emitIfStmt(call); break;
       case "for":       this.emitForStmt(call); break;
       case "for_in":    this.emitForInStmt(call); break;
+      case "for_each":  this.emitForInStmt(call); break;
       case "while":     this.emitWhileStmt(call); break;
       case "do_while":  this.emitDoWhileStmt(call); break;
       case "try":       this.emitTryStmt(call); break;
@@ -701,12 +702,12 @@ export class BallCompiler {
     const else_ = field(call, "else");
     this.writeln(`if (${this.expr(cond!)}) {`);
     this.depth++;
-    if (then_) this.emitStatementOrExpression(then_, false);
+    if (then_) this.emitStatementOrExpression(unwrapLambda(then_), false);
     this.depth--;
     if (else_) {
       this.writeln(`} else {`);
       this.depth++;
-      this.emitStatementOrExpression(else_, false);
+      this.emitStatementOrExpression(unwrapLambda(else_), false);
       this.depth--;
     }
     this.writeln(`}`);
@@ -717,19 +718,25 @@ export class BallCompiler {
     const cond = field(call, "condition");
     const update = field(call, "update");
     const body = field(call, "body");
+    // The TS encoder emits `variable`/`start` instead of `init` for
+    // `for (let i = 0; ...)` loops. Support both conventions.
+    const variable = stringField(call, "variable");
+    const start = field(call, "start");
     let initStr: string;
-    if (init && init.literal?.stringValue !== undefined) {
+    if (variable && start) {
+      initStr = `let ${variable} = ${this.expr(start)}`;
+    } else if (init && init.literal?.stringValue !== undefined) {
       initStr = translateInitString(init.literal.stringValue);
     } else if (init) {
       initStr = this.expr(init);
     } else {
       initStr = "";
     }
-    const condStr = cond ? this.expr(cond) : "";
-    const updateStr = update ? this.expr(update) : "";
+    const condStr = cond ? this.expr(unwrapLambda(cond)) : "";
+    const updateStr = update ? this.expr(unwrapLambda(update)) : "";
     this.writeln(`for (${initStr}; ${condStr}; ${updateStr}) {`);
     this.depth++;
-    if (body) this.emitStatementOrExpression(body, false);
+    if (body) this.emitStatementOrExpression(unwrapLambda(body), false);
     this.depth--;
     this.writeln(`}`);
   }
@@ -740,7 +747,7 @@ export class BallCompiler {
     const body = field(call, "body");
     this.writeln(`for (const ${variable} of ${this.expr(iterable)}) {`);
     this.depth++;
-    if (body) this.emitStatementOrExpression(body, false);
+    if (body) this.emitStatementOrExpression(unwrapLambda(body), false);
     this.depth--;
     this.writeln(`}`);
   }
@@ -748,9 +755,9 @@ export class BallCompiler {
   private emitWhileStmt(call: FunctionCall): void {
     const cond = field(call, "condition");
     const body = field(call, "body");
-    this.writeln(`while (${this.expr(cond!)}) {`);
+    this.writeln(`while (${this.expr(unwrapLambda(cond!))}) {`);
     this.depth++;
-    if (body) this.emitStatementOrExpression(body, false);
+    if (body) this.emitStatementOrExpression(unwrapLambda(body), false);
     this.depth--;
     this.writeln(`}`);
   }
@@ -760,20 +767,42 @@ export class BallCompiler {
     const body = field(call, "body");
     this.writeln(`do {`);
     this.depth++;
-    if (body) this.emitStatementOrExpression(body, false);
+    if (body) this.emitStatementOrExpression(unwrapLambda(body), false);
     this.depth--;
-    this.writeln(`} while (${this.expr(cond!)});`);
+    this.writeln(`} while (${this.expr(unwrapLambda(cond!))});`);
   }
 
   private emitTryStmt(call: FunctionCall): void {
     const body = field(call, "body");
     const catches = field(call, "catches");
+    // The TS encoder emits a single `catch` field (MessageCreation)
+    // instead of a `catches` list. Handle both formats.
+    const singleCatch = field(call, "catch");
     const fin = field(call, "finally");
 
     this.writeln(`try {`);
     this.depth++;
-    if (body) this.emitStatementOrExpression(body, false);
+    if (body) this.emitStatementOrExpression(unwrapLambda(body), false);
     this.depth--;
+
+    // Single catch clause from the TS encoder.
+    if (singleCatch && singleCatch.messageCreation) {
+      const cf = fieldMap(singleCatch.messageCreation.fields ?? []);
+      const variable = stringFieldVal(cf, "variable") ?? "e";
+      const catchBody = cf.get("body");
+      this.writeln(`} catch (${variable}) {`);
+      this.depth++;
+      if (catchBody) this.emitStatementOrExpression(unwrapLambda(catchBody), false);
+      this.depth--;
+      if (fin) {
+        this.writeln(`} finally {`);
+        this.depth++;
+        this.emitStatementOrExpression(unwrapLambda(fin), false);
+        this.depth--;
+      }
+      this.writeln(`}`);
+      return;
+    }
 
     this.writeln(`} catch (__ball_active_error) {`);
     this.depth++;
@@ -842,7 +871,7 @@ export class BallCompiler {
     if (fin) {
       this.writeln(`} finally {`);
       this.depth++;
-      this.emitStatementOrExpression(fin, false);
+      this.emitStatementOrExpression(unwrapLambda(fin), false);
       this.depth--;
     }
     this.writeln(`}`);
@@ -1129,8 +1158,8 @@ export class BallCompiler {
       }
       case "less_than":    return bin("<");
       case "greater_than": return bin(">");
-      case "lte":          return bin("<=");
-      case "gte":          return bin(">=");
+      case "lte":          case "less_than_or_equal":    return bin("<=");
+      case "gte":          case "greater_than_or_equal": return bin(">=");
       // Logical
       case "and":          return bin("&&");
       case "or":           return bin("||");
@@ -1140,8 +1169,8 @@ export class BallCompiler {
       case "bitwise_or":   return bin("|");
       case "bitwise_xor":  return bin("^");
       case "bitwise_not":  return un("~");
-      case "left_shift":   return bin("<<");
-      case "right_shift":  return bin(">>");
+      case "left_shift":   case "shift_left":  return bin("<<");
+      case "right_shift":  case "shift_right": return bin(">>");
       case "unsigned_right_shift": return bin(">>>");
       case "integer_divide":
         return `Math.trunc(${this.expr(f.get("left")!)} / ${this.expr(f.get("right")!)})`;
@@ -1217,9 +1246,10 @@ export class BallCompiler {
       case "as":         return this.expr(f.get("value")!);
       case "if": {
         const cond = this.expr(f.get("condition")!);
-        const t = this.expr(f.get("then")!);
+        const thenExpr = f.get("then")!;
+        const t = this.expr(unwrapLambda(thenExpr));
         const elseE = f.get("else");
-        const e = elseE ? this.expr(elseE) : "undefined";
+        const e = elseE ? this.expr(unwrapLambda(elseE)) : "undefined";
         return `(${cond} ? ${t} : ${e})`;
       }
       case "paren":   return `(${this.expr(f.get("value")!)})`;
@@ -1516,7 +1546,9 @@ function extractParams(fn: FunctionDef): string[] {
   if (!Array.isArray(params)) return [];
   const out: string[] = [];
   for (const p of params) {
-    if (p && typeof p === "object" && "name" in p && typeof (p as any).name === "string") {
+    if (typeof p === "string") {
+      out.push(p);
+    } else if (p && typeof p === "object" && "name" in p && typeof (p as any).name === "string") {
       out.push((p as any).name);
     }
   }
@@ -1719,6 +1751,15 @@ function defaultInitializer(type: string, rawDartType?: string): string | undefi
   if (t === "boolean" || d === "bool") return "false";
   if (t === "string" || d === "String") return "''";
   return undefined;
+}
+
+/** Unwrap a lambda-wrapped expression: `{lambda: {body: X}}` → `X`.
+ *  The TS encoder wraps for/while condition/update/body in lambdas
+ *  (matching Ball's convention), but the compiler expects bare
+ *  expressions. This helper strips the wrapper when present. */
+function unwrapLambda(e: Expression): Expression {
+  if (e.lambda && e.lambda.body) return e.lambda.body;
+  return e;
 }
 
 function sanitize(name: string): string {

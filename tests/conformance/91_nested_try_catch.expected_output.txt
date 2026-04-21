@@ -1,0 +1,4 @@
+caught inner: inner
+caught outer: rethrown
+finally
+after

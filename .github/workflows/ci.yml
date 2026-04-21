@@ -162,3 +162,11 @@ jobs:
         run: cd ts/compiler && npm run build
       - name: Test @ball-lang/compiler (fixtures + engine parse)
         run: cd ts/compiler && npm test
+
+      # @ball-lang/encoder (TypeScript → Ball)
+      - name: Install @ball-lang/encoder deps
+        run: cd ts/encoder && npm ci
+      - name: Build @ball-lang/encoder
+        run: cd ts/encoder && npm run build
+      - name: Test @ball-lang/encoder
+        run: cd ts/encoder && npm test

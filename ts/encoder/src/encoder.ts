@@ -88,6 +88,32 @@ export class TsEncoder {
               body: decl.initializer ? this.encodeExpr(decl.initializer) : { literal: { stringValue: "" } },
               metadata: { kind: "top_level_variable" },
             });
+          } else if (ts.isObjectBindingPattern(decl.name) && decl.initializer) {
+            for (const element of decl.name.elements) {
+              const propName = element.propertyName
+                ? (ts.isIdentifier(element.propertyName) ? element.propertyName.text : element.propertyName.getText())
+                : (ts.isIdentifier(element.name) ? element.name.text : element.name.getText());
+              const varName = ts.isIdentifier(element.name) ? element.name.text : element.name.getText();
+              functions.push({
+                name: varName,
+                body: { fieldAccess: { object: this.encodeExpr(decl.initializer!), field: propName } },
+                metadata: { kind: "top_level_variable", destructured: true },
+              });
+            }
+          } else if (ts.isArrayBindingPattern(decl.name) && decl.initializer) {
+            for (let i = 0; i < decl.name.elements.length; i++) {
+              const element = decl.name.elements[i];
+              if (ts.isOmittedExpression(element)) continue;
+              const varName = ts.isIdentifier(element.name) ? element.name.text : element.name.getText();
+              functions.push({
+                name: varName,
+                body: this.stdCall("index", [
+                  { name: "target", value: this.encodeExpr(decl.initializer!) },
+                  { name: "index", value: { literal: { intValue: `${i}` } } },
+                ]),
+                metadata: { kind: "top_level_variable", destructured: true },
+              });
+            }
           }
         }
       } else if (ts.isExpressionStatement(stmt)) {
@@ -129,6 +155,26 @@ export class TsEncoder {
     if (params.length > 0) metadata["params"] = params;
     if (node.type) metadata["returnType"] = node.type.getText();
 
+    // Async functions
+    if (node.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword)) {
+      metadata["is_async"] = true;
+    }
+
+    // Rest parameters
+    const lastParam = node.parameters[node.parameters.length - 1];
+    if (lastParam?.dotDotDotToken) {
+      metadata["rest_param"] = ts.isIdentifier(lastParam.name) ? lastParam.name.text : lastParam.name.getText();
+    }
+
+    // Default parameter values
+    const defaults: Record<string, unknown> = {};
+    for (const p of node.parameters) {
+      if (p.initializer && ts.isIdentifier(p.name)) {
+        defaults[p.name.text] = p.initializer.getText();
+      }
+    }
+    if (Object.keys(defaults).length > 0) metadata["param_defaults"] = defaults;
+
     const body = node.body ? this.encodeBody(node.body) : undefined;
 
     const fn: FunctionDef = { name };
@@ -156,12 +202,54 @@ export class TsEncoder {
 
   private encodeStatement(node: ts.Statement): Statement[] {
     if (ts.isVariableStatement(node)) {
-      return node.declarationList.declarations.map(decl => ({
-        let: {
-          name: ts.isIdentifier(decl.name) ? decl.name.text : decl.name.getText(),
-          value: decl.initializer ? this.encodeExpr(decl.initializer) : undefined,
-        },
-      }));
+      const results: Statement[] = [];
+      for (const decl of node.declarationList.declarations) {
+        if (ts.isObjectBindingPattern(decl.name) && decl.initializer) {
+          // Object destructuring: const { a, b } = obj
+          const source = this.encodeExpr(decl.initializer);
+          for (const element of decl.name.elements) {
+            const propName = element.propertyName
+              ? (ts.isIdentifier(element.propertyName) ? element.propertyName.text : element.propertyName.getText())
+              : (ts.isIdentifier(element.name) ? element.name.text : element.name.getText());
+            const varName = ts.isIdentifier(element.name) ? element.name.text : element.name.getText();
+            let value: Expression = { fieldAccess: { object: source, field: propName } };
+            if (element.initializer) {
+              value = this.stdCall("null_coalesce", [
+                { name: "left", value },
+                { name: "right", value: this.encodeExpr(element.initializer) },
+              ]);
+            }
+            results.push({ let: { name: varName, value } });
+          }
+        } else if (ts.isArrayBindingPattern(decl.name) && decl.initializer) {
+          // Array destructuring: const [x, y] = arr
+          const source = this.encodeExpr(decl.initializer);
+          for (let i = 0; i < decl.name.elements.length; i++) {
+            const element = decl.name.elements[i];
+            if (ts.isOmittedExpression(element)) continue;
+            const varName = ts.isIdentifier(element.name) ? element.name.text : element.name.getText();
+            let value: Expression = this.stdCall("index", [
+              { name: "target", value: source },
+              { name: "index", value: { literal: { intValue: `${i}` } } },
+            ]);
+            if (element.initializer) {
+              value = this.stdCall("null_coalesce", [
+                { name: "left", value },
+                { name: "right", value: this.encodeExpr(element.initializer) },
+              ]);
+            }
+            results.push({ let: { name: varName, value } });
+          }
+        } else {
+          results.push({
+            let: {
+              name: ts.isIdentifier(decl.name) ? decl.name.text : decl.name.getText(),
+              value: decl.initializer ? this.encodeExpr(decl.initializer) : undefined,
+            },
+          });
+        }
+      }
+      return results;
     }
     if (ts.isExpressionStatement(node)) {
       return [{ expression: this.encodeExpr(node.expression) }];
@@ -258,9 +346,21 @@ export class TsEncoder {
       return this.encodeCall(node);
     }
     if (ts.isPropertyAccessExpression(node)) {
+      if (node.questionDotToken) {
+        return this.stdCall("optional_access", [
+          { name: "object", value: this.encodeExpr(node.expression) },
+          { name: "field", value: { literal: { stringValue: node.name.text } } },
+        ], "ts_std");
+      }
       return { fieldAccess: { object: this.encodeExpr(node.expression), field: node.name.text } };
     }
     if (ts.isElementAccessExpression(node)) {
+      if (node.questionDotToken) {
+        return this.stdCall("optional_access", [
+          { name: "object", value: this.encodeExpr(node.expression) },
+          { name: "field", value: this.encodeExpr(node.argumentExpression) },
+        ], "ts_std");
+      }
       return this.stdCall("index", [
         { name: "target", value: this.encodeExpr(node.expression) },
         { name: "index", value: this.encodeExpr(node.argumentExpression) },
@@ -282,10 +382,31 @@ export class TsEncoder {
     if (ts.isObjectLiteralExpression(node)) {
       const fields: FieldValuePair[] = [];
       for (const prop of node.properties) {
-        if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
-          fields.push({ name: prop.name.text, value: this.encodeExpr(prop.initializer) });
+        if (ts.isPropertyAssignment(prop)) {
+          if (ts.isComputedPropertyName(prop.name)) {
+            // Computed property: { [key]: value }
+            fields.push({
+              name: "__computed",
+              value: this.stdCall("computed_property", [
+                { name: "key", value: this.encodeExpr(prop.name.expression) },
+                { name: "value", value: this.encodeExpr(prop.initializer) },
+              ], "ts_std"),
+            });
+          } else {
+            const propName = ts.isIdentifier(prop.name)
+              ? prop.name.text
+              : ts.isStringLiteral(prop.name) ? prop.name.text : prop.name.getText();
+            fields.push({ name: propName, value: this.encodeExpr(prop.initializer) });
+          }
         } else if (ts.isShorthandPropertyAssignment(prop)) {
           fields.push({ name: prop.name.text, value: { reference: { name: prop.name.text } } });
+        } else if (ts.isSpreadAssignment(prop)) {
+          fields.push({
+            name: "__spread",
+            value: this.stdCall("spread", [
+              { name: "value", value: this.encodeExpr(prop.expression) },
+            ], "ts_std"),
+          });
         }
       }
       return { messageCreation: { typeName: "", fields } };
@@ -325,6 +446,12 @@ export class TsEncoder {
       return this.stdCall("spread", [
         { name: "value", value: this.encodeExpr(node.expression) },
       ], "ts_std");
+    }
+    if (ts.isVoidExpression(node)) {
+      return { literal: { stringValue: "" } };
+    }
+    if (ts.isTaggedTemplateExpression(node)) {
+      return this.encodeTaggedTemplate(node);
     }
     this.warn(`Unhandled expression kind: ${ts.SyntaxKind[node.kind]}`);
     return { literal: { stringValue: `/* unhandled: ${ts.SyntaxKind[node.kind]} */` } };
@@ -431,6 +558,16 @@ export class TsEncoder {
     if (ts.isPropertyAccessExpression(node.expression)) {
       const obj = this.encodeExpr(node.expression.expression);
       const method = node.expression.name.text;
+
+      // Optional chaining call: obj?.method()
+      if (node.expression.questionDotToken || node.questionDotToken) {
+        return this.stdCall("optional_call", [
+          { name: "object", value: obj },
+          { name: "method", value: { literal: { stringValue: method } } },
+          ...args,
+        ], "ts_std");
+      }
+
       return {
         call: {
           function: method,
@@ -484,8 +621,33 @@ export class TsEncoder {
     const metadata: Struct = {};
     if (params.length > 0) metadata["params"] = params;
     if (node.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword)) {
-      metadata["async"] = true;
+      metadata["is_async"] = true;
     }
+
+    // Rest parameters
+    const lastParam = node.parameters[node.parameters.length - 1];
+    if (lastParam?.dotDotDotToken) {
+      metadata["rest_param"] = ts.isIdentifier(lastParam.name) ? lastParam.name.text : lastParam.name.getText();
+    }
+
+    // Default parameter values
+    const defaults: Record<string, unknown> = {};
+    for (const p of node.parameters) {
+      if (p.initializer && ts.isIdentifier(p.name)) {
+        defaults[p.name.text] = p.initializer.getText();
+      }
+    }
+    if (Object.keys(defaults).length > 0) metadata["param_defaults"] = defaults;
+
+    // Destructured parameters
+    const destructured: Record<string, string> = {};
+    for (const p of node.parameters) {
+      if (ts.isObjectBindingPattern(p.name) || ts.isArrayBindingPattern(p.name)) {
+        const idx = node.parameters.indexOf(p);
+        destructured[`param${idx}`] = p.name.getText();
+      }
+    }
+    if (Object.keys(destructured).length > 0) metadata["destructured_params"] = destructured;
 
     return {
       lambda: {
@@ -547,7 +709,8 @@ export class TsEncoder {
       const d = node.initializer.declarations[0];
       varName = ts.isIdentifier(d.name) ? d.name.text : d.name.getText();
     }
-    return this.stdCall("for_each", [
+    const fnName = ts.isForInStatement(node) ? "for_in" : "for_each";
+    return this.stdCall(fnName, [
       { name: "variable", value: { literal: { stringValue: varName } } },
       { name: "iterable", value: this.encodeExpr(node.expression) },
       { name: "body", value: { lambda: { name: "", body: this.encodeBody(
@@ -673,18 +836,32 @@ export class TsEncoder {
       }
     }
 
+    const fieldInitializers: Record<string, string> = {};
     let fieldNum = 1;
     for (const member of node.members) {
       if (ts.isPropertyDeclaration(member) && ts.isIdentifier(member.name)) {
+        const fieldMeta: Record<string, unknown> = {};
+        if (member.initializer) {
+          fieldInitializers[member.name.text] = member.initializer.getText();
+          fieldMeta["initializer"] = member.initializer.getText();
+        }
+        const isStatic = member.modifiers?.some(m => m.kind === ts.SyntaxKind.StaticKeyword);
+        if (isStatic) fieldMeta["is_static"] = true;
         descriptor.field!.push({
           name: member.name.text,
           number: fieldNum++,
           type: member.type ? member.type.getText() : "any",
+          ...(Object.keys(fieldMeta).length > 0 ? { label: JSON.stringify(fieldMeta) } : {}),
         });
       }
       if (ts.isMethodDeclaration(member) && ts.isIdentifier(member.name)) {
         const fn = this.encodeFunction(member);
         fn.name = `${className}.${fn.name}`;
+        const isStatic = member.modifiers?.some(m => m.kind === ts.SyntaxKind.StaticKeyword);
+        if (isStatic) {
+          if (!fn.metadata) fn.metadata = {};
+          fn.metadata["is_static"] = true;
+        }
         functions.push(fn);
       }
       if (ts.isConstructorDeclaration(member)) {
@@ -692,6 +869,9 @@ export class TsEncoder {
         fn.name = `${className}.constructor`;
         functions.push(fn);
       }
+    }
+    if (Object.keys(fieldInitializers).length > 0) {
+      metadata["field_initializers"] = fieldInitializers;
     }
 
     typeDefs.push({ name: className, descriptor, metadata });
@@ -728,6 +908,28 @@ export class TsEncoder {
           ? parseInt(m.initializer.text) : i,
       })),
     };
+  }
+
+  private encodeTaggedTemplate(node: ts.TaggedTemplateExpression): Expression {
+    const tag = this.encodeExpr(node.tag);
+    const parts: Expression[] = [];
+    const exprs: Expression[] = [];
+
+    if (ts.isNoSubstitutionTemplateLiteral(node.template)) {
+      parts.push({ literal: { stringValue: node.template.text } });
+    } else {
+      parts.push({ literal: { stringValue: node.template.head.text } });
+      for (const span of node.template.templateSpans) {
+        exprs.push(this.encodeExpr(span.expression));
+        parts.push({ literal: { stringValue: span.literal.text } });
+      }
+    }
+
+    return this.stdCall("tagged_template", [
+      { name: "tag", value: tag },
+      { name: "strings", value: { literal: { listValue: { elements: parts } } } },
+      { name: "expressions", value: { literal: { listValue: { elements: exprs } } } },
+    ], "ts_std");
   }
 
   private stdCall(fn: string, fields: FieldValuePair[], module = "std"): Expression {

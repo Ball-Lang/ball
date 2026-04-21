@@ -266,15 +266,80 @@ class DocsPage extends StatelessComponent {
           ],
         ),
 
+        // NPM Packages
+        _buildSection(
+          'npm',
+          'NPM Packages',
+          'TypeScript / Node.js ecosystem',
+          [
+            p(classes: 'docs-text', [
+              Component.text(
+                'Ball ships four npm packages under the @ball-lang scope:',
+              ),
+            ]),
+            _buildPackageRow('@ball-lang/engine',
+                'Tree-walking Ball interpreter for Node.js'),
+            _buildPackageRow('@ball-lang/compiler',
+                'Ball \u2192 TypeScript compiler via ts-morph'),
+            _buildPackageRow('@ball-lang/encoder',
+                'TypeScript \u2192 Ball encoder using the TS compiler API'),
+            _buildPackageRow('@ball-lang/cli',
+                'CLI tool for running, compiling, and encoding Ball programs'),
+            const CodeBlock(
+              language: 'bash',
+              code: '# Install the engine\n'
+                  'npm install @ball-lang/engine\n'
+                  '\n'
+                  '# Run a Ball program\n'
+                  'npx @ball-lang/cli run program.ball.json\n'
+                  '\n'
+                  '# Compile Ball \u2192 TypeScript\n'
+                  'npx @ball-lang/compiler program.ball.json -o output.ts',
+            ),
+          ],
+        ),
+
+        // Self-Hosting
+        _buildSection(
+          'self-host',
+          'Self-Hosting',
+          'Ball compiles its own interpreter',
+          [
+            p(classes: 'docs-text', [
+              Component.text(
+                'Ball achieves self-hosting: the Dart engine (3000+ LOC) is encoded to Ball IR, '
+                'then compiled to both TypeScript and C++. The compiled engines execute all 55 '
+                'conformance programs with byte-identical output to the reference Dart engine.',
+              ),
+            ]),
+            _buildStdCategory('Dart \u2192 Ball \u2192 TypeScript',
+                '55/55 conformance, runs on Node.js'),
+            _buildStdCategory('Dart \u2192 Ball \u2192 C++',
+                '92/92 e2e tests, compiles via MSVC/GCC/Clang'),
+            _buildStdCategory('Scale Validation',
+                '103/103 top pub.dev packages round-trip'),
+          ],
+        ),
+
         // Getting Started
         _buildSection(
           'getting-started',
           'Getting Started',
           'Quick start guide',
           [
-            p(classes: 'docs-text', [
-              Component.text('Clone the repository and try the Dart implementation:'),
-            ]),
+            h4(classes: 'docs-h4', [Component.text('Node.js / TypeScript')]),
+            const CodeBlock(
+              language: 'bash',
+              code: '# Install and run\n'
+                  'npm install @ball-lang/engine\n'
+                  '\n'
+                  '# In your code:\n'
+                  'import { BallEngine } from "@ball-lang/engine";\n'
+                  'const engine = new BallEngine(programJson);\n'
+                  'engine.run();\n'
+                  'console.log(engine.getOutput());',
+            ),
+            h4(classes: 'docs-h4', [Component.text('Dart')]),
             const CodeBlock(
               language: 'bash',
               code: '# Clone Ball\n'
@@ -290,10 +355,17 @@ class DocsPage extends StatelessComponent {
                   '# Compile an example to Dart\n'
                   'cd ../compiler\n'
                   'dart run bin/compile.dart \\\n'
-                  '  ../../examples/hello_world.ball.json\n'
+                  '  ../../examples/hello_world.ball.json',
+            ),
+            h4(classes: 'docs-h4', [Component.text('C++')]),
+            const CodeBlock(
+              language: 'bash',
+              code: '# Build the C++ implementation\n'
+                  'cd cpp && mkdir -p build && cd build\n'
+                  'cmake .. && cmake --build .\n'
                   '\n'
-                  '# Build the C++ implementation\n'
-                  'cd ../../cpp/build && cmake .. && cmake --build .',
+                  '# Run conformance tests\n'
+                  './test/test_conformance',
             ),
             p(classes: 'docs-text', [
               Component.text('The proto schema is published on Buf: '),
@@ -414,6 +486,13 @@ class DocsPage extends StatelessComponent {
           ]),
         ]),
       ]),
+    ]);
+  }
+
+  Component _buildPackageRow(String name, String desc) {
+    return div(classes: 'docs-package-row', [
+      code(classes: 'docs-package-name', [Component.text(name)]),
+      span(classes: 'docs-package-desc', [Component.text(' \u2014 $desc')]),
     ]);
   }
 

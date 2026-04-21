@@ -114,6 +114,21 @@ class BallRuntimeError extends Error {
   }
 }
 
+/**
+ * Wrapper for double values that need to display with a decimal point.
+ * Behaves like a number in arithmetic (via valueOf) but prints as "X.0"
+ * when the value is integral.
+ */
+class BallDouble {
+  readonly value: number;
+  constructor(value: number) { this.value = value; }
+  valueOf(): number { return this.value; }
+  toString(): string {
+    if (Number.isInteger(this.value) && isFinite(this.value)) return this.value.toFixed(1);
+    return this.value.toString();
+  }
+}
+
 // ── Scope ───────────────────────────────────────────────────────────────────
 
 class Scope {
@@ -168,6 +183,7 @@ export class BallEngine {
   private functions = new Map<string, FunctionDef>();
   private constructors = new Map<string, { module: string; fn: FunctionDef }>();
   private enumValues = new Map<string, Record<string, Record<string, BallValue>>>();
+  private topLevelVars = new Map<string, BallValue>();
   private currentModule = '';
   private activeException: any = null;
   private output: string[] = [];
@@ -226,6 +242,22 @@ export class BallEngine {
 
     const scope = new Scope();
     this.currentModule = this.program.entryModule;
+
+    // Initialize top-level variables in root scope.
+    for (const mod of this.program.modules) {
+      for (const f of mod.functions) {
+        if (f.metadata?.kind === 'top_level_variable' && f.body) {
+          const prevMod = this.currentModule;
+          this.currentModule = mod.name;
+          const val = this.evalExpr(f.body, scope);
+          const cacheKey = `${mod.name}.${f.name}`;
+          this.topLevelVars.set(cacheKey, val);
+          scope.bind(f.name, val);
+          this.currentModule = prevMod;
+        }
+      }
+    }
+
     const result = this.callFunction(this.program.entryModule, fn, null, scope);
 
     if (result instanceof FlowSignal && result.kind === 'return') {
@@ -274,6 +306,7 @@ export class BallEngine {
         case 'pre_increment': case 'post_increment':
         case 'pre_decrement': case 'post_decrement':
           return this.evalIncDec(call, scope);
+        case 'map_create': return this.evalMapCreate(call, scope);
       }
     }
 
@@ -288,6 +321,11 @@ export class BallEngine {
     // Method call on object (has 'self' field) — instance method dispatch.
     if (input && typeof input === 'object' && !Array.isArray(input) && 'self' in input) {
       const self = input.self;
+
+      // Runtime method dispatch for built-in types (arrays, strings, numbers, maps).
+      const methodResult = this.dispatchBuiltinMethod(call.function, self, input);
+      if (methodResult !== undefined) return methodResult;
+
       if (self && typeof self === 'object' && !Array.isArray(self)) {
         const typeName: string | undefined = self.__type__;
         if (typeName) {
@@ -345,6 +383,15 @@ export class BallEngine {
     if (fn.isBase) return this.callBaseFunction(moduleName, fn.name, input);
     if (!fn.body) return null;
 
+    // Top-level variables: compute once and cache.
+    if (fn.metadata?.kind === 'top_level_variable') {
+      const key = `${moduleName}.${fn.name}`;
+      if (this.topLevelVars.has(key)) return this.topLevelVars.get(key);
+      const val = this.evalExpr(fn.body, parentScope);
+      this.topLevelVars.set(key, val);
+      return val;
+    }
+
     const prevModule = this.currentModule;
     this.currentModule = moduleName;
 
@@ -393,7 +440,7 @@ export class BallEngine {
     if (lit.doubleValue !== undefined) return lit.doubleValue;
     if (lit.stringValue !== undefined) return lit.stringValue;
     if (lit.boolValue !== undefined) return lit.boolValue;
-    if (lit.listValue) return lit.listValue.elements.map(e => this.evalExpr(e, scope));
+    if (lit.listValue) return (lit.listValue.elements ?? []).map(e => this.evalExpr(e, scope));
     return null;
   }
 
@@ -421,6 +468,25 @@ export class BallEngine {
     const enumVals = this.enumValues.get(name);
     if (enumVals) return enumVals;
 
+    // Built-in type references (used as static method receivers like List.filled).
+    if (name === 'List' || name === 'Map' || name === 'Set' || name === 'String' || name === 'int' || name === 'double' || name === 'num') {
+      return { __builtin_type__: name };
+    }
+
+    // Try scope lookup first, then fall back to top-level var / function references.
+    if (scope.has(name)) return scope.lookup(name);
+
+    // Top-level variable or function reference: look up by name across modules.
+    for (const mod of this.program.modules) {
+      for (const f of mod.functions) {
+        if (f.name === name && !f.isBase) {
+          if (f.metadata?.kind === 'top_level_variable') {
+            return this.callFunction(mod.name, f, null, scope);
+          }
+        }
+      }
+    }
+
     return scope.lookup(name);
   }
 
@@ -428,16 +494,48 @@ export class BallEngine {
     const obj = this.evalExpr(fa.object, scope);
     // Handle string properties
     if (typeof obj === 'string') {
-      if (fa.field === 'length') return obj.length;
+      switch (fa.field) {
+        case 'length': return obj.length;
+        case 'isEmpty': return obj.length === 0;
+        case 'isNotEmpty': return obj.length > 0;
+      }
+      return null;
+    }
+    // Handle number properties
+    if (typeof obj === 'number' || obj instanceof BallDouble) {
+      const n = typeof obj === 'number' ? obj : obj.value;
+      switch (fa.field) {
+        case 'isNaN': return isNaN(n);
+        case 'isFinite': return isFinite(n);
+        case 'isNegative': return n < 0;
+        case 'isInfinite': return !isFinite(n) && !isNaN(n);
+        case 'sign': return n > 0 ? 1 : n < 0 ? -1 : 0;
+      }
       return null;
     }
     // Handle array properties
     if (Array.isArray(obj)) {
-      if (fa.field === 'length') return obj.length;
+      switch (fa.field) {
+        case 'length': return obj.length;
+        case 'isEmpty': return obj.length === 0;
+        case 'isNotEmpty': return obj.length > 0;
+        case 'first': return obj[0];
+        case 'last': return obj[obj.length - 1];
+        case 'reversed': return [...obj].reverse();
+      }
       return null;
     }
     if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
       if (fa.field in obj) return obj[fa.field];
+      // Map-level property access.
+      switch (fa.field) {
+        case 'length': return Object.keys(obj).length;
+        case 'isEmpty': return Object.keys(obj).length === 0;
+        case 'isNotEmpty': return Object.keys(obj).length > 0;
+        case 'keys': return Object.keys(obj);
+        case 'values': return Object.values(obj);
+        case 'entries': return Object.entries(obj).map(([k, v]) => ({ key: k, value: v }));
+      }
       // Walk __super__ chain for inherited fields.
       let superObj = obj.__super__;
       while (superObj && typeof superObj === 'object' && !Array.isArray(superObj)) {
@@ -580,7 +678,7 @@ export class BallEngine {
         if (match) {
           const varName = match[1];
           const rawVal = match[2].trim();
-          const parsed = rawVal === 'true' ? true : rawVal === 'false' ? false : (isNaN(Number(rawVal)) ? rawVal : Number(rawVal));
+          const parsed = this.parseInitValue(rawVal, forScope);
           forScope.bind(varName, parsed);
         }
       } else if (fields.init.block) {
@@ -713,6 +811,26 @@ export class BallEngine {
     const target = fields.target ?? fields.name ?? fields.variable;
     if (!target) return null;
 
+    // Handle index-based assignment: target is std.index(target, index) => arr[i] = val
+    if (target.call && target.call.function === 'index' && (target.call.module === 'std' || !target.call.module)) {
+      const indexInput = target.call.input ? this.evalExpr(target.call.input, scope) : null;
+      if (indexInput) {
+        const container = indexInput.target ?? indexInput.list ?? indexInput.map;
+        const idx = indexInput.index ?? indexInput.key;
+        const op = fields.op?.literal?.stringValue;
+        if (container != null && idx != null) {
+          if (op && op !== '=') {
+            const current = Array.isArray(container) ? container[idx] : container[idx];
+            const computed = this.applyCompoundOp(op, current, val);
+            container[idx] = computed;
+            return computed;
+          }
+          container[idx] = val;
+          return val;
+        }
+      }
+    }
+
     let name: string | undefined;
     if (target.reference) {
       name = target.reference.name;
@@ -733,6 +851,10 @@ export class BallEngine {
   }
 
   private applyCompoundOp(op: string, current: BallValue, val: BallValue): BallValue {
+    // String concatenation for +=
+    if (op === '+=' && (typeof current === 'string' || typeof val === 'string')) {
+      return String(current ?? '') + String(val ?? '');
+    }
     const a = this.toNum(current);
     const b = this.toNum(val);
     switch (op) {
@@ -783,6 +905,257 @@ export class BallEngine {
     return result;
   }
 
+  /**
+   * Parse a string-literal init value (from for-loop init like "int j = i * i").
+   * Handles: numeric literals, booleans, variable references, and simple
+   * binary expressions (a * b, a + b, etc.) involving variables/numbers.
+   */
+  private parseInitValue(rawVal: string, scope: Scope): BallValue {
+    if (rawVal === 'true') return true;
+    if (rawVal === 'false') return false;
+    if (!isNaN(Number(rawVal))) return Number(rawVal);
+
+    // Try binary expression: "expr op expr" where expr can be "var.prop" or number or var
+    const binMatch = rawVal.match(/^(.+?)\s*([+\-*/%])\s*(.+)$/);
+    if (binMatch) {
+      const lhs = this.resolveTokenValue(binMatch[1].trim(), scope);
+      const rhs = this.resolveTokenValue(binMatch[3].trim(), scope);
+      switch (binMatch[2]) {
+        case '+': return this.toNum(lhs) + this.toNum(rhs);
+        case '-': return this.toNum(lhs) - this.toNum(rhs);
+        case '*': return this.toNum(lhs) * this.toNum(rhs);
+        case '/': return Math.trunc(this.toNum(lhs) / this.toNum(rhs));
+        case '%': return this.toNum(lhs) % this.toNum(rhs);
+      }
+    }
+
+    // Try dotted property access (e.g. "s.length")
+    return this.resolveTokenValue(rawVal, scope);
+  }
+
+  private resolveTokenValue(token: string, scope: Scope): BallValue {
+    if (!isNaN(Number(token))) return Number(token);
+    if (token === 'true') return true;
+    if (token === 'false') return false;
+
+    // Handle dotted property access: "obj.prop"
+    const dotIdx = token.indexOf('.');
+    if (dotIdx >= 0) {
+      const objName = token.substring(0, dotIdx);
+      const propName = token.substring(dotIdx + 1);
+      try {
+        const obj = scope.lookup(objName);
+        if (typeof obj === 'string' && propName === 'length') return obj.length;
+        if (Array.isArray(obj) && propName === 'length') return obj.length;
+        if (obj && typeof obj === 'object' && propName in obj) return obj[propName];
+      } catch { /* fall through */ }
+    }
+
+    try { return scope.lookup(token); } catch { return 0; }
+  }
+
+  private evalMapCreate(call: FunctionCall, scope: Scope): BallValue {
+    const result: Record<string, BallValue> = {};
+    if (call.input?.messageCreation) {
+      for (const f of call.input.messageCreation.fields ?? []) {
+        if (f.name === 'entry' || f.name.startsWith('entry')) {
+          const entryVal = this.evalExpr(f.value, scope);
+          if (entryVal && typeof entryVal === 'object' && 'key' in entryVal && 'value' in entryVal) {
+            result[String(entryVal.key)] = entryVal.value;
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  // ── Built-in method dispatch ──────────────────────────────────────────
+
+  /**
+   * Dispatches method-style calls (with `self` in input) on built-in types.
+   * Returns `undefined` (not `null`) when the method is not recognized, so
+   * callers can fall through to user-defined method resolution.
+   */
+  private dispatchBuiltinMethod(method: string, self: BallValue, input: BallValue): BallValue | undefined {
+    const arg0 = input?.arg0;
+
+    // Static methods on built-in type references (e.g., List.filled, List.generate).
+    if (self && typeof self === 'object' && '__builtin_type__' in self) {
+      const typeName = self.__builtin_type__;
+      if (typeName === 'List') {
+        switch (method) {
+          case 'filled': {
+            const n = this.toNum(arg0);
+            const val = input?.arg1 ?? null;
+            return new Array(n).fill(val);
+          }
+          case 'generate': {
+            const n = this.toNum(arg0);
+            const fn = input?.arg1;
+            if (typeof fn === 'function') return Array.from({ length: n }, (_, i) => fn(i));
+            return new Array(n).fill(null);
+          }
+          case 'empty': return [];
+          case 'from': return Array.isArray(arg0) ? [...arg0] : [];
+          case 'of': return Array.isArray(arg0) ? [...arg0] : [arg0];
+        }
+      }
+      return undefined;
+    }
+
+    // ── Array methods ──
+    if (Array.isArray(self)) {
+      switch (method) {
+        case 'add': self.push(arg0); return null;
+        case 'removeLast': return self.pop();
+        case 'removeAt': { const idx = this.toNum(arg0); return self.splice(idx, 1)[0]; }
+        case 'insert': { const idx = this.toNum(arg0); self.splice(idx, 0, input?.arg1); return null; }
+        case 'clear': { self.length = 0; return null; }
+        case 'length': return self.length;
+        case 'isEmpty': return self.length === 0;
+        case 'isNotEmpty': return self.length > 0;
+        case 'last': return self[self.length - 1];
+        case 'first': return self[0];
+        case 'contains': return self.includes(arg0);
+        case 'indexOf': return self.indexOf(arg0);
+        case 'join': return self.map(x => this.ballToString(x)).join(arg0 != null ? String(arg0) : ', ');
+        case 'sublist': {
+          const start = this.toNum(arg0);
+          const end = input?.arg1 != null ? this.toNum(input.arg1) : undefined;
+          return self.slice(start, end);
+        }
+        case 'reversed': return [...self].reverse();
+        case 'sort': {
+          const compareFn = arg0;
+          if (typeof compareFn === 'function') {
+            self.sort((a: any, b: any) => compareFn({ left: a, right: b, arg0: a, arg1: b }));
+          } else {
+            self.sort((a: any, b: any) => (a < b ? -1 : a > b ? 1 : 0));
+          }
+          return null;
+        }
+        case 'map': {
+          const fn = arg0;
+          if (typeof fn === 'function') return self.map((item: any) => fn(item));
+          return self;
+        }
+        case 'where':
+        case 'filter': {
+          const fn = arg0;
+          if (typeof fn === 'function') return self.filter((item: any) => fn(item));
+          return self;
+        }
+        case 'forEach': {
+          const fn = arg0;
+          if (typeof fn === 'function') self.forEach((item: any) => fn(item));
+          return null;
+        }
+        case 'any': {
+          const fn = arg0;
+          if (typeof fn === 'function') return self.some((item: any) => fn(item));
+          return false;
+        }
+        case 'every': {
+          const fn = arg0;
+          if (typeof fn === 'function') return self.every((item: any) => fn(item));
+          return true;
+        }
+        case 'reduce': {
+          const fn = arg0;
+          const init = input?.arg1;
+          if (typeof fn === 'function') return self.reduce((acc: any, item: any) => fn({ arg0: acc, arg1: item }), init);
+          return init;
+        }
+        case 'toList': return [...self];
+        case 'toString': return `[${self.map((x: any) => this.ballToString(x)).join(', ')}]`;
+        case 'filled': {
+          // List.filled(n, value) — sometimes encoded as self=[], arg0=n, arg1=value
+          const n = this.toNum(arg0);
+          const val = input?.arg1 ?? null;
+          return new Array(n).fill(val);
+        }
+      }
+      return undefined;
+    }
+
+    // ── String methods ──
+    if (typeof self === 'string') {
+      switch (method) {
+        case 'length': return self.length;
+        case 'isEmpty': return self.length === 0;
+        case 'isNotEmpty': return self.length > 0;
+        case 'contains': return self.includes(String(arg0 ?? ''));
+        case 'substring': {
+          const start = this.toNum(arg0);
+          const end = input?.arg1 != null ? this.toNum(input.arg1) : undefined;
+          return self.substring(start, end);
+        }
+        case 'indexOf': return self.indexOf(String(arg0 ?? ''));
+        case 'split': return self.split(String(arg0 ?? ''));
+        case 'trim': return self.trim();
+        case 'toUpperCase': return self.toUpperCase();
+        case 'toLowerCase': return self.toLowerCase();
+        case 'replaceAll': return self.replaceAll(String(arg0 ?? ''), String(input?.arg1 ?? ''));
+        case 'startsWith': return self.startsWith(String(arg0 ?? ''));
+        case 'endsWith': return self.endsWith(String(arg0 ?? ''));
+        case 'padLeft': return self.padStart(this.toNum(arg0), input?.arg1 != null ? String(input.arg1) : ' ');
+        case 'padRight': return self.padEnd(this.toNum(arg0), input?.arg1 != null ? String(input.arg1) : ' ');
+        case 'toString': return self;
+        case 'codeUnitAt': return self.charCodeAt(this.toNum(arg0));
+      }
+      return undefined;
+    }
+
+    // ── Number methods ──
+    if (typeof self === 'number' || self instanceof BallDouble) {
+      const numVal = typeof self === 'number' ? self : self.value;
+      switch (method) {
+        case 'toDouble': return new BallDouble(numVal);
+        case 'toInt': return Math.trunc(numVal);
+        case 'toString': return this.ballToString(self);
+        case 'toStringAsFixed': return numVal.toFixed(this.toNum(arg0));
+        case 'abs': return Math.abs(numVal);
+        case 'round': return Math.round(numVal);
+        case 'floor': return Math.floor(numVal);
+        case 'ceil': return Math.ceil(numVal);
+        case 'compareTo': return numVal < this.toNum(arg0) ? -1 : numVal > this.toNum(arg0) ? 1 : 0;
+        case 'clamp': return Math.min(Math.max(numVal, this.toNum(arg0)), this.toNum(input?.arg1 ?? numVal));
+        case 'isNaN': return isNaN(numVal);
+        case 'isFinite': return isFinite(numVal);
+        case 'isNegative': return numVal < 0;
+        case 'truncate': return Math.trunc(numVal);
+        case 'remainder': return numVal % this.toNum(arg0);
+      }
+      return undefined;
+    }
+
+    // ── Map/Object methods (non-array objects without __type__) ──
+    if (self && typeof self === 'object' && !Array.isArray(self)) {
+      switch (method) {
+        case 'containsKey': return arg0 in self;
+        case 'containsValue': return Object.values(self).includes(arg0);
+        case 'remove': { const v = self[arg0]; delete self[arg0]; return v; }
+        case 'keys': return Object.keys(self);
+        case 'values': return Object.values(self);
+        case 'entries': return Object.entries(self).map(([k, v]) => ({ key: k, value: v }));
+        case 'length': return Object.keys(self).length;
+        case 'isEmpty': return Object.keys(self).length === 0;
+        case 'isNotEmpty': return Object.keys(self).length > 0;
+        case 'putIfAbsent': {
+          if (!(arg0 in self)) {
+            const valueFn = input?.arg1;
+            self[arg0] = typeof valueFn === 'function' ? valueFn(null) : valueFn;
+          }
+          return self[arg0];
+        }
+        case 'toString': return JSON.stringify(self);
+      }
+      // Don't return undefined here — fall through so typed objects get class-method lookup.
+    }
+
+    return undefined;
+  }
+
   // ── Base function dispatch ────────────────────────────────────────────
 
   private callBaseFunction(module: string, fn: string, input: BallValue): BallValue {
@@ -807,8 +1180,16 @@ export class BallEngine {
       case 'negate': return -this.toNum(value ?? input);
 
       // Comparison
-      case 'equals': return left === right;
-      case 'not_equals': return left !== right;
+      case 'equals': {
+        const l = left instanceof BallDouble ? left.value : left;
+        const r = right instanceof BallDouble ? right.value : right;
+        return l === r;
+      }
+      case 'not_equals': {
+        const l = left instanceof BallDouble ? left.value : left;
+        const r = right instanceof BallDouble ? right.value : right;
+        return l !== r;
+      }
       case 'less_than': return this.toNum(left) < this.toNum(right);
       case 'greater_than': return this.toNum(left) > this.toNum(right);
       case 'lte': return this.toNum(left) <= this.toNum(right);
@@ -882,9 +1263,117 @@ export class BallEngine {
         if (typeof fn === 'function') return list.filter((item: any) => fn(item));
         return list;
       }
+      case 'list_add': {
+        const list = input?.list ?? [];
+        if (Array.isArray(list)) { list.push(input?.value); return list; }
+        return [...list, input?.value];
+      }
+      case 'list_remove_last': {
+        const list = input?.list ?? [];
+        if (Array.isArray(list)) return list.pop();
+        return null;
+      }
+      case 'list_contains': return (input?.list ?? []).includes(input?.value);
+      case 'list_index_of': return (input?.list ?? []).indexOf(input?.value);
+      case 'list_set': {
+        const list = input?.list ?? [];
+        if (Array.isArray(list)) { list[input?.index ?? 0] = input?.value; return list; }
+        return list;
+      }
+      case 'list_sublist': {
+        const list = input?.list ?? [];
+        const start = this.toNum(input?.start ?? 0);
+        const end = input?.end != null ? this.toNum(input.end) : undefined;
+        return list.slice(start, end);
+      }
+      case 'list_join': {
+        const list = input?.list ?? [];
+        const sep = input?.separator ?? input?.delimiter ?? ', ';
+        return list.map((x: any) => this.ballToString(x)).join(String(sep));
+      }
+      case 'list_reversed': return [...(input?.list ?? [])].reverse();
+      case 'list_sort': {
+        const list = input?.list ?? [];
+        const cmp = input?.compare ?? input?.comparator;
+        if (typeof cmp === 'function') {
+          list.sort((a: any, b: any) => cmp({ arg0: a, arg1: b }));
+        } else {
+          list.sort((a: any, b: any) => (a < b ? -1 : a > b ? 1 : 0));
+        }
+        return list;
+      }
+      case 'list_filled': {
+        const n = this.toNum(input?.length ?? input?.count ?? input?.size ?? 0);
+        return new Array(n).fill(input?.value ?? input?.fill ?? null);
+      }
+      case 'list_foreach': {
+        const list = input?.list ?? [];
+        const fn = input?.function;
+        if (typeof fn === 'function') list.forEach((item: any) => fn(item));
+        return null;
+      }
+      case 'list_any': {
+        const list = input?.list ?? [];
+        const fn = input?.function;
+        if (typeof fn === 'function') return list.some((item: any) => fn(item));
+        return false;
+      }
+      case 'list_every': {
+        const list = input?.list ?? [];
+        const fn = input?.function;
+        if (typeof fn === 'function') return list.every((item: any) => fn(item));
+        return true;
+      }
+      case 'list_reduce': {
+        const list = input?.list ?? [];
+        const fn = input?.function;
+        const init = input?.initial ?? input?.initialValue;
+        if (typeof fn === 'function') return list.reduce((acc: any, item: any) => fn({ arg0: acc, arg1: item }), init);
+        return init;
+      }
       case 'map_get': return (input?.map ?? {})[input?.key];
       case 'map_set': { const m = { ...(input?.map ?? {}) }; m[input?.key] = input?.value; return m; }
       case 'map_keys': return Object.keys(input?.map ?? input ?? {});
+      case 'map_values': return Object.values(input?.map ?? input ?? {});
+      case 'map_contains_key': return (input?.key) in (input?.map ?? {});
+      case 'map_contains_value': return Object.values(input?.map ?? {}).includes(input?.value);
+      case 'map_remove': { const m = input?.map ?? {}; const v = m[input?.key]; delete m[input?.key]; return v; }
+      case 'map_create': {
+        // map_create({entry: {key:..., value:...}, entry: {key:..., value:...}})
+        // Since multiple 'entry' fields collapse, we need to look at the raw input.
+        // The input object may have a single 'entry' or we parse from messageCreation.
+        const result: Record<string, BallValue> = {};
+        if (input && typeof input === 'object') {
+          // When input has named key-value pairs directly
+          for (const [k, v] of Object.entries(input)) {
+            if (k === 'entry') {
+              // Single entry
+              if (v && typeof v === 'object' && 'key' in v && 'value' in v) {
+                result[String(v.key)] = v.value;
+              }
+            } else if (k.startsWith('entry')) {
+              if (v && typeof v === 'object' && 'key' in v && 'value' in v) {
+                result[String(v.key)] = v.value;
+              }
+            }
+          }
+        }
+        return result;
+      }
+      case 'set_create': {
+        const elems = input?.elements;
+        if (!elems || (Array.isArray(elems) && elems.length === 0)) return {};
+        return elems;
+      }
+      case 'range': {
+        const start = this.toNum(input?.start ?? input?.arg0 ?? 0);
+        const end = this.toNum(input?.end ?? input?.arg1 ?? 0);
+        const step = this.toNum(input?.step ?? 1);
+        const result: number[] = [];
+        if (step > 0) { for (let i = start; i < end; i += step) result.push(i); }
+        else if (step < 0) { for (let i = start; i > end; i += step) result.push(i); }
+        return result;
+      }
 
       // Increment/decrement (pure value ops)
       case 'pre_increment': case 'post_increment': return this.toNum(value ?? input) + 1;
@@ -914,11 +1403,53 @@ export class BallEngine {
       // Misc
       case 'paren': return value ?? input;
       case 'string_interpolation': return String(value ?? input);
+      case 'null_check': return value ?? input;
+      case 'invoke': {
+        // dart_std.invoke: call a function reference with args
+        const target = input?.callee ?? input?.target ?? input?.function ?? input?.self;
+        const args = input?.args ?? input?.arguments;
+        if (typeof target === 'function') {
+          if (args !== undefined && args !== null) return target(args);
+          // No explicit args: pass remaining input fields (excluding callee/target) as the argument
+          return target(null);
+        }
+        return null;
+      }
+      case 'cascade': return input?.target ?? input?.self ?? input;
+      case 'null_aware_access': {
+        const target = input?.target ?? input?.self;
+        if (target === null || target === undefined) return null;
+        const field = input?.field ?? input?.name;
+        if (field && typeof target === 'object') return target[field];
+        return target;
+      }
       case 'int_to_string': return String(Math.trunc(this.toNum(value ?? input)));
       case 'double_to_string': return String(this.toNum(value ?? input));
       case 'string_to_int': return parseInt(String(value ?? input));
       case 'string_to_double': return parseFloat(String(value ?? input));
       case 'length': return (value ?? input)?.length ?? 0;
+      case 'to_double': return new BallDouble(this.toNum(value ?? input));
+      case 'to_int': return Math.trunc(this.toNum(value ?? input));
+      case 'int_to_double': return new BallDouble(this.toNum(value ?? input));
+      case 'double_to_int': return Math.trunc(this.toNum(value ?? input));
+      case 'is_empty': {
+        const v = value ?? input;
+        if (typeof v === 'string') return v.length === 0;
+        if (Array.isArray(v)) return v.length === 0;
+        if (v && typeof v === 'object') return Object.keys(v).length === 0;
+        return true;
+      }
+      case 'is_not_empty': {
+        const v = value ?? input;
+        if (typeof v === 'string') return v.length > 0;
+        if (Array.isArray(v)) return v.length > 0;
+        if (v && typeof v === 'object') return Object.keys(v).length > 0;
+        return false;
+      }
+      case 'string_pad_left': return String(input?.string ?? '').padStart(this.toNum(input?.width ?? 0), String(input?.padding ?? ' '));
+      case 'string_pad_right': return String(input?.string ?? '').padEnd(this.toNum(input?.width ?? 0), String(input?.padding ?? ' '));
+      case 'string_code_unit_at': return String(input?.string ?? '').charCodeAt(this.toNum(input?.index ?? 0));
+      case 'string_from_char_code': return String.fromCharCode(this.toNum(value ?? input));
 
       default:
         throw new BallRuntimeError(`Unknown base function: ${module}.${fn}`);
@@ -972,6 +1503,7 @@ export class BallEngine {
 
   private toNum(v: BallValue): number {
     if (typeof v === 'number') return v;
+    if (v instanceof BallDouble) return v.value;
     if (typeof v === 'string') return Number(v) || 0;
     if (typeof v === 'boolean') return v ? 1 : 0;
     return 0;
@@ -983,6 +1515,7 @@ export class BallEngine {
 
   private ballToString(v: BallValue): string {
     if (v === null || v === undefined) return 'null';
+    if (v instanceof BallDouble) return v.toString();
     if (typeof v === 'number') {
       return Number.isInteger(v) ? v.toString() : v.toString();
     }

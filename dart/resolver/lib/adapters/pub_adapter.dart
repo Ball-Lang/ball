@@ -72,11 +72,13 @@ class PubAdapter extends RegistryAdapter {
     Map<String, String>? headers,
   }) async {
     final base = registryUrl ?? defaultUrl;
-    final archiveUrl = '$base/api/packages/$package/versions/$version/archive';
+    // pub.dev archive URL: /api/archives/<package>-<version>.tar.gz
+    // NOT /api/packages/<package>/versions/<version>/archive (returns 404).
+    final archiveUrl = '$base/api/archives/$package-$version.tar.gz';
     final response = await _http.get(Uri.parse(archiveUrl), headers: headers);
     if (response.statusCode != 200) {
       throw StateError(
-        'pub: failed to download $package@$version: ${response.statusCode}',
+        'pub: Ball module not found in $package@$version (archive: ${response.statusCode})',
       );
     }
 

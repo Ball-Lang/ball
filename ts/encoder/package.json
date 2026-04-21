@@ -1,0 +1,57 @@
+{
+  "name": "@ball-lang/encoder",
+  "version": "0.1.0",
+  "description": "TypeScript → Ball encoder. Parses TypeScript source and produces Ball IR (protobuf Program).",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "prepublishOnly": "npm run build",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "ball",
+    "encoder",
+    "typescript",
+    "programming-language",
+    "polyglot",
+    "protobuf"
+  ],
+  "license": "MIT",
+  "author": "Ball-Lang <ahmednfwela@bdaya-dev.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ball-Lang/ball.git",
+    "directory": "ts/encoder"
+  },
+  "homepage": "https://github.com/ball-lang/ball/tree/main/ts/encoder#readme",
+  "bugs": {
+    "url": "https://github.com/ball-lang/ball/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/",
+    "src/",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "typescript": "^6.0.2"
+  },
+  "devDependencies": {}
+}

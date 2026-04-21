@@ -50,6 +50,19 @@ jobs:
         working-directory: ts/cli
         run: npm test
 
+      # ── @ball-lang/encoder ─────────────────────────────────────────
+      - name: Install encoder dependencies
+        working-directory: ts/encoder
+        run: npm ci
+
+      - name: Build encoder
+        working-directory: ts/encoder
+        run: npm run build
+
+      - name: Test encoder
+        working-directory: ts/encoder
+        run: npm test
+
       # ── @ball-lang/compiler ────────────────────────────────────────
       - name: Install compiler dependencies
         working-directory: ts/compiler
@@ -92,4 +105,8 @@ jobs:
 
       - name: Publish compiler with provenance (OIDC trusted publishing)
         working-directory: ts/compiler
+        run: npm publish --provenance --access public
+
+      - name: Publish encoder with provenance (OIDC trusted publishing)
+        working-directory: ts/encoder
         run: npm publish --provenance --access public

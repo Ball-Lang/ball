@@ -1525,7 +1525,14 @@ export class BallEngine {
           forScope.bind(varName, parsed);
         }
       } else if (fields.init.block) {
-        this.evalBlock(fields.init.block, forScope);
+        for (const stmt of fields.init.block.statements ?? []) {
+          if (stmt.let) {
+            const val = stmt.let.value ? this.evalExpr(stmt.let.value, forScope) : null;
+            forScope.bind(stmt.let.name, val);
+          } else if (stmt.expression) {
+            this.evalExpr(stmt.expression, forScope);
+          }
+        }
       } else {
         this.evalExpr(fields.init, forScope);
       }
@@ -2015,7 +2022,14 @@ export class BallEngine {
           forScope.bind(varName, parsed);
         }
       } else if (fields.init.block) {
-        this.evalBlock(fields.init.block, forScope);
+        for (const stmt of fields.init.block.statements ?? []) {
+          if (stmt.let) {
+            const val = stmt.let.value ? this.evalExpr(stmt.let.value, forScope) : null;
+            forScope.bind(stmt.let.name, val);
+          } else if (stmt.expression) {
+            this.evalExpr(stmt.expression, forScope);
+          }
+        }
       } else {
         this.evalExpr(fields.init, forScope);
       }

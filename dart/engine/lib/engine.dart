@@ -397,6 +397,13 @@ class BallEngine {
   /// Resolved functions by "module.function" key.
   final Map<String, FunctionDefinition> _functions = {};
 
+  /// Separate getter function map to avoid setter overwriting getter when they
+  /// share the same key.
+  final Map<String, FunctionDefinition> _getters = {};
+
+  /// Separate setter function map.
+  final Map<String, FunctionDefinition> _setters = {};
+
   /// Global scope with top-level variable bindings.
   final _Scope _globalScope = _Scope();
 
@@ -565,7 +572,26 @@ class BallEngine {
 
       for (final func in module.functions) {
         final key = '${module.name}.${func.name}';
-        _functions[key] = func;
+        // Store getters and setters in separate maps to avoid collisions
+        // when they share the same function name.
+        if (func.hasMetadata()) {
+          final isGetterField = func.metadata.fields['is_getter'];
+          final isSetterField = func.metadata.fields['is_setter'];
+          if (isGetterField != null && isGetterField.boolValue) {
+            _getters[key] = func;
+          } else if (isSetterField != null && isSetterField.boolValue) {
+            _setters[key] = func;
+            _setters['$key='] = func;
+          }
+          // Only store in main functions map if not a setter overwriting a getter.
+          if (isSetterField != null && isSetterField.boolValue) {
+            _functions.putIfAbsent(key, () => func);
+          } else {
+            _functions[key] = func;
+          }
+        } else {
+          _functions[key] = func;
+        }
         // Pre-cache parameter lists from metadata so _callFunction is
         // allocation-free on repeated calls (mirrors V8's constant pool).
         if (func.hasMetadata()) {
@@ -1206,36 +1232,68 @@ class BallEngine {
         }
 
         final typeName = self['__type__'] as String?;
-        if (typeName != null) {
-          // typeName is e.g. "main:Foo". Module part = text before ':'.
-          final colonIdx = typeName.indexOf(':');
-          final modPart = colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
-          // Try ClassName.methodName in _functions (key: "module.typeName.method")
-          final methodKey = '$modPart.$typeName.${call.function}';
-          final method = _functions[methodKey];
-          if (method != null) {
-            return _callFunction(modPart, method, input);
-          }
-          // Walk superclass chain.
-          var super_ = self['__super__'];
-          while (super_ is Map<String, Object?>) {
-            final superType = super_['__type__'] as String?;
-            if (superType != null) {
-              // superType may be bare ("Animal") or qualified ("main:Animal").
-              final sColonIdx = superType.indexOf(':');
-              final sModPart = sColonIdx >= 0 ? superType.substring(0, sColonIdx) : modPart;
-              final sTypeName = sColonIdx >= 0 ? superType : '$sModPart:$superType';
-              final superMethodKey = '$sModPart.$sTypeName.${call.function}';
-              final superMethod = _functions[superMethodKey];
-              if (superMethod != null) {
-                return _callFunction(sModPart, superMethod, input);
-              }
-            }
-            super_ = super_['__super__'];
+        if (typeName != null &&
+            typeName != '__builtin_class__' &&
+            typeName != '__class__') {
+          // Use _resolveMethod which walks superclass chain and mixins.
+          final resolved = _resolveMethod(typeName, call.function);
+          if (resolved != null) {
+            return _callFunction(resolved.module, resolved.func, input);
           }
         }
       }
+
+      // Built-in method dispatch for List, String, and other built-in types.
+      final builtinResult = await _dispatchBuiltinInstanceMethod(
+        self, call.function, input);
+      if (builtinResult != _sentinel) return builtinResult;
+
       // Fall through to normal resolution if no method found on the type.
+    }
+
+    // Fallback method resolution: scan all module functions for a matching
+    // "TypeName.methodName" pattern when self is a typed object.
+    if (input is Map<String, Object?> && input.containsKey('self')) {
+      final self = input['self'];
+      if (self is Map<String, Object?>) {
+        final typeName = self['__type__'] as String?;
+        if (typeName != null) {
+          for (final m in program.modules) {
+            for (final f in m.functions) {
+              if (!f.isBase && f.hasBody()) {
+                final dotIdx = f.name.lastIndexOf('.');
+                if (dotIdx >= 0 && f.name.substring(dotIdx + 1) == call.function) {
+                  final prefix = f.name.substring(0, dotIdx);
+                  if (prefix == typeName) {
+                    return _callFunction(m.name, f, input);
+                  }
+                }
+              }
+            }
+          }
+          // Walk the superclass chain for inherited methods too.
+          var superType = _findTypeDef(typeName)?.superclass;
+          while (superType != null && superType.isNotEmpty) {
+            final colonIdx = typeName.indexOf(':');
+            final modPart = colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
+            final qualSuper = superType.contains(':') ? superType : '$modPart:$superType';
+            for (final m in program.modules) {
+              for (final f in m.functions) {
+                if (!f.isBase && f.hasBody()) {
+                  final dotIdx = f.name.lastIndexOf('.');
+                  if (dotIdx >= 0 && f.name.substring(dotIdx + 1) == call.function) {
+                    final prefix = f.name.substring(0, dotIdx);
+                    if (prefix == qualSuper || prefix == superType) {
+                      return _callFunction(m.name, f, input);
+                    }
+                  }
+                }
+              }
+            }
+            superType = _findTypeDef(qualSuper)?.superclass;
+          }
+        }
+      }
     }
 
     return _resolveAndCallFunction(call.module, call.function, input);
@@ -1428,6 +1486,33 @@ class BallEngine {
           if (superObj.containsKey(name)) return superObj[name];
           superObj = superObj['__super__'];
         }
+        // Try getter dispatch on self.
+        final typeName = self['__type__'] as String?;
+        if (typeName != null) {
+          final getterResult = await _tryGetterDispatch(self, name);
+          if (getterResult != _sentinel) return getterResult;
+        }
+      }
+    }
+
+    // Top-level function tear-off: resolve function names to callable closures.
+    for (final m in program.modules) {
+      for (final f in m.functions) {
+        if (f.name == name && !f.isBase && f.hasBody()) {
+          if (f.hasMetadata()) {
+            final kindField = f.metadata.fields['kind'];
+            final kind = kindField?.stringValue;
+            if (kind == 'top_level_variable') {
+              return _callFunction(m.name, f, null);
+            }
+            if (kind == 'function') {
+              final modName = m.name;
+              return (BallValue input) async {
+                return _callFunction(modName, f, input);
+              };
+            }
+          }
+        }
       }
     }
 
@@ -1611,7 +1696,7 @@ class BallEngine {
 
     // Check "module.typeName.fieldName" as a getter.
     final getterKey = '$modPart.$typeName.$fieldName';
-    final getterFunc = _functions[getterKey];
+    final getterFunc = _getters[getterKey] ?? _functions[getterKey];
     if (getterFunc != null && _isGetter(getterFunc)) {
       return _callFunction(
         modPart,
@@ -1631,7 +1716,7 @@ class BallEngine {
         final sTypeName =
             sColonIdx >= 0 ? superType : '$sModPart:$superType';
         final superGetterKey = '$sModPart.$sTypeName.$fieldName';
-        final superGetterFunc = _functions[superGetterKey];
+        final superGetterFunc = _getters[superGetterKey] ?? _functions[superGetterKey];
         if (superGetterFunc != null && _isGetter(superGetterFunc)) {
           return _callFunction(
             sModPart,
@@ -1646,18 +1731,23 @@ class BallEngine {
     return _sentinel;
   }
 
-  /// Returns true if the function has `is_getter: true` in its metadata.
+  /// Returns true if the function has `is_getter: true` or `kind: "getter"` in its metadata.
   bool _isGetter(FunctionDefinition func) {
     if (!func.hasMetadata()) return false;
     final field = func.metadata.fields['is_getter'];
-    return field != null && field.boolValue;
+    if (field != null && field.boolValue) return true;
+    final kind = func.metadata.fields['kind'];
+    if (kind != null && kind.stringValue == 'getter') return true;
+    return false;
   }
 
-  /// Returns true if the function has `is_setter: true` in its metadata.
+  /// Returns true if the function has `is_setter: true` or `kind: "setter"` in its metadata.
   bool _isSetter(FunctionDefinition func) {
     if (!func.hasMetadata()) return false;
     final field = func.metadata.fields['is_setter'];
-    return field != null && field.boolValue;
+    if (field != null && field.boolValue) return true;
+    final kind = func.metadata.fields['kind'];
+    return kind != null && kind.stringValue == 'setter';
   }
 
   /// Try to dispatch a setter function for [fieldName] on [object].
@@ -1675,8 +1765,11 @@ class BallEngine {
         colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
 
     // Setter functions are named "TypeName.fieldName=" by convention.
+    // Also check without the "=" suffix since some setters share the exact
+    // name with their getter (distinguished only by metadata).
     final setterKey = '$modPart.$typeName.$fieldName=';
-    final setterFunc = _functions[setterKey];
+    final setterKeyNoEq = '$modPart.$typeName.$fieldName';
+    final setterFunc = _setters[setterKey] ?? _setters[setterKeyNoEq] ?? _functions[setterKey];
     if (setterFunc != null && _isSetter(setterFunc)) {
       return _callFunction(
         modPart,
@@ -1696,7 +1789,8 @@ class BallEngine {
         final sTypeName =
             sColonIdx >= 0 ? superType : '$sModPart:$superType';
         final superSetterKey = '$sModPart.$sTypeName.$fieldName=';
-        final superSetterFunc = _functions[superSetterKey];
+        final superSetterKeyNoEq = '$sModPart.$sTypeName.$fieldName';
+        final superSetterFunc = _setters[superSetterKey] ?? _setters[superSetterKeyNoEq] ?? _functions[superSetterKey];
         if (superSetterFunc != null && _isSetter(superSetterFunc)) {
           return _callFunction(
             sModPart,
@@ -1766,6 +1860,56 @@ class BallEngine {
         if (methods.isNotEmpty) {
           fields['__methods__'] = methods;
         }
+      } else {
+        // No typeDef found: the typeName might be a function/method call
+        // encoded as messageCreation (common in encoder-generated IR).
+        // Try resolving it as a function.
+        final fnKey = '$_currentModule.${msg.typeName}';
+        final fnMatch = _functions[fnKey];
+        if (fnMatch != null && !fnMatch.isBase && fnMatch.hasBody()) {
+          // If self is in scope and the function is a method, call with self.
+          if (scope.has('self')) {
+            final kindField = fnMatch.hasMetadata() ? fnMatch.metadata.fields['kind'] : null;
+            if (kindField?.stringValue == 'method') {
+              final selfObj = scope.lookup('self');
+              fields['self'] = selfObj;
+            }
+          }
+          return _callFunction(_currentModule, fnMatch, fields);
+        }
+
+        // Try resolving via self's type: typeName "main:_gcd" -> method on self's type.
+        if (scope.has('self')) {
+          final selfObj = scope.lookup('self');
+          if (selfObj is Map<String, Object?>) {
+            final selfType = selfObj['__type__'] as String?;
+            if (selfType != null) {
+              // Extract method name from typeName (e.g., "main:_gcd" -> "_gcd").
+              final colonIdx = msg.typeName.indexOf(':');
+              final methodName = colonIdx >= 0 ? msg.typeName.substring(colonIdx + 1) : msg.typeName;
+              final resolved = _resolveMethod(selfType, methodName);
+              if (resolved != null) {
+                fields['self'] = selfObj;
+                return _callFunction(resolved.module, resolved.func, fields);
+              }
+            }
+          }
+        }
+
+        // Scan all modules for matching function name.
+        // Only match explicit functions/methods, not constructors or top-level
+        // variables which would cause infinite recursion.
+        for (final m in program.modules) {
+          for (final f in m.functions) {
+            if (f.name == msg.typeName && !f.isBase && f.hasBody()) {
+              if (f.hasMetadata()) {
+                final k = f.metadata.fields['kind']?.stringValue;
+                if (k == 'constructor' || k == 'top_level_variable' || k == 'static_field') continue;
+              }
+              return _callFunction(m.name, f, fields);
+            }
+          }
+        }
       }
     }
     return fields;
@@ -1789,6 +1933,21 @@ class BallEngine {
           if (td.hasDescriptor()) {
             for (final f in td.descriptor.field) {
               fieldNames.add(f.name);
+            }
+          }
+          // Also collect fields from metadata 'fields' array.
+          if (td.hasMetadata()) {
+            final fieldsMetaVal = td.metadata.fields['fields'];
+            if (fieldsMetaVal != null &&
+                fieldsMetaVal.whichKind() == structpb.Value_Kind.listValue) {
+              for (final fv in fieldsMetaVal.listValue.values) {
+                if (fv.whichKind() == structpb.Value_Kind.structValue) {
+                  final fname = fv.structValue.fields['name']?.stringValue;
+                  if (fname != null && !fieldNames.contains(fname)) {
+                    fieldNames.add(fname);
+                  }
+                }
+              }
             }
           }
           return (superclass: superclass, fieldNames: fieldNames);
@@ -1865,7 +2024,11 @@ class BallEngine {
     String superclass,
     Map<String, Object?> childFields,
   ) {
-    final superFields = <String, Object?>{'__type__': superclass};
+    // Qualify the superclass name if it's bare (no module prefix).
+    final qualifiedSuperclass = superclass.contains(':')
+        ? superclass
+        : '$_currentModule:$superclass';
+    final superFields = <String, Object?>{'__type__': qualifiedSuperclass};
 
     // Copy descriptor fields from the parent type into __super__.
     final parentTypeDef = _findTypeDef(superclass);
@@ -1899,12 +2062,32 @@ class BallEngine {
     final methods = <String, Function>{};
     for (final module in program.modules) {
       for (final func in module.functions) {
+        // Match by metadata class field.
         if (func.hasMetadata()) {
           final className = func.metadata.fields['class'];
           if (className != null &&
               className.hasStringValue() &&
               className.stringValue == typeName &&
               func.hasBody()) {
+            methods[func.name] = (BallValue input) async {
+              return _callFunction(module.name, func, input);
+            };
+            continue;
+          }
+        }
+        // Match by function name pattern: "TypeName.methodName" or
+        // "module:TypeName.methodName".
+        // Skip constructors and getters/setters (they have their own dispatch paths).
+        final funcName = func.name;
+        final dotIdx = funcName.lastIndexOf('.');
+        if (dotIdx >= 0) {
+          final prefix = funcName.substring(0, dotIdx);
+          final suffix = funcName.substring(dotIdx + 1);
+          // Skip constructors (e.g. "Foo.new", "Foo.named").
+          if (suffix == 'new') continue;
+          final kindField2 = func.hasMetadata() ? func.metadata.fields['kind'] : null;
+          if (kindField2?.stringValue == 'constructor') continue;
+          if (prefix == typeName && func.hasBody() && !func.isBase) {
             methods[func.name] = (BallValue input) async {
               return _callFunction(module.name, func, input);
             };
@@ -1915,20 +2098,35 @@ class BallEngine {
     return methods;
   }
 
-  /// Resolve methods for a type including inherited methods from ancestors.
+  /// Resolve methods for a type including inherited methods from ancestors
+  /// and mixins.
   ///
   /// Methods from the child type take precedence over parent methods
-  /// (method overriding).
+  /// (method overriding). Mixin methods are applied between superclass
+  /// and child (so child overrides mixin, mixin overrides superclass).
   Map<String, Function> _resolveTypeMethodsWithInheritance(String typeName) {
     final methods = <String, Function>{};
+
+    final colonIdx = typeName.indexOf(':');
+    final modPart = colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
 
     // Collect ancestor methods first (so child overrides them).
     final typeDef = _findTypeDef(typeName);
     if (typeDef != null && typeDef.superclass != null && typeDef.superclass!.isNotEmpty) {
-      methods.addAll(_resolveTypeMethodsWithInheritance(typeDef.superclass!));
+      final qualSuper = typeDef.superclass!.contains(':')
+          ? typeDef.superclass!
+          : '$modPart:${typeDef.superclass!}';
+      methods.addAll(_resolveTypeMethodsWithInheritance(qualSuper));
     }
 
-    // Child methods override parent methods.
+    // Apply mixin methods (between superclass and child).
+    final mixins = _getMixins(typeName);
+    for (final mixin in mixins) {
+      final qualMixin = mixin.contains(':') ? mixin : '$modPart:$mixin';
+      methods.addAll(_resolveTypeMethods(qualMixin));
+    }
+
+    // Child methods override parent and mixin methods.
     methods.addAll(_resolveTypeMethods(typeName));
     return methods;
   }
@@ -2108,14 +2306,22 @@ class BallEngine {
         if (match != null) {
           final varName = match.group(1)!;
           final rawVal = match.group(2)!.trim();
-          final parsed =
-              int.tryParse(rawVal) ??
-              double.tryParse(rawVal) ??
-              (rawVal == 'true'
-                  ? true
-                  : rawVal == 'false'
-                  ? false
-                  : rawVal);
+          // Try parsing as simple literal first.
+          final intParsed = int.tryParse(rawVal);
+          final doubleParsed = intParsed == null ? double.tryParse(rawVal) : null;
+          Object? parsed;
+          if (intParsed != null) {
+            parsed = intParsed;
+          } else if (doubleParsed != null) {
+            parsed = doubleParsed;
+          } else if (rawVal == 'true') {
+            parsed = true;
+          } else if (rawVal == 'false') {
+            parsed = false;
+          } else {
+            // Try evaluating as a simple expression in the current scope.
+            parsed = _evalSimpleInitExpr(rawVal, forScope);
+          }
           forScope.bind(varName, parsed);
         }
       } else {
@@ -2145,6 +2351,80 @@ class BallEngine {
       if (update != null) await _evalExpression(update, forScope);
     }
     return null;
+  }
+
+  /// Evaluate a simple expression string from a for-loop init.
+  /// Handles patterns like: "5", "s.length - 1", "i * i", "n", "arr.length".
+  Object? _evalSimpleInitExpr(String rawVal, _Scope scope) {
+    // "var.prop OP number" pattern (e.g., "s.length - 1").
+    final propOpNum = RegExp(r'^(\w+)\.(\w+)\s*([+\-*/])\s*(\d+)$').firstMatch(rawVal);
+    if (propOpNum != null) {
+      final ref = propOpNum.group(1)!;
+      final prop = propOpNum.group(2)!;
+      final op = propOpNum.group(3)!;
+      final operand = int.parse(propOpNum.group(4)!);
+      if (scope.has(ref)) {
+        final obj = scope.lookup(ref);
+        num? propVal;
+        if (obj is String && prop == 'length') propVal = obj.length;
+        else if (obj is List && prop == 'length') propVal = obj.length;
+        else if (obj is Map && prop == 'length') propVal = obj.length;
+        else if (obj is Map<String, Object?> && obj.containsKey(prop)) {
+          final v = obj[prop];
+          if (v is num) propVal = v;
+        }
+        if (propVal != null) {
+          return switch (op) {
+            '+' => propVal + operand,
+            '-' => propVal - operand,
+            '*' => propVal * operand,
+            '/' => propVal ~/ operand,
+            _ => rawVal,
+          };
+        }
+      }
+    }
+
+    // "var OP var" pattern (e.g., "i * i", "n + 1").
+    final varOpVar = RegExp(r'^(\w+)\s*([+\-*/])\s*(\w+)$').firstMatch(rawVal);
+    if (varOpVar != null) {
+      final left = varOpVar.group(1)!;
+      final op = varOpVar.group(2)!;
+      final right = varOpVar.group(3)!;
+      num? leftVal, rightVal;
+      if (scope.has(left)) { final v = scope.lookup(left); if (v is num) leftVal = v; }
+      final rightNum = int.tryParse(right);
+      if (rightNum != null) { rightVal = rightNum; }
+      else if (scope.has(right)) { final v = scope.lookup(right); if (v is num) rightVal = v; }
+      if (leftVal != null && rightVal != null) {
+        return switch (op) {
+          '+' => leftVal + rightVal,
+          '-' => leftVal - rightVal,
+          '*' => leftVal * rightVal,
+          '/' => leftVal ~/ rightVal,
+          _ => rawVal,
+        };
+      }
+    }
+
+    // "var.prop" pattern (e.g., "arr.length").
+    final propAccess = RegExp(r'^(\w+)\.(\w+)$').firstMatch(rawVal);
+    if (propAccess != null) {
+      final ref = propAccess.group(1)!;
+      final prop = propAccess.group(2)!;
+      if (scope.has(ref)) {
+        final obj = scope.lookup(ref);
+        if (obj is String && prop == 'length') return obj.length;
+        if (obj is List && prop == 'length') return obj.length;
+        if (obj is Map && prop == 'length') return obj.length;
+        if (obj is Map<String, Object?> && obj.containsKey(prop)) return obj[prop];
+      }
+    }
+
+    // Variable reference.
+    if (scope.has(rawVal)) return scope.lookup(rawVal);
+
+    return rawVal;
   }
 
   Future<BallValue> _evalLazyForIn(FunctionCall call, _Scope scope) async {
@@ -2231,6 +2511,7 @@ class BallEngine {
       return null;
     }
     Expression? defaultBody;
+    var matched = false;
     for (final caseExpr in cases.literal.listValue.elements) {
       if (caseExpr.whichExpr() != Expression_Expr.messageCreation) continue;
       final cf = <String, Expression>{};
@@ -2244,19 +2525,134 @@ class BallEngine {
         defaultBody = cf['body'];
         continue;
       }
-      final value = cf['value'];
-      if (value != null) {
-        final caseVal = await _evalExpression(value, scope);
-        if (caseVal == subjectVal) {
-          final body = cf['body'];
-          if (body != null) return _evalExpression(body, scope);
+
+      if (!matched) {
+        // Standard value-based case.
+        final value = cf['value'];
+        if (value != null) {
+          final caseVal = await _evalExpression(value, scope);
+          if (_ballEquals(caseVal, subjectVal)) matched = true;
+        }
+        // Pattern-based case (e.g., ConstPattern).
+        if (!matched) {
+          final patternExpr = cf['pattern_expr'];
+          if (patternExpr != null) {
+            final pattern = await _evalExpression(patternExpr, scope);
+            final patternVal = (pattern is Map<String, Object?> && pattern.containsKey('value'))
+                ? pattern['value']
+                : pattern;
+            if (_ballEquals(patternVal, subjectVal)) matched = true;
+          }
+        }
+        // String pattern matching (e.g., "Color.red" matching enum values).
+        if (!matched) {
+          final patternField = cf['pattern'];
+          if (patternField != null) {
+            final patternStr = patternField.whichExpr() == Expression_Expr.literal &&
+                patternField.literal.whichValue() == Literal_Value.stringValue
+                ? patternField.literal.stringValue
+                : null;
+            if (patternStr != null) {
+              matched = _matchSwitchPattern(subjectVal, patternStr);
+            }
+          }
+        }
+      }
+
+      // If matched, execute the body. Support fall-through: if body is empty,
+      // continue to the next case.
+      if (matched) {
+        final body = cf['body'];
+        if (body != null) {
+          // Check for empty block (fall-through).
+          if (body.whichExpr() == Expression_Expr.block &&
+              body.block.statements.isEmpty &&
+              !body.block.hasResult()) {
+            continue; // fall-through
+          }
+          final result = await _evalExpression(body, scope);
+          // Consume unlabeled break (switch break, not loop break).
+          if (result is _FlowSignal && result.kind == 'break' && result.label == null) {
+            return null;
+          }
+          return result;
         }
       }
     }
     if (defaultBody != null) {
-      return _evalExpression(defaultBody, scope);
+      final result = await _evalExpression(defaultBody, scope);
+      if (result is _FlowSignal && result.kind == 'break' && result.label == null) {
+        return null;
+      }
+      return result;
     }
     return null;
+  }
+
+  /// Compare two Ball values for equality, handling int/double coercion.
+  bool _ballEquals(BallValue a, BallValue b) {
+    if (a == b) return true;
+    // Compare numbers with int/double coercion.
+    if (a is num && b is num) return a == b;
+    // String representation equality as fallback.
+    if (a != null && b != null) return a.toString() == b.toString();
+    return false;
+  }
+
+  /// Match a switch pattern string against a subject value.
+  ///
+  /// Handles patterns like "Color.red" for enum matching, simple type
+  /// patterns like "int x", and constant patterns.
+  bool _matchSwitchPattern(BallValue subject, String pattern) {
+    // Enum pattern: "EnumType.value" (e.g., "Color.red").
+    final dotIdx = pattern.indexOf('.');
+    if (dotIdx >= 0) {
+      final enumType = pattern.substring(0, dotIdx);
+      final enumValue = pattern.substring(dotIdx + 1);
+      // Subject is an enum value map with __type__ and name fields.
+      if (subject is Map<String, Object?>) {
+        final typeName = subject['__type__'] as String?;
+        if (typeName != null) {
+          // Match "Color" against "main:Color" (strip module prefix).
+          final colonIdx = typeName.indexOf(':');
+          final bareType = colonIdx >= 0 ? typeName.substring(colonIdx + 1) : typeName;
+          if (bareType == enumType && subject['name'] == enumValue) return true;
+          if (typeName == enumType && subject['name'] == enumValue) return true;
+        }
+      }
+      // Also try resolving the pattern to an actual enum value and comparing.
+      final enumVals = _enumValues[enumType];
+      if (enumVals != null && enumVals.containsKey(enumValue)) {
+        final resolved = enumVals[enumValue];
+        if (subject is Map<String, Object?> && resolved is Map<String, Object?>) {
+          return subject['__type__'] == resolved['__type__'] &&
+              subject['name'] == resolved['name'];
+        }
+      }
+      // Try with module-qualified enum type.
+      final qualifiedEnumType = '$_currentModule:$enumType';
+      final qualEnumVals = _enumValues[qualifiedEnumType];
+      if (qualEnumVals != null && qualEnumVals.containsKey(enumValue)) {
+        final resolved = qualEnumVals[enumValue];
+        if (subject is Map<String, Object?> && resolved is Map<String, Object?>) {
+          return subject['__type__'] == resolved['__type__'] &&
+              subject['name'] == resolved['name'];
+        }
+      }
+    }
+
+    // Constant patterns: "null", "true", "false", numbers.
+    if (pattern == 'null') return subject == null;
+    if (pattern == 'true') return subject == true;
+    if (pattern == 'false') return subject == false;
+    final numVal = num.tryParse(pattern);
+    if (numVal != null && subject is num) return _ballEquals(subject, numVal);
+
+    // Type test pattern: "int", "String", etc.
+    if (_matchesTypePattern(subject, pattern)) return true;
+
+    // Direct string equality.
+    return pattern == subject?.toString();
   }
 
   Future<BallValue> _evalLazyTry(FunctionCall call, _Scope scope) async {
@@ -2538,7 +2934,7 @@ class BallEngine {
     // Must be a reference so we can update the variable in scope.
     if (valueExpr.whichExpr() == Expression_Expr.reference) {
       final name = valueExpr.reference.name;
-      final current = scope.lookup(name) as num;
+      final current = _toNum(scope.lookup(name));
       final isInc = call.function.contains('increment');
       final isPre = call.function.startsWith('pre');
       final updated = isInc ? current + 1 : current - 1;
@@ -2547,7 +2943,7 @@ class BallEngine {
     }
 
     // Fallback: just compute
-    final val = (await _evalExpression(valueExpr, scope)) as num;
+    final val = _toNum(await _evalExpression(valueExpr, scope));
     final isInc = call.function.contains('increment');
     return isInc ? val + 1 : val - 1;
   }
@@ -2863,6 +3259,299 @@ class BallEngine {
     return _evalLazyForIn(call, scope);
   }
 
+  /// Dispatch a method call on a built-in instance type (List, String, num).
+  /// Returns [_sentinel] if the method is not recognized.
+  Future<BallValue> _dispatchBuiltinInstanceMethod(
+    BallValue self, String method, BallValue input,
+  ) async {
+    final args = input is Map<String, Object?> ? input : <String, Object?>{};
+    final arg0 = args['arg0'] ?? args['value'];
+
+    // ── List / Set methods ──
+    if (self is List) {
+      switch (method) {
+        case 'add': self.add(arg0); return null;
+        case 'removeLast': return self.removeLast();
+        case 'removeAt': return self.removeAt(_toInt(arg0));
+        case 'insert': self.insert(_toInt(arg0), args['arg1']); return null;
+        case 'clear': self.clear(); return null;
+        case 'contains': return self.contains(arg0);
+        case 'indexOf': return self.indexOf(arg0);
+        case 'join': return self.map((e) => _ballToString(e)).join(arg0 != null ? arg0.toString() : ', ');
+        case 'sublist':
+          final end = args['arg1'];
+          return self.sublist(_toInt(arg0), end != null ? _toInt(end) : null);
+        case 'reversed': return self.reversed.toList();
+        case 'sort':
+          if (arg0 is Function) {
+            // Use insertion sort to support async comparators.
+            final sorted = self.toList();
+            for (var j = 1; j < sorted.length; j++) {
+              final key = sorted[j];
+              var k = j - 1;
+              while (k >= 0) {
+                var r = arg0(<String, Object?>{'arg0': sorted[k], 'arg1': key, 'a': sorted[k], 'b': key, 'left': sorted[k], 'right': key});
+                if (r is Future) r = await r;
+                if (r is num && r > 0) {
+                  sorted[k + 1] = sorted[k];
+                  k--;
+                } else {
+                  break;
+                }
+              }
+              sorted[k + 1] = key;
+            }
+            self.setAll(0, sorted);
+            return null;
+          }
+          self.sort((a, b) => (a as Comparable).compareTo(b));
+          return null;
+        case 'map':
+          if (arg0 is Function) {
+            final result = <Object?>[];
+            for (final item in self) {
+              var r = arg0(item);
+              if (r is Future) r = await r;
+              result.add(r);
+            }
+            return result;
+          }
+          return self;
+        case 'where':
+        case 'filter':
+          if (arg0 is Function) {
+            final result = <Object?>[];
+            for (final item in self) {
+              var r = arg0(item);
+              if (r is Future) r = await r;
+              if (r == true) result.add(item);
+            }
+            return result;
+          }
+          return self;
+        case 'forEach':
+          if (arg0 is Function) {
+            for (final item in self) {
+              var r = arg0(item);
+              if (r is Future) await r;
+            }
+          }
+          return null;
+        case 'any':
+          if (arg0 is Function) {
+            for (final item in self) {
+              var r = arg0(item);
+              if (r is Future) r = await r;
+              if (r == true) return true;
+            }
+            return false;
+          }
+          return false;
+        case 'every':
+          if (arg0 is Function) {
+            for (final item in self) {
+              var r = arg0(item);
+              if (r is Future) r = await r;
+              if (r != true) return false;
+            }
+            return true;
+          }
+          return true;
+        case 'reduce':
+          if (arg0 is Function) {
+            final init = args['arg1'];
+            var acc = init;
+            for (final item in self) {
+              var r = arg0(<String, Object?>{'arg0': acc, 'arg1': item});
+              if (r is Future) r = await r;
+              acc = r;
+            }
+            return acc;
+          }
+          return null;
+        case 'fold':
+          if (args['arg1'] is Function) {
+            final fn = args['arg1'] as Function;
+            var acc = arg0;
+            for (final item in self) {
+              var r = fn(<String, Object?>{'arg0': acc, 'arg1': item});
+              if (r is Future) r = await r;
+              acc = r;
+            }
+            return acc;
+          }
+          return arg0;
+        case 'toList': return self.toList();
+        case 'toSet': return self.toSet().toList();
+        case 'toString': return '[${self.map(_ballToString).join(', ')}]';
+        case 'filled':
+          // List.filled(n, value) encoded as self=[], arg0=n, arg1=value
+          return List.filled(_toInt(arg0), args['arg1']);
+        // Set operations (sets are encoded as arrays).
+        case 'union':
+          final other = arg0 is List ? arg0 : <Object?>[];
+          return {...self, ...other}.toList();
+        case 'intersection':
+          final otherSet = (arg0 is List ? arg0 : <Object?>[]).toSet();
+          return self.where((x) => otherSet.contains(x)).toList();
+        case 'difference':
+          final otherSet2 = (arg0 is List ? arg0 : <Object?>[]).toSet();
+          return self.where((x) => !otherSet2.contains(x)).toList();
+        case 'addAll':
+          final other2 = arg0 is List ? arg0 : <Object?>[];
+          for (final item in other2) {
+            if (!self.contains(item)) self.add(item);
+          }
+          return null;
+        case 'expand':
+          if (arg0 is Function) {
+            final result = <Object?>[];
+            for (final item in self) {
+              var r = arg0(item);
+              if (r is Future) r = await r;
+              if (r is List) {
+                result.addAll(r);
+              } else {
+                result.add(r);
+              }
+            }
+            return result;
+          }
+          return self;
+        case 'take': return self.take(_toInt(arg0)).toList();
+        case 'skip': return self.skip(_toInt(arg0)).toList();
+        case 'followedBy':
+          final other3 = arg0 is List ? arg0 : <Object?>[];
+          return [...self, ...other3];
+      }
+    }
+
+    // ── Set methods ──
+    if (self is Set) {
+      final selfList = self.toList();
+      switch (method) {
+        case 'union':
+          final otherU = arg0 is Set ? arg0 : (arg0 is List ? arg0.toSet() : <Object?>{});
+          return self.union(otherU);
+        case 'intersection':
+          final otherI = arg0 is Set ? arg0 : (arg0 is List ? arg0.toSet() : <Object?>{});
+          return self.intersection(otherI);
+        case 'difference':
+          final otherD = arg0 is Set ? arg0 : (arg0 is List ? arg0.toSet() : <Object?>{});
+          return self.difference(otherD);
+        case 'add': self.add(arg0); return null;
+        case 'addAll':
+          if (arg0 is Iterable) self.addAll(arg0);
+          return null;
+        case 'remove': self.remove(arg0); return null;
+        case 'contains': return self.contains(arg0);
+        case 'toList': return selfList;
+        case 'toSet': return self;
+        case 'length': return self.length;
+        case 'isEmpty': return self.isEmpty;
+        case 'isNotEmpty': return self.isNotEmpty;
+        case 'forEach':
+          if (arg0 is Function) {
+            for (final item in self) {
+              var r = arg0(item);
+              if (r is Future) await r;
+            }
+          }
+          return null;
+        case 'map':
+          if (arg0 is Function) {
+            final result = <Object?>[];
+            for (final item in self) {
+              var r = arg0(item);
+              if (r is Future) r = await r;
+              result.add(r);
+            }
+            return result;
+          }
+          return selfList;
+        case 'where':
+        case 'filter':
+          if (arg0 is Function) {
+            final result = <Object?>{};
+            for (final item in self) {
+              var r = arg0(item);
+              if (r is Future) r = await r;
+              if (r == true) result.add(item);
+            }
+            return result;
+          }
+          return self;
+      }
+    }
+
+    // ── String methods ──
+    if (self is String) {
+      switch (method) {
+        case 'contains': return self.contains(arg0.toString());
+        case 'substring':
+          final end = args['arg1'];
+          return self.substring(_toInt(arg0), end != null ? _toInt(end) : null);
+        case 'indexOf': return self.indexOf(arg0.toString());
+        case 'split': return self.split(arg0.toString());
+        case 'trim': return self.trim();
+        case 'toUpperCase': return self.toUpperCase();
+        case 'toLowerCase': return self.toLowerCase();
+        case 'replaceAll': return self.replaceAll(arg0.toString(), (args['arg1'] ?? '').toString());
+        case 'startsWith': return self.startsWith(arg0.toString());
+        case 'endsWith': return self.endsWith(arg0.toString());
+        case 'padLeft': return self.padLeft(_toInt(arg0), args['arg1']?.toString() ?? ' ');
+        case 'padRight': return self.padRight(_toInt(arg0), args['arg1']?.toString() ?? ' ');
+        case 'toString': return self;
+        case 'codeUnitAt': return self.codeUnitAt(_toInt(arg0));
+        case 'compareTo': return self.compareTo(arg0.toString());
+      }
+    }
+
+    // ── Number methods ──
+    if (self is num) {
+      switch (method) {
+        case 'toDouble': return self.toDouble();
+        case 'toInt': return self.toInt();
+        case 'toString': return _ballToString(self);
+        case 'toStringAsFixed': return self.toStringAsFixed(_toInt(arg0));
+        case 'abs': return self.abs();
+        case 'round': return self.round();
+        case 'floor': return self.floor();
+        case 'ceil': return self.ceil();
+        case 'compareTo': return self.compareTo(_toNum(arg0));
+        case 'clamp': return self.clamp(_toNum(arg0), _toNum(args['arg1'] ?? self));
+        case 'truncate': return self.truncate();
+        case 'remainder': return self.remainder(_toNum(arg0));
+      }
+    }
+
+    // ── Map methods on typed objects ──
+    if (self is Map<String, Object?> && self.containsKey('__type__')) {
+      // StringBuffer methods.
+      final typeName = self['__type__'] as String?;
+      if (typeName != null && (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
+        switch (method) {
+          case 'write':
+            self['__buffer__'] = (self['__buffer__'] as String? ?? '') + _ballToString(arg0);
+            return null;
+          case 'writeln':
+            self['__buffer__'] = (self['__buffer__'] as String? ?? '') + _ballToString(arg0) + '\n';
+            return null;
+          case 'toString': return self['__buffer__'] ?? '';
+          case 'clear': self['__buffer__'] = ''; return null;
+          case 'length': return (self['__buffer__'] as String? ?? '').length;
+        }
+      }
+
+      // Generic toString on typed objects.
+      if (method == 'toString') {
+        return _ballToString(self);
+      }
+    }
+
+    return _sentinel;
+  }
+
   /// `cpp_std.cpp_scope_exit` — register a cleanup expression to run when
   /// the nearest enclosing block scope exits (LIFO / RAII semantics).
   ///
@@ -3064,13 +3753,26 @@ class BallEngine {
       // String & conversion
       'concat': _stdConcat,
       'length': _stdLength,
-      'to_string': (i) => _stdConvert(i, (v) => v.toString()),
+      'to_string': (i) => _ballToString(_extractUnaryArg(i)),
       'int_to_string': (i) => _stdConvert(i, (v) => (v as int).toString()),
       'double_to_string': (i) =>
           _stdConvert(i, (v) => (v as double).toString()),
       'string_to_int': (i) => _stdConvert(i, (v) => int.parse(v as String)),
       'string_to_double': (i) =>
           _stdConvert(i, (v) => double.parse(v as String)),
+      'to_double': (i) => _toNum(_extractUnaryArg(i)).toDouble(),
+      'to_int': (i) => _toNum(_extractUnaryArg(i)).toInt(),
+      'int_to_double': (i) => _toNum(_extractUnaryArg(i)).toDouble(),
+      'double_to_int': (i) => _toNum(_extractUnaryArg(i)).toInt(),
+      'compare_to': (i) {
+        final m = i is Map<String, Object?> ? i : <String, Object?>{'value': i};
+        final v = m['value'] ?? m['left'];
+        final other = m['other'] ?? m['right'];
+        if (v is String && other is String) return v.compareTo(other);
+        final a = _toNum(v);
+        final b = _toNum(other);
+        return a < b ? -1 : (a > b ? 1 : 0);
+      },
 
       // String interpolation — concatenates evaluated parts list.
       // Encoders emit this frequently; was previously missing from the engine.
@@ -3078,12 +3780,12 @@ class BallEngine {
         if (i is Map<String, Object?>) {
           final parts = i['parts'];
           if (parts is List) {
-            return parts.map((p) => p?.toString() ?? '').join();
+            return parts.map((p) => _ballToString(p)).join();
           }
           final value = i['value'];
-          if (value != null) return value.toString();
+          if (value != null) return _ballToString(value);
         }
-        return i?.toString() ?? '';
+        return _ballToString(i);
       },
 
       // Null safety
@@ -3149,7 +3851,8 @@ class BallEngine {
       // std_collections — list operations
       'list_push': (i) {
         final m = i as Map<String, Object?>;
-        final list = m['list'] as List;
+        final raw = m['list'];
+        final list = raw is List ? raw : (raw is Set ? raw.toList() : <Object?>[]);
         list.add(m['value']);
         return list;
       },
@@ -3190,6 +3893,7 @@ class BallEngine {
       'list_contains': (i) {
         final m = i as Map<String, Object?>;
         final collection = m['list'];
+        if (collection is String) return collection.contains(m['value'].toString());
         if (collection is List) return collection.contains(m['value']);
         if (collection is Set) return collection.contains(m['value']);
         return false;
@@ -3201,7 +3905,7 @@ class BallEngine {
       'list_map': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
-        final cb = m['callback'] as Function;
+        final cb = (m['callback'] ?? m['function'] ?? m['value']) as Function;
         final result = <Object?>[];
         for (final e in list) {
           var v = cb(e);
@@ -3213,7 +3917,7 @@ class BallEngine {
       'list_filter': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
-        final cb = m['callback'] as Function;
+        final cb = (m['callback'] ?? m['function'] ?? m['value']) as Function;
         final result = <Object?>[];
         for (final e in list) {
           var v = cb(e);
@@ -3237,7 +3941,7 @@ class BallEngine {
       'list_find': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
-        final cb = m['callback'] as Function;
+        final cb = (m['callback'] ?? m['function'] ?? m['value']) as Function;
         for (final e in list) {
           var v = cb(e);
           if (v is Future) v = await v;
@@ -3248,7 +3952,7 @@ class BallEngine {
       'list_any': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
-        final cb = m['callback'] as Function;
+        final cb = (m['callback'] ?? m['function'] ?? m['value']) as Function;
         for (final e in list) {
           var v = cb(e);
           if (v is Future) v = await v;
@@ -3259,7 +3963,7 @@ class BallEngine {
       'list_all': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
-        final cb = m['callback'] as Function;
+        final cb = (m['callback'] ?? m['function'] ?? m['value']) as Function;
         for (final e in list) {
           var v = cb(e);
           if (v is Future) v = await v;
@@ -3270,7 +3974,7 @@ class BallEngine {
       'list_none': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
-        final cb = m['callback'] as Function;
+        final cb = (m['callback'] ?? m['function'] ?? m['value']) as Function;
         for (final e in list) {
           var v = cb(e);
           if (v is Future) v = await v;
@@ -3292,7 +3996,7 @@ class BallEngine {
           final key = sorted[j];
           var k = j - 1;
           while (k >= 0) {
-            var r = (cb as Function)(<String, Object?>{'left': sorted[k], 'right': key});
+            var r = (cb as Function)(<String, Object?>{'left': sorted[k], 'right': key, 'arg0': sorted[k], 'arg1': key, 'a': sorted[k], 'b': key});
             if (r is Future) r = await r;
             final cmp = (r is int) ? r : (r as num).toInt();
             if (cmp <= 0) break;
@@ -3324,14 +4028,36 @@ class BallEngine {
       'list_slice': (i) {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
-        final start = _toInt(m['start']);
-        final end = m['end'] != null ? _toInt(m['end']) : list.length;
-        return list.sublist(start, end);
+        // Support named fields (start/end), positional args (arg0/arg1),
+        // and 'value' field.
+        int s;
+        int? e;
+        if (m.containsKey('start')) {
+          s = _toInt(m['start']);
+          e = m['end'] != null ? _toInt(m['end']) : null;
+        } else if (m.containsKey('arg0') && m.containsKey('arg1')) {
+          s = _toInt(m['arg0']);
+          e = _toInt(m['arg1']);
+        } else if (m.containsKey('value')) {
+          // Single 'value' field: treat as start index.
+          final v = m['value'];
+          if (v is List && v.length >= 2) {
+            s = _toInt(v[0]);
+            e = _toInt(v[1]);
+          } else {
+            s = _toInt(v);
+            e = null;
+          }
+        } else {
+          s = 0;
+          e = null;
+        }
+        return list.sublist(s, e ?? list.length);
       },
       'list_flat_map': (i) async {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
-        final cb = m['callback'] as Function;
+        final cb = (m['callback'] ?? m['function'] ?? m['value']) as Function;
         final result = <Object?>[];
         for (final e in list) {
           var r = cb(e);
@@ -3412,7 +4138,7 @@ class BallEngine {
         final m = i as Map<String, Object?>;
         final list = m['list'] as List;
         final sep = m['separator']?.toString() ?? ',';
-        return list.map((e) => e.toString()).join(sep);
+        return list.map((e) => _ballToString(e)).join(sep);
       },
 
       // std_collections — map operations
@@ -3462,9 +4188,15 @@ class BallEngine {
           .toList(),
       'map_from_entries': (i) {
         final list = (i as Map<String, Object?>)['list'] as List;
-        return Map.fromEntries(
-          list.map((e) => MapEntry((e as Map)['key'] as String, e['value'])),
-        );
+        final result = <String, Object?>{};
+        for (final e in list) {
+          if (e is Map) {
+            final k = e['key'] ?? e['arg0'];
+            final v = e['value'] ?? e['arg1'];
+            if (k != null) result[k.toString()] = v;
+          }
+        }
+        return result;
       },
       'map_merge': (i) {
         final m = i as Map<String, Object?>;
@@ -3921,16 +4653,151 @@ class BallEngine {
 
   // ---- std function implementations ----
 
-  BallValue _stdPrint(BallValue input) {
+  /// Convert a Ball value to its string representation.
+  ///
+  /// For typed objects with a user-defined `toString` method, invokes that
+  /// method. For StringBuffer objects, returns the buffer contents.
+  /// Falls back to Dart's native `toString()`.
+  String _ballToString(BallValue v) {
+    if (v == null) return 'null';
+    if (v is String) return v;
+    if (v is bool) return v.toString();
+    if (v is int) return v.toString();
+    if (v is double) return v.toString();
+    if (v is List) return '[${v.map(_ballToString).join(', ')}]';
+    if (v is Map<String, Object?>) {
+      // StringBuffer: return the buffer contents.
+      final typeName = v['__type__'] as String?;
+      if (typeName != null && (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
+        return (v['__buffer__'] as String?) ?? '';
+      }
+      // Typed object: try to invoke the user's toString method.
+      if (typeName != null) {
+        final resolved = _resolveMethod(typeName, 'toString');
+        if (resolved != null) {
+          try {
+            final future = _callFunction(resolved.module, resolved.func, <String, Object?>{'self': v});
+            // _callFunction returns Future<BallValue>. Most calls complete
+            // synchronously (Dart optimises already-completed Futures).
+            // Use .then to grab the value if already resolved.
+            BallValue syncResult;
+            var done = false;
+            future.then((r) { syncResult = r; done = true; });
+            if (done) return syncResult?.toString() ?? 'null';
+            // If truly async, fall back to default representation.
+            return v.toString();
+          } catch (_) {
+            // If toString throws, fall back.
+          }
+        }
+      }
+    }
+    return v.toString();
+  }
+
+  /// Resolve a method by name walking the class hierarchy.
+  /// Returns the module name and function definition, or null if not found.
+  ({String module, FunctionDefinition func})? _resolveMethod(
+    String typeName,
+    String methodName,
+  ) {
+    final colonIdx = typeName.indexOf(':');
+    final modPart = colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
+
+    // Try "module.typeName.methodName" in _functions.
+    final methodKey = '$modPart.$typeName.$methodName';
+    final method = _functions[methodKey];
+    if (method != null && !method.isBase) {
+      return (module: modPart, func: method);
+    }
+
+    // Walk superclass chain via _findTypeDef.
+    final typeDef = _findTypeDef(typeName);
+    if (typeDef != null && typeDef.superclass != null && typeDef.superclass!.isNotEmpty) {
+      final superclass = typeDef.superclass!;
+      final qualSuper = superclass.contains(':') ? superclass : '$modPart:$superclass';
+      final superResult = _resolveMethod(qualSuper, methodName);
+      if (superResult != null) return superResult;
+    }
+
+    // Check mixins.
+    if (typeDef != null) {
+      final mixins = _getMixins(typeName);
+      for (final mixin in mixins) {
+        final qualMixin = mixin.contains(':') ? mixin : '$modPart:$mixin';
+        final mixinResult = _resolveMethod(qualMixin, methodName);
+        if (mixinResult != null) return mixinResult;
+      }
+    }
+
+    return null;
+  }
+
+  /// Get mixin names for a type from its module's typeDef metadata.
+  List<String> _getMixins(String typeName) {
+    for (final module in program.modules) {
+      for (final td in module.typeDefs) {
+        if (td.name == typeName || td.name.endsWith(':$typeName')) {
+          if (td.hasMetadata()) {
+            final mixinsField = td.metadata.fields['mixins'];
+            if (mixinsField != null &&
+                mixinsField.whichKind() == structpb.Value_Kind.listValue) {
+              return mixinsField.listValue.values
+                  .where((v) => v.hasStringValue())
+                  .map((v) => v.stringValue)
+                  .toList();
+            }
+          }
+        }
+      }
+    }
+    return const [];
+  }
+
+  FutureOr<BallValue> _stdPrint(BallValue input) async {
     if (input is Map<String, Object?>) {
       final message = input['message'];
       if (message != null) {
-        stdout(message.toString());
+        stdout(await _ballToStringAsync(message));
         return null;
       }
     }
-    stdout(input.toString());
+    stdout(await _ballToStringAsync(input));
     return null;
+  }
+
+  /// Async version of [_ballToString] that can await method calls.
+  Future<String> _ballToStringAsync(BallValue v) async {
+    if (v == null) return 'null';
+    if (v is String) return v;
+    if (v is bool) return v.toString();
+    if (v is int) return v.toString();
+    if (v is double) return v.toString();
+    if (v is List) {
+      final parts = <String>[];
+      for (final item in v) {
+        parts.add(await _ballToStringAsync(item));
+      }
+      return '[${parts.join(', ')}]';
+    }
+    if (v is Map<String, Object?>) {
+      final typeName = v['__type__'] as String?;
+      if (typeName != null && (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
+        return (v['__buffer__'] as String?) ?? '';
+      }
+      if (typeName != null) {
+        final resolved = _resolveMethod(typeName, 'toString');
+        if (resolved != null) {
+          try {
+            final result = await _callFunction(resolved.module, resolved.func, <String, Object?>{'self': v});
+            return result?.toString() ?? 'null';
+          } catch (_) {
+            // Fall back on error.
+          }
+        }
+      }
+    }
+    return v.toString();
   }
 
   BallValue _stdIf(BallValue input) {
@@ -3948,9 +4815,9 @@ class BallEngine {
     }
     final target = input['target'];
     final index = input['index'];
-    if (target is List && index is int) return target[index];
-    if (target is Map) return target[index];
-    if (target is String && index is int) return target[index];
+    if (target is List) return target[_toInt(index)];
+    if (target is Map) return target[index is int ? index : (index is String ? index : index.toString())];
+    if (target is String) return target[_toInt(index)];
     throw BallRuntimeError('std.index: unsupported types');
   }
 
@@ -4504,8 +5371,9 @@ class BallEngine {
   int _toInt(BallValue v) {
     if (v is int) return v;
     if (v is double) return v.toInt();
-    if (v is String) return int.parse(v);
-    throw BallRuntimeError('Cannot convert ${v.runtimeType} to int');
+    if (v is String) return int.tryParse(v) ?? 0;
+    if (v is bool) return v ? 1 : 0;
+    return 0;
   }
 
   double _toDouble(BallValue v) {
@@ -4517,6 +5385,9 @@ class BallEngine {
 
   num _toNum(BallValue v) {
     if (v is num) return v;
+    if (v is String) return num.tryParse(v) ?? 0;
+    if (v is bool) return v ? 1 : 0;
+    if (v == null) return 0;
     throw BallRuntimeError('Cannot convert ${v.runtimeType} to num');
   }
 

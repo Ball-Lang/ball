@@ -470,8 +470,23 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "int i = 2"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "i",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "2"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },

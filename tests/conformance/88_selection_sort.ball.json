@@ -63,6 +63,10 @@
           "isBase": true
         },
         {
+          "name": "add",
+          "isBase": true
+        },
+        {
           "name": "if",
           "isBase": true
         },
@@ -167,8 +171,23 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "int i = 0"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "i",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "0"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },
@@ -283,8 +302,47 @@
                                                 {
                                                   "name": "init",
                                                   "value": {
-                                                    "literal": {
-                                                      "stringValue": "int j = i + 1"
+                                                    "block": {
+                                                      "statements": [
+                                                        {
+                                                          "let": {
+                                                            "name": "j",
+                                                            "value": {
+                                                              "call": {
+                                                                "module": "std",
+                                                                "function": "add",
+                                                                "input": {
+                                                                  "messageCreation": {
+                                                                    "typeName": "",
+                                                                    "fields": [
+                                                                      {
+                                                                        "name": "left",
+                                                                        "value": {
+                                                                          "reference": {
+                                                                            "name": "i"
+                                                                          }
+                                                                        }
+                                                                      },
+                                                                      {
+                                                                        "name": "right",
+                                                                        "value": {
+                                                                          "literal": {
+                                                                            "intValue": "1"
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                }
+                                                              }
+                                                            },
+                                                            "metadata": {
+                                                              "keyword": "var",
+                                                              "type": "int"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
                                                     }
                                                   }
                                                 },

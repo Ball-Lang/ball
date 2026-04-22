@@ -185,8 +185,23 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "int i = 0"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "i",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "0"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },
@@ -301,8 +316,23 @@
                                                 {
                                                   "name": "init",
                                                   "value": {
-                                                    "literal": {
-                                                      "stringValue": "int j = 0"
+                                                    "block": {
+                                                      "statements": [
+                                                        {
+                                                          "let": {
+                                                            "name": "j",
+                                                            "value": {
+                                                              "literal": {
+                                                                "intValue": "0"
+                                                              }
+                                                            },
+                                                            "metadata": {
+                                                              "keyword": "var",
+                                                              "type": "int"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
                                                     }
                                                   }
                                                 },

@@ -1770,6 +1770,42 @@ class DartEncoder {
     return Statement()..let = let;
   }
 
+  /// Encode a [VariableDeclarationList] (e.g. from a for-loop init like
+  /// `int i = 0` or `var a = 1, b = 2`) as a block expression containing
+  /// one [LetBinding] per declared variable.  This replaces the old approach
+  /// of emitting the raw Dart source as a string literal, which forced every
+  /// engine to re-parse Dart syntax.
+  Expression _encodeVarDeclListAsBlock(ast.VariableDeclarationList declList) {
+    final block = Block();
+    for (final variable in declList.variables) {
+      final name = variable.name.lexeme;
+      final init = variable.initializer;
+
+      final let = LetBinding()
+        ..name = name
+        ..value = (init != null
+            ? _encodeExpr(init)
+            : (Expression()..reference = (Reference()..name = '__no_init__')));
+
+      // Store var/final/const and explicit type in metadata (mirrors
+      // _encodeVarDeclEntry for regular variable declarations).
+      final meta = <String, Object>{};
+      if (declList.isFinal) {
+        meta['keyword'] = 'final';
+      } else if (declList.isConst) {
+        meta['keyword'] = 'const';
+      } else {
+        meta['keyword'] = 'var';
+      }
+      final typeNode = declList.type;
+      if (typeNode != null) meta['type'] = typeNode.toSource();
+      if (meta.isNotEmpty) let.metadata = _toStruct(meta);
+
+      block.statements.add(Statement()..let = let);
+    }
+    return Expression()..block = block;
+  }
+
   // ============================================================
   // Control flow encoding
   // ============================================================
@@ -1852,9 +1888,7 @@ class DartEncoder {
       fields.add(
         FieldValuePair()
           ..name = 'init'
-          ..value = (Expression()
-            ..literal = (Literal()
-              ..stringValue = loopParts.variables.toSource())),
+          ..value = _encodeVarDeclListAsBlock(loopParts.variables),
       );
       if (loopParts.condition != null) {
         fields.add(
@@ -3410,16 +3444,14 @@ class DartEncoder {
       } else if (parts is ast.ForPartsWithDeclarations ||
           parts is ast.ForPartsWithExpression) {
         // C-style for inside a collection literal — e.g.
-        // `[for (var i = 0; i < n; i++) f(i)]`. Store the full for-header
-        // as a raw `init`/`condition`/`update` trio that the compiler can
-        // splice into `for (init; cond; update) body` verbatim.
+        // `[for (var i = 0; i < n; i++) f(i)]`. Store the init as a
+        // block with LetBinding statements so engines don't need to
+        // parse raw Dart syntax strings.
         if (parts is ast.ForPartsWithDeclarations) {
           fields.add(
             FieldValuePair()
               ..name = 'init'
-              ..value = (Expression()
-                ..literal = (Literal()
-                  ..stringValue = parts.variables.toSource())),
+              ..value = _encodeVarDeclListAsBlock(parts.variables),
           );
           if (parts.condition != null) {
             fields.add(

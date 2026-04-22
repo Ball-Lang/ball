@@ -429,8 +429,23 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "int j = low"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "j",
+                                        "value": {
+                                          "reference": {
+                                            "name": "low"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },

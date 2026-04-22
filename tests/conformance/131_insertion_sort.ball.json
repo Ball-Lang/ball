@@ -173,8 +173,23 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "int i = 1"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "i",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "1"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },

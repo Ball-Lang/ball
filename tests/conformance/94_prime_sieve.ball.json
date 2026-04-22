@@ -298,8 +298,23 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "int i = 2"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "i",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "2"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },
@@ -442,8 +457,47 @@
                                                             {
                                                               "name": "init",
                                                               "value": {
-                                                                "literal": {
-                                                                  "stringValue": "int j = i * i"
+                                                                "block": {
+                                                                  "statements": [
+                                                                    {
+                                                                      "let": {
+                                                                        "name": "j",
+                                                                        "value": {
+                                                                          "call": {
+                                                                            "module": "std",
+                                                                            "function": "multiply",
+                                                                            "input": {
+                                                                              "messageCreation": {
+                                                                                "typeName": "",
+                                                                                "fields": [
+                                                                                  {
+                                                                                    "name": "left",
+                                                                                    "value": {
+                                                                                      "reference": {
+                                                                                        "name": "i"
+                                                                                      }
+                                                                                    }
+                                                                                  },
+                                                                                  {
+                                                                                    "name": "right",
+                                                                                    "value": {
+                                                                                      "reference": {
+                                                                                        "name": "i"
+                                                                                      }
+                                                                                    }
+                                                                                  }
+                                                                                ]
+                                                                              }
+                                                                            }
+                                                                          }
+                                                                        },
+                                                                        "metadata": {
+                                                                          "keyword": "var",
+                                                                          "type": "int"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
                                                                 }
                                                               }
                                                             },
@@ -623,8 +677,23 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "int i = 2"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "i",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "2"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },

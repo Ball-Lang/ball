@@ -51,6 +51,10 @@
           "isBase": true
         },
         {
+          "name": "subtract",
+          "isBase": true
+        },
+        {
           "name": "gte",
           "isBase": true
         },
@@ -113,8 +117,52 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "int i = s.length - 1"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "i",
+                                        "value": {
+                                          "call": {
+                                            "module": "std",
+                                            "function": "subtract",
+                                            "input": {
+                                              "messageCreation": {
+                                                "typeName": "",
+                                                "fields": [
+                                                  {
+                                                    "name": "left",
+                                                    "value": {
+                                                      "fieldAccess": {
+                                                        "object": {
+                                                          "reference": {
+                                                            "name": "s"
+                                                          }
+                                                        },
+                                                        "field": "length"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "name": "right",
+                                                    "value": {
+                                                      "literal": {
+                                                        "intValue": "1"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },

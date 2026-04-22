@@ -147,8 +147,23 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "int i = start"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "i",
+                                        "value": {
+                                          "reference": {
+                                            "name": "start"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },
@@ -371,8 +386,23 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "int i = 0"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "i",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "0"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },
@@ -651,8 +681,23 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "int n = 2"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "n",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "2"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },
@@ -743,8 +788,23 @@
                                                 {
                                                   "name": "init",
                                                   "value": {
-                                                    "literal": {
-                                                      "stringValue": "int i = 2"
+                                                    "block": {
+                                                      "statements": [
+                                                        {
+                                                          "let": {
+                                                            "name": "i",
+                                                            "value": {
+                                                              "literal": {
+                                                                "intValue": "2"
+                                                              }
+                                                            },
+                                                            "metadata": {
+                                                              "keyword": "var",
+                                                              "type": "int"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
                                                     }
                                                   }
                                                 },

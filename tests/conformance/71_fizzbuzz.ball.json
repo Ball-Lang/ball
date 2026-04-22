@@ -102,8 +102,22 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "var i = 1"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "i",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "1"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },

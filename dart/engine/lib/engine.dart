@@ -381,6 +381,13 @@ class StdModuleHandler extends BallModuleHandler {
 const Object _sentinel = Object();
 
 /// Executes ball programs directly at runtime.
+/// Built-in type names that should not be resolved as class references.
+const _builtinTypeNames = {
+  'int', 'double', 'num', 'String', 'bool', 'List', 'Map', 'Set',
+  'Null', 'void', 'Object', 'dynamic', 'Function', 'Future', 'Stream',
+  'Iterable', 'Iterator', 'Type', 'Symbol', 'Never',
+};
+
 class BallEngine {
   final Program program;
 
@@ -599,9 +606,14 @@ class BallEngine {
         final kindValue = func.metadata.fields['kind'];
         if (kindValue?.stringValue != 'top_level_variable') continue;
         _currentModule = module.name;
-        final value = func.hasBody()
+        var value = func.hasBody()
             ? await _evalExpression(func.body, _globalScope)
             : null;
+        // If type is Map but value is empty Set/List, convert to map.
+        if (func.outputType.startsWith('Map')) {
+          if (value is Set && value.isEmpty) value = <Object?, Object?>{};
+          if (value is List && value.isEmpty) value = <Object?, Object?>{};
+        }
         _globalScope.bind(func.name, value);
       }
     }
@@ -637,7 +649,17 @@ class BallEngine {
     if (func.isBase) {
       return _callBaseFunction(moduleName, func.name, input);
     }
-    if (!func.hasBody()) return null;
+
+    // Constructor without body: build an instance from `is_this` params.
+    if (!func.hasBody()) {
+      if (func.hasMetadata()) {
+        final kindField = func.metadata.fields['kind'];
+        if (kindField?.stringValue == 'constructor') {
+          return _buildConstructorInstance(moduleName, func, input);
+        }
+      }
+      return null;
+    }
 
     final prevModule = _currentModule;
     _currentModule = moduleName;
@@ -672,8 +694,29 @@ class BallEngine {
     }
 
     // Bind 'self' for instance method calls so `this` references resolve.
+    // Also bind all fields from self into scope so methods can reference
+    // `x` instead of `self.x`.
     if (input is Map<String, Object?> && input.containsKey('self')) {
-      scope.bind('self', input['self']);
+      final self = input['self'];
+      scope.bind('self', self);
+      if (self is Map<String, Object?>) {
+        // Bind direct fields. Use temporary debug to trace.
+        for (final entry in self.entries) {
+          if (!entry.key.startsWith('__')) {
+            scope.bind(entry.key, entry.value);
+          }
+        }
+        // Also bind inherited fields from __super__ chain.
+        var superObj = self['__super__'];
+        while (superObj is Map<String, Object?>) {
+          for (final entry in superObj.entries) {
+            if (!entry.key.startsWith('__') && !scope.has(entry.key)) {
+              scope.bind(entry.key, entry.value);
+            }
+          }
+          superObj = superObj['__super__'];
+        }
+      }
     }
 
     if (func.inputType.isNotEmpty && input != null) {
@@ -712,6 +755,200 @@ class BallEngine {
     }
 
     return finalResult;
+  }
+
+  /// Build a class instance from a constructor with no body.
+  /// Maps positional args (arg0, arg1, ...) to `is_this` parameter names,
+  /// and populates __type__, __super__, and __methods__.
+  Future<BallValue> _buildConstructorInstance(
+    String moduleName,
+    FunctionDefinition func,
+    BallValue input,
+  ) async {
+    final params = func.hasMetadata() ? _extractParams(func.metadata) : const <String>[];
+    final paramsMeta = _extractParamsMeta(func.metadata);
+
+    final instance = <String, Object?>{};
+
+    // Determine the type name from the function name (e.g., "main:Point.new" -> "main:Point").
+    final dotIdx = func.name.indexOf('.');
+    final typeName = dotIdx >= 0 ? func.name.substring(0, dotIdx) : func.name;
+    instance['__type__'] = typeName;
+
+    // Build a map of resolved param values for use in super() calls, etc.
+    final resolvedParams = <String, Object?>{};
+
+    // Map input arguments to field names.
+    if (input is Map<String, Object?>) {
+      for (var i = 0; i < params.length; i++) {
+        final p = params[i];
+        final isThis = i < paramsMeta.length && paramsMeta[i]['is_this'] == true;
+        BallValue val;
+        if (input.containsKey(p)) {
+          val = input[p];
+        } else if (input.containsKey('arg$i')) {
+          val = input['arg$i'];
+        } else {
+          val = i < paramsMeta.length ? paramsMeta[i]['default'] : null;
+        }
+        resolvedParams[p] = val;
+        if (isThis) {
+          instance[p] = val;
+        }
+      }
+    } else if (params.length == 1) {
+      resolvedParams[params[0]] = input;
+      final isThis = paramsMeta.isNotEmpty && paramsMeta[0]['is_this'] == true;
+      if (isThis) {
+        instance[params[0]] = input;
+      }
+    }
+
+    // Process super constructor initializers.
+    final typeDef = _findTypeDef(typeName);
+    if (typeDef != null) {
+      final superclass = _getMetaString(typeDef, 'superclass');
+      if (superclass != null && superclass.isNotEmpty) {
+        // Check for super() initializer in constructor metadata.
+        final superInstance = await _invokeSuperConstructor(
+          func, superclass, resolvedParams,
+        );
+        if (superInstance is Map<String, Object?>) {
+          // Merge super fields into the instance and set __super__.
+          instance['__super__'] = superInstance;
+          // Copy inherited fields to instance level for easy access.
+          for (final e in superInstance.entries) {
+            if (!e.key.startsWith('__') && !instance.containsKey(e.key)) {
+              instance[e.key] = e.value;
+            }
+          }
+        } else {
+          // Fallback: build a static super object.
+          instance['__super__'] = _buildSuperObject(superclass, instance);
+        }
+      }
+
+      final methods = _resolveTypeMethodsWithInheritance(typeName);
+      if (methods.isNotEmpty) {
+        instance['__methods__'] = methods;
+      }
+    }
+
+    return instance;
+  }
+
+  /// Invoke the super constructor for a child class.
+  Future<BallValue> _invokeSuperConstructor(
+    FunctionDefinition childCtor,
+    String superclass,
+    Map<String, Object?> resolvedParams,
+  ) async {
+    // Look for super() initializer in constructor metadata.
+    if (childCtor.hasMetadata()) {
+      final initsField = childCtor.metadata.fields['initializers'];
+      if (initsField != null &&
+          initsField.whichKind() == structpb.Value_Kind.listValue) {
+        for (final init in initsField.listValue.values) {
+          if (init.whichKind() != structpb.Value_Kind.structValue) continue;
+          final kind = init.structValue.fields['kind']?.stringValue;
+          if (kind == 'super') {
+            final argsStr = init.structValue.fields['args']?.stringValue ?? '';
+            // Parse "(name)" or "(name, age)" to get param names to forward.
+            final argNames = _parseSuperArgs(argsStr);
+            // Build input for the super constructor.
+            final superInput = <String, Object?>{};
+            for (var i = 0; i < argNames.length; i++) {
+              final argName = argNames[i];
+              if (resolvedParams.containsKey(argName)) {
+                superInput['arg$i'] = resolvedParams[argName];
+              }
+            }
+            // Find and invoke the super constructor.
+            final superCtorEntry = _lookupConstructor(superclass);
+            if (superCtorEntry != null) {
+              return _callFunction(superCtorEntry.module, superCtorEntry.func, superInput);
+            }
+          }
+        }
+      }
+    }
+
+    // No explicit super() call — try invoking default super constructor.
+    final superCtorEntry = _lookupConstructor(superclass);
+    if (superCtorEntry != null) {
+      // Pass all resolved params as potential args.
+      final superInput = <String, Object?>{};
+      for (var i = 0; i < resolvedParams.length; i++) {
+        superInput['arg$i'] = resolvedParams.values.elementAt(i);
+      }
+      return _callFunction(superCtorEntry.module, superCtorEntry.func, superInput);
+    }
+
+    return null;
+  }
+
+  /// Parse super constructor args like "(name)" or "(name, age)".
+  /// Look up a constructor by name, trying bare name, module-qualified, etc.
+  ({String module, FunctionDefinition func})? _lookupConstructor(String name) {
+    // Direct lookup.
+    final direct = _constructors[name];
+    if (direct != null) return direct;
+    // Try with current module prefix: "main:ClassName".
+    final qualified = '$_currentModule:$name';
+    final qual = _constructors[qualified];
+    if (qual != null) return qual;
+    // Search all constructors for a bare-name match.
+    for (final entry in _constructors.entries) {
+      final key = entry.key;
+      // key might be "main:Animal" or "Animal" — strip module prefix and compare.
+      final colonIdx = key.indexOf(':');
+      final bare = colonIdx >= 0 ? key.substring(colonIdx + 1) : key;
+      if (bare == name) return entry.value;
+    }
+    return null;
+  }
+
+  List<String> _parseSuperArgs(String argsStr) {
+    final trimmed = argsStr.trim();
+    if (trimmed.isEmpty) return [];
+    // Strip outer parens.
+    final inner = trimmed.startsWith('(') && trimmed.endsWith(')')
+        ? trimmed.substring(1, trimmed.length - 1)
+        : trimmed;
+    if (inner.isEmpty) return [];
+    return inner.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+  }
+
+  /// Extract full parameter metadata (not just names) from function metadata.
+  List<Map<String, Object?>> _extractParamsMeta(structpb.Struct metadata) {
+    final paramsValue = metadata.fields['params'];
+    if (paramsValue == null ||
+        paramsValue.whichKind() != structpb.Value_Kind.listValue) {
+      return const [];
+    }
+    return paramsValue.listValue.values
+        .where((v) => v.whichKind() == structpb.Value_Kind.structValue)
+        .map((v) {
+          final fields = v.structValue.fields;
+          final result = <String, Object?>{};
+          final nameField = fields['name'];
+          if (nameField != null) result['name'] = nameField.stringValue;
+          final isThisField = fields['is_this'];
+          if (isThisField != null) result['is_this'] = isThisField.boolValue;
+          final defaultField = fields['default_value'];
+          if (defaultField != null) {
+            if (defaultField.hasStringValue()) {
+              result['default'] = defaultField.stringValue;
+            } else if (defaultField.hasNumberValue()) {
+              final n = defaultField.numberValue;
+              result['default'] = n == n.toInt() ? n.toInt() : n;
+            } else if (defaultField.hasBoolValue()) {
+              result['default'] = defaultField.boolValue;
+            }
+          }
+          return result;
+        })
+        .toList();
   }
 
   /// Extract parameter names from function metadata Struct.
@@ -896,6 +1133,9 @@ class BallEngine {
           return _evalIncDec(call, scope);
         case 'dart_await_for':
           return _evalAwaitFor(call, scope);
+        case 'cascade':
+        case 'null_aware_cascade':
+          return _evalLazyCascade(call, scope);
       }
     }
 
@@ -941,6 +1181,30 @@ class BallEngine {
     if (input is Map<String, Object?> && input.containsKey('self')) {
       final self = input['self'];
       if (self is Map<String, Object?>) {
+        // Built-in class static method dispatch (List.generate, etc.).
+        if (self['__type__'] == '__builtin_class__') {
+          final className = self['__class_ref__'] as String;
+          final argInput = Map<String, Object?>.from(input)..remove('self');
+          final builtinResult = await _dispatchBuiltinClassMethod(
+            className, call.function, argInput);
+          if (builtinResult != _sentinel) return builtinResult;
+        }
+
+        // Static method dispatch on class reference.
+        if (self['__type__'] == '__class__') {
+          final className = self['__class_ref__'] as String;
+          final qualifiedName = className.contains(':') ? className : '$_currentModule:$className';
+          final colonIdx2 = qualifiedName.indexOf(':');
+          final modPart2 = colonIdx2 >= 0 ? qualifiedName.substring(0, colonIdx2) : _currentModule;
+          final staticKey = '$modPart2.$qualifiedName.${call.function}';
+          final staticFunc = _functions[staticKey];
+          if (staticFunc != null) {
+            // Strip 'self' from input for static methods.
+            final staticInput = Map<String, Object?>.from(input)..remove('self');
+            return _callFunction(modPart2, staticFunc, staticInput);
+          }
+        }
+
         final typeName = self['__type__'] as String?;
         if (typeName != null) {
           // typeName is e.g. "main:Foo". Module part = text before ':'.
@@ -1084,6 +1348,21 @@ class BallEngine {
 
   Future<BallValue> _evalReference(Reference ref, _Scope scope) async {
     final name = ref.name;
+
+    // Handle 'super' keyword: resolve to the __super__ of self.
+    if (name == 'super' && scope.has('self')) {
+      final self = scope.lookup('self');
+      if (self is Map<String, Object?>) {
+        return self['__super__'] ?? self;
+      }
+    }
+
+    // Handle built-in type references (List, Map, Set) as class-like objects
+    // for static method dispatch (e.g., List.generate, Map.fromEntries).
+    if (name == 'List' || name == 'Map' || name == 'Set') {
+      return <String, Object?>{'__class_ref__': name, '__type__': '__builtin_class__'};
+    }
+
     if (scope.has(name)) return scope.lookup(name);
 
     // Constructor tear-off: resolve class names and "Class.new" references
@@ -1112,12 +1391,44 @@ class BallEngine {
     final enumVals = _enumValues[name];
     if (enumVals != null) return enumVals;
 
+    // Class/type reference: resolve to a namespace object for static
+    // method dispatch and named constructor lookup.
+    // Only resolve user-defined types (not built-in types like int, String, etc.).
+    if (!_builtinTypeNames.contains(name)) {
+      final qualifiedName = '$_currentModule:$name';
+      // Check if constructors or static methods exist for this class.
+      final hasCtor = _constructors.containsKey(name) || _constructors.containsKey(qualifiedName);
+      final hasStaticMethods = _functions.keys.any((k) =>
+          k.startsWith('$_currentModule.$qualifiedName.') ||
+          k.startsWith('$_currentModule.$name.'));
+      final typeExists = _types.containsKey(name) || _types.containsKey(qualifiedName);
+      if (typeExists && (hasCtor || hasStaticMethods)) {
+        return <String, Object?>{'__class_ref__': name, '__type__': '__class__'};
+      }
+    }
+
     // Top-level getter: if a function with this name has is_getter metadata,
     // invoke it as a zero-arg getter (no input needed).
     final getterKey = '$_currentModule.$name';
     final getterFunc = _functions[getterKey];
     if (getterFunc != null && _isGetter(getterFunc)) {
       return _callFunction(_currentModule, getterFunc, null);
+    }
+
+    // Fallback: if `self` is in scope, try looking up the field on it.
+    // This handles method bodies that reference instance fields like `name`
+    // even when the field wasn't explicitly bound (e.g., inherited fields).
+    if (scope.has('self')) {
+      final self = scope.lookup('self');
+      if (self is Map<String, Object?>) {
+        if (self.containsKey(name)) return self[name];
+        // Check __super__ chain for inherited fields.
+        var superObj = self['__super__'];
+        while (superObj is Map<String, Object?>) {
+          if (superObj.containsKey(name)) return superObj[name];
+          superObj = superObj['__super__'];
+        }
+      }
     }
 
     return scope.lookup(name);
@@ -1128,6 +1439,50 @@ class BallEngine {
   Future<BallValue> _evalFieldAccess(FieldAccess access, _Scope scope) async {
     final object = await _evalExpression(access.object, scope);
     final fieldName = access.field_2;
+
+    // ── Built-in class reference field access (List.generate, etc.) ──
+    if (object is Map<String, Object?> && object['__type__'] == '__builtin_class__') {
+      final className = object['__class_ref__'] as String;
+      // Return a closure that dispatches via the built-in class method handler.
+      return (BallValue input) async {
+        final args = input is Map<String, Object?> ? input : <String, Object?>{'arg0': input};
+        final result = await _dispatchBuiltinClassMethod(className, fieldName, args);
+        if (result != _sentinel) return result;
+        throw BallRuntimeError('Unknown static method: $className.$fieldName');
+      };
+    }
+
+    // ── Class reference field access (static methods, named ctors) ──
+    if (object is Map<String, Object?> && object['__type__'] == '__class__') {
+      final className = object['__class_ref__'] as String;
+      final qualifiedName = className.contains(':') ? className : '$_currentModule:$className';
+
+      // Named constructor: "ClassName.ctorName"
+      final namedCtor = _constructors['$qualifiedName.$fieldName'] ??
+          _constructors['$className.$fieldName'];
+      if (namedCtor != null) {
+        return (BallValue input) async {
+          return _callFunction(namedCtor.module, namedCtor.func, input);
+        };
+      }
+
+      // Static method: look up "module.qualifiedName.methodName"
+      final colonIdx = qualifiedName.indexOf(':');
+      final modPart = colonIdx >= 0 ? qualifiedName.substring(0, colonIdx) : _currentModule;
+      final staticKey = '$modPart.$qualifiedName.$fieldName';
+      final staticFunc = _functions[staticKey];
+      if (staticFunc != null) {
+        return (BallValue input) async {
+          return _callFunction(modPart, staticFunc, input);
+        };
+      }
+
+      // Enum values on class ref
+      final enumVals = _enumValues[className] ?? _enumValues[qualifiedName];
+      if (enumVals != null && enumVals.containsKey(fieldName)) {
+        return enumVals[fieldName];
+      }
+    }
 
     // ── Map / message field access ─────────────────────────────
     if (object is Map<String, Object?>) {
@@ -1360,10 +1715,29 @@ class BallEngine {
 
   Future<BallValue> _evalMessageCreation(MessageCreation msg, _Scope scope) async {
     final fields = <String, Object?>{};
+    // Track which field names appear multiple times (e.g., repeated 'entry'
+    // in map_create). When a duplicate is found, convert to a list.
     for (final pair in msg.fields) {
-      fields[pair.name] = await _evalExpression(pair.value, scope);
+      final val = await _evalExpression(pair.value, scope);
+      if (fields.containsKey(pair.name)) {
+        final existing = fields[pair.name];
+        if (existing is List) {
+          existing.add(val);
+        } else {
+          fields[pair.name] = [existing, val];
+        }
+      } else {
+        fields[pair.name] = val;
+      }
     }
     if (msg.typeName.isNotEmpty) {
+      // Check if this type has a constructor — if so, invoke it to build
+      // the instance properly (maps arg0/arg1/... to named fields via is_this).
+      final ctorEntry = _constructors[msg.typeName];
+      if (ctorEntry != null) {
+        return _callFunction(ctorEntry.module, ctorEntry.func, fields);
+      }
+
       fields['__type__'] = msg.typeName;
 
       // Extract type arguments if generic (e.g., Box<int>).
@@ -1377,6 +1751,10 @@ class BallEngine {
       // Resolve from TypeDefinition metadata or DescriptorProto.
       final typeDef = _findTypeDef(msg.typeName);
       if (typeDef != null) {
+        // Initialize fields with default values from metadata if not
+        // already present in the message creation.
+        _initFieldDefaults(msg.typeName, fields);
+
         final superclass = _getMetaString(typeDef, 'superclass');
         if (superclass != null && superclass.isNotEmpty) {
           // Recursively build the __super__ object with inherited fields & methods.
@@ -1421,6 +1799,54 @@ class BallEngine {
   }
 
   /// Get a string value from TypeDefinition metadata.
+  /// Initialize fields with default values from the typeDef metadata.
+  /// Only sets fields that are not already present in the instance.
+  void _initFieldDefaults(String typeName, Map<String, Object?> fields) {
+    for (final module in program.modules) {
+      for (final td in module.typeDefs) {
+        if (td.name == typeName || td.name.endsWith(':$typeName')) {
+          if (td.hasMetadata()) {
+            final fieldsMetaVal = td.metadata.fields['fields'];
+            if (fieldsMetaVal != null &&
+                fieldsMetaVal.whichKind() == structpb.Value_Kind.listValue) {
+              for (final fv in fieldsMetaVal.listValue.values) {
+                if (fv.whichKind() != structpb.Value_Kind.structValue) continue;
+                final fname = fv.structValue.fields['name']?.stringValue;
+                if (fname == null || fields.containsKey(fname)) continue;
+                final init = fv.structValue.fields['initializer']?.stringValue;
+                if (init != null) {
+                  fields[fname] = _parseInitializer(init);
+                }
+              }
+            }
+          }
+          return;
+        }
+      }
+    }
+  }
+
+  /// Parse a simple initializer string like "[]", "{}", "0", "''", etc.
+  Object? _parseInitializer(String init) {
+    final trimmed = init.trim();
+    if (trimmed == '[]') return <Object?>[];
+    if (trimmed == '{}') return <String, Object?>{};
+    if (trimmed == 'null') return null;
+    if (trimmed == 'true') return true;
+    if (trimmed == 'false') return false;
+    if (trimmed == '""' || trimmed == "''") return '';
+    final intVal = int.tryParse(trimmed);
+    if (intVal != null) return intVal;
+    final doubleVal = double.tryParse(trimmed);
+    if (doubleVal != null) return doubleVal;
+    // String literal with quotes
+    if ((trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+        (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+      return trimmed.substring(1, trimmed.length - 1);
+    }
+    return trimmed;
+  }
+
   String? _getMetaString(
     ({String? superclass, List<String> fieldNames}) typeDef,
     String key,
@@ -1545,8 +1971,18 @@ class BallEngine {
   Future<BallValue> _evalStatement(Statement stmt, _Scope scope) async {
     switch (stmt.whichStmt()) {
       case Statement_Stmt.let:
-        final value = await _evalExpression(stmt.let.value, scope);
+        var value = await _evalExpression(stmt.let.value, scope);
         if (value is _FlowSignal) return value;
+        // If the let type says Map but we got an empty Set or List,
+        // convert to an empty map (mirrors the encoder using set_create
+        // for empty map literals).
+        if (stmt.let.hasMetadata()) {
+          final letType = stmt.let.metadata.fields['type']?.stringValue;
+          if (letType != null && letType.startsWith('Map')) {
+            if (value is Set && value.isEmpty) value = <Object?, Object?>{};
+            if (value is List && value.isEmpty) value = <Object?, Object?>{};
+          }
+        }
         scope.bind(stmt.let.name, value);
         return null;
       case Statement_Stmt.expression:
@@ -1582,6 +2018,20 @@ class BallEngine {
         for (final entry in input.entries) {
           if (entry.key != '__type__') {
             lambdaScope.bind(entry.key, entry.value);
+          }
+        }
+        // Also bind positional args (arg0, arg1, ...) to declared param names
+        // so that lambdas with named params receive values passed positionally.
+        if (paramNames.isNotEmpty) {
+          for (var i = 0; i < paramNames.length; i++) {
+            final p = paramNames[i];
+            if (!lambdaScope.has(p)) {
+              if (input.containsKey(p)) {
+                lambdaScope.bind(p, input[p]);
+              } else if (input.containsKey('arg$i')) {
+                lambdaScope.bind(p, input['arg$i']);
+              }
+            }
           }
         }
       }
@@ -1705,10 +2155,8 @@ class BallEngine {
     if (iterable == null || body == null) return null;
 
     final iterVal = await _evalExpression(iterable, scope);
-    if (iterVal is! List) {
-      throw BallRuntimeError('std.for_in: iterable is not a List');
-    }
-    for (final item in iterVal) {
+    final items = _toIterable(iterVal);
+    for (final item in items) {
       final loopScope = scope.child();
       loopScope.bind(variable, item);
       final result = await _evalExpression(body, loopScope);
@@ -1998,7 +2446,7 @@ class BallEngine {
             list[idx] = computed;
             return computed;
           }
-          if (list is Map<String, Object?> && idx is String) {
+          if (list is Map) {
             final current = list[idx];
             final computed = _applyCompoundOp(op, current, val);
             list[idx] = computed;
@@ -2010,7 +2458,7 @@ class BallEngine {
           list[idx] = val;
           return val;
         }
-        if (list is Map<String, Object?> && idx is String) {
+        if (list is Map) {
           list[idx] = val;
           return val;
         }
@@ -2067,7 +2515,7 @@ class BallEngine {
           list[idx] = val;
           return val;
         }
-        if (list is Map<String, Object?> && idx is String) {
+        if (list is Map) {
           final current = list[idx];
           if (current != null) return current;
           final val = await _evalExpression(value, scope);
@@ -2106,7 +2554,9 @@ class BallEngine {
 
   BallValue _applyCompoundOp(String op, BallValue current, BallValue val) {
     return switch (op) {
-      '+=' => _numOp(current, val, (a, b) => a + b),
+      '+=' => (current is String || val is String)
+          ? '${current ?? ''}${val ?? ''}'
+          : _numOp(current, val, (a, b) => a + b),
       '-=' => _numOp(current, val, (a, b) => a - b),
       '*=' => _numOp(current, val, (a, b) => a * b),
       '~/=' => _intOp(current, val, (a, b) => a ~/ b),
@@ -2133,6 +2583,23 @@ class BallEngine {
     final label = _stringFieldVal(fields, 'label');
     final body = fields['body'];
     if (body == null) return null;
+
+    // If the body contains a loop (for/while/for_in/do_while), pass the label
+    // to the loop so it can handle labeled break/continue directly (running
+    // the update step on continue, breaking on break).
+    if (label != null && label.isNotEmpty) {
+      final loopCall = _extractLoopFromBody(body);
+      if (loopCall != null) {
+        final result = await _evalLabeledLoop(loopCall, label, scope);
+        if (result is _FlowSignal &&
+            (result.kind == 'break' || result.kind == 'continue') &&
+            result.label == label) {
+          return null;
+        }
+        return result;
+      }
+    }
+
     final result = await _evalExpression(body, scope);
     if (result is _FlowSignal &&
         (result.kind == 'break' || result.kind == 'continue') &&
@@ -2140,6 +2607,193 @@ class BallEngine {
       return null; // consumed
     }
     return result;
+  }
+
+  /// Extract the loop call from a labeled body expression.
+  /// The body might be a block containing a single for/while/for_in call.
+  FunctionCall? _extractLoopFromBody(Expression expr) {
+    // Direct call to a loop
+    if (expr.whichExpr() == Expression_Expr.call) {
+      final fn = expr.call.function;
+      if (fn == 'for' || fn == 'while' || fn == 'for_in' || fn == 'do_while') {
+        return expr.call;
+      }
+    }
+    // Block containing a single statement that is a loop call
+    if (expr.whichExpr() == Expression_Expr.block &&
+        expr.block.statements.length == 1) {
+      final stmt = expr.block.statements[0];
+      if (stmt.whichStmt() == Statement_Stmt.expression &&
+          stmt.expression.whichExpr() == Expression_Expr.call) {
+        final fn = stmt.expression.call.function;
+        if (fn == 'for' || fn == 'while' || fn == 'for_in' || fn == 'do_while') {
+          return stmt.expression.call;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Evaluate a for/while loop with a label, handling labeled break/continue.
+  Future<BallValue> _evalLabeledLoop(FunctionCall loopCall, String label, _Scope scope) async {
+    return switch (loopCall.function) {
+      'for' => _evalLabeledFor(loopCall, label, scope),
+      'for_in' => _evalLabeledForIn(loopCall, label, scope),
+      'while' => _evalLabeledWhile(loopCall, label, scope),
+      'do_while' => _evalLabeledDoWhile(loopCall, label, scope),
+      _ => _evalExpression(Expression()..call = loopCall, scope),
+    };
+  }
+
+  Future<BallValue> _evalLabeledFor(FunctionCall call, String label, _Scope scope) async {
+    final fields = _lazyFields(call);
+    final initExpr = fields['init'];
+    final condition = fields['condition'];
+    final update = fields['update'];
+    final body = fields['body'];
+
+    final forScope = scope.child();
+
+    if (initExpr != null) {
+      if (initExpr.whichExpr() == Expression_Expr.block) {
+        for (final stmt in initExpr.block.statements) {
+          await _evalStatement(stmt, forScope);
+        }
+      } else if (initExpr.whichExpr() == Expression_Expr.literal &&
+          initExpr.literal.hasStringValue()) {
+        final s = initExpr.literal.stringValue;
+        final match = RegExp(
+          r'(?:var|final|int|double|String)\s+(\w+)\s*=\s*(.+)',
+        ).firstMatch(s);
+        if (match != null) {
+          final varName = match.group(1)!;
+          final rawVal = match.group(2)!.trim();
+          final parsed =
+              int.tryParse(rawVal) ??
+              double.tryParse(rawVal) ??
+              (rawVal == 'true'
+                  ? true
+                  : rawVal == 'false'
+                  ? false
+                  : rawVal);
+          forScope.bind(varName, parsed);
+        }
+      } else {
+        await _evalExpression(initExpr, forScope);
+      }
+    }
+
+    while (true) {
+      if (condition != null) {
+        final condVal = await _evalExpression(condition, forScope);
+        if (!_toBool(condVal)) break;
+      }
+      if (body != null) {
+        final result = await _evalExpression(body, forScope);
+        if (result is _FlowSignal) {
+          if (result.kind == 'return') return result;
+          // Check labeled signals against our label
+          if (result.label == label) {
+            if (result.kind == 'break') break;
+            if (result.kind == 'continue') {
+              if (update != null) await _evalExpression(update, forScope);
+              continue;
+            }
+          }
+          // Other labeled signals: propagate
+          if (result.label != null && result.label!.isNotEmpty) return result;
+          if (result.kind == 'break') break;
+          // unlabeled continue: fall through to update
+        }
+      }
+      if (update != null) await _evalExpression(update, forScope);
+    }
+    return null;
+  }
+
+  Future<BallValue> _evalLabeledForIn(FunctionCall call, String label, _Scope scope) async {
+    final fields = _lazyFields(call);
+    final variable = _stringFieldVal(fields, 'variable') ?? 'item';
+    final iterable = fields['iterable'];
+    final body = fields['body'];
+    if (iterable == null || body == null) return null;
+
+    final iterVal = await _evalExpression(iterable, scope);
+    final items = _toIterable(iterVal);
+    for (final item in items) {
+      final loopScope = scope.child();
+      loopScope.bind(variable, item);
+      final result = await _evalExpression(body, loopScope);
+      if (result is _FlowSignal) {
+        if (result.kind == 'return') return result;
+        if (result.label == label) {
+          if (result.kind == 'break') break;
+          if (result.kind == 'continue') continue;
+        }
+        if (result.label != null && result.label!.isNotEmpty) return result;
+        if (result.kind == 'break') break;
+      }
+    }
+    return null;
+  }
+
+  Future<BallValue> _evalLabeledWhile(FunctionCall call, String label, _Scope scope) async {
+    final fields = _lazyFields(call);
+    final condition = fields['condition'];
+    final body = fields['body'];
+    while (true) {
+      if (condition != null) {
+        final condVal = await _evalExpression(condition, scope);
+        if (!_toBool(condVal)) break;
+      }
+      if (body != null) {
+        final result = await _evalExpression(body, scope);
+        if (result is _FlowSignal) {
+          if (result.kind == 'return') return result;
+          if (result.label == label) {
+            if (result.kind == 'break') break;
+            if (result.kind == 'continue') continue;
+          }
+          if (result.label != null && result.label!.isNotEmpty) return result;
+          if (result.kind == 'break') break;
+        }
+      }
+    }
+    return null;
+  }
+
+  Future<BallValue> _evalLabeledDoWhile(FunctionCall call, String label, _Scope scope) async {
+    final fields = _lazyFields(call);
+    final body = fields['body'];
+    final condition = fields['condition'];
+    do {
+      if (body != null) {
+        final result = await _evalExpression(body, scope);
+        if (result is _FlowSignal) {
+          if (result.kind == 'return') return result;
+          if (result.label == label) {
+            if (result.kind == 'break') break;
+            if (result.kind == 'continue') {
+              // do-while: check condition after continue
+              if (condition != null) {
+                final condVal = await _evalExpression(condition, scope);
+                if (!_toBool(condVal)) break;
+              }
+              continue;
+            }
+          }
+          if (result.label != null && result.label!.isNotEmpty) return result;
+          if (result.kind == 'break') break;
+        }
+      }
+      if (condition != null) {
+        final condVal = await _evalExpression(condition, scope);
+        if (!_toBool(condVal)) break;
+      } else {
+        break;
+      }
+    } while (true);
+    return null;
   }
 
   Future<BallValue> _evalGoto(FunctionCall call, _Scope scope) async {
@@ -2171,6 +2825,39 @@ class BallEngine {
 
   /// `dart_await_for` — in a single-threaded engine this is just `for_in`
   /// over a list (streams aren't real).
+  /// Lazy cascade evaluation: evaluate `target`, bind it as `__cascade_self__`
+  /// in scope, then evaluate `sections` (list of calls on the target), and
+  /// return the target. For `null_aware_cascade`, return null if target is null.
+  Future<BallValue> _evalLazyCascade(FunctionCall call, _Scope scope) async {
+    final fields = _lazyFields(call);
+    final targetExpr = fields['target'];
+    if (targetExpr == null) return null;
+
+    final target = await _evalExpression(targetExpr, scope);
+
+    // null_aware_cascade: if target is null, skip sections and return null.
+    if (call.function == 'null_aware_cascade' && target == null) return null;
+
+    // Bind the target as __cascade_self__ so section expressions can reference it.
+    final cascadeScope = scope.child();
+    cascadeScope.bind('__cascade_self__', target);
+
+    final sectionsExpr = fields['sections'];
+    if (sectionsExpr != null) {
+      // Sections is typically a list literal of call expressions.
+      if (sectionsExpr.whichExpr() == Expression_Expr.literal &&
+          sectionsExpr.literal.whichValue() == Literal_Value.listValue) {
+        for (final section in sectionsExpr.literal.listValue.elements) {
+          await _evalExpression(section, cascadeScope);
+        }
+      } else {
+        await _evalExpression(sectionsExpr, cascadeScope);
+      }
+    }
+
+    return target;
+  }
+
   Future<BallValue> _evalAwaitFor(FunctionCall call, _Scope scope) {
     // Reuse for_in logic.
     return _evalLazyForIn(call, scope);
@@ -2277,6 +2964,36 @@ class BallEngine {
     }
 
     return null;
+  }
+
+  /// Dispatch a static method call on a built-in class (List, Map, Set).
+  /// Returns [_sentinel] if not handled.
+  Future<BallValue> _dispatchBuiltinClassMethod(
+    String className, String method, Map<String, Object?> args,
+  ) async {
+    switch ('$className.$method') {
+      case 'List.generate':
+        final count = args['arg0'] ?? args['count'];
+        final generator = args['arg1'] ?? args['generator'];
+        return _callBaseFunction('std', 'dart_list_generate', <String, Object?>{
+          'count': count,
+          'generator': generator,
+        });
+      case 'List.filled':
+        final count = args['arg0'] ?? args['count'];
+        final value = args['arg1'] ?? args['value'];
+        return _callBaseFunction('std', 'dart_list_filled', <String, Object?>{
+          'count': count,
+          'value': value,
+        });
+      case 'Map.fromEntries':
+        final list = args['arg0'] ?? args['list'];
+        return _callBaseFunction('std', 'map_from_entries', <String, Object?>{
+          'list': list,
+        });
+      default:
+        return _sentinel;
+    }
   }
 
   Future<BallValue> _callBaseFunction(String module, String function, BallValue input) async {
@@ -2432,15 +3149,14 @@ class BallEngine {
       // std_collections — list operations
       'list_push': (i) {
         final m = i as Map<String, Object?>;
-        final list = (m['list'] as List).toList();
+        final list = m['list'] as List;
         list.add(m['value']);
         return list;
       },
       'list_pop': (i) {
-        final list = ((i as Map<String, Object?>)['list'] as List).toList();
+        final list = (i as Map<String, Object?>)['list'] as List;
         if (list.isEmpty) throw BallRuntimeError('pop on empty list');
-        final last = list.removeLast();
-        return last;
+        return list.removeLast();
       },
       'list_insert': (i) {
         final m = i as Map<String, Object?>;
@@ -2473,7 +3189,10 @@ class BallEngine {
           ((i as Map<String, Object?>)['list'] as List).single,
       'list_contains': (i) {
         final m = i as Map<String, Object?>;
-        return (m['list'] as List).contains(m['value']);
+        final collection = m['list'];
+        if (collection is List) return collection.contains(m['value']);
+        if (collection is Set) return collection.contains(m['value']);
+        return false;
       },
       'list_index_of': (i) {
         final m = i as Map<String, Object?>;
@@ -2562,7 +3281,12 @@ class BallEngine {
       'list_sort': (i) async {
         final m = i as Map<String, Object?>;
         final sorted = (m['list'] as List).toList();
-        final cb = m['callback'];
+        final cb = m['callback'] ?? m['comparator'] ?? m['compare'] ?? m['value'];
+        if (cb == null || cb is! Function) {
+          // Natural sort (no comparator).
+          sorted.sort((a, b) => (a as Comparable).compareTo(b));
+          return sorted;
+        }
         // Use insertion sort to support async comparators.
         for (var j = 1; j < sorted.length; j++) {
           final key = sorted[j];
@@ -2643,15 +3367,43 @@ class BallEngine {
         final m = i as Map<String, Object?>;
         return [...(m['list'] as List), ...(m['value'] as List)];
       },
-      'list_clear': (i) => <Object?>[],
+      'list_clear': (i) {
+        final m = i as Map<String, Object?>;
+        final list = m['list'];
+        if (list is List) {
+          list.clear();
+          return list;
+        }
+        return <Object?>[];
+      },
       'list_to_list': (i) => ((i as Map<String, Object?>)['list'] as List).toList(),
       'list_foreach': (i) async {
         final m = i as Map<String, Object?>;
-        final list = m['list'] as List;
-        final fn = m['function'] ?? m['value'];
+        final collection = m['list'];
+        final fn = m['function'] ?? m['value'] ?? m['callback'];
         if (fn is Function) {
-          for (final item in list) {
-            await fn(item);
+          if (collection is List) {
+            for (final item in collection) {
+              var r = fn(item);
+              if (r is Future) await r;
+            }
+          } else if (collection is Map) {
+            // Map.forEach((key, value) => ...) — call with positional args
+            // so the lambda can bind them by param name.
+            for (final entry in collection.entries) {
+              var r = fn(<String, Object?>{
+                'key': entry.key,
+                'value': entry.value,
+                'arg0': entry.key,
+                'arg1': entry.value,
+              });
+              if (r is Future) await r;
+            }
+          } else if (collection is Set) {
+            for (final item in collection) {
+              var r = fn(item);
+              if (r is Future) await r;
+            }
           }
         }
         return null;
@@ -2670,19 +3422,22 @@ class BallEngine {
       },
       'map_set': (i) {
         final m = i as Map<String, Object?>;
-        final map = Map<String, Object?>.from(m['map'] as Map);
-        map[m['key'] as String] = m['value'];
+        final map = m['map'] as Map;
+        map[m['key']] = m['value'];
         return map;
       },
       'map_delete': (i) {
         final m = i as Map<String, Object?>;
-        final map = Map<String, Object?>.from(m['map'] as Map);
+        final map = m['map'] as Map;
         map.remove(m['key']);
         return map;
       },
       'map_contains_key': (i) {
         final m = i as Map<String, Object?>;
-        return (m['map'] as Map).containsKey(m['key']);
+        final target = m['map'];
+        if (target is Map) return target.containsKey(m['key']);
+        if (target is Set) return target.contains(m['key']);
+        throw BallRuntimeError('map_contains_key: expected Map or Set');
       },
       'map_contains_value': (i) {
         final m = i as Map<String, Object?>;
@@ -2874,6 +3629,7 @@ class BallEngine {
       'string_substring': _stdStringSubstring,
       'string_char_at': _stdStringCharAt,
       'string_char_code_at': _stdStringCharCodeAt,
+      'string_code_unit_at': _stdStringCharCodeAt,
       'string_from_char_code': (i) =>
           _stdConvert(i, (v) => String.fromCharCode(v as int)),
       'string_to_upper': (i) =>
@@ -3193,7 +3949,7 @@ class BallEngine {
     final target = input['target'];
     final index = input['index'];
     if (target is List && index is int) return target[index];
-    if (target is Map && index is String) return target[index];
+    if (target is Map) return target[index];
     if (target is String && index is int) return target[index];
     throw BallRuntimeError('std.index: unsupported types');
   }
@@ -3372,15 +4128,23 @@ class BallEngine {
 
   BallValue _stdMapCreate(BallValue input) {
     if (input is! Map<String, Object?>) return <String, Object?>{};
-    final entries = input['entries'];
+    // Support both 'entries' (list of {name, value}) and 'entry' (single or
+    // list of {key, value}) formats.
+    final entries = input['entries'] ?? input['entry'];
     if (entries is List) {
       final result = <Object?, Object?>{};
       for (final entry in entries) {
         if (entry is Map<String, Object?>) {
-          result[entry['name']] = entry['value'];
+          final key = entry['key'] ?? entry['name'];
+          result[key] = entry['value'];
         }
       }
       return result;
+    }
+    if (entries is Map<String, Object?>) {
+      // Single entry (not wrapped in a list).
+      final key = entries['key'] ?? entries['name'];
+      return <Object?, Object?>{key: entries['value']};
     }
     return <String, Object?>{};
   }
@@ -3754,6 +4518,20 @@ class BallEngine {
   num _toNum(BallValue v) {
     if (v is num) return v;
     throw BallRuntimeError('Cannot convert ${v.runtimeType} to num');
+  }
+
+  /// Convert a runtime value to an iterable list for for_in loops.
+  /// Handles List, Set, Map (iterates entries as {key, value} maps), and String.
+  List<Object?> _toIterable(BallValue v) {
+    if (v is List) return v;
+    if (v is Set) return v.toList();
+    if (v is Map) {
+      return v.entries
+          .map((e) => <String, Object?>{'key': e.key, 'value': e.value})
+          .toList();
+    }
+    if (v is String) return v.split('');
+    throw BallRuntimeError('for_in: value is not iterable (${v.runtimeType})');
   }
 
   bool _toBool(BallValue v) {

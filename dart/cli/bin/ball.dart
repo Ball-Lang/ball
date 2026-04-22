@@ -33,7 +33,7 @@ import 'package:yaml/yaml.dart';
 
 const _version = '0.1.0';
 
-void main(List<String> args) {
+Future<void> main(List<String> args) async {
   if (args.isEmpty) {
     _printUsage();
     exit(1);
@@ -52,7 +52,7 @@ void main(List<String> args) {
     case 'encode':
       _encode(rest);
     case 'run':
-      _run(rest);
+      await _run(rest);
     case 'round-trip':
       _roundTrip(rest);
     case 'audit':
@@ -345,7 +345,7 @@ void _encode(List<String> args) {
 
 // ── run ──────────────────────────────────────────────────
 
-void _run(List<String> args) {
+Future<void> _run(List<String> args) async {
   final positional = _positionalArgs(args);
   if (positional.isEmpty) {
     stderr.writeln('Usage: ball run <input.ball.json>');
@@ -354,7 +354,7 @@ void _run(List<String> args) {
 
   final program = _loadProgram(positional[0]);
   final engine = BallEngine(program);
-  engine.run();
+  await engine.run();
 }
 
 // ── round-trip ────────────────────────────────────────────

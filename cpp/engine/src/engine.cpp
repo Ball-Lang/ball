@@ -336,6 +336,21 @@ BallValue Engine::call_function_internal(const std::string& module_name,
         auto self_it = inp_map.find("self");
         if (self_it != inp_map.end()) {
             scope->bind("self", self_it->second);
+            // Only unpack fields and bind 'this'/'super' for class instance methods.
+            if (is_map(self_it->second)) {
+                const auto& self_map = std::any_cast<const BallMap&>(self_it->second);
+                auto type_it2 = self_map.find("__type__");
+                if (type_it2 != self_map.end() && is_string(type_it2->second)) {
+                    scope->bind("this", self_it->second);
+                    for (const auto& [k, v] : self_map) {
+                        if (k != "__type__" && k != "__super__" && k != "__methods__" && k != "__type_args__") {
+                            if (!scope->has(k)) scope->bind(k, v);
+                        }
+                    }
+                    auto super_it2 = self_map.find("__super__");
+                    if (super_it2 != self_map.end()) scope->bind("super", super_it2->second);
+                }
+            }
         }
     }
 
@@ -575,6 +590,10 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                 // Try ClassName.methodName in functions_ (key: "module.typeName.method")
                 std::string method_key = mod_part + "." + type_name + "." + call.function();
                 auto fit = functions_.find(method_key);
+                if (fit == functions_.end() && colon_idx == std::string::npos) {
+                    method_key = mod_part + "." + mod_part + ":" + type_name + "." + call.function();
+                    fit = functions_.find(method_key);
+                }
                 if (fit != functions_.end()) {
                     return call_function_internal(mod_part, *fit->second, std::move(input));
                 }
@@ -593,6 +612,10 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                             ? super_type : (s_mod + ":" + super_type);
                         std::string super_key = s_mod + "." + s_type + "." + call.function();
                         auto sfit = functions_.find(super_key);
+                        if (sfit == functions_.end() && s_colon == std::string::npos) {
+                            super_key = s_mod + "." + s_mod + ":" + super_type + "." + call.function();
+                            sfit = functions_.find(super_key);
+                        }
                         if (sfit != functions_.end()) {
                             return call_function_internal(s_mod, *sfit->second, std::move(input));
                         }
@@ -602,6 +625,14 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                 }
             }
             // Fall through to normal resolution if no method found on the type.
+        }
+        // Static method dispatch: self is a string (class name)
+        if (self_it != inp_map.end() && is_string(self_it->second)) {
+            const auto& cn = std::any_cast<const std::string&>(self_it->second);
+            std::string mk = current_module_ + "." + current_module_ + ":" + cn + "." + call.function();
+            auto fit2 = functions_.find(mk);
+            if (fit2 == functions_.end()) { mk = current_module_ + "." + cn + "." + call.function(); fit2 = functions_.find(mk); }
+            if (fit2 != functions_.end()) return call_function_internal(current_module_, *fit2->second, std::move(input));
         }
     }
 
@@ -952,13 +983,19 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                 if (fn_name == "truncate") return static_cast<int64_t>(d);
             }
 
-            // 'List' or 'String' as self (static methods like List.filled)
-            if (is_string(self_val) && std::any_cast<const std::string&>(self_val) == "List") {
-                if (fn_name == "filled") {
-                    auto n = to_int(extract_field(input, "arg0"));
-                    auto fill_val = extract_field(input, "arg1");
-                    BallList filled(n, fill_val);
-                    return filled;
+            if (is_string(self_val)) {
+                const auto& ss = std::any_cast<const std::string&>(self_val);
+                if (ss == "List") {
+                    if (fn_name == "filled") { auto n = to_int(extract_field(input, "arg0")); return BallList(n, extract_field(input, "arg1")); }
+                    if (fn_name == "generate") {
+                        auto n = to_int(extract_field(input, "arg0")); auto gf = extract_field(input, "arg1");
+                        if (is_function(gf)) { auto& cb = std::any_cast<BallFunction&>(gf); BallList r; for (int64_t i=0;i<n;++i) r.push_back(cb(BallValue(i))); return r; }
+                        return BallList{};
+                    }
+                }
+                if (ss == "Map" && fn_name == "fromEntries") {
+                    auto ev = extract_field(input, "arg0");
+                    if (is_list(ev)) { BallMap r; for (const auto& e : std::any_cast<const BallList&>(ev)) { if (is_map(e)) { const auto& em = std::any_cast<const BallMap&>(e); auto ki=em.find("key"); auto vi=em.find("value"); if(ki!=em.end()&&vi!=em.end()) r[ball::to_string(ki->second)]=vi->second; } } return r; }
                 }
             }
         }
@@ -1031,6 +1068,15 @@ BallValue Engine::eval_reference(const ball::v1::Reference& ref, std::shared_ptr
     // Built-in type names as values (for static method dispatch like List.filled).
     if (name == "List" || name == "Map" || name == "String" || name == "int" || name == "double") {
         return std::string(name);
+    }
+
+    // Check if the name is a class/type defined in typeDefs.
+    for (const auto& mod : program_.modules()) {
+        for (const auto& td : mod.type_defs()) {
+            if (td.name() == name || td.name() == current_module_ + ":" + name) return std::string(name);
+            auto c2 = td.name().find(':');
+            if (c2 != std::string::npos && td.name().substr(c2+1) == name) return std::string(name);
+        }
     }
 
     // Fall back to scope lookup (will throw with the normal error message).
@@ -1149,17 +1195,104 @@ BallValue Engine::eval_message_creation(const ball::v1::MessageCreation& msg, st
     for (const auto& pair : msg.fields())
         fields[pair.name()] = eval_expr(pair.value(), scope);
     if (!msg.type_name().empty()) {
-        fields["__type__"] = msg.type_name();
+        std::string type_name = msg.type_name();
+        // Extract type arguments if generic (e.g., Box<int>).
+        {
+            auto lt = type_name.find('<');
+            if (lt != std::string::npos && type_name.back() == '>') {
+                fields["__type_args__"] = type_name.substr(lt + 1, type_name.size() - lt - 2);
+                type_name = type_name.substr(0, lt);
+            }
+        }
+        fields["__type__"] = type_name;
+
+        // Initialize fields with defaults from TypeDef metadata.
+        for (const auto& mod2 : program_.modules()) {
+            for (const auto& td : mod2.type_defs()) {
+                if (td.name() != type_name && td.name() != msg.type_name()) continue;
+                if (!td.has_metadata()) continue;
+                auto flds_it = td.metadata().fields().find("fields");
+                if (flds_it == td.metadata().fields().end() ||
+                    flds_it->second.kind_case() != google::protobuf::Value::kListValue) continue;
+                for (const auto& fv : flds_it->second.list_value().values()) {
+                    if (fv.kind_case() != google::protobuf::Value::kStructValue) continue;
+                    auto fname_it = fv.struct_value().fields().find("name");
+                    if (fname_it == fv.struct_value().fields().end()) continue;
+                    const auto& fname = fname_it->second.string_value();
+                    if (fields.find(fname) != fields.end()) continue;
+                    auto init_it = fv.struct_value().fields().find("initializer");
+                    if (init_it != fv.struct_value().fields().end() && !init_it->second.string_value().empty()) {
+                        const auto& init_str = init_it->second.string_value();
+                        if (init_str == "[]") fields[fname] = BallList{};
+                        else if (init_str == "{}") fields[fname] = BallMap{};
+                        else if (init_str == "0") fields[fname] = static_cast<int64_t>(0);
+                        else if (init_str == "0.0") fields[fname] = 0.0;
+                        else if (init_str == "false") fields[fname] = false;
+                        else if (init_str == "true") fields[fname] = true;
+                        else fields[fname] = BallValue{};
+                    }
+                }
+                break;
+            }
+        }
+
+        // Look up constructor to map positional args to field names.
+        auto ctor_it = constructors_.find(type_name);
+        if (ctor_it == constructors_.end()) {
+            auto colon = type_name.find(':');
+            if (colon != std::string::npos)
+                ctor_it = constructors_.find(type_name.substr(colon + 1));
+        }
+        if (ctor_it != constructors_.end() && ctor_it->second.func->has_metadata()) {
+            auto pit = ctor_it->second.func->metadata().fields().find("params");
+            if (pit != ctor_it->second.func->metadata().fields().end() &&
+                pit->second.kind_case() == google::protobuf::Value::kListValue) {
+                int idx = 0;
+                for (const auto& pv : pit->second.list_value().values()) {
+                    if (pv.kind_case() != google::protobuf::Value::kStructValue) continue;
+                    auto name_it = pv.struct_value().fields().find("name");
+                    if (name_it == pv.struct_value().fields().end()) { ++idx; continue; }
+                    const std::string& pname = name_it->second.string_value();
+                    std::string arg_key = "arg" + std::to_string(idx);
+                    auto arg_it = fields.find(arg_key);
+                    if (arg_it != fields.end()) {
+                        BallValue val = std::move(arg_it->second);
+                        fields.erase(arg_it);
+                        fields[pname] = std::move(val);
+                    }
+                    ++idx;
+                }
+            }
+        }
+
         // Check for superclass via type definitions.
-        for (const auto& mod : program_.modules()) {
-            for (const auto& td : mod.type_defs()) {
-                if (td.name() == msg.type_name()) {
+        for (const auto& mod3 : program_.modules()) {
+            for (const auto& td : mod3.type_defs()) {
+                if (td.name() == msg.type_name() || td.name() == type_name) {
                     if (td.has_metadata()) {
                         auto sc_it = td.metadata().fields().find("superclass");
                         if (sc_it != td.metadata().fields().end() &&
                             !sc_it->second.string_value().empty()) {
                             BallMap super_fields;
                             super_fields["__type__"] = sc_it->second.string_value();
+                            // Copy matching fields from child to super
+                            for (const auto& mod4 : program_.modules()) {
+                                for (const auto& ptd : mod4.type_defs()) {
+                                    bool match = (ptd.name() == sc_it->second.string_value());
+                                    if (!match) {
+                                        auto c2 = ptd.name().find(':');
+                                        if (c2 != std::string::npos && ptd.name().substr(c2+1) == sc_it->second.string_value()) match = true;
+                                    }
+                                    if (!match) continue;
+                                    if (ptd.has_descriptor_()) {
+                                        for (const auto& pf : ptd.descriptor_().field()) {
+                                            auto cit = fields.find(pf.name());
+                                            if (cit != fields.end()) super_fields[pf.name()] = cit->second;
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
                             fields["__super__"] = super_fields;
                         }
                     }
@@ -1282,6 +1415,30 @@ BallValue Engine::eval_lambda(const ball::v1::FunctionDefinition& func, std::sha
             const auto& m = std::any_cast<const BallMap&>(input);
             for (const auto& [k, v] : m)
                 if (k != "__type__") lambda_scope->bind(k, v);
+            // If param names don't match map keys, map positionally.
+            if (!param_names.empty()) {
+                bool any_match = false;
+                for (const auto& pn : param_names) {
+                    if (m.find(pn) != m.end()) { any_match = true; break; }
+                }
+                if (!any_match) {
+                    // Try arg0/arg1
+                    bool has_args = false;
+                    for (size_t i = 0; i < param_names.size(); ++i) {
+                        auto ait = m.find("arg" + std::to_string(i));
+                        if (ait != m.end()) { lambda_scope->bind(param_names[i], ait->second); has_args = true; }
+                    }
+                    // Positional fallback
+                    if (!has_args && param_names.size() <= m.size()) {
+                        size_t idx = 0;
+                        for (const auto& [k, v] : m) {
+                            if (k == "__type__") continue;
+                            if (idx < param_names.size()) lambda_scope->bind(param_names[idx], v);
+                            ++idx;
+                        }
+                    }
+                }
+            }
         }
         if (!func_copy.has_body()) return {};
         auto result = eval_expr(func_copy.body(), lambda_scope);
@@ -1983,23 +2140,19 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
     if (ti->second.expr_case() == ball::v1::Expression::kFieldAccess) {
         auto obj = eval_expr(ti->second.field_access().object(), scope);
         if (is_map(obj)) {
-            auto& m = std::any_cast<BallMap&>(obj);
+            auto m = std::any_cast<BallMap>(obj);
             const auto& field_name = ti->second.field_access().field();
 
-            // Compound assignment on field access (e.g. obj.field ??= val).
             if (!op.empty() && op != "=") {
                 auto fit = m.find(field_name);
                 BallValue current = (fit != m.end()) ? fit->second : BallValue{};
-                auto computed = apply_compound_op(op, current, val);
-                m[field_name] = computed;
-                return computed;
+                val = apply_compound_op(op, current, val);
             }
 
-            // Check for a setter function before falling back to map write.
-            auto setter_result = try_setter_dispatch(m, field_name, val);
-            if (setter_result.has_value()) return *setter_result;
-
             m[field_name] = val;
+            if (ti->second.field_access().object().expr_case() == ball::v1::Expression::kReference) {
+                scope->set(ti->second.field_access().object().reference().name(), BallValue(m));
+            }
             return val;
         }
     }
@@ -2124,6 +2277,10 @@ std::optional<BallValue> Engine::try_getter_dispatch(const BallMap& object,
     // Check "module.typeName.fieldName" as a getter.
     std::string getter_key = mod_part + "." + type_name + "." + field_name;
     auto fit = functions_.find(getter_key);
+    if (fit == functions_.end() && colon_idx == std::string::npos) {
+        getter_key = mod_part + "." + mod_part + ":" + type_name + "." + field_name;
+        fit = functions_.find(getter_key);
+    }
     if (fit != functions_.end() && is_getter_fn(*fit->second)) {
         BallMap input;
         input["self"] = object;
@@ -2981,6 +3138,19 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         }
         return result;
     };
+
+    dispatch_["list_join"] = [](BallValue input, BallCallable) -> BallValue {
+        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto sep_val = extract_field(input, "separator");
+        std::string sep = sep_val.has_value() ? to_string(sep_val) : "";
+        std::string result;
+        for (size_t i = 0; i < list.size(); i++) {
+            if (i > 0) result += sep;
+            result += to_string(list[i]);
+        }
+        return result;
+    };
+
 
     // ── Map operations ──
 

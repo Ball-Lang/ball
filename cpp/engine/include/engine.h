@@ -278,6 +278,10 @@ private:
     std::string string_field_val(const std::unordered_map<std::string, ball::v1::Expression>& fields,
                                   const std::string& name);
     BallValue apply_compound_op(const std::string& op, BallValue current, BallValue val);
+
+    /// Convert a BallValue to string, calling user-defined toString methods
+    /// on typed objects if available.
+    std::string value_to_string(const BallValue& val);
 };
 
 // ================================================================

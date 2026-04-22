@@ -162,6 +162,28 @@ inline bool values_equal(const BallValue& a, const BallValue& b) {
         return std::any_cast<std::string>(a) == std::any_cast<std::string>(b);
     if (a.type() == typeid(bool) && b.type() == typeid(bool))
         return std::any_cast<bool>(a) == std::any_cast<bool>(b);
+    // Map equality: compare all key-value pairs recursively
+    if (a.type() == typeid(BallMap) && b.type() == typeid(BallMap)) {
+        const auto& ma = std::any_cast<const BallMap&>(a);
+        const auto& mb = std::any_cast<const BallMap&>(b);
+        if (ma.size() != mb.size()) return false;
+        for (const auto& [k, v] : ma) {
+            auto it = mb.find(k);
+            if (it == mb.end()) return false;
+            if (!values_equal(v, it->second)) return false;
+        }
+        return true;
+    }
+    // List equality
+    if (a.type() == typeid(BallList) && b.type() == typeid(BallList)) {
+        const auto& la = std::any_cast<const BallList&>(a);
+        const auto& lb = std::any_cast<const BallList&>(b);
+        if (la.size() != lb.size()) return false;
+        for (size_t i = 0; i < la.size(); ++i) {
+            if (!values_equal(la[i], lb[i])) return false;
+        }
+        return true;
+    }
     return false;
 }
 

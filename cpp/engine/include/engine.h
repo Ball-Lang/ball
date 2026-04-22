@@ -178,6 +178,10 @@ private:
 
     std::shared_ptr<Scope> global_scope_;
     std::string current_module_;
+public:
+    int64_t steps_ = 0;
+    int64_t max_steps_ = 0;
+private:
 
     std::vector<std::unique_ptr<BallModuleHandler>> handlers_;
 

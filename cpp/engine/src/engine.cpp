@@ -474,6 +474,9 @@ BallValue Engine::call_base_function(const std::string& module,
 // ================================================================
 
 BallValue Engine::eval_expr(const ball::v1::Expression& expr, std::shared_ptr<Scope> scope) {
+    if (max_steps_ > 0 && ++steps_ > max_steps_) {
+        throw std::runtime_error("Execution exceeded " + std::to_string(max_steps_) + " steps (possible infinite loop)");
+    }
     switch (expr.expr_case()) {
         case ball::v1::Expression::kCall:
             return eval_call(expr.call(), scope);

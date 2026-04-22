@@ -23,6 +23,7 @@ import 'dart:io';
 
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_base/capability_analyzer.dart';
+import 'package:ball_base/termination_analyzer.dart';
 import 'package:ball_compiler/compiler.dart';
 import 'package:ball_encoder/encoder.dart';
 import 'package:ball_encoder/package_encoder.dart';
@@ -456,6 +457,7 @@ void _audit(List<String> args) {
   String? inputPath;
   bool reachableOnly = false;
   bool exitCode = false;
+  bool checkTermination = true;
 
   for (var i = 0; i < args.length; i++) {
     final arg = args[i];
@@ -467,13 +469,17 @@ void _audit(List<String> args) {
       reachableOnly = true;
     } else if (arg == '--exit-code') {
       exitCode = true;
+    } else if (arg == '--no-check-termination') {
+      checkTermination = false;
+    } else if (arg == '--check-termination') {
+      checkTermination = true;
     } else if (!arg.startsWith('-')) {
       inputPath = arg;
     }
   }
 
   if (inputPath == null) {
-    stderr.writeln('Usage: ball audit <input.ball.json> [--deny fs,memory] [--exit-code] [--reachable-only] [--output report.json]');
+    stderr.writeln('Usage: ball audit <input.ball.json> [--deny fs,memory] [--exit-code] [--reachable-only] [--no-check-termination] [--output report.json]');
     exit(1);
   }
 
@@ -488,6 +494,17 @@ void _audit(List<String> args) {
     stderr.writeln('Report written to $outputPath');
   } else {
     stdout.writeln(formatCapabilityReport(report));
+  }
+
+  if (checkTermination) {
+    final termReport = analyzeTermination(program);
+    if (termReport.warnings.isNotEmpty) {
+      stdout.writeln();
+      stdout.writeln(formatTerminationReport(termReport));
+    }
+    if (exitCode && termReport.hasErrors) {
+      exit(1);
+    }
   }
 
   if (deny.isNotEmpty) {

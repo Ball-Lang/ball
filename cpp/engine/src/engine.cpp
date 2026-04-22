@@ -418,6 +418,18 @@ BallValue Engine::resolve_and_call(const std::string& module,
     if (mod_name == "std_convert" || mod_name == "std_time" || mod_name == "std_fs") {
         return call_base_function(mod_name, function, std::move(input));
     }
+    // Last resort: try std handlers (e.g. for `identical` called without module).
+    for (auto& handler : handlers_) {
+        if (handler->handles("std")) {
+            try {
+                return handler->call(function, std::move(input),
+                    [this](const std::string& m, const std::string& f, BallValue i) {
+                        return call_function(m, f, std::move(i));
+                    });
+            } catch (...) {}
+            break;
+        }
+    }
     throw BallRuntimeError("Function \"" + key + "\" not found");
 }
 
@@ -494,6 +506,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
         if (fn == "do_while") return eval_lazy_do_while(call, scope);
         if (fn == "switch") return eval_lazy_switch(call, scope);
         if (fn == "try") return eval_lazy_try(call, scope);
+        if (fn == "cascade" || fn == "null_aware_cascade") return eval_lazy_cascade(call, scope);
         if (fn == "and") return eval_short_circuit_and(call, scope);
         if (fn == "or") return eval_short_circuit_or(call, scope);
         if (fn == "return") return eval_return(call, scope);
@@ -1265,39 +1278,51 @@ BallValue Engine::eval_message_creation(const ball::v1::MessageCreation& msg, st
             }
         }
 
-        // Check for superclass via type definitions.
-        for (const auto& mod3 : program_.modules()) {
-            for (const auto& td : mod3.type_defs()) {
-                if (td.name() == msg.type_name() || td.name() == type_name) {
-                    if (td.has_metadata()) {
-                        auto sc_it = td.metadata().fields().find("superclass");
-                        if (sc_it != td.metadata().fields().end() &&
-                            !sc_it->second.string_value().empty()) {
-                            BallMap super_fields;
-                            super_fields["__type__"] = sc_it->second.string_value();
-                            // Copy matching fields from child to super
-                            for (const auto& mod4 : program_.modules()) {
-                                for (const auto& ptd : mod4.type_defs()) {
-                                    bool match = (ptd.name() == sc_it->second.string_value());
-                                    if (!match) {
-                                        auto c2 = ptd.name().find(':');
-                                        if (c2 != std::string::npos && ptd.name().substr(c2+1) == sc_it->second.string_value()) match = true;
-                                    }
-                                    if (!match) continue;
-                                    if (ptd.has_descriptor_()) {
-                                        for (const auto& pf : ptd.descriptor_().field()) {
-                                            auto cit = fields.find(pf.name());
-                                            if (cit != fields.end()) super_fields[pf.name()] = cit->second;
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                            fields["__super__"] = super_fields;
+        // Check for superclass via type definitions. Build __super__ chain
+        // iteratively for multi-level inheritance.
+        {
+            std::string cur_type = type_name;
+            BallMap* super_target = &fields;
+            for (int depth = 0; depth < 20; ++depth) {
+                std::string sc_name;
+                for (const auto& mod3 : program_.modules()) {
+                    for (const auto& td3 : mod3.type_defs()) {
+                        bool m3 = (td3.name() == cur_type);
+                        if (!m3) { auto c=td3.name().find(':'); if(c!=std::string::npos && td3.name().substr(c+1)==cur_type) m3=true; }
+                        if (!m3) { auto c=cur_type.find(':'); if(c!=std::string::npos && cur_type.substr(c+1)==td3.name()) m3=true; }
+                        if (!m3) continue;
+                        if (td3.has_metadata()) {
+                            auto sc_it = td3.metadata().fields().find("superclass");
+                            if (sc_it != td3.metadata().fields().end() && !sc_it->second.string_value().empty())
+                                sc_name = sc_it->second.string_value();
                         }
+                        break;
                     }
-                    break;
+                    if (!sc_name.empty()) break;
                 }
+                if (sc_name.empty()) break;
+                std::string sc_qual = sc_name;
+                BallMap super_fields;
+                for (const auto& mod4 : program_.modules()) {
+                    for (const auto& ptd : mod4.type_defs()) {
+                        bool pm = (ptd.name() == sc_name);
+                        if (!pm) { auto c2=ptd.name().find(':'); if(c2!=std::string::npos && ptd.name().substr(c2+1)==sc_name) { pm=true; sc_qual=ptd.name(); } }
+                        if (!pm) continue;
+                        super_fields["__type__"] = sc_qual;
+                        if (ptd.has_descriptor_()) {
+                            for (const auto& pf : ptd.descriptor_().field()) {
+                                auto cit = fields.find(pf.name());
+                                if (cit != fields.end()) super_fields[pf.name()] = cit->second;
+                            }
+                        }
+                        break;
+                    }
+                    if (!super_fields.empty()) break;
+                }
+                if (super_fields.empty()) super_fields["__type__"] = sc_name;
+                (*super_target)["__super__"] = BallValue(super_fields);
+                super_target = &std::any_cast<BallMap&>((*super_target)["__super__"]);
+                cur_type = sc_qual;
             }
         }
     }
@@ -1872,6 +1897,32 @@ BallValue Engine::eval_lazy_try(const ball::v1::FunctionCall& call, std::shared_
     }
     if (finally_it != fields.end()) eval_expr(finally_it->second, scope);
     return result;
+}
+
+// ================================================================
+// Cascade evaluation
+// ================================================================
+
+BallValue Engine::eval_lazy_cascade(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope) {
+    auto fields = lazy_fields(call);
+    auto target_it = fields.find("target");
+    if (target_it == fields.end()) return {};
+    auto target = eval_expr(target_it->second, scope);
+    if (call.function() == "null_aware_cascade" && !target.has_value()) return {};
+    auto cascade_scope = std::make_shared<Scope>(scope);
+    cascade_scope->bind("__cascade_self__", target);
+    auto sections_it = fields.find("sections");
+    if (sections_it != fields.end()) {
+        const auto& se = sections_it->second;
+        if (se.expr_case() == ball::v1::Expression::kLiteral &&
+            se.literal().value_case() == ball::v1::Literal::kListValue) {
+            for (const auto& section : se.literal().list_value().elements())
+                eval_expr(section, cascade_scope);
+        } else {
+            eval_expr(se, cascade_scope);
+        }
+    }
+    return target;
 }
 
 // ================================================================
@@ -2585,6 +2636,7 @@ Engine::build_std_dispatch() {
             return !object_type_matches(v, t);
         }},
         {"as", [](BallValue i) -> BallValue { return extract_unary(i); }},
+        {"identical", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return values_equal(l,r); }},
         {"index", [](BallValue i) -> BallValue {
             auto tgt=extract_field(i,"target"); auto idx=extract_field(i,"index");
             if(is_list(tgt)&&(is_int(idx)||is_double(idx))) return std::any_cast<BallList>(tgt)[to_int(idx)];
@@ -2884,16 +2936,19 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
 
     dispatch_["list_insert"] = [](BallValue input, BallCallable) -> BallValue {
         auto list = std::any_cast<BallList>(extract_field(input, "list"));
-        auto idx = std::any_cast<int64_t>(extract_field(input, "index"));
+        auto idx = to_int(extract_field(input, "index"));
         list.insert(list.begin() + idx, extract_field(input, "value"));
         return list;
     };
 
     dispatch_["list_remove_at"] = [](BallValue input, BallCallable) -> BallValue {
         auto list = std::any_cast<BallList>(extract_field(input, "list"));
-        auto idx = std::any_cast<int64_t>(extract_field(input, "index"));
+        auto idx = to_int(extract_field(input, "index"));
+        if (idx < 0 || static_cast<size_t>(idx) >= list.size())
+            throw BallRuntimeError("list_remove_at: index out of range");
+        auto removed = list[idx];
         list.erase(list.begin() + idx);
-        return list;
+        return removed;
     };
 
     dispatch_["list_get"] = [](BallValue input, BallCallable) -> BallValue {
@@ -3074,9 +3129,12 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
 
     dispatch_["list_slice"] = [](BallValue input, BallCallable) -> BallValue {
         auto list = std::any_cast<BallList>(extract_field(input, "list"));
-        auto start = std::any_cast<int64_t>(extract_field(input, "start"));
+        auto start = to_int(extract_field(input, "start"));
         auto end_val = extract_field(input, "end");
-        int64_t end = end_val.has_value() ? std::any_cast<int64_t>(end_val) : static_cast<int64_t>(list.size());
+        int64_t end = end_val.has_value() ? to_int(end_val) : static_cast<int64_t>(list.size());
+        if (start < 0) start = 0;
+        if (end > static_cast<int64_t>(list.size())) end = static_cast<int64_t>(list.size());
+        if (start > end) return BallList{};
         return BallList(list.begin() + start, list.begin() + end);
     };
 
@@ -3402,6 +3460,16 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
 
     dispatch_["set_to_list"] = [](BallValue input, BallCallable) -> BallValue {
         return std::any_cast<BallList>(extract_field(input, "set"));
+    };
+    dispatch_["compare_to"] = [](BallValue input, BallCallable) -> BallValue {
+        auto [l,r] = extract_binary(input);
+        if (is_string(l) && is_string(r)) {
+            const auto& ls = std::any_cast<const std::string&>(l);
+            const auto& rs = std::any_cast<const std::string&>(r);
+            return static_cast<int64_t>(ls < rs ? -1 : (ls > rs ? 1 : 0));
+        }
+        double ld = to_num(l), rd = to_num(r);
+        return static_cast<int64_t>(ld < rd ? -1 : (ld > rd ? 1 : 0));
     };
 }
 

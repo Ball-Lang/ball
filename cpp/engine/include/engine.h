@@ -222,6 +222,7 @@ private:
     BallValue eval_lazy_do_while(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_lazy_switch(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_lazy_try(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_lazy_cascade(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_short_circuit_and(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_short_circuit_or(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_return(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);

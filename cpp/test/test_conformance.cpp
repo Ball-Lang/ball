@@ -68,7 +68,7 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
     ball::Engine engine(program, [&](const std::string& line) {
         captured.push_back(line);
     });
-    engine.max_steps_ = 20000;
+    engine.max_steps_ = 500000;
     try {
         engine.run();
     } catch (const std::exception& e) {

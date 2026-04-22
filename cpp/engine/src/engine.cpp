@@ -346,7 +346,7 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                         if (iv.kind_case() != google::protobuf::Value::kStructValue) continue;
                         auto fname_it = iv.struct_value().fields().find("name");
                         auto fval_it = iv.struct_value().fields().find("value");
-                        if (fname_it == fname_it || fval_it == iv.struct_value().fields().end()) continue;
+                        if (fname_it == iv.struct_value().fields().end() || fval_it == iv.struct_value().fields().end()) continue;
                         const auto& fname = fname_it->second.string_value();
                         const auto& fval_str = fval_it->second.string_value();
 
@@ -482,7 +482,11 @@ BallValue Engine::call_function_internal(const std::string& module_name,
     }
 
     if (!func.input_type().empty() && input.has_value()) {
-        scope->bind("input", input);
+        // Don't shadow top-level "input" variable when the function has no params
+        // (the function accesses global state, not its parameter).
+        if (!params.empty() || !global_scope_->has("input")) {
+            scope->bind("input", input);
+        }
     }
 
     // Bind 'self' for instance method calls so `this` references resolve.
@@ -509,10 +513,71 @@ BallValue Engine::call_function_internal(const std::string& module_name,
         }
     }
 
+    // Set up reference writeback info for list/map parameters so that mutations
+    // inside the function propagate back to the caller's scope.
+    auto ref_info = std::move(pending_ref_info_);
+    pending_ref_info_.reset();
+    // Build a map from param name -> caller variable name
+    std::unordered_map<std::string, std::pair<std::string, std::shared_ptr<Scope>>> param_refs;
+    if (ref_info) {
+        for (size_t i = 0; i < params.size(); ++i) {
+            // Check named field match
+            auto named_it = ref_info->field_to_var.find(params[i]);
+            if (named_it != ref_info->field_to_var.end()) {
+                param_refs[params[i]] = {named_it->second, ref_info->caller_scope};
+                continue;
+            }
+            // Check argN match
+            auto arg_it = ref_info->field_to_var.find("arg" + std::to_string(i));
+            if (arg_it != ref_info->field_to_var.end()) {
+                param_refs[params[i]] = {arg_it->second, ref_info->caller_scope};
+            }
+        }
+    }
+
+    // Capture the self variable name for write-back after method execution
+    std::string self_var_name;
+    std::shared_ptr<Scope> self_caller_scope;
+    if (ref_info && is_map(input)) {
+        auto sit = ref_info->field_to_var.find("self");
+        if (sit != ref_info->field_to_var.end()) {
+            self_var_name = sit->second;
+            self_caller_scope = ref_info->caller_scope;
+        }
+    }
+
     auto result = eval_expr(func.body(), scope);
     current_module_ = prev_module;
     if (is_flow(result) && as_flow(result).kind == "return") {
         result = as_flow(result).value;
+    }
+
+    // Write back list/map parameters that were modified during execution.
+    for (const auto& [param_name, ref_pair] : param_refs) {
+        if (scope->has(param_name) && ref_pair.second) {
+            auto new_val = scope->lookup(param_name);
+            if (is_list(new_val) || is_map(new_val)) {
+                ref_pair.second->set(ref_pair.first, new_val);
+            }
+        }
+    }
+
+    // Write back modified self fields for instance methods.
+    // This emulates pass-by-reference for object mutations in methods.
+    if (!self_var_name.empty() && self_caller_scope && scope->has("self")) {
+        auto self_val = scope->lookup("self");
+        if (is_map(self_val)) {
+            auto self_map = std::any_cast<BallMap>(self_val);
+            // Write back any fields that were modified in the method's scope
+            for (auto& [k, v] : self_map) {
+                if (k == "__type__" || k == "__super__" || k == "__methods__" || k == "__type_args__") continue;
+                if (scope->has(k)) {
+                    auto new_val = scope->lookup(k);
+                    self_map[k] = new_val;
+                }
+            }
+            self_caller_scope->set(self_var_name, BallValue(self_map));
+        }
     }
 
     // Check for async/generator metadata
@@ -680,6 +745,105 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
         }
     }
 
+    // list_pop/list_remove_last in-place mutation: pop element and write back.
+    if ((mod == "std" || mod == "dart_std" || mod == "std_collections") &&
+        (fn == "list_pop" || fn == "list_remove_last") &&
+        call.has_input() &&
+        call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+        for (const auto& f : call.input().message_creation().fields()) {
+            if (f.name() == "list" &&
+                f.value().expr_case() == ball::v1::Expression::kReference) {
+                const auto& var_name = f.value().reference().name();
+                if (scope->has(var_name)) {
+                    auto val = scope->lookup(var_name);
+                    if (is_list(val)) {
+                        auto lst = std::any_cast<BallList>(val);
+                        if (!lst.empty()) {
+                            auto removed = lst.back();
+                            lst.pop_back();
+                            scope->set(var_name, BallValue(lst));
+                            return removed;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // list_push/list_add in-place mutation: when the "list" argument comes from
+    // an index expression (e.g. list_push(list=index(groups, key), value=n)),
+    // we need to push to the list and write back to the indexed container.
+    if ((mod == "std" || mod == "dart_std" || mod == "std_collections") &&
+        (fn == "list_push" || fn == "list_add") &&
+        call.has_input() &&
+        call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+        const ball::v1::Expression* list_expr = nullptr;
+        const ball::v1::Expression* value_expr = nullptr;
+        for (const auto& f : call.input().message_creation().fields()) {
+            if (f.name() == "list") list_expr = &f.value();
+            else if (f.name() == "value") value_expr = &f.value();
+        }
+        if (list_expr && value_expr) {
+            // Check if list comes from index(target, idx) or null_check(index(...))
+            const ball::v1::Expression* index_expr = nullptr;
+            if (list_expr->expr_case() == ball::v1::Expression::kCall &&
+                list_expr->call().function() == "index") {
+                index_expr = list_expr;
+            } else if (list_expr->expr_case() == ball::v1::Expression::kCall &&
+                       list_expr->call().function() == "null_check" &&
+                       list_expr->call().has_input()) {
+                // Unwrap null_check(index(...))
+                const auto& nc_input = list_expr->call().input();
+                if (nc_input.expr_case() == ball::v1::Expression::kMessageCreation) {
+                    for (const auto& nf : nc_input.message_creation().fields()) {
+                        if (nf.name() == "value" &&
+                            nf.value().expr_case() == ball::v1::Expression::kCall &&
+                            nf.value().call().function() == "index") {
+                            index_expr = &nf.value();
+                            break;
+                        }
+                    }
+                }
+            }
+            if (index_expr) {
+                auto idx_fields_map = lazy_fields(index_expr->call());
+                auto idx_target_it = idx_fields_map.find("target");
+                auto idx_index_it = idx_fields_map.find("index");
+                if (idx_target_it != idx_fields_map.end() && idx_index_it != idx_fields_map.end() &&
+                    idx_target_it->second.expr_case() == ball::v1::Expression::kReference) {
+                    const auto& container_name = idx_target_it->second.reference().name();
+                    auto idx_val = eval_expr(idx_index_it->second, scope);
+                    auto push_val = eval_expr(*value_expr, scope);
+                    auto container = scope->lookup(container_name);
+                    if (is_map(container)) {
+                        auto& m = std::any_cast<BallMap&>(container);
+                        auto key = ball::to_string(idx_val);
+                        BallList lst;
+                        auto it = m.find(key);
+                        if (it != m.end() && is_list(it->second)) {
+                            lst = std::any_cast<BallList>(it->second);
+                        }
+                        lst.push_back(push_val);
+                        m[key] = BallValue(lst);
+                        scope->set(container_name, container);
+                        return BallValue(lst);
+                    }
+                    if (is_list(container)) {
+                        auto& lst_outer = std::any_cast<BallList&>(container);
+                        auto i = to_int(idx_val);
+                        if (i >= 0 && static_cast<size_t>(i) < lst_outer.size() && is_list(lst_outer[i])) {
+                            auto inner = std::any_cast<BallList>(lst_outer[i]);
+                            inner.push_back(push_val);
+                            lst_outer[i] = BallValue(inner);
+                            scope->set(container_name, container);
+                            return BallValue(inner);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // map_create: special handling for repeated "entry" fields that get lost in
     // BallMap. We read from the raw proto to collect all entries properly.
     if ((mod == "std" || mod == "dart_std" || mod == "std_collections") && fn == "map_create") {
@@ -778,6 +942,30 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
 
     BallValue input = call.has_input() ? eval_expr(call.input(), scope) : BallValue{};
 
+    // Helper to set up ref info for method calls on objects
+    auto setup_method_ref_info = [&]() {
+        pending_ref_info_.reset();
+        if (call.has_input() &&
+            call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+            PendingRefInfo info;
+            info.caller_scope = scope;
+            bool has_refs = false;
+            for (const auto& f : call.input().message_creation().fields()) {
+                if (f.value().expr_case() == ball::v1::Expression::kReference) {
+                    const auto& ref_name = f.value().reference().name();
+                    if (scope->has(ref_name)) {
+                        auto val = scope->lookup(ref_name);
+                        if (is_list(val) || is_map(val)) {
+                            info.field_to_var[f.name()] = ref_name;
+                            has_refs = true;
+                        }
+                    }
+                }
+            }
+            if (has_refs) pending_ref_info_ = std::move(info);
+        }
+    };
+
     // Method call on object (has 'self' field) — instance method dispatch.
     if (is_map(input)) {
         const auto& inp_map = std::any_cast<const BallMap&>(input);
@@ -800,6 +988,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                     fit = functions_.find(method_key);
                 }
                 if (fit != functions_.end()) {
+                    setup_method_ref_info();
                     return call_function_internal(mod_part, *fit->second, std::move(input));
                 }
                 // Walk superclass chain.
@@ -822,11 +1011,45 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                             sfit = functions_.find(super_key);
                         }
                         if (sfit != functions_.end()) {
+                            setup_method_ref_info();
                             return call_function_internal(s_mod, *sfit->second, std::move(input));
                         }
                     }
                     auto ss = sm.find("__super__");
                     super_obj = (ss != sm.end()) ? ss->second : BallValue{};
+                }
+                // Walk mixins: check TypeDef metadata for mixin list.
+                for (const auto& mod_iter : program_.modules()) {
+                    for (const auto& td : mod_iter.type_defs()) {
+                        bool type_matches = (td.name() == type_name);
+                        if (!type_matches) {
+                            auto c = td.name().find(':');
+                            if (c != std::string::npos && td.name().substr(c+1) == type_name) type_matches = true;
+                            auto c2 = type_name.find(':');
+                            if (c2 != std::string::npos && type_name.substr(c2+1) == td.name()) type_matches = true;
+                        }
+                        if (!type_matches) continue;
+                        if (!td.has_metadata()) continue;
+                        auto mixins_it = td.metadata().fields().find("mixins");
+                        if (mixins_it == td.metadata().fields().end() ||
+                            mixins_it->second.kind_case() != google::protobuf::Value::kListValue) continue;
+                        for (const auto& mv : mixins_it->second.list_value().values()) {
+                            if (mv.kind_case() != google::protobuf::Value::kStringValue) continue;
+                            const auto& mixin_name = mv.string_value();
+                            // Try qualified and unqualified mixin names
+                            std::string mixin_key = mod_part + "." + mod_part + ":" + mixin_name + "." + call.function();
+                            auto mfit = functions_.find(mixin_key);
+                            if (mfit == functions_.end()) {
+                                mixin_key = mod_part + "." + mixin_name + "." + call.function();
+                                mfit = functions_.find(mixin_key);
+                            }
+                            if (mfit != functions_.end()) {
+                                setup_method_ref_info();
+                                return call_function_internal(mod_part, *mfit->second, std::move(input));
+                            }
+                        }
+                        break;
+                    }
                 }
             }
             // StringBuffer method handling on typed objects
@@ -889,7 +1112,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
             std::string mk = current_module_ + "." + current_module_ + ":" + cn + "." + call.function();
             auto fit2 = functions_.find(mk);
             if (fit2 == functions_.end()) { mk = current_module_ + "." + cn + "." + call.function(); fit2 = functions_.find(mk); }
-            if (fit2 != functions_.end()) return call_function_internal(current_module_, *fit2->second, std::move(input));
+            if (fit2 != functions_.end()) { setup_method_ref_info(); return call_function_internal(current_module_, *fit2->second, std::move(input)); }
         }
     }
 
@@ -1321,6 +1544,11 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                 const auto& ss = std::any_cast<const std::string&>(self_val);
                 if (ss == "List") {
                     if (fn_name == "filled") { auto n = to_int(extract_field(input, "arg0")); return BallList(n, extract_field(input, "arg1")); }
+                    if (fn_name == "of" || fn_name == "from") {
+                        auto src = extract_field(input, "arg0");
+                        if (is_list(src)) return std::any_cast<BallList>(src); // copy
+                        return BallList{};
+                    }
                     if (fn_name == "generate") {
                         auto n = to_int(extract_field(input, "arg0")); auto gf = extract_field(input, "arg1");
                         if (is_function(gf)) { auto& cb = std::any_cast<BallFunction&>(gf); BallList r; for (int64_t i=0;i<n;++i) r.push_back(cb(BallValue(i))); return r; }
@@ -1349,6 +1577,29 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                 }
             }
         }
+    }
+
+    // Set up reference info for list/map arguments so mutations inside the
+    // called function propagate back to the caller's scope variables.
+    pending_ref_info_.reset();
+    if (call.has_input() &&
+        call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+        PendingRefInfo info;
+        info.caller_scope = scope;
+        bool has_refs = false;
+        for (const auto& f : call.input().message_creation().fields()) {
+            if (f.value().expr_case() == ball::v1::Expression::kReference) {
+                const auto& ref_name = f.value().reference().name();
+                if (scope->has(ref_name)) {
+                    auto val = scope->lookup(ref_name);
+                    if (is_list(val) || is_map(val)) {
+                        info.field_to_var[f.name()] = ref_name;
+                        has_refs = true;
+                    }
+                }
+            }
+        }
+        if (has_refs) pending_ref_info_ = std::move(info);
     }
 
     return resolve_and_call(call.module(), call.function(), std::move(input));
@@ -1451,6 +1702,31 @@ BallValue Engine::eval_reference(const ball::v1::Reference& ref, std::shared_ptr
                 return call_function_internal(mod_name, *fdef, std::move(input));
             };
             return closure;
+        }
+    }
+
+    // Try getter dispatch or direct field access on self/this (for accessing
+    // properties in methods). This handles both getter functions and plain fields.
+    if (scope->has("self") || scope->has("this")) {
+        auto self_val = scope->has("self") ? scope->lookup("self") : scope->lookup("this");
+        if (is_map(self_val)) {
+            const auto& self_map = std::any_cast<const BallMap&>(self_val);
+            // Try getter dispatch first
+            auto getter_result = try_getter_dispatch(self_map, name);
+            if (getter_result.has_value()) return *getter_result;
+            // Try direct field access on self
+            auto field_it = self_map.find(name);
+            if (field_it != self_map.end()) return field_it->second;
+            // Walk __super__ chain for inherited fields
+            auto super_it = self_map.find("__super__");
+            BallValue super_obj = (super_it != self_map.end()) ? super_it->second : BallValue{};
+            while (is_map(super_obj)) {
+                const auto& sm = std::any_cast<const BallMap&>(super_obj);
+                auto sf = sm.find(name);
+                if (sf != sm.end()) return sf->second;
+                auto ss = sm.find("__super__");
+                super_obj = (ss != sm.end()) ? ss->second : BallValue{};
+            }
         }
     }
 
@@ -1597,6 +1873,38 @@ BallValue Engine::eval_message_creation(const ball::v1::MessageCreation& msg, st
         fields[pair.name()] = eval_expr(pair.value(), scope);
     if (!msg.type_name().empty()) {
         std::string type_name = msg.type_name();
+        // Check if the type_name is actually a function (e.g., method calls encoded
+        // as MessageCreation). If so, call the function instead of creating a message.
+        // This handles cases where _gcd() is encoded as messageCreation(typeName: "main:_gcd").
+        {
+            auto try_as_function = [&](const std::string& key) -> std::optional<BallValue> {
+                auto fn_it = functions_.find(key);
+                if (fn_it == functions_.end() || !fn_it->second->has_body()) return std::nullopt;
+                bool is_ctor = false;
+                if (fn_it->second->has_metadata()) {
+                    auto kind_it = fn_it->second->metadata().fields().find("kind");
+                    if (kind_it != fn_it->second->metadata().fields().end() &&
+                        kind_it->second.string_value() == "constructor") is_ctor = true;
+                }
+                if (is_ctor) return std::nullopt;
+                return call_function_internal(current_module_, *fn_it->second, BallValue(fields));
+            };
+            // Try direct match
+            auto result = try_as_function(current_module_ + "." + type_name);
+            if (result) return *result;
+            // Try searching all functions for a method matching this name
+            for (const auto& [fkey, fdef] : functions_) {
+                // Check if fkey ends with ".type_name" (e.g., "main.main:Fraction._gcd" for type_name "main:_gcd")
+                auto bare_type = type_name;
+                auto tc = bare_type.find(':');
+                if (tc != std::string::npos) bare_type = bare_type.substr(tc + 1);
+                if (fkey.size() > bare_type.size() && fkey.substr(fkey.size() - bare_type.size()) == bare_type &&
+                    fkey[fkey.size() - bare_type.size() - 1] == '.') {
+                    result = try_as_function(fkey);
+                    if (result) return *result;
+                }
+            }
+        }
         // Extract type arguments if generic (e.g., Box<int>).
         {
             auto lt = type_name.find('<');
@@ -1889,11 +2197,35 @@ std::string Engine::string_field_val(
 }
 
 BallValue Engine::eval_init_string_expr(const std::string& expr, std::shared_ptr<Scope> scope) {
-    // Evaluate a mini expression from a legacy for-loop init string.
-    // Handles: variable, variable.field, expr +/- literal, expr +/- variable
+    // Evaluate a mini expression from initializer strings.
+    // Handles: variable, variable.field, variable[index], expr +/- literal, expr +/- variable
 
     // Try simple variable first.
     if (scope->has(expr)) return scope->lookup(expr);
+
+    // Try "var[index]" pattern (array indexing).
+    {
+        auto bracket = expr.find('[');
+        if (bracket != std::string::npos && expr.back() == ']') {
+            auto var_name = expr.substr(0, bracket);
+            auto idx_str = expr.substr(bracket + 1, expr.size() - bracket - 2);
+            if (scope->has(var_name)) {
+                auto container = scope->lookup(var_name);
+                auto idx_val = eval_init_string_expr(idx_str, scope);
+                if (is_list(container) && (is_int(idx_val) || is_double(idx_val))) {
+                    auto& lst = std::any_cast<const BallList&>(container);
+                    auto i = to_int(idx_val);
+                    if (i >= 0 && static_cast<size_t>(i) < lst.size()) return lst[i];
+                }
+                if (is_map(container)) {
+                    const auto& m = std::any_cast<const BallMap&>(container);
+                    auto key = ball::to_string(idx_val);
+                    auto it = m.find(key);
+                    if (it != m.end()) return it->second;
+                }
+            }
+        }
+    }
 
     // Try "a.field" pattern.
     static const std::regex dot_pat(R"(^(\w+)\.(\w+)$)");
@@ -2208,7 +2540,11 @@ BallValue Engine::eval_lazy_switch(const ball::v1::FunctionCall& call, std::shar
                     }
                     auto body_scope = std::make_shared<Scope>(scope);
                     for (auto& [k, v] : bindings) body_scope->bind(k, v);
-                    return eval_expr(*bi->second, body_scope);
+                    auto body_result = eval_expr(*bi->second, body_scope);
+                    // Consume unlabeled break (switch break, not loop break)
+                    if (is_flow(body_result) && as_flow(body_result).kind == "break" && as_flow(body_result).label.empty())
+                        return {};
+                    return body_result;
                 }
             }
             continue;
@@ -2216,10 +2552,21 @@ BallValue Engine::eval_lazy_switch(const ball::v1::FunctionCall& call, std::shar
         // Value matching
         auto vi = cf.find("value");
         if (vi != cf.end() && (values_equal(eval_expr(*vi->second, scope), sub_val) || fall_through)) {
-            auto bi = cf.find("body"); if (bi != cf.end()) return eval_expr(*bi->second, scope);
+            auto bi = cf.find("body");
+            if (bi != cf.end()) {
+                auto body_result = eval_expr(*bi->second, scope);
+                if (is_flow(body_result) && as_flow(body_result).kind == "break" && as_flow(body_result).label.empty())
+                    return {};
+                return body_result;
+            }
         }
     }
-    if (def) return eval_expr(*def, scope);
+    if (def) {
+        auto def_result = eval_expr(*def, scope);
+        if (is_flow(def_result) && as_flow(def_result).kind == "break" && as_flow(def_result).label.empty())
+            return {};
+        return def_result;
+    }
     return {};
 }
 
@@ -2318,7 +2665,16 @@ BallValue Engine::eval_lazy_cascade(const ball::v1::FunctionCall& call, std::sha
         }
     }
     // Return updated __cascade_self__ (sections may have mutated it)
-    return cascade_scope->lookup("__cascade_self__");
+    auto result = cascade_scope->lookup("__cascade_self__");
+    // Write back to the original variable if the target was a reference.
+    // This emulates reference semantics for cascade mutations.
+    if (target_it->second.expr_case() == ball::v1::Expression::kReference) {
+        const auto& var_name = target_it->second.reference().name();
+        if (scope->has(var_name)) {
+            scope->set(var_name, result);
+        }
+    }
+    return result;
 }
 
 // ================================================================
@@ -2621,6 +2977,56 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
     auto fields = lazy_fields(call);
     auto ti = fields.find("target"), vi = fields.find("value");
     if (ti == fields.end() || vi == fields.end()) return {};
+
+    // Special case: assign(target: var, value: list_remove_at/list_pop/list_remove_last(list: var, ...))
+    // When the list argument references the same variable as the target, perform in-place mutation:
+    // modify the list, write it back, but return the removed element (don't overwrite target with it).
+    if (ti->second.expr_case() == ball::v1::Expression::kReference &&
+        vi->second.expr_case() == ball::v1::Expression::kCall) {
+        const auto& val_call = vi->second.call();
+        const auto& val_fn = val_call.function();
+        if (val_fn == "list_remove_at" || val_fn == "list_pop" || val_fn == "list_remove_last") {
+            const auto& target_name = ti->second.reference().name();
+            // Check if the list argument references the same variable
+            if (val_call.has_input() &&
+                val_call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+                for (const auto& f : val_call.input().message_creation().fields()) {
+                    if (f.name() == "list" &&
+                        f.value().expr_case() == ball::v1::Expression::kReference &&
+                        f.value().reference().name() == target_name) {
+                        // In-place mutation: get list, remove element, write back list, return removed
+                        auto list_val = scope->lookup(target_name);
+                        if (is_list(list_val)) {
+                            auto lst = std::any_cast<BallList>(list_val);
+                            BallValue removed;
+                            if (val_fn == "list_remove_at") {
+                                int64_t idx = 0;
+                                for (const auto& f2 : val_call.input().message_creation().fields()) {
+                                    if (f2.name() == "index") {
+                                        idx = to_int(eval_expr(f2.value(), scope));
+                                        break;
+                                    }
+                                }
+                                if (idx >= 0 && static_cast<size_t>(idx) < lst.size()) {
+                                    removed = lst[idx];
+                                    lst.erase(lst.begin() + idx);
+                                }
+                            } else { // list_pop or list_remove_last
+                                if (!lst.empty()) {
+                                    removed = lst.back();
+                                    lst.pop_back();
+                                }
+                            }
+                            scope->set(target_name, BallValue(lst));
+                            return removed;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     auto val = eval_expr(vi->second, scope);
     auto op = string_field_val(fields, "op");
     if (ti->second.expr_case() == ball::v1::Expression::kReference) {
@@ -2749,6 +3155,57 @@ BallValue Engine::eval_inc_dec(const ball::v1::FunctionCall& call, std::shared_p
         int64_t updated = is_inc ? current + 1 : current - 1;
         scope->set(name, updated);
         return is_pre ? updated : current;
+    }
+    // Handle index expressions: count[x]++ etc.
+    if (vi->second.expr_case() == ball::v1::Expression::kCall &&
+        (vi->second.call().module() == "std" || vi->second.call().module().empty()) &&
+        vi->second.call().function() == "index") {
+        auto idx_fields_map = lazy_fields(vi->second.call());
+        auto iti = idx_fields_map.find("target");
+        auto ixi = idx_fields_map.find("index");
+        if (iti != idx_fields_map.end() && ixi != idx_fields_map.end() &&
+            iti->second.expr_case() == ball::v1::Expression::kReference) {
+            const auto& var_name = iti->second.reference().name();
+            auto idx = eval_expr(ixi->second, scope);
+            auto container = scope->lookup(var_name);
+            if (is_list(container) && (is_int(idx) || is_double(idx))) {
+                auto lst = std::any_cast<BallList>(container);
+                auto i = to_int(idx);
+                if (i >= 0 && static_cast<size_t>(i) < lst.size()) {
+                    int64_t current = to_int(lst[i]);
+                    int64_t updated = is_inc ? current + 1 : current - 1;
+                    lst[i] = BallValue(updated);
+                    scope->set(var_name, BallValue(lst));
+                    return is_pre ? updated : current;
+                }
+            }
+            if (is_map(container)) {
+                auto m = std::any_cast<BallMap>(container);
+                auto key = ball::to_string(idx);
+                auto it = m.find(key);
+                int64_t current = (it != m.end()) ? to_int(it->second) : 0;
+                int64_t updated = is_inc ? current + 1 : current - 1;
+                m[key] = BallValue(updated);
+                scope->set(var_name, BallValue(m));
+                return is_pre ? updated : current;
+            }
+        }
+    }
+    // Handle field access: obj.field++
+    if (vi->second.expr_case() == ball::v1::Expression::kFieldAccess) {
+        auto obj = eval_expr(vi->second.field_access().object(), scope);
+        if (is_map(obj)) {
+            auto m = std::any_cast<BallMap>(obj);
+            const auto& field_name = vi->second.field_access().field();
+            auto it = m.find(field_name);
+            int64_t current = (it != m.end()) ? to_int(it->second) : 0;
+            int64_t updated = is_inc ? current + 1 : current - 1;
+            m[field_name] = BallValue(updated);
+            if (vi->second.field_access().object().expr_case() == ball::v1::Expression::kReference) {
+                scope->set(vi->second.field_access().object().reference().name(), BallValue(m));
+            }
+            return is_pre ? updated : current;
+        }
     }
     int64_t v = to_int(eval_expr(vi->second, scope));
     return is_inc ? v + 1 : v - 1;
@@ -2983,6 +3440,14 @@ std::optional<BallValue> Engine::try_operator_override(const std::string& functi
                 BallMap method_input;
                 method_input["self"] = left;
                 method_input["other"] = right;
+                method_input["arg0"] = right;
+                // Also bind the right operand with the operator's param name
+                if (fit->second->has_metadata()) {
+                    auto op_params = extract_params(fit->second->metadata());
+                    if (!op_params.empty()) {
+                        method_input[op_params[0]] = right;
+                    }
+                }
                 return call_function_internal(c_mod, *fit->second, BallValue(method_input));
             }
         }
@@ -3193,7 +3658,12 @@ Engine::build_std_dispatch() {
             return !object_type_matches(v, t);
         }},
         {"as", [](BallValue i) -> BallValue { return extract_unary(i); }},
-        {"identical", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return values_equal(l,r); }},
+        {"identical", [](BallValue i) -> BallValue {
+            auto l=extract_field(i,"left"); auto r=extract_field(i,"right");
+            if(!l.has_value()) l=extract_field(i,"arg0");
+            if(!r.has_value()) r=extract_field(i,"arg1");
+            return values_equal(l,r);
+        }},
         {"index", [](BallValue i) -> BallValue {
             auto tgt=extract_field(i,"target"); auto idx=extract_field(i,"index");
             if(is_list(tgt)&&(is_int(idx)||is_double(idx))) return std::any_cast<BallList>(tgt)[to_int(idx)];
@@ -3317,7 +3787,15 @@ Engine::build_std_dispatch() {
             size_t p=0; while((p=s.find(f,p))!=std::string::npos){s.replace(p,f.size(),t);p+=t.size();} return s;
         }},
         {"string_split", [](BallValue i) -> BallValue {
-            auto [l,r]=extract_binary(i); auto s=ball::to_string(l); auto d=ball::to_string(r);
+            // Support both left/right and value/separator field names
+            auto sv=extract_field(i,"value"); auto sep=extract_field(i,"separator");
+            std::string s, d;
+            if (sv.has_value()) {
+                s = ball::to_string(sv);
+                d = sep.has_value() ? ball::to_string(sep) : ball::to_string(extract_field(i,"right"));
+            } else {
+                auto [l,r]=extract_binary(i); s=ball::to_string(l); d=ball::to_string(r);
+            }
             BallList parts;
             if (d.empty()) {
                 for (char c : s) parts.push_back(std::string(1, c));
@@ -3378,7 +3856,20 @@ Engine::build_std_dispatch() {
         {"math_atan2", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return std::atan2(to_double(l),to_double(r)); }},
         {"math_min", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); if(is_int(l)&&is_int(r)) return std::min(to_int(l),to_int(r)); return std::min(to_double(l),to_double(r)); }},
         {"math_max", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); if(is_int(l)&&is_int(r)) return std::max(to_int(l),to_int(r)); return std::max(to_double(l),to_double(r)); }},
-        {"math_clamp", [](BallValue i) -> BallValue { auto vv=extract_field(i,"value"); auto mnv=extract_field(i,"min"); auto mxv=extract_field(i,"max"); if(is_int(vv)&&is_int(mnv)&&is_int(mxv)){auto v=to_int(vv),mn=to_int(mnv),mx=to_int(mxv);return std::max(mn,std::min(v,mx));} auto v=to_double(vv),mn=to_double(mnv),mx=to_double(mxv); return std::max(mn,std::min(v,mx)); }},
+        {"math_clamp", [](BallValue i) -> BallValue {
+            auto vv=extract_field(i,"value"); auto mnv=extract_field(i,"min"); auto mxv=extract_field(i,"max");
+            // Static method style: math_clamp({value: classRef, min: val, max: lo, arg2: hi})
+            // When value is a non-numeric (class reference), treat min as value, max as lower, arg2 as upper.
+            if (is_string(vv) && !is_int(vv) && !is_double(vv)) {
+                auto real_val = mnv;  // min field holds the actual value
+                auto real_min = mxv;  // max field holds the lower bound
+                auto real_max = extract_field(i,"arg2"); // arg2 holds the upper bound
+                if(is_int(real_val)&&is_int(real_min)&&is_int(real_max)){auto v=to_int(real_val),mn=to_int(real_min),mx=to_int(real_max);return std::max(mn,std::min(v,mx));}
+                auto v=to_double(real_val),mn=to_double(real_min),mx=to_double(real_max); return std::max(mn,std::min(v,mx));
+            }
+            if(is_int(vv)&&is_int(mnv)&&is_int(mxv)){auto v=to_int(vv),mn=to_int(mnv),mx=to_int(mxv);return std::max(mn,std::min(v,mx));}
+            auto v=to_double(vv),mn=to_double(mnv),mx=to_double(mxv); return std::max(mn,std::min(v,mx));
+        }},
         {"math_pi", [](BallValue) -> BallValue { return 3.141592653589793; }},
         {"math_e", [](BallValue) -> BallValue { return 2.718281828459045; }},
         {"math_infinity", [](BallValue) -> BallValue { return std::numeric_limits<double>::infinity(); }},
@@ -3959,6 +4450,11 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     dispatch_["list_to_list"] = [](BallValue input, BallCallable) -> BallValue {
         auto set_val = extract_field(input, "set");
         if (is_list(set_val)) return set_val;
+        // Also check "list" field (some encoders use "list" instead of "set")
+        auto list_val = extract_field(input, "list");
+        if (is_list(list_val)) return list_val;
+        // Direct list input (no wrapping map)
+        if (is_list(input)) return input;
         // If it's a map (empty set created as map), return empty list
         return BallList{};
     };

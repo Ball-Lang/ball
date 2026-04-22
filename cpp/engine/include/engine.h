@@ -185,6 +185,15 @@ private:
 
     std::vector<std::unique_ptr<BallModuleHandler>> handlers_;
 
+    // Pending caller scope for ref-writeback: set by eval_call before calling a
+    // function, read by call_function_internal to write back list/map mutations.
+    struct PendingRefInfo {
+        std::shared_ptr<Scope> caller_scope;
+        // Maps input field names (param name or "argN") to caller scope variable names
+        std::unordered_map<std::string, std::string> field_to_var;
+    };
+    std::optional<PendingRefInfo> pending_ref_info_;
+
     // Memory simulation
     std::vector<uint8_t> memory_;
     size_t heap_ptr_ = 0;

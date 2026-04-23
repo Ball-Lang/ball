@@ -153,7 +153,383 @@ export class BallCompiler {
     }
 
     sf.formatText({ indentSize: 2, convertTabsToSpaces: true });
-    const body = sf.getFullText();
+    let body = sf.getFullText();
+
+    // Post-processing: inject missing OOP field binding.
+    // The Dart engine binds all fields from `self` into scope so methods
+    // can access instance fields by bare name (e.g., `x` instead of
+    // `self.x`). The encoder only captured `scope.bind('self', input['self'])`.
+    // Inject the full field-binding + super-chain code.
+    body = body.replace(
+      /scope\.bind\('self', input\['self'\]\);/g,
+      `scope.bind('self', input['self']);
+      { const __self = input['self'];
+        if (typeof __self === 'object' && __self !== null && !Array.isArray(__self)) {
+          for (const __k of Object.keys(__self)) {
+            if (!__k.startsWith('__')) scope.bind(__k, __self[__k]);
+          }
+          let __sup = __self['__super__'];
+          while (typeof __sup === 'object' && __sup !== null && !Array.isArray(__sup)) {
+            for (const __k of Object.keys(__sup)) {
+              if (!__k.startsWith('__') && !scope.has(__k)) scope.bind(__k, __sup[__k]);
+            }
+            __sup = __sup['__super__'];
+          }
+        }
+      }`,
+    );
+
+    // Post-processing: inject 'super' and built-in type references into
+    // _evalReference. The Dart engine handles these but the encoder missed them.
+    body = body.replace(
+      /async _evalReference\(ref: any, scope: any\): Promise<any> \{\s*let name = ref\.name;\s*if \(scope\.has\(name\)\)/,
+      `async _evalReference(ref: any, scope: any): Promise<any> {
+    let name = ref.name;
+    if (name === 'super' && scope.has('self')) {
+      const __sup_self = scope.lookup('self');
+      if (typeof __sup_self === 'object' && __sup_self !== null) {
+        return __sup_self['__super__'] ?? __sup_self;
+      }
+    }
+    if (name === 'List' || name === 'Map' || name === 'Set') {
+      return {'__class_ref__': name, '__type__': '__builtin_class__'};
+    }
+    if (scope.has(name))`,
+    );
+
+    // Post-processing: inject lazy cascade evaluation into _evalCall.
+    // The Dart engine has _evalLazyCascade but the encoder didn't capture it.
+    // Add cascade/null_aware_cascade handling in the std function switch.
+    body = body.replace(
+      /else if \(\(__sw === 'dart_await_for'\)\)/,
+      `else if (__sw === 'cascade' || __sw === 'null_aware_cascade') {
+          const __cf = this._lazyFields(call);
+          const __targetExpr = __cf['target'];
+          if (!__targetExpr) return null;
+          const __target = await this._evalExpression(__targetExpr, scope);
+          if (__sw === 'null_aware_cascade' && __target == null) return null;
+          const __cScope = scope.child();
+          __cScope.bind('__cascade_self__', __target);
+          const __sectionsExpr = __cf['sections'];
+          if (__sectionsExpr) {
+            if (__sectionsExpr.whichExpr && __sectionsExpr.whichExpr() === 'literal' && __sectionsExpr.literal && __sectionsExpr.literal.whichValue && __sectionsExpr.literal.whichValue() === 'listValue') {
+              for (const __sec of __sectionsExpr.literal.listValue.elements) {
+                await this._evalExpression(__sec, __cScope);
+              }
+            } else {
+              await this._evalExpression(__sectionsExpr, __cScope);
+            }
+          }
+          return __target;
+        }
+        else if (__sw === 'dart_await_for')`,
+    );
+
+    // Post-processing: fix _stdMapCreate to support both 'entries' and 'entry'
+    // fields, and use 'key' instead of 'name' for map keys.
+    body = body.replace(
+      /let entries = input\['entries'\];/,
+      `let entries = input['entries'] ?? input['entry'];`,
+    );
+    body = body.replace(
+      /result\[entry\['name'\]\] = entry\['value'\];/,
+      `result[entry['key'] ?? entry['name']] = entry['value'];`,
+    );
+
+    // Post-processing: expand the std module check in _evalCall to include
+    // std_collections, std_io, etc. so their functions route to _callBaseFunction.
+    body = body.replace(
+      /if \(\(\(call\.module === 'std'\) \|\| \(call\.module === 'dart_std'\)\)\) \{\s*return this\._callBaseFunction\(call\.module, call\.function, input\);\s*\}/,
+      `if (call.module === 'std' || call.module === 'dart_std' || call.module === 'std_collections' || call.module === 'std_io' || call.module === 'std_convert' || call.module === 'std_memory') {
+      return this._callBaseFunction(call.module, call.function, input);
+    }`,
+    );
+
+    // Post-processing: inject field assignment back to self object.
+    // When a method assigns to an instance field (scope.set('x', val)),
+    // the change should propagate back to the actual object's field so
+    // later field accesses via _evalFieldAccess see the updated value.
+    // Replace _Scope.set to also update the self object's field.
+    body = body.replace(
+      /set\(name: any, value: any\): any \{\s*if \(this\._bindings\.containsKey\(name\)\) \{\s*this\._bindings\[name\] = value;\s*return;\s*\}/,
+      `set(name: any, value: any): any {
+    if (this._bindings.containsKey(name)) {
+      this._bindings[name] = value;
+      if (!name.startsWith('__') && this._bindings.containsKey('self')) {
+        const __s = this._bindings['self'];
+        if (typeof __s === 'object' && __s !== null && !Array.isArray(__s) && name in __s) {
+          __s[name] = value;
+        }
+      }
+      return;
+    }`,
+    );
+
+    // Post-processing: inject constructor dispatch into _evalMessageCreation.
+    // The Dart engine calls constructors when typeName matches a registered
+    // constructor, but the encoder missed this. Inject it right after the
+    // `if (msg.typeName.isNotEmpty) {` check and before `fields['__type__'] = msg.typeName;`.
+    body = body.replace(
+      /if \(msg\.typeName\.isNotEmpty\) \{\s*fields\['__type__'\] = msg\.typeName;/,
+      `if (msg.typeName.isNotEmpty) {
+      const __ctorEntry = this._constructors[msg.typeName];
+      if (__ctorEntry != null) {
+        return this._callFunction(__ctorEntry.module, __ctorEntry.func, fields);
+      }
+      fields['__type__'] = msg.typeName;`,
+    );
+
+    // Post-processing: inject function/method resolution for unresolved
+    // typeNames in _evalMessageCreation. After the typeDef check, when
+    // no typeDef is found, try resolving as a function call.
+    // Find the end of _evalMessageCreation's if(typeName) block and add fallback.
+    body = body.replace(
+      /return fields;\s*\}\s*\n\s*_findTypeDef/,
+      `if (!fields['__type__'] || !this._findTypeDef(msg.typeName)) {
+        const __fnKey = this._currentModule + '.' + msg.typeName;
+        const __fnMatch = this._functions[__fnKey];
+        if (__fnMatch != null && !__fnMatch.isBase && __fnMatch.hasBody()) {
+          return this._callFunction(this._currentModule, __fnMatch, fields);
+        }
+      }
+      return fields;
+    }
+
+  _findTypeDef`,
+    );
+
+    // Post-processing: inject constructor instance building.
+    // When a function has no body and its metadata says kind='constructor',
+    // build an instance object from is_this params instead of returning null.
+    body = body.replace(
+      /if \(!func\.hasBody\(\)\) \{\s*return null;\s*\}/,
+      `if (!func.hasBody()) {
+      if (func.hasMetadata()) {
+        const __kindF = func.metadata.fields ? func.metadata.fields['kind'] : null;
+        if (__kindF && (__kindF.stringValue === 'constructor' || __kindF === 'constructor')) {
+          return await this.__buildCtorInstance(moduleName, func, input);
+        }
+      }
+      return null;
+    }`,
+    );
+
+    // Post-processing: inject built-in type method dispatch into _evalCall.
+    // When self.__type__ is '__builtin_class__', dispatch to std functions
+    // like dart_list_generate, dart_list_filled, etc.
+    body = body.replace(
+      /return this\._resolveAndCallFunction\(call\.module, call\.function, input\);/,
+      `// Built-in type static method dispatch (List.generate, Map.from, etc.)
+    if (typeof input === 'object' && input !== null && !Array.isArray(input) && input['self'] != null) {
+      const __bs = input['self'];
+      if (typeof __bs === 'object' && __bs !== null && __bs['__type__'] === '__builtin_class__') {
+        const __cr = __bs['__class_ref__'];
+        const __fn = call.function;
+        const __stdInput = Object.assign({}, input);
+        delete __stdInput['self'];
+        delete __stdInput['__type_args__'];
+        // Map positional args to named args for known dispatch functions.
+        const __argMaps: any = {
+          'generate': {arg0: 'count', arg1: 'generator'},
+          'filled': {arg0: 'count', arg1: 'value'},
+          'from': {arg0: 'list'},
+          'of': {arg0: 'list'},
+          'fromEntries': {arg0: 'entries'},
+        };
+        const __am = __argMaps[__fn];
+        if (__am) {
+          for (const [__pk, __nk] of Object.entries(__am)) {
+            if (__pk in __stdInput && !(__nk as string in __stdInput)) {
+              __stdInput[__nk as string] = __stdInput[__pk];
+            }
+          }
+        }
+        const __stdNames: string[] = [];
+        if (__cr === 'List') __stdNames.push('dart_list_' + __fn, 'list_' + __fn);
+        else if (__cr === 'Map') __stdNames.push('map_' + __fn, 'dart_map_' + __fn, 'map_from_entries');
+        else if (__cr === 'Set') __stdNames.push('set_' + __fn, 'dart_set_' + __fn);
+        for (const __sn of __stdNames) {
+          try { return this._callBaseFunction('std', __sn, __stdInput); } catch (e) {}
+          try { return this._callBaseFunction('dart_std', __sn, __stdInput); } catch (e) {}
+          try { return this._callBaseFunction('std_collections', __sn, __stdInput); } catch (e) {}
+        }
+      }
+    }
+    return this._resolveAndCallFunction(call.module, call.function, input);`,
+    );
+
+    // Post-processing: inject the __buildCtorInstance method as a new
+    // method on BallEngine. We insert it right before the closing of
+    // the class by finding a known method pattern.
+    const ctorHelperMethod = `
+  async __buildCtorInstance(moduleName: any, func: any, input: any): Promise<any> {
+    const params = func.hasMetadata() ? this._extractParams(func.metadata) : [];
+    const paramsMeta = this.__extractParamsMeta(func.metadata);
+    const instance: any = {};
+    const dotIdx = func.name.indexOf('.');
+    const typeName = dotIdx >= 0 ? func.name.substring(0, dotIdx) : func.name;
+    instance['__type__'] = typeName;
+    // Resolve all param values.
+    const resolvedParams: any = {};
+    if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
+      for (let i = 0; i < params.length; i++) {
+        const p = params[i];
+        const isThis = i < paramsMeta.length && paramsMeta[i]['is_this'] === true;
+        let val: any;
+        if (p in input) { val = input[p]; }
+        else if (('arg' + i) in input) { val = input['arg' + i]; }
+        else { val = i < paramsMeta.length ? (paramsMeta[i]['default'] ?? null) : null; }
+        resolvedParams[p] = val;
+        if (isThis) { instance[p] = val; }
+      }
+    } else if (params.length === 1) {
+      resolvedParams[params[0]] = input;
+      const isThis = paramsMeta.length > 0 && paramsMeta[0]['is_this'] === true;
+      if (isThis) { instance[params[0]] = input; }
+    }
+    // Process initializers (super calls, field initializations).
+    if (func.hasMetadata()) {
+      const initsField = func.metadata.fields ? func.metadata.fields['initializers'] : null;
+      let inits: any[] = [];
+      if (initsField && initsField.whichKind && initsField.whichKind() === 'listValue') {
+        inits = initsField.listValue.values.map((v: any) => {
+          if (v.whichKind && v.whichKind() === 'structValue') {
+            const r: any = {};
+            const sf = v.structValue.fields;
+            for (const k of Object.keys(sf)) {
+              const fv = sf[k];
+              if (fv && fv.whichKind) {
+                const kind = fv.whichKind();
+                if (kind === 'stringValue') r[k] = fv.stringValue;
+                else if (kind === 'boolValue') r[k] = fv.boolValue;
+                else r[k] = fv._raw ?? null;
+              } else { r[k] = fv; }
+            }
+            return r;
+          }
+          return {};
+        });
+      } else if (initsField && Array.isArray(initsField)) {
+        inits = initsField;
+      } else if (initsField && initsField._raw && Array.isArray(initsField._raw)) {
+        inits = initsField._raw;
+      }
+      for (const init of inits) {
+        if (init.kind === 'super') {
+          // Call super constructor.
+          const typeDef = this._findTypeDef(typeName);
+          const superclass = typeDef?.superclass;
+          if (superclass && typeof superclass === 'string' && superclass.length > 0) {
+            // Parse args from the initializer.
+            const argsStr = typeof init.args === 'string' ? init.args : '';
+            const superInput: any = {};
+            // Simple arg parsing: "(name)" -> {arg0: resolvedParams[name]}
+            // "(name, age)" -> {arg0: name, arg1: age}
+            const argMatch = argsStr.match(/\\(([^)]*)\\)/);
+            if (argMatch) {
+              const argNames = argMatch[1].split(',').map((s: string) => s.trim()).filter((s: string) => s);
+              for (let i = 0; i < argNames.length; i++) {
+                const argName = argNames[i];
+                superInput['arg' + i] = resolvedParams[argName] ?? argName;
+              }
+            }
+            // Try various constructor key patterns for the superclass.
+            const __scKeys = [
+              superclass + '.new', superclass,
+              moduleName + ':' + superclass + '.new', moduleName + ':' + superclass,
+            ];
+            let superCtor: any = null;
+            for (const __sk of __scKeys) {
+              if (this._constructors[__sk]) { superCtor = this._constructors[__sk]; break; }
+            }
+            if (superCtor) {
+              const superObj = await this._callFunction(superCtor.module, superCtor.func, superInput);
+              if (typeof superObj === 'object' && superObj !== null) {
+                // Copy super's non-__ fields into our instance.
+                for (const k of Object.keys(superObj)) {
+                  if (!k.startsWith('__') && !(k in instance)) instance[k] = superObj[k];
+                }
+                instance['__super__'] = superObj;
+              }
+            }
+          }
+        } else if (init.kind === 'field') {
+          // Field initializer: assign a value to a field.
+          const fieldName = init.name;
+          const valStr = init.value;
+          if (fieldName && valStr != null) {
+            if (valStr in resolvedParams) {
+              instance[fieldName] = resolvedParams[valStr];
+            } else {
+              instance[fieldName] = valStr;
+            }
+          }
+        }
+      }
+    }
+    // Initialize field defaults from typeDef descriptor.
+    const typeDef = this._findTypeDef(typeName);
+    if (typeDef != null) {
+      if (typeDef.fieldNames) {
+        for (const fn of typeDef.fieldNames) {
+          if (!(fn in instance)) instance[fn] = null;
+        }
+      }
+      if (!instance['__super__'] && typeDef.superclass && typeof typeDef.superclass === 'string' && typeDef.superclass.length > 0) {
+        instance['__super__'] = this._buildSuperObject(typeDef.superclass, instance);
+      }
+      const methods = this._resolveTypeMethodsWithInheritance(typeName);
+      if (typeof methods === 'object' && methods !== null && Object.keys(methods).length > 0) {
+        instance['__methods__'] = methods;
+      }
+    }
+    return instance;
+  }
+
+  __extractParamsMeta(metadata: any): any[] {
+    if (!metadata) return [];
+    const paramsField = metadata.fields ? metadata.fields['params'] : (metadata['params'] ?? null);
+    if (!paramsField) return [];
+    let raw: any[];
+    if (paramsField.whichKind && paramsField.whichKind() === 'listValue') {
+      raw = paramsField.listValue.values.map((v: any) => {
+        if (v.whichKind && v.whichKind() === 'structValue') {
+          const result: any = {};
+          const sf = v.structValue.fields;
+          for (const k of Object.keys(sf)) {
+            const fv = sf[k];
+            if (fv.whichKind) {
+              const kind = fv.whichKind();
+              if (kind === 'stringValue') result[k] = fv.stringValue;
+              else if (kind === 'boolValue') result[k] = fv.boolValue;
+              else if (kind === 'numberValue') result[k] = fv.numberValue;
+              else result[k] = fv._raw ?? null;
+            } else {
+              result[k] = fv;
+            }
+          }
+          return result;
+        }
+        return {};
+      });
+    } else if (Array.isArray(paramsField)) {
+      raw = paramsField;
+    } else if (paramsField._raw && Array.isArray(paramsField._raw)) {
+      raw = paramsField._raw;
+    } else {
+      return [];
+    }
+    return raw;
+  }
+`;
+
+    // Insert the helper method before the last method of BallEngine.
+    // We find `_resolveAndCallFunction` and insert before it.
+    body = body.replace(
+      /(\s+)async _resolveAndCallFunction\(/,
+      `$1${ctorHelperMethod}\n$1async _resolveAndCallFunction(`,
+    );
+
     return includePreamble ? TS_RUNTIME_PREAMBLE + "\n" + body : body;
   }
 
@@ -729,6 +1105,22 @@ export class BallCompiler {
       initStr = `let ${variable} = ${this.expr(start)}`;
     } else if (init && init.literal?.stringValue !== undefined) {
       initStr = translateInitString(init.literal.stringValue);
+    } else if (init && init.block) {
+      // Block-based init: the encoder now emits LetBinding as a block.
+      // Extract the let binding and compile as `let name = value`.
+      const stmts = init.block.statements ?? [];
+      const parts: string[] = [];
+      for (const s of stmts) {
+        if (s.let) {
+          const name = sanitize(s.let.name);
+          if (s.let.value) {
+            parts.push(`${name} = ${this.expr(s.let.value)}`);
+          } else {
+            parts.push(name);
+          }
+        }
+      }
+      initStr = parts.length > 0 ? `let ${parts.join(", ")}` : "";
     } else if (init) {
       initStr = this.expr(init);
     } else {
@@ -1387,6 +1779,345 @@ export class BallCompiler {
       }
       case "yield":      return `yield ${this.expr(f.get("value")!)}`;
       case "yield_each": return `yield* ${this.expr(f.get("value")!)}`;
+      // Dart-specific std/dart_std functions
+      case "cascade": {
+        const target = f.get("target") ?? f.get("value");
+        const sections = f.get("sections") ?? f.get("operations") ?? f.get("ops");
+        if (target) {
+          const targetStr = this.expr(target);
+          if (sections && sections.literal?.listValue) {
+            // Cascade: evaluate target, bind as __cascade_self__, evaluate
+            // each section (which references __cascade_self__), return target.
+            const sectionExprs = (sections.literal.listValue.elements ?? [])
+              .map((e: Expression) => `${this.expr(e)};`)
+              .join(" ");
+            return `((__cascade_self__) => { ${sectionExprs} return __cascade_self__; })(${targetStr})`;
+          }
+          if (sections) {
+            return `((__cascade_self__) => { ${this.expr(sections)}; return __cascade_self__; })(${targetStr})`;
+          }
+          return targetStr;
+        }
+        const allFields = call.input?.messageCreation?.fields ?? [];
+        const args = allFields.map((fd) => this.expr(fd.value)).join(", ");
+        return `__ball_cascade(${args})`;
+      }
+      case "null_aware_cascade": {
+        const target = f.get("target") ?? f.get("value");
+        if (!target) return "null";
+        const sections = f.get("sections") ?? f.get("operations") ?? f.get("ops");
+        if (sections && sections.literal?.listValue) {
+          const targetStr = this.expr(target);
+          const sectionExprs = (sections.literal.listValue.elements ?? [])
+            .map((e: Expression) => `${this.expr(e)};`)
+            .join(" ");
+          return `((__cascade_self__) => { if (__cascade_self__ == null) return null; ${sectionExprs} return __cascade_self__; })(${targetStr})`;
+        }
+        if (sections) {
+          return `((__cascade_self__) => { if (__cascade_self__ == null) return null; ${this.expr(sections)}; return __cascade_self__; })(${this.expr(target)})`;
+        }
+        return this.expr(target);
+      }
+      case "spread":       return this.expr(f.get("value")!);
+      case "null_spread": {
+        const v = f.get("value");
+        return v ? `(${this.expr(v)} ?? [])` : "[]";
+      }
+      case "invoke": {
+        const callee = f.get("callee");
+        const inputFields = call.input?.messageCreation?.fields ?? [];
+        const otherArgs = inputFields
+          .filter((fd) => fd.name !== "callee" && fd.name !== "__type__" && fd.name !== "__type_args__")
+          .map((fd) => this.expr(fd.value));
+        if (callee) {
+          if (otherArgs.length === 0) return `${this.expr(callee)}()`;
+          if (otherArgs.length === 1) return `${this.expr(callee)}(${otherArgs[0]})`;
+          return `${this.expr(callee)}(${otherArgs.join(", ")})`;
+        }
+        return "null";
+      }
+      case "tear_off": {
+        const cb = f.get("callback") ?? f.get("method") ?? f.get("value");
+        return cb ? this.expr(cb) : "null";
+      }
+      case "dart_list_generate": {
+        const count = f.get("count") ?? f.get("length");
+        const gen = f.get("generator");
+        if (count && gen) {
+          return `List.generate(${this.expr(count)}, ${this.expr(gen)})`;
+        }
+        return "[]";
+      }
+      case "dart_list_filled": {
+        const count = f.get("count") ?? f.get("length");
+        const value = f.get("value") ?? f.get("fill");
+        if (count && value) {
+          return `List.filled(${this.expr(count)}, ${this.expr(value)})`;
+        }
+        return "[]";
+      }
+      case "to_double": {
+        const v = f.get("value");
+        return v ? `(+(${this.expr(v)}))` : "0.0";
+      }
+      case "to_int": {
+        const v = f.get("value");
+        return v ? `Math.trunc(${this.expr(v)})` : "0";
+      }
+      case "identical": {
+        const l = f.get("left") ?? f.get("a");
+        const r = f.get("right") ?? f.get("b");
+        if (l && r) return `(${this.expr(l)} === ${this.expr(r)})`;
+        return "false";
+      }
+      case "string_code_unit_at":
+      case "string_char_code_at": {
+        const v = f.get("value") ?? f.get("string");
+        const idx = f.get("index");
+        if (v && idx) return `${this.expr(v)}.charCodeAt(${this.expr(idx)})`;
+        return "0";
+      }
+      case "string_from_char_code": {
+        const v = f.get("value") ?? f.get("code");
+        return v ? `String.fromCharCode(${this.expr(v)})` : "''";
+      }
+      case "string_char_at": {
+        const v = f.get("value") ?? f.get("string");
+        const idx = f.get("index");
+        if (v && idx) return `${this.expr(v)}[${this.expr(idx)}]`;
+        return "''";
+      }
+      case "string_replace": {
+        const v = f.get("value") ?? f.get("string");
+        const from = f.get("from") ?? f.get("pattern");
+        const to = f.get("to") ?? f.get("replacement");
+        if (v && from && to) return `${this.expr(v)}.replace(${this.expr(from)}, ${this.expr(to)})`;
+        return "''";
+      }
+      case "string_replace_all": {
+        const v = f.get("value") ?? f.get("string");
+        const from = f.get("from") ?? f.get("pattern");
+        const to = f.get("to") ?? f.get("replacement");
+        if (v && from && to) return `${this.expr(v)}.split(${this.expr(from)}).join(${this.expr(to)})`;
+        return "''";
+      }
+      case "string_repeat": {
+        const v = f.get("value");
+        const count = f.get("count") ?? f.get("times");
+        if (v && count) return `${this.expr(v)}.repeat(${this.expr(count)})`;
+        return "''";
+      }
+      case "string_pad_left": {
+        const v = f.get("value");
+        const w = f.get("width");
+        const p = f.get("padding");
+        if (v && w) return `${this.expr(v)}.padStart(${this.expr(w)}${p ? `, ${this.expr(p)}` : ""})`;
+        return "''";
+      }
+      case "string_pad_right": {
+        const v = f.get("value");
+        const w = f.get("width");
+        const p = f.get("padding");
+        if (v && w) return `${this.expr(v)}.padEnd(${this.expr(w)}${p ? `, ${this.expr(p)}` : ""})`;
+        return "''";
+      }
+      case "string_index_of": {
+        const v = f.get("value") ?? f.get("string");
+        const pat = f.get("pattern") ?? f.get("substring");
+        const start = f.get("start");
+        if (v && pat) {
+          if (start) return `${this.expr(v)}.indexOf(${this.expr(pat)}, ${this.expr(start)})`;
+          return `${this.expr(v)}.indexOf(${this.expr(pat)})`;
+        }
+        return "-1";
+      }
+      case "string_last_index_of": {
+        const v = f.get("value") ?? f.get("string");
+        const pat = f.get("pattern") ?? f.get("substring");
+        if (v && pat) return `${this.expr(v)}.lastIndexOf(${this.expr(pat)})`;
+        return "-1";
+      }
+      case "string_concat": return bin("+");
+      // Collection operations (std_collections module)
+      case "list_push": {
+        const list = f.get("list");
+        const value = f.get("value");
+        if (list && value) return `[...${this.expr(list)}, ${this.expr(value)}]`;
+        return "[]";
+      }
+      case "list_pop": {
+        const list = f.get("list");
+        return list ? `${this.expr(list)}.slice(0, -1)` : "[]";
+      }
+      case "list_length": {
+        const list = f.get("list") ?? f.get("value");
+        return list ? `${this.expr(list)}.length` : "0";
+      }
+      case "list_is_empty": {
+        const list = f.get("list") ?? f.get("value");
+        return list ? `(${this.expr(list)}.length === 0)` : "true";
+      }
+      case "list_first": {
+        const list = f.get("list");
+        return list ? `${this.expr(list)}[0]` : "undefined";
+      }
+      case "list_last": {
+        const list = f.get("list");
+        return list ? `${this.expr(list)}[${this.expr(list)}.length - 1]` : "undefined";
+      }
+      case "list_contains": {
+        const list = f.get("list");
+        const value = f.get("value");
+        if (list && value) return `${this.expr(list)}.includes(${this.expr(value)})`;
+        return "false";
+      }
+      case "list_get": {
+        const list = f.get("list");
+        const idx = f.get("index");
+        if (list && idx) return `${this.expr(list)}[${this.expr(idx)}]`;
+        return "undefined";
+      }
+      case "list_set": {
+        const list = f.get("list");
+        const idx = f.get("index");
+        const value = f.get("value");
+        if (list && idx && value) return `(${this.expr(list)}[${this.expr(idx)}] = ${this.expr(value)})`;
+        return "undefined";
+      }
+      case "list_index_of": {
+        const list = f.get("list");
+        const value = f.get("value");
+        if (list && value) return `${this.expr(list)}.indexOf(${this.expr(value)})`;
+        return "-1";
+      }
+      case "list_concat": {
+        const l = f.get("left") ?? f.get("list");
+        const r = f.get("right") ?? f.get("other");
+        if (l && r) return `[...${this.expr(l)}, ...${this.expr(r)}]`;
+        return "[]";
+      }
+      case "list_reverse": {
+        const list = f.get("list") ?? f.get("value");
+        return list ? `[...${this.expr(list)}].reverse()` : "[]";
+      }
+      case "list_slice": case "list_sublist": {
+        const list = f.get("list");
+        const start = f.get("start");
+        const end = f.get("end");
+        if (list && start) {
+          if (end) return `${this.expr(list)}.slice(${this.expr(start)}, ${this.expr(end)})`;
+          return `${this.expr(list)}.slice(${this.expr(start)})`;
+        }
+        return "[]";
+      }
+      case "map_get": {
+        const map = f.get("map");
+        const key = f.get("key");
+        if (map && key) return `${this.expr(map)}[${this.expr(key)}]`;
+        return "undefined";
+      }
+      case "map_set": {
+        const map = f.get("map");
+        const key = f.get("key");
+        const value = f.get("value");
+        if (map && key && value) return `(${this.expr(map)}[${this.expr(key)}] = ${this.expr(value)})`;
+        return "undefined";
+      }
+      case "map_contains_key": {
+        const map = f.get("map");
+        const key = f.get("key");
+        if (map && key) return `(${this.expr(key)} in ${this.expr(map)})`;
+        return "false";
+      }
+      case "map_keys": {
+        const map = f.get("map") ?? f.get("value");
+        return map ? `Object.keys(${this.expr(map)})` : "[]";
+      }
+      case "map_values": {
+        const map = f.get("map") ?? f.get("value");
+        return map ? `Object.values(${this.expr(map)})` : "[]";
+      }
+      case "map_entries": {
+        const map = f.get("map") ?? f.get("value");
+        return map ? `Object.entries(${this.expr(map)}).map(([k, v]) => ({key: k, value: v}))` : "[]";
+      }
+      case "map_length": {
+        const map = f.get("map") ?? f.get("value");
+        return map ? `Object.keys(${this.expr(map)}).length` : "0";
+      }
+      case "map_is_empty": {
+        const map = f.get("map") ?? f.get("value");
+        return map ? `(Object.keys(${this.expr(map)}).length === 0)` : "true";
+      }
+      case "map_delete": case "map_remove": {
+        const map = f.get("map");
+        const key = f.get("key");
+        if (map && key) return `(() => { const __m = ${this.expr(map)}; const __k = ${this.expr(key)}; const __v = __m[__k]; delete __m[__k]; return __v; })()`;
+        return "undefined";
+      }
+      case "map_merge": {
+        const l = f.get("left") ?? f.get("map");
+        const r = f.get("right") ?? f.get("other");
+        if (l && r) return `{...${this.expr(l)}, ...${this.expr(r)}}`;
+        return "{}";
+      }
+      case "map_from_entries": {
+        const entries = f.get("entries") ?? f.get("value");
+        if (entries) return `Object.fromEntries(${this.expr(entries)}.map((e: any) => [e.key, e.value]))`;
+        return "{}";
+      }
+      case "string_join": {
+        const list = f.get("list") ?? f.get("value");
+        const sep = f.get("separator");
+        if (list && sep) return `${this.expr(list)}.join(${this.expr(sep)})`;
+        if (list) return `${this.expr(list)}.join('')`;
+        return "''";
+      }
+      case "set_add": case "set_remove": case "set_contains":
+      case "set_union": case "set_intersection": case "set_difference":
+      case "set_length": case "set_is_empty": case "set_to_list": {
+        const allFields = call.input?.messageCreation?.fields ?? [];
+        const args = allFields.map((fd) => this.expr(fd.value)).join(", ");
+        return `/* std.${fn} */ ${sanitize(fn)}(${args})`;
+      }
+      // I/O
+      case "print_error": {
+        const msg = f.get("message") ?? f.get("value");
+        return msg ? `console.error(__ball_to_string(${this.expr(msg)}))` : `console.error('')`;
+      }
+      case "read_line": return `''`;
+      case "exit": {
+        const code = f.get("code") ?? f.get("value");
+        return code ? `process.exit(${this.expr(code)})` : `process.exit(0)`;
+      }
+      case "sleep_ms": {
+        const ms = f.get("value") ?? f.get("ms");
+        return ms ? `await new Promise(r => setTimeout(r, ${this.expr(ms)}))` : `undefined`;
+      }
+      case "timestamp_ms": return `Date.now()`;
+      case "random_int": {
+        const max = f.get("max") ?? f.get("value");
+        return max ? `Math.floor(Math.random() * ${this.expr(max)})` : "0";
+      }
+      case "random_double": return `Math.random()`;
+      case "int_to_double": {
+        const v = f.get("value");
+        return v ? `(+(${this.expr(v)}))` : "0.0";
+      }
+      // JSON
+      case "json_encode": {
+        const v = f.get("value");
+        return v ? `JSON.stringify(${this.expr(v)})` : "''";
+      }
+      case "json_decode": {
+        const v = f.get("value");
+        return v ? `JSON.parse(${this.expr(v)})` : "null";
+      }
+      // Type ops
+      case "symbol": case "type_literal": {
+        const v = f.get("value") ?? f.get("name");
+        return v ? this.expr(v) : "null";
+      }
       default: {
         const args = Array.from(f.values()).map((e) => this.expr(e)).join(", ");
         return `/* std.${fn} */ ${sanitize(fn)}(${args})`;
@@ -1613,7 +2344,9 @@ function classTsName(qualified: string): string {
 }
 
 function isStd(module: string | undefined): boolean {
-  return module === "std" || module === "dart_std";
+  return module === "std" || module === "dart_std" ||
+    module === "std_collections" || module === "std_io" ||
+    module === "std_convert" || module === "std_memory";
 }
 
 function containsBareKeyword(text: string, kw: string): boolean {

@@ -304,7 +304,185 @@ const engine = new BallEngine(
   [methodHandler, stdHandler],  // moduleHandlers
   undefined,       // resolver
 );
-// Engine initialized successfully.
+// Seed global scope with built-in types that the Dart engine handles
+// natively but the encoder didn't capture in the Ball IR.
+const gs = (engine as any)._globalScope;
+if (gs && gs.bind) {
+  // Built-in type references for static method dispatch (List.generate, etc.)
+  gs.bind('List', {'__class_ref__': 'List', '__type__': '__builtin_class__'});
+  gs.bind('Map', {'__class_ref__': 'Map', '__type__': '__builtin_class__'});
+  gs.bind('Set', {'__class_ref__': 'Set', '__type__': '__builtin_class__'});
+  gs.bind('RegExp', {'__class_ref__': 'RegExp', '__type__': '__builtin_class__'});
+  gs.bind('DateTime', {'__class_ref__': 'DateTime', '__type__': '__builtin_class__'});
+  gs.bind('Duration', {'__class_ref__': 'Duration', '__type__': '__builtin_class__'});
+  gs.bind('identical', (a: any, b: any) => a === b);
+  gs.bind('print', (msg: any) => { console.log(String(msg)); });
+}
+// Register missing std functions that the encoder didn't capture.
+if (stdHandler.register) {
+  stdHandler.register('to_double', (i: any) => {
+    if (typeof i === 'number') return i;
+    if (typeof i === 'object' && i !== null) {
+      const v = i['value'] ?? i;
+      return typeof v === 'number' ? v + 0.0 : Number(v);
+    }
+    return Number(i);
+  });
+  stdHandler.register('int_to_double', (i: any) => {
+    if (typeof i === 'number') return i + 0.0;
+    if (typeof i === 'object' && i !== null) {
+      const v = i['value'] ?? i;
+      return Number(v);
+    }
+    return Number(i);
+  });
+  stdHandler.register('string_code_unit_at', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    const idx = Number(m['index'] ?? 0);
+    return s.charCodeAt(idx);
+  });
+  stdHandler.register('list_foreach', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const collection = m['list'] ?? m['collection'];
+    const fn = m['function'] ?? m['value'] ?? m['callback'];
+    if (typeof fn === 'function') {
+      if (Array.isArray(collection)) {
+        for (const item of collection) {
+          const r = fn(item);
+          if (r && typeof r.then === 'function') await r;
+        }
+      } else if (typeof collection === 'object' && collection !== null) {
+        for (const [k, v] of Object.entries(collection)) {
+          const r = fn({'key': k, 'value': v, 'arg0': k, 'arg1': v});
+          if (r && typeof r.then === 'function') await r;
+        }
+      }
+    }
+    return null;
+  });
+  stdHandler.register('list_to_list', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const raw = m['list'] ?? m['value'];
+    if (Array.isArray(raw)) return [...raw];
+    if (raw instanceof Set) return [...raw];
+    return [];
+  });
+  stdHandler.register('to_int', (i: any) => {
+    if (typeof i === 'number') return Math.trunc(i);
+    if (typeof i === 'object' && i !== null) {
+      const v = i['value'] ?? i;
+      return Math.trunc(Number(v));
+    }
+    return Math.trunc(Number(i));
+  });
+  stdHandler.register('string_from_char_code', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const code = Number(m['value'] ?? m['code'] ?? 0);
+    return String.fromCharCode(code);
+  });
+  stdHandler.register('string_replace', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    const from = String(m['from'] ?? m['pattern'] ?? '');
+    const to = String(m['to'] ?? m['replacement'] ?? '');
+    return s.replace(from, to);
+  });
+  stdHandler.register('string_replace_all', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    const from = String(m['from'] ?? m['pattern'] ?? '');
+    const to = String(m['to'] ?? m['replacement'] ?? '');
+    return s.split(from).join(to);
+  });
+  stdHandler.register('string_repeat', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? '');
+    const count = Number(m['count'] ?? m['times'] ?? 0);
+    return s.repeat(count);
+  });
+  stdHandler.register('list_map', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const fn = m['function'] ?? m['value'] ?? m['callback'];
+    if (!Array.isArray(list) || typeof fn !== 'function') return [];
+    const result: any[] = [];
+    for (const item of list) {
+      let r = fn(item);
+      if (r && typeof r.then === 'function') r = await r;
+      result.push(r);
+    }
+    return result;
+  });
+  stdHandler.register('list_filter', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const fn = m['function'] ?? m['value'] ?? m['callback'];
+    if (!Array.isArray(list) || typeof fn !== 'function') return [];
+    const result: any[] = [];
+    for (const item of list) {
+      let r = fn(item);
+      if (r && typeof r.then === 'function') r = await r;
+      if (r) result.push(item);
+    }
+    return result;
+  });
+  stdHandler.register('list_reduce', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const fn = m['function'] ?? m['value'] ?? m['callback'];
+    const init = m['initial'] ?? m['initialValue'];
+    if (!Array.isArray(list) || typeof fn !== 'function') return init ?? null;
+    let acc = init;
+    for (const item of list) {
+      if (acc === undefined) { acc = item; continue; }
+      let r = fn({'arg0': acc, 'arg1': item, 'left': acc, 'right': item});
+      if (r && typeof r.then === 'function') r = await r;
+      acc = r;
+    }
+    return acc;
+  });
+  stdHandler.register('list_sort', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const fn = m['compare'] ?? m['comparator'] ?? m['function'];
+    if (!Array.isArray(list)) return [];
+    const sorted = [...list];
+    if (typeof fn === 'function') {
+      sorted.sort((a: any, b: any) => {
+        const r = fn({'arg0': a, 'arg1': b, 'left': a, 'right': b});
+        return typeof r === 'number' ? r : 0;
+      });
+    } else {
+      sorted.sort((a: any, b: any) => a < b ? -1 : a > b ? 1 : 0);
+    }
+    return sorted;
+  });
+  stdHandler.register('list_any', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const fn = m['function'] ?? m['value'] ?? m['callback'];
+    if (!Array.isArray(list) || typeof fn !== 'function') return false;
+    for (const item of list) {
+      let r = fn(item);
+      if (r && typeof r.then === 'function') r = await r;
+      if (r) return true;
+    }
+    return false;
+  });
+  stdHandler.register('list_find', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const fn = m['function'] ?? m['value'] ?? m['callback'];
+    if (!Array.isArray(list) || typeof fn !== 'function') return null;
+    for (const item of list) {
+      let r = fn(item);
+      if (r && typeof r.then === 'function') r = await r;
+      if (r) return item;
+    }
+    return null;
+  });
+}
 try {
   await engine.run();
 } catch (e) {

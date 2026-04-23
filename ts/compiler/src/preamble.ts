@@ -33,6 +33,18 @@ function __ball_to_string(v: any): string {
     }
     return '{' + parts.join(', ') + '}';
   }
+  if (typeof v === 'object' && !Array.isArray(v)) {
+    // Check for custom toString method on the instance (not Object.prototype).
+    if (v.toString !== Object.prototype.toString && typeof v.toString === 'function') {
+      return v.toString();
+    }
+    // Dart Map-like object: format as {key: value, ...}
+    const keys = Object.keys(v).filter((k: string) => !k.startsWith('__'));
+    if (keys.length > 0) {
+      return '{' + keys.map((k: string) => __ball_to_string(k) + ': ' + __ball_to_string(v[k])).join(', ') + '}';
+    }
+    return '{}';
+  }
   return String(v);
 }
 
@@ -91,6 +103,48 @@ const bool = {
 // late-initialized variables and block-scoped flow tracking.
 const __no_init__: unique symbol = Symbol('__no_init__');
 
+// Dart type constructor shims — List, Map, etc.
+const List = {
+  filled: (count: any, value: any) => Array(count).fill(value),
+  generate: (count: any, generator: any) => {
+    const r: any[] = [];
+    for (let i = 0; i < count; i++) r.push(generator(i));
+    return r;
+  },
+  from: (iter: any) => Array.isArray(iter) ? [...iter] : [...iter],
+  of: (iter: any) => Array.isArray(iter) ? [...iter] : [...iter],
+  unmodifiable: (iter: any) => Object.freeze(Array.isArray(iter) ? [...iter] : [...iter]),
+  empty: (opts?: any) => [],
+  castFrom: (source: any) => Array.isArray(source) ? [...source] : [],
+};
+
+// Set.unmodifiable
+const _nativeSet = Set;
+(Set as any).unmodifiable = (iter: any) => {
+  const s = new _nativeSet(iter);
+  return Object.freeze(s);
+};
+(Set as any).from = (iter: any) => new _nativeSet(iter);
+(Set as any).of = (iter: any) => new _nativeSet(iter);
+
+// Identical function (Dart identical())
+function identical(a: any, b: any): boolean { return a === b; }
+
+// Function.apply shim (Dart Function.apply)
+(Function as any).apply = function(fn: any, positionalArgs: any, namedArgs?: any) {
+  if (typeof fn !== 'function') return undefined;
+  const args = positionalArgs == null ? [] : (Array.isArray(positionalArgs) ? positionalArgs : [positionalArgs]);
+  return fn(...args);
+};
+
+// Dart cascade helper — evaluates target, applies ops, returns target.
+function __ball_cascade(target: any, ops: any[]): any {
+  for (const op of ops) {
+    if (typeof op === 'function') op(target);
+  }
+  return target;
+}
+
 // ── Dart \u2192 JS method-name polyfills ────────────────────────────────
 //
 // Idempotent: guarded so multiple preamble inclusions don't double-install.
@@ -125,10 +179,34 @@ const __no_init__: unique symbol = Symbol('__no_init__');
     for (const v of iter) this.push(v);
   };
   if (!ap.removeLast) ap.removeLast = function () { return this.pop(); };
+  if (!ap.removeAt) ap.removeAt = function (i: any) { return this.splice(i, 1)[0]; };
+  if (!ap.insert) ap.insert = function (i: any, v: any) { this.splice(i, 0, v); };
   if (!ap.where) ap.where = Array.prototype.filter;
   if (!ap.toList) ap.toList = function () { return this.slice(); };
   if (!ap.toSet) ap.toSet = function () { return new Set(this); };
   if (!ap.contains) ap.contains = function (v: any) { return this.indexOf(v) >= 0; };
+  if (!ap.sublist) ap.sublist = function (start: any, end?: any) { return this.slice(start, end); };
+  if (!ap.asMap) ap.asMap = function () {
+    const m: any = {};
+    for (let i = 0; i < this.length; i++) m[i] = this[i];
+    return m;
+  };
+  if (!ap.expand) ap.expand = function (fn: any) { return this.flatMap(fn); };
+  if (!ap.take) ap.take = function (n: any) { return this.slice(0, n); };
+  if (!ap.skip) ap.skip = function (n: any) { return this.slice(n); };
+  if (!ap.any) ap.any = function (fn: any) { return this.some(fn); };
+  if (!ap.every) ap.every = ap.every; // already exists
+  if (!ap.fold) ap.fold = function (init: any, fn: any) { return this.reduce(fn, init); };
+  if (!ap.followedBy) ap.followedBy = function (other: any) { return [...this, ...other]; };
+  if (!ap.getRange) ap.getRange = function (start: any, end: any) { return this.slice(start, end); };
+  if (!ap.fillRange) ap.fillRange = function (start: any, end: any, fill: any) {
+    for (let i = start; i < end; i++) this[i] = fill;
+  };
+  if (!ap.setRange) ap.setRange = function (start: any, end: any, iterable: any, skipCount?: any) {
+    const src = Array.isArray(iterable) ? iterable : [...iterable];
+    const skip = skipCount ?? 0;
+    for (let i = start; i < end; i++) this[i] = src[i - start + skip];
+  };
 
   // Dart Set polyfills — Set.contains → Set.has, etc.
   const setp: any = Set.prototype;
@@ -214,6 +292,45 @@ const __no_init__: unique symbol = Symbol('__no_init__');
       },
     });
   }
+  // addAll — Dart Map.addAll. Works on plain objects too.
+  if (!op2.addAll) {
+    Object.defineProperty(op2, 'addAll', {
+      configurable: true, writable: true, enumerable: false,
+      value: function (other: any) {
+        if (this instanceof Map) {
+          if (other instanceof Map) {
+            for (const [k, v] of other.entries()) this.set(k, v);
+          } else if (other && typeof other === 'object') {
+            for (const k of Object.keys(other)) this.set(k, other[k]);
+          }
+        } else {
+          if (other instanceof Map) {
+            for (const [k, v] of other) this[k] = v;
+          } else if (other && typeof other === 'object') {
+            Object.assign(this, other);
+          }
+        }
+      },
+    });
+  }
+  // forEach — Dart Map.forEach. Works on plain objects.
+  // Don't overwrite native Map.prototype.forEach.
+  const _nativeObjForEach = op2.forEach;
+  Object.defineProperty(op2, 'forEach', {
+    configurable: true, writable: true, enumerable: false,
+    value: function (fn: any) {
+      if (this instanceof Map) {
+        return Map.prototype.forEach.call(this, fn);
+      }
+      if (Array.isArray(this)) {
+        return Array.prototype.forEach.call(this, fn);
+      }
+      // Plain object: Dart Map.forEach(void f(K key, V value))
+      if (typeof fn === 'function') {
+        for (const k of Object.keys(this)) fn(k, this[k]);
+      }
+    },
+  });
   // remove — Dart Map.remove.
   if (!op2.remove) {
     Object.defineProperty(op2, 'remove', {
@@ -287,6 +404,43 @@ const __no_init__: unique symbol = Symbol('__no_init__');
   if (!np.clamp) np.clamp = function (lo: any, hi: any) {
     return Math.min(Math.max(this, lo), hi);
   };
+  // runtimeType — Dart's Object.runtimeType. Returns the Dart-style
+  // type name for any JS value. Used by the compiled engine for type
+  // checking and error messages.
+  Object.defineProperty(op2, 'runtimeType', {
+    configurable: true, enumerable: false,
+    get() {
+      if (this === null || this === undefined) return 'Null';
+      if (typeof this === 'number' || this instanceof Number) return Number.isInteger(+this) ? 'int' : 'double';
+      if (typeof this === 'string' || this instanceof String) return 'String';
+      if (typeof this === 'boolean' || this instanceof Boolean) return 'bool';
+      if (typeof this === 'function') return 'Function';
+      if (Array.isArray(this)) return 'List';
+      if (this instanceof Set) return 'Set';
+      if (this instanceof Map) return 'Map';
+      if (this instanceof RegExp) return 'RegExp';
+      const t = this['__type__'];
+      if (typeof t === 'string' && t.length > 0) {
+        const ci = t.indexOf(':');
+        return ci >= 0 ? t.substring(ci + 1) : t;
+      }
+      return 'Map';
+    },
+  });
+  // Also add to Number.prototype, String.prototype, Boolean.prototype
+  // (they don't inherit from Object.prototype getters reliably for primitives).
+  Object.defineProperty(Number.prototype, 'runtimeType', {
+    configurable: true, enumerable: false,
+    get() { return Number.isInteger(+this) ? 'int' : 'double'; },
+  });
+  Object.defineProperty(String.prototype, 'runtimeType', {
+    configurable: true, enumerable: false,
+    get() { return 'String'; },
+  });
+  Object.defineProperty(Boolean.prototype, 'runtimeType', {
+    configurable: true, enumerable: false,
+    get() { return 'bool'; },
+  });
 })();
 
 // ── Protobuf Struct/Value compatibility ─────────────────────────

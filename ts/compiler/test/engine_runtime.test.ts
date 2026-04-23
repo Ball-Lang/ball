@@ -165,6 +165,46 @@ function wrapValue(raw: any): any {
   };
 }
 
+// Dart-style toString for Ball values (standalone version for harness)
+function __bts(v: any): string {
+  if (v === null || v === undefined) return 'null';
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (typeof v === 'number') {
+    if (Number.isInteger(v)) return v.toString();
+    const s = v.toString();
+    return s.includes('.') || s.includes('e') ? s : s + '.0';
+  }
+  if (typeof v === 'string') return v;
+  if (Array.isArray(v)) {
+    return '[' + v.map(__bts).join(', ') + ']';
+  }
+  if (v instanceof Map) {
+    const parts: string[] = [];
+    for (const [k, val] of v.entries()) {
+      parts.push(__bts(k) + ': ' + __bts(val));
+    }
+    return '{' + parts.join(', ') + '}';
+  }
+  if (v instanceof Set) {
+    return '{' + [...v].map(__bts).join(', ') + '}';
+  }
+  if (typeof v === 'object') {
+    // StringBuffer-like objects
+    if (v['__buffer__'] && Array.isArray(v['__buffer__'])) {
+      return v['__buffer__'].join('');
+    }
+    if (v.toString !== Object.prototype.toString && typeof v.toString === 'function') {
+      return v.toString();
+    }
+    const keys = Object.keys(v).filter((k: string) => !k.startsWith('__'));
+    if (keys.length > 0) {
+      return '{' + keys.map((k: string) => __bts(k) + ': ' + __bts(v[k])).join(', ') + '}';
+    }
+    return '{}';
+  }
+  return String(v);
+}
+
 const programJson = protoWrap(JSON.parse(readFileSync(process.argv[2], "utf8")));
 
 // Debug: check a function's metadata.fields to verify wrapping.
@@ -253,6 +293,67 @@ class MethodDispatchHandler {
         case 'ceil': return Math.ceil(self);
         case 'compareTo': return self < arg0 ? -1 : self > arg0 ? 1 : 0;
         case 'clamp': return Math.min(Math.max(self, arg0), arg1);
+      }
+    }
+    // String methods
+    if (typeof self === 'string') {
+      switch (fn) {
+        case 'length': return self.length;
+        case 'isEmpty': return self.length === 0;
+        case 'isNotEmpty': return self.length > 0;
+        case 'contains': return self.includes(String(arg0 ?? ''));
+        case 'startsWith': return self.startsWith(String(arg0 ?? ''));
+        case 'endsWith': return self.endsWith(String(arg0 ?? ''));
+        case 'substring': return self.substring(Number(arg0 ?? 0), arg1 != null ? Number(arg1) : undefined);
+        case 'split': return self.split(String(arg0 ?? ''));
+        case 'trim': return self.trim();
+        case 'toUpperCase': return self.toUpperCase();
+        case 'toLowerCase': return self.toLowerCase();
+        case 'replaceAll': return self.split(String(arg0 ?? '')).join(String(arg1 ?? ''));
+        case 'codeUnitAt': return self.charCodeAt(Number(arg0 ?? 0));
+        case 'toString': return self;
+        case 'compareTo': return self < String(arg0) ? -1 : self > String(arg0) ? 1 : 0;
+      }
+    }
+    // StringBuffer-like object methods (write, writeCharCode, toString)
+    if (typeof self === 'object' && self !== null && '__type__' in self) {
+      switch (fn) {
+        case 'write': {
+          if (!self['__buffer__']) self['__buffer__'] = [];
+          self['__buffer__'].push(String(arg0 ?? ''));
+          return null;
+        }
+        case 'writeCharCode': {
+          if (!self['__buffer__']) self['__buffer__'] = [];
+          self['__buffer__'].push(String.fromCharCode(Number(arg0 ?? 0)));
+          return null;
+        }
+        case 'toString': {
+          if (self['__buffer__']) return self['__buffer__'].join('');
+          break;
+        }
+      }
+    }
+    // Set methods
+    if (self instanceof Set) {
+      switch (fn) {
+        case 'union': { const other = arg0 instanceof Set ? arg0 : new Set(Array.isArray(arg0) ? arg0 : []); return new Set([...self, ...other]); }
+        case 'intersection': { const other = arg0 instanceof Set ? arg0 : new Set(Array.isArray(arg0) ? arg0 : []); return new Set([...self].filter(x => other.has(x))); }
+        case 'difference': { const other = arg0 instanceof Set ? arg0 : new Set(Array.isArray(arg0) ? arg0 : []); return new Set([...self].filter(x => !other.has(x))); }
+        case 'contains': {
+          if (self.has(arg0)) return true;
+          // Try numeric coercion
+          if (typeof arg0 === 'number') return self.has(String(arg0));
+          if (typeof arg0 === 'string') { const n = Number(arg0); if (!isNaN(n)) return self.has(n); }
+          return false;
+        }
+        case 'add': self.add(arg0); return null;
+        case 'remove': return self.delete(arg0);
+        case 'length': return self.size;
+        case 'isEmpty': return self.size === 0;
+        case 'isNotEmpty': return self.size > 0;
+        case 'toList': return [...self];
+        case 'toString': return '{' + [...self].join(', ') + '}';
       }
     }
     // Map/Object methods
@@ -373,13 +474,18 @@ if (stdHandler.register) {
     if (typeof fn === 'function') {
       if (Array.isArray(collection)) {
         for (const item of collection) {
-          const r = fn(item);
-          if (r && typeof r.then === 'function') await r;
+          let r = fn(item);
+          if (r && typeof r.then === 'function') r = await r;
+        }
+      } else if (collection instanceof Set) {
+        for (const item of collection) {
+          let r = fn(item);
+          if (r && typeof r.then === 'function') r = await r;
         }
       } else if (typeof collection === 'object' && collection !== null) {
-        for (const [k, v] of Object.entries(collection)) {
-          const r = fn({'key': k, 'value': v, 'arg0': k, 'arg1': v});
-          if (r && typeof r.then === 'function') await r;
+        for (const [k, v] of Object.entries(collection).filter(([k]: any) => !k.startsWith('__'))) {
+          let r = fn({'key': k, 'value': v, 'arg0': k, 'arg1': v});
+          if (r && typeof r.then === 'function') r = await r;
         }
       }
     }
@@ -469,14 +575,31 @@ if (stdHandler.register) {
   stdHandler.register('list_sort', async (i: any) => {
     const m = (typeof i === 'object' && i !== null) ? i : {};
     const list = m['list'] ?? m['collection'] ?? [];
-    const fn = m['compare'] ?? m['comparator'] ?? m['function'];
+    const fn = m['compare'] ?? m['comparator'] ?? m['function'] ?? m['value'];
     if (!Array.isArray(list)) return [];
     const sorted = [...list];
     if (typeof fn === 'function') {
-      sorted.sort((a: any, b: any) => {
-        const r = fn({'arg0': a, 'arg1': b, 'left': a, 'right': b});
-        return typeof r === 'number' ? r : 0;
-      });
+      // Stable merge sort supporting async comparators
+      async function mergeSort(arr: any[]): Promise<any[]> {
+        if (arr.length <= 1) return arr;
+        const mid = Math.floor(arr.length / 2);
+        const left = await mergeSort(arr.slice(0, mid));
+        const right = await mergeSort(arr.slice(mid));
+        const result: any[] = [];
+        let li = 0, ri = 0;
+        while (li < left.length && ri < right.length) {
+          let r = fn({'arg0': left[li], 'arg1': right[ri], 'left': left[li], 'right': right[ri]});
+          if (r && typeof r.then === 'function') r = await r;
+          const cmp = typeof r === 'number' ? r : 0;
+          if (cmp <= 0) result.push(left[li++]);
+          else result.push(right[ri++]);
+        }
+        while (li < left.length) result.push(left[li++]);
+        while (ri < right.length) result.push(right[ri++]);
+        return result;
+      }
+      const result = await mergeSort(sorted);
+      return result;
     } else {
       sorted.sort((a: any, b: any) => a < b ? -1 : a > b ? 1 : 0);
     }
@@ -594,14 +717,14 @@ if (stdHandler.register) {
   });
   stdHandler.register('list_filled', (i: any) => {
     const m = (typeof i === 'object' && i !== null) ? i : {};
-    const count = Number(m['count'] ?? m['length'] ?? 0);
-    const value = m['value'] ?? m['fill'] ?? null;
+    const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
+    const value = m['value'] ?? m['fill'] ?? m['arg1'] ?? null;
     return Array(count).fill(value);
   });
   stdHandler.register('list_generate', async (i: any) => {
     const m = (typeof i === 'object' && i !== null) ? i : {};
-    const count = Number(m['count'] ?? m['length'] ?? 0);
-    const gen = m['generator'] ?? m['function'];
+    const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
+    const gen = m['generator'] ?? m['function'] ?? m['arg1'] ?? m['value'];
     const result: any[] = [];
     if (typeof gen === 'function') {
       for (let j = 0; j < count; j++) {
@@ -609,6 +732,9 @@ if (stdHandler.register) {
         if (r && typeof r.then === 'function') r = await r;
         result.push(r);
       }
+    } else {
+      // No generator, fill with null
+      for (let j = 0; j < count; j++) result.push(null);
     }
     return result;
   });
@@ -616,6 +742,12 @@ if (stdHandler.register) {
     const m = (typeof i === 'object' && i !== null) ? i : {};
     const list = m['list'] ?? m['collection'] ?? [];
     const value = m['value'] ?? m['element'];
+    if (list instanceof Set) {
+      if (list.has(value)) return true;
+      if (typeof value === 'number') return list.has(String(value));
+      if (typeof value === 'string') { const n = Number(value); if (!isNaN(n)) return list.has(n); }
+      return false;
+    }
     if (Array.isArray(list)) return list.includes(value);
     if (typeof list === 'string') return list.includes(String(value));
     return false;
@@ -638,12 +770,14 @@ if (stdHandler.register) {
   });
   stdHandler.register('map_from_entries', (i: any) => {
     const m = (typeof i === 'object' && i !== null) ? i : {};
-    const entries = m['entries'] ?? m['list'] ?? [];
+    const entries = m['entries'] ?? m['list'] ?? m['arg0'] ?? [];
     const result: any = {};
     if (Array.isArray(entries)) {
       for (const e of entries) {
         if (typeof e === 'object' && e !== null) {
-          result[e['key'] ?? e['name'] ?? ''] = e['value'];
+          const k = e['key'] ?? e['arg0'] ?? e['name'] ?? '';
+          const v = 'value' in e ? e['value'] : ('arg1' in e ? e['arg1'] : undefined);
+          result[k] = v;
         }
       }
     }
@@ -937,9 +1071,7 @@ if (stdHandler.register) {
   stdHandler.register('to_string', (i: any) => {
     const m = (typeof i === 'object' && i !== null) ? i : {};
     const value = m['value'] ?? i;
-    if (value === null || value === undefined) return 'null';
-    if (typeof value === 'boolean') return value ? 'true' : 'false';
-    return String(value);
+    return __bts(value);
   });
   stdHandler.register('map_contains_key', (i: any) => {
     const m = (typeof i === 'object' && i !== null) ? i : {};
@@ -947,6 +1079,366 @@ if (stdHandler.register) {
     const key = String(m['key'] ?? m['value'] ?? '');
     if (typeof map === 'object' && map !== null) return key in map;
     return false;
+  });
+  // sort method dispatch: when called as a method on a list (self.sort)
+  // This mutates the list in-place (Dart's List.sort)
+  stdHandler.register('sort', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const self = m['self'] ?? m['list'] ?? m['collection'];
+    const fn = m['compare'] ?? m['comparator'] ?? m['function'] ?? m['value'] ?? m['arg0'];
+    if (Array.isArray(self)) {
+      if (typeof fn === 'function') {
+        async function mergeSort(arr: any[]): Promise<any[]> {
+          if (arr.length <= 1) return arr;
+          const mid = Math.floor(arr.length / 2);
+          const left = await mergeSort(arr.slice(0, mid));
+          const right = await mergeSort(arr.slice(mid));
+          const result: any[] = [];
+          let li = 0, ri = 0;
+          while (li < left.length && ri < right.length) {
+            let r = fn({'arg0': left[li], 'arg1': right[ri], 'left': left[li], 'right': right[ri]});
+            if (r && typeof r.then === 'function') r = await r;
+            const cmp = typeof r === 'number' ? r : 0;
+            if (cmp <= 0) result.push(left[li++]);
+            else result.push(right[ri++]);
+          }
+          while (li < left.length) result.push(left[li++]);
+          while (ri < right.length) result.push(right[ri++]);
+          return result;
+        }
+        const sorted = await mergeSort([...self]);
+        for (let si = 0; si < sorted.length; si++) self[si] = sorted[si];
+      } else {
+        self.sort((a: any, b: any) => a < b ? -1 : a > b ? 1 : 0);
+      }
+      return null; // Dart's List.sort returns void
+    }
+    return null;
+  });
+  // list_of, list_from — copy an iterable
+  stdHandler.register('list_of', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const src = m['list'] ?? m['iterable'] ?? m['arg0'] ?? m['value'] ?? i;
+    if (Array.isArray(src)) return [...src];
+    if (src instanceof Set) return [...src];
+    return [];
+  });
+  stdHandler.register('dart_list_of', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const src = m['list'] ?? m['iterable'] ?? m['arg0'] ?? m['value'] ?? i;
+    if (Array.isArray(src)) return [...src];
+    if (src instanceof Set) return [...src];
+    return [];
+  });
+  stdHandler.register('list_from', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const src = m['list'] ?? m['iterable'] ?? m['arg0'] ?? m['value'] ?? i;
+    if (Array.isArray(src)) return [...src];
+    if (src instanceof Set) return [...src];
+    return [];
+  });
+  stdHandler.register('dart_list_from', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const src = m['list'] ?? m['iterable'] ?? m['arg0'] ?? m['value'] ?? i;
+    if (Array.isArray(src)) return [...src];
+    if (src instanceof Set) return [...src];
+    return [];
+  });
+  // map_update — update a map key
+  stdHandler.register('map_update', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'];
+    const key = String(m['key'] ?? '');
+    const fn = m['update'] ?? m['function'] ?? m['value'];
+    const ifAbsent = m['ifAbsent'] ?? m['if_absent'];
+    if (typeof map === 'object' && map !== null) {
+      if (key in map && typeof fn === 'function') {
+        map[key] = fn(map[key]);
+      } else if (typeof ifAbsent === 'function') {
+        map[key] = ifAbsent();
+      }
+      return map[key];
+    }
+    return null;
+  });
+  // string_char_at — get character at index
+  stdHandler.register('string_char_at', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    const idx = Number(m['index'] ?? m['arg0'] ?? 0);
+    return s.charAt(idx);
+  });
+  // list_where / list_where_type — alias for list_filter
+  stdHandler.register('list_where', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const fn = m['function'] ?? m['value'] ?? m['callback'];
+    if (!Array.isArray(list) || typeof fn !== 'function') return [];
+    const result: any[] = [];
+    for (const item of list) {
+      let r = fn(item);
+      if (r && typeof r.then === 'function') r = await r;
+      if (r) result.push(item);
+    }
+    return result;
+  });
+  // list_flat_map / list_expand — flatMap
+  stdHandler.register('list_expand', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const fn = m['function'] ?? m['value'] ?? m['callback'];
+    if (!Array.isArray(list) || typeof fn !== 'function') return [];
+    const result: any[] = [];
+    for (const item of list) {
+      let r = fn(item);
+      if (r && typeof r.then === 'function') r = await r;
+      if (Array.isArray(r)) result.push(...r);
+      else result.push(r);
+    }
+    return result;
+  });
+  // list_take / list_skip
+  stdHandler.register('list_take', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const count = Number(m['count'] ?? m['value'] ?? m['n'] ?? 0);
+    if (Array.isArray(list)) return list.slice(0, count);
+    return [];
+  });
+  stdHandler.register('list_skip', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const count = Number(m['count'] ?? m['value'] ?? m['n'] ?? 0);
+    if (Array.isArray(list)) return list.slice(count);
+    return [];
+  });
+  // list_first / list_last
+  stdHandler.register('list_first', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    if (Array.isArray(list) && list.length > 0) return list[0];
+    return null;
+  });
+  stdHandler.register('list_last', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    if (Array.isArray(list) && list.length > 0) return list[list.length - 1];
+    return null;
+  });
+  // list_slice — slice a list (supports both start/end and repeated value fields)
+  stdHandler.register('list_slice', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    if (!Array.isArray(list)) return [];
+    // Check for start/end args
+    if ('start' in m || 'end' in m) {
+      const start = Number(m['start'] ?? 0);
+      const end = m['end'] != null ? Number(m['end']) : undefined;
+      return list.slice(start, end);
+    }
+    // Repeated 'value' fields: [start, end]
+    const val = m['value'];
+    if (Array.isArray(val) && val.length >= 2) {
+      return list.slice(Number(val[0]), Number(val[1]));
+    }
+    if ('arg0' in m) {
+      const start = Number(m['arg0'] ?? 0);
+      const end = m['arg1'] != null ? Number(m['arg1']) : undefined;
+      return list.slice(start, end);
+    }
+    if (val != null && !Array.isArray(val)) {
+      return list.slice(0, Number(val));
+    }
+    return [...list];
+  });
+  // string_char_code_at
+  stdHandler.register('string_char_code_at', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    const idx = Number(m['index'] ?? m['arg0'] ?? 0);
+    return s.charCodeAt(idx);
+  });
+  // string_from_char_code (single)
+  stdHandler.register('string_from_char_code', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const code = Number(m['value'] ?? m['code'] ?? m['arg0'] ?? 0);
+    return String.fromCharCode(code);
+  });
+  // writeCharCode — method dispatch on StringBuffer
+  stdHandler.register('writeCharCode', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const self = m['self'];
+    const code = Number(m['arg0'] ?? m['value'] ?? 0);
+    if (typeof self === 'object' && self !== null) {
+      if (!self['__buffer__']) self['__buffer__'] = [];
+      self['__buffer__'].push(String.fromCharCode(code));
+    }
+    return null;
+  });
+  // write — method dispatch on StringBuffer
+  stdHandler.register('write', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const self = m['self'];
+    const val = m['arg0'] ?? m['value'] ?? '';
+    if (typeof self === 'object' && self !== null) {
+      if (!self['__buffer__']) self['__buffer__'] = [];
+      self['__buffer__'].push(String(val));
+    }
+    return null;
+  });
+  // list_set — set element at index
+  stdHandler.register('list_set', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'];
+    const idx = Number(m['index'] ?? 0);
+    const val = m['value'];
+    if (Array.isArray(list)) { list[idx] = val; }
+    return null;
+  });
+  // map_add_all
+  stdHandler.register('map_add_all', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'];
+    const other = m['other'] ?? m['entries'] ?? {};
+    if (typeof map === 'object' && map !== null && typeof other === 'object' && other !== null) {
+      for (const [k, v] of Object.entries(other)) {
+        if (!k.startsWith('__')) map[k] = v;
+      }
+    }
+    return null;
+  });
+  // set_add / set_remove
+  stdHandler.register('set_add', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = m['set'] ?? m['collection'];
+    const v = m['value'] ?? m['element'];
+    if (s instanceof Set) { s.add(v); return true; }
+    return false;
+  });
+  stdHandler.register('set_remove', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = m['set'] ?? m['collection'];
+    const v = m['value'] ?? m['element'];
+    if (s instanceof Set) return s.delete(v);
+    return false;
+  });
+  // union / intersection / difference — method dispatch on Sets
+  stdHandler.register('union', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const self = m['self'] ?? m['set'] ?? new Set();
+    const other = m['arg0'] ?? m['other'] ?? new Set();
+    const setA = self instanceof Set ? self : new Set(Array.isArray(self) ? self : []);
+    const setB = other instanceof Set ? other : new Set(Array.isArray(other) ? other : []);
+    return new Set([...setA, ...setB]);
+  });
+  stdHandler.register('intersection', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const self = m['self'] ?? m['set'] ?? new Set();
+    const other = m['arg0'] ?? m['other'] ?? new Set();
+    const setA = self instanceof Set ? self : new Set(Array.isArray(self) ? self : []);
+    const setB = other instanceof Set ? other : new Set(Array.isArray(other) ? other : []);
+    return new Set([...setA].filter(x => setB.has(x)));
+  });
+  stdHandler.register('difference', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const self = m['self'] ?? m['set'] ?? new Set();
+    const other = m['arg0'] ?? m['other'] ?? new Set();
+    const setA = self instanceof Set ? self : new Set(Array.isArray(self) ? self : []);
+    const setB = other instanceof Set ? other : new Set(Array.isArray(other) ? other : []);
+    return new Set([...setA].filter(x => !setB.has(x)));
+  });
+  // set_add_all
+  stdHandler.register('set_add_all', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = m['set'] ?? m['collection'];
+    const other = m['other'] ?? m['elements'] ?? [];
+    if (s instanceof Set) {
+      const items = Array.isArray(other) ? other : (other instanceof Set ? [...other] : []);
+      for (const item of items) s.add(item);
+    }
+    return null;
+  });
+  // compare_to — Dart's Comparable.compareTo
+  stdHandler.register('compare_to', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const left = m['left'] ?? m['value'] ?? m['self'] ?? m['a'] ?? 0;
+    const right = m['right'] ?? m['other'] ?? m['arg0'] ?? m['b'] ?? 0;
+    if (typeof left === 'string' && typeof right === 'string') return left < right ? -1 : left > right ? 1 : 0;
+    return Number(left) < Number(right) ? -1 : Number(left) > Number(right) ? 1 : 0;
+  });
+  // fromEntries — handle Map.fromEntries dispatch
+  stdHandler.register('fromEntries', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const entries = m['entries'] ?? m['list'] ?? m['arg0'] ?? [];
+    const result: any = {};
+    if (Array.isArray(entries)) {
+      for (const e of entries) {
+        if (typeof e === 'object' && e !== null) {
+          const k = e['key'] ?? e['arg0'] ?? e['name'] ?? '';
+          const v = 'value' in e ? e['value'] : ('arg1' in e ? e['arg1'] : undefined);
+          result[k] = v;
+        }
+      }
+    }
+    return result;
+  });
+  stdHandler.register('map_fromEntries', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const entries = m['entries'] ?? m['list'] ?? m['arg0'] ?? [];
+    const result: any = {};
+    if (Array.isArray(entries)) {
+      for (const e of entries) {
+        if (typeof e === 'object' && e !== null) {
+          const k = e['key'] ?? e['arg0'] ?? e['name'] ?? '';
+          const v = 'value' in e ? e['value'] : ('arg1' in e ? e['arg1'] : undefined);
+          result[k] = v;
+        }
+      }
+    }
+    return result;
+  });
+  // generate — alias for list_generate (handles List.generate dispatch)
+  stdHandler.register('generate', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
+    const gen = m['generator'] ?? m['function'] ?? m['arg1'] ?? m['value'];
+    const result: any[] = [];
+    if (typeof gen === 'function') {
+      for (let j = 0; j < count; j++) {
+        let r = gen(j);
+        if (r && typeof r.then === 'function') r = await r;
+        result.push(r);
+      }
+    } else {
+      for (let j = 0; j < count; j++) result.push(null);
+    }
+    return result;
+  });
+  // filled — alias for list_filled
+  stdHandler.register('filled', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
+    const value = m['value'] ?? m['fill'] ?? m['arg1'] ?? null;
+    return Array(count).fill(value);
+  });
+  // string_to_int — more lenient integer parsing
+  stdHandler.register('string_to_int', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? i ?? '');
+    const n = parseInt(s.trim(), 10);
+    if (isNaN(n)) return 0;
+    return n;
+  });
+  // map_clear
+  stdHandler.register('map_clear', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'];
+    if (typeof map === 'object' && map !== null) {
+      for (const k of Object.keys(map)) {
+        if (!k.startsWith('__')) delete map[k];
+      }
+    }
+    return null;
   });
 }
 try {

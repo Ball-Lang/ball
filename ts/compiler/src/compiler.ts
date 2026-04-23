@@ -503,9 +503,9 @@ $1async _resolveAndCallFunction(`,
         else if (__cr === 'Map') __stdNames.push('map_' + __fn, 'dart_map_' + __fn, 'map_from_entries');
         else if (__cr === 'Set') __stdNames.push('set_' + __fn, 'dart_set_' + __fn);
         for (const __sn of __stdNames) {
-          try { return this._callBaseFunction('std', __sn, __stdInput); } catch (e) {}
-          try { return this._callBaseFunction('dart_std', __sn, __stdInput); } catch (e) {}
-          try { return this._callBaseFunction('std_collections', __sn, __stdInput); } catch (e) {}
+          try { return await this._callBaseFunction('std', __sn, __stdInput); } catch (e) {}
+          try { return await this._callBaseFunction('dart_std', __sn, __stdInput); } catch (e) {}
+          try { return await this._callBaseFunction('std_collections', __sn, __stdInput); } catch (e) {}
         }
       }
     }
@@ -584,7 +584,18 @@ $1async _resolveAndCallFunction(`,
               const argNames = argMatch[1].split(',').map((s: string) => s.trim()).filter((s: string) => s);
               for (let i = 0; i < argNames.length; i++) {
                 const argName = argNames[i];
-                superInput['arg' + i] = resolvedParams[argName] ?? argName;
+                // Strip quotes from string literal args
+                let __argVal = resolvedParams[argName];
+                if (__argVal === undefined) {
+                  if ((argName.startsWith("'") && argName.endsWith("'")) || (argName.startsWith('"') && argName.endsWith('"'))) {
+                    __argVal = argName.substring(1, argName.length - 1);
+                  } else if (!isNaN(Number(argName))) {
+                    __argVal = Number(argName);
+                  } else {
+                    __argVal = argName;
+                  }
+                }
+                superInput['arg' + i] = __argVal;
               }
             }
             // Try various constructor key patterns for the superclass.
@@ -927,6 +938,21 @@ $1async _resolveAndCallFunction(`,
           // No more keys to try
         }
       }
+      // Fallback: try dispatching as a std/std_collections base function
+      // This handles method-style calls like sort(), where() on lists/maps
+      for (const __stdMod of ['std', 'std_collections', 'dart_std', 'std_io']) {
+        try { return await this._callBaseFunction(__stdMod, function_, input); } catch(e) {}
+      }
+      // Try with list_ or map_ prefix
+      const __self2 = input['self'];
+      if (__self2 != null) {
+        const __prefixes = Array.isArray(__self2) ? ['list_'] : (typeof __self2 === 'string' ? ['string_'] : ['map_']);
+        for (const __px of __prefixes) {
+          for (const __stdMod of ['std', 'std_collections', 'dart_std']) {
+            try { return await this._callBaseFunction(__stdMod, __px + function_, input); } catch(e) {}
+          }
+        }
+      }
     }
     throw new BallRuntimeError((('Function "' + __ball_to_string(key)) + '" not found'));`,
     );
@@ -960,6 +986,51 @@ $1async _resolveAndCallFunction(`,
       `_stdBinaryDouble(input: any, op: any): any {
     const __origOp2 = op;
     op = (a: any, b: any) => new BallDouble(__origOp2(a instanceof BallDouble ? a.value : a, b instanceof BallDouble ? b.value : b));`,
+    );
+
+    // ── Post-processing: fix doubleValue literals to return BallDouble ──
+    // In Dart, doubleValue literals are always doubles (e.g., 3.0).
+    // Wrap them in BallDouble so they print as "3.0" not "3".
+    body = body.replace(
+      /\(lit\.whichValue\(\) === \(Literal_Value\.doubleValue\)\) \? \(lit\.doubleValue\)/,
+      `(lit.whichValue() === (Literal_Value.doubleValue)) ? (new BallDouble(typeof lit.doubleValue === 'number' ? lit.doubleValue : Number(lit.doubleValue)))`,
+    );
+
+    // ── Post-processing: fix _stdBinary to propagate BallDouble ──────────
+    // When BallDouble operands are passed, wrap the result in BallDouble.
+    // The issue is that _toNum unwraps BallDouble before passing to op,
+    // so we check the RAW args (before _toNum) for BallDouble.
+    body = body.replace(
+      /return op\(this\._toNum\(left\), this\._toNum\(right\)\);\s*\}/,
+      `const __lBD = left instanceof BallDouble;
+    const __rBD = right instanceof BallDouble;
+    const __result = op(this._toNum(left), this._toNum(right));
+    if ((__lBD || __rBD) && typeof __result === 'number') return new BallDouble(__result);
+    return __result;
+  }`,
+    );
+
+    // ── Post-processing: fix _stdIndex for flexible access ─────────────
+    // The compiled engine's _stdIndex only handles specific type combos.
+    // Add broader fallback: coerce index for objects, handle Maps, BallDouble.
+    // Also fix the existing checks to handle BallDouble indices.
+    body = body.replace(
+      /let target = input\['target'\];\s*let index = input\['index'\];/,
+      `let target = input['target'];
+    let index = input['index'];
+    // Unwrap BallDouble index for array access
+    if (index instanceof BallDouble) index = index.value;`,
+    );
+    body = body.replace(
+      /throw new BallRuntimeError\('std\.index: unsupported types'\);/,
+      `// Fallback: try flexible index access
+    if (typeof target === 'object' && target !== null) {
+      if (target instanceof Map) return target.get(index);
+      if (!Array.isArray(target)) return target[String(index)];
+      return target[Number(index)];
+    }
+    if (typeof target === 'string') return target.charAt(Number(index));
+    return null;`,
     );
 
     // ── Post-processing: fix _stdPrint to handle BallDouble ──────
@@ -1186,6 +1257,39 @@ $1async _resolveAndCallFunction(`,
     if (name === 'super' && scope.has('self'))`,
     );
 
+    // ── Post-processing: fix _evalReference function lookup fallback ──
+    // When a reference like "filterEven" is evaluated, it should resolve
+    // to a callable wrapper if the name matches a function in _functions.
+    // The compiled engine doesn't bind functions in scope by default.
+    body = body.replace(
+      /let getterKey = \(\(__ball_to_string\(this\._currentModule\) \+ '\.'\) \+ __ball_to_string\(name\)\);\s*let getterFunc = this\._getters\[getterKey\] \?\? this\._functions\[getterKey\];\s*if \(\(\(getterFunc != null\) && this\._isGetter\(getterFunc\)\)\) \{\s*return this\._callFunction\(this\._currentModule, getterFunc, null\);\s*\}\s*return scope\.lookup\(name\);\s*\}/,
+      `let getterKey = ((__ball_to_string(this._currentModule) + '.') + __ball_to_string(name));
+    let getterFunc = this._getters[getterKey] ?? this._functions[getterKey];
+    if (((getterFunc != null) && this._isGetter(getterFunc))) {
+      return this._callFunction(this._currentModule, getterFunc, null);
+    }
+    // Fallback: look up functions by name and return as callable
+    {
+      const __fnKey = this._currentModule + '.' + name;
+      const __fn = this._functions[__fnKey];
+      if (__fn != null && __fn.hasBody && __fn.hasBody()) {
+        return (async (__fnInput) => {
+          return this._callFunction(this._currentModule, __fn, __fnInput);
+        });
+      }
+      // Try with module prefix in the name
+      const __fnKey2 = this._currentModule + '.' + this._currentModule + ':' + name;
+      const __fn2 = this._functions[__fnKey2];
+      if (__fn2 != null && __fn2.hasBody && __fn2.hasBody()) {
+        return (async (__fnInput) => {
+          return this._callFunction(this._currentModule, __fn2, __fnInput);
+        });
+      }
+    }
+    return scope.lookup(name);
+  }`,
+    );
+
     // ── Post-processing: fix _evalMessageCreation toString injection ──
     // When an OOP object is created and its type has a toString method,
     // override Object.prototype.toString on the instance so
@@ -1313,15 +1417,127 @@ $1async _resolveAndCallFunction(`,
   }`,
     );
 
-    // ── Post-processing: fix for_in variable scoping ─────────────────
-    // The compiled _evalLazyForIn creates a child scope for the loop body
-    // but may not properly bind the iteration variable in the child scope.
-    // Ensure the variable is bound in the loop scope, not the parent.
+    // ── Post-processing: fix _evalLambda positional param binding ──────
+    // The compiled engine's _evalLambda binds input entries by key name,
+    // but when the caller passes positional args (arg0, arg1, ...), the
+    // lambda's named params don't get bound. Fix: after binding entries,
+    // also bind paramNames[i] = input['arg' + i] for positional args.
+    body = body.replace(
+      /let paramNames = \(func\.hasMetadata\(\) \? this\._extractParams\(func\.metadata\) : \[\]\);\s*if \(\(\(paramNames\.length === 1\) && !\(\(typeof input === 'object' && input !== null && !Array\.isArray\(input\)\)\)\)\) \{\s*lambdaScope\.bind\(paramNames\.first, input\);\s*\}\s*if \(\(typeof input === 'object' && input !== null && !Array\.isArray\(input\)\)\) \{\s*for \(const entry of input\.entries\) \{\s*if \(\(entry\.key !== '__type__'\)\) \{\s*lambdaScope\.bind\(entry\.key, entry\.value\);\s*\}\s*\}\s*\}/,
+      `let paramNames = (func.hasMetadata() ? this._extractParams(func.metadata) : []);
+      if (((paramNames.length === 1) && !((typeof input === 'object' && input !== null && !Array.isArray(input))))) {
+        lambdaScope.bind(paramNames.first, input);
+      }
+      if ((typeof input === 'object' && input !== null && !Array.isArray(input))) {
+        for (const entry of input.entries) {
+          if ((entry.key !== '__type__')) {
+            lambdaScope.bind(entry.key, entry.value);
+          }
+        }
+        // Positional arg binding: bind paramNames[i] = input['arg' + i]
+        for (let __pi = 0; __pi < paramNames.length; __pi++) {
+          const __argKey = 'arg' + __pi;
+          if (input.containsKey(__argKey) && !lambdaScope.has(paramNames[__pi])) {
+            lambdaScope.bind(paramNames[__pi], input[__argKey]);
+          }
+        }
+      }`,
+    );
 
-    // ── Post-processing: fix map iteration field access ──────────────
-    // When iterating over a map with for_in, the Dart engine yields
-    // MapEntry objects with .key and .value. The compiled engine should
-    // do the same for plain-object maps.
+    // ── Post-processing: fix _evalLazySwitch to support fall-through ───
+    // Replace the entire _evalLazySwitch method body with a fixed version
+    // that supports fall-through, pattern fields, and quote stripping.
+    body = body.replace(
+      /async _evalLazySwitch\(call: any, scope: any\): Promise<any> \{[\s\S]*?if \(defaultBody != null && defaultBody !== __no_init__\) \{\s*return this\._evalExpression\(defaultBody, scope\);\s*\}\s*\}/,
+      `async _evalLazySwitch(call: any, scope: any): Promise<any> {
+    let fields = this._lazyFields(call);
+    let subject = fields['subject'];
+    let cases = fields['cases'];
+    if (((subject == null) || (cases == null))) {
+      return null;
+    }
+    let subjectVal = await this._evalExpression(subject, scope);
+    if (((cases.whichExpr() !== Expression_Expr.messageCreation) && (cases.whichExpr() !== Expression_Expr.literal || cases.literal.whichValue() !== Literal_Value.listValue))) {
+      return null;
+    }
+    let caseElements = (cases.whichExpr() === Expression_Expr.literal && cases.literal.listValue) ? cases.literal.listValue.elements : [];
+    let defaultBody = __no_init__;
+    let __matched = false;
+    for (const caseExpr of caseElements) {
+      if ((caseExpr.whichExpr() !== Expression_Expr.messageCreation)) {
+        continue;
+      }
+      let cf: any = {};
+      for (const f of caseExpr.messageCreation.fields) {
+        cf[f.name] = f.value;
+      }
+      let isDefault = cf['is_default'];
+      if (isDefault != null) {
+        const __isDef = isDefault.whichExpr && isDefault.whichExpr() === Expression_Expr.literal && isDefault.literal.boolValue;
+        if (__isDef) {
+          defaultBody = cf['body'];
+          if (__matched && cf['body'] != null) {
+            return this._evalExpression(cf['body'], scope);
+          }
+          continue;
+        }
+      }
+      let value = cf['value'] ?? cf['pattern'];
+      if ((value != null)) {
+        let caseVal = await this._evalExpression(value, scope);
+        // Strip surrounding quotes from pattern strings (encoder artifact)
+        let __cv: any = caseVal;
+        if (typeof __cv === 'string' && __cv.length >= 2) {
+          if ((__cv.startsWith("'") && __cv.endsWith("'")) || (__cv.startsWith('"') && __cv.endsWith('"'))) {
+            __cv = __cv.substring(1, __cv.length - 1);
+          }
+        }
+        if (__matched || __cv == subjectVal || String(__cv) === String(subjectVal)) {
+          __matched = true;
+          let body = cf['body'];
+          // Check if body is a non-empty block or a real expression
+          if (body != null) {
+            const __isEmptyBlock = body.block && (!body.block.statements || body.block.statements.length === 0) && !body.block.result && !body.block.hasResult?.();
+            if (!__isEmptyBlock) {
+              return this._evalExpression(body, scope);
+            }
+          }
+          // No body or empty body = fall through to next case
+        }
+      }
+    }
+    if (defaultBody != null && defaultBody !== __no_init__) {
+      return this._evalExpression(defaultBody, scope);
+    }
+  }`,
+    );
+
+    // ── Post-processing: fix typed catch for BallException ──────────────
+    // The compiled engine throws BallException but the catch handler needs
+    // to match typed catches against the exception's typeName, not just
+    // the JS error type. Fix the catch dispatcher to check BallException.
+    body = body.replace(
+      /let __eType = \(e instanceof BallException\)/,
+      `let __eType = (e && typeof e === 'object' && 'typeName' in e)`,
+    );
+
+    // ── Post-processing: fix _callFunction to handle multi-param positional binding ──
+    // When calling a function with positional args (arg0, arg1, ...),
+    // bind them to the function's declared parameter names.
+    body = body.replace(
+      /let params = this\._extractParams\(func\.metadata\);\s*for \(const entry of input\.entries\) \{\s*scope\.bind\(entry\.key, entry\.value\);\s*\}/,
+      `let params = this._extractParams(func.metadata);
+      for (const entry of input.entries) {
+        scope.bind(entry.key, entry.value);
+      }
+      // Also bind positional args to declared param names
+      for (let __pi = 0; __pi < params.length; __pi++) {
+        const __argKey = 'arg' + __pi;
+        if (input.containsKey(__argKey) && !scope.has(params[__pi])) {
+          scope.bind(params[__pi], input[__argKey]);
+        }
+      }`,
+    );
 
     return includePreamble ? TS_RUNTIME_PREAMBLE + "\n" + body : body;
   }

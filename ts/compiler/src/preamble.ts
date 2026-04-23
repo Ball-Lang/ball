@@ -54,6 +54,10 @@ function __ball_to_string(v: any): string {
     return '{' + parts.join(', ') + '}';
   }
   if (typeof v === 'object' && !Array.isArray(v)) {
+    // StringBuffer-like objects
+    if (v['__buffer__'] && Array.isArray(v['__buffer__'])) {
+      return v['__buffer__'].join('');
+    }
     // Check for custom toString method on the instance (not Object.prototype).
     if (v.toString !== Object.prototype.toString && typeof v.toString === 'function') {
       return v.toString();

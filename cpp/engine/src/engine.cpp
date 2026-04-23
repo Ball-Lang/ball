@@ -725,6 +725,37 @@ BallValue Engine::resolve_and_call(const std::string& module,
     if (it != functions_.end()) {
         return call_function_internal(mod_name, *it->second, std::move(input));
     }
+    // Method dispatch: if input has self with __type__, try ClassName.method
+    if (is_map(input)) {
+        const auto& inp = std::any_cast<const BallMap&>(input);
+        auto si = inp.find("self");
+        if (si != inp.end() && is_map(si->second)) {
+            const auto& sm = std::any_cast<const BallMap&>(si->second);
+            // Walk type chain (self + __super__) to find method
+            BallValue cur = si->second;
+            while (is_map(cur)) {
+                const auto& cm = std::any_cast<const BallMap&>(cur);
+                auto ti = cm.find("__type__");
+                if (ti != cm.end() && is_string(ti->second)) {
+                    auto type_name = std::any_cast<std::string>(ti->second);
+                    std::string mkey = mod_name + "." + type_name + "." + function;
+                    auto mit = functions_.find(mkey);
+                    if (mit != functions_.end())
+                        return call_function_internal(mod_name, *mit->second, std::move(input));
+                    // Try without module prefix on type
+                    auto colon = type_name.find(':');
+                    if (colon != std::string::npos) {
+                        mkey = mod_name + "." + type_name.substr(colon+1) + "." + function;
+                        mit = functions_.find(mkey);
+                        if (mit != functions_.end())
+                            return call_function_internal(mod_name, *mit->second, std::move(input));
+                    }
+                }
+                auto sup = cm.find("__super__");
+                cur = (sup != cm.end()) ? sup->second : BallValue{};
+            }
+        }
+    }
     for (const auto& m : program_.modules()) {
         for (const auto& f : m.functions()) {
             if (f.name() == function) {
@@ -1231,6 +1262,30 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
             auto fit2 = functions_.find(mk);
             if (fit2 == functions_.end()) { mk = current_module_ + "." + cn + "." + call.function(); fit2 = functions_.find(mk); }
             if (fit2 != functions_.end()) { setup_method_ref_info(); return call_function_internal(current_module_, *fit2->second, std::move(input)); }
+        }
+        // User-defined class instance method dispatch: walk type chain
+        if (self_it != inp_map.end() && is_map(self_it->second)) {
+            BallValue cur_obj = self_it->second;
+            while (is_map(cur_obj)) {
+                const auto& cm = std::any_cast<const BallMap&>(cur_obj);
+                auto ti = cm.find("__type__");
+                if (ti != cm.end() && is_string(ti->second)) {
+                    auto tn = std::any_cast<std::string>(ti->second);
+                    // Try multiple key formats
+                    for (const auto& mk : {
+                        current_module_ + "." + tn + "." + call.function(),
+                        current_module_ + "." + call.function(),
+                        tn + "." + call.function(),
+                    }) {
+                        auto mit = functions_.find(mk);
+                        if (mit != functions_.end()) {
+                            return call_function_internal(current_module_, *mit->second, std::move(input));
+                        }
+                    }
+                }
+                auto sup = cm.find("__super__");
+                cur_obj = (sup != cm.end()) ? sup->second : BallValue{};
+            }
         }
     }
 

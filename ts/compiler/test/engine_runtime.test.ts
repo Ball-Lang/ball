@@ -506,6 +506,448 @@ if (stdHandler.register) {
     }
     return null;
   });
+  stdHandler.register('list_join', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const sep = m['separator'] ?? m['delimiter'] ?? ', ';
+    if (!Array.isArray(list)) return '';
+    return list.map((x: any) => {
+      if (x === null || x === undefined) return 'null';
+      if (typeof x === 'boolean') return x ? 'true' : 'false';
+      return String(x);
+    }).join(String(sep));
+  });
+  stdHandler.register('list_every', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const fn = m['function'] ?? m['value'] ?? m['callback'];
+    if (!Array.isArray(list) || typeof fn !== 'function') return false;
+    for (const item of list) {
+      let r = fn(item);
+      if (r && typeof r.then === 'function') r = await r;
+      if (!r) return false;
+    }
+    return true;
+  });
+  stdHandler.register('list_length', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? i;
+    if (Array.isArray(list)) return list.length;
+    if (typeof list === 'string') return list.length;
+    return 0;
+  });
+  stdHandler.register('list_reversed', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    if (Array.isArray(list)) return [...list].reverse();
+    return [];
+  });
+  stdHandler.register('list_sublist', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const start = Number(m['start'] ?? m['arg0'] ?? 0);
+    const end = m['end'] ?? m['arg1'];
+    if (!Array.isArray(list)) return [];
+    return list.slice(start, end != null ? Number(end) : undefined);
+  });
+  stdHandler.register('list_index_of', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const value = m['value'] ?? m['element'];
+    if (Array.isArray(list)) return list.indexOf(value);
+    return -1;
+  });
+  stdHandler.register('list_add', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'];
+    const value = m['value'] ?? m['element'];
+    if (Array.isArray(list)) { list.push(value); return null; }
+    return null;
+  });
+  stdHandler.register('list_add_all', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'];
+    const other = m['other'] ?? m['elements'] ?? [];
+    if (Array.isArray(list) && Array.isArray(other)) { list.push(...other); }
+    return null;
+  });
+  stdHandler.register('list_remove_at', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'];
+    const idx = Number(m['index'] ?? 0);
+    if (Array.isArray(list)) return list.splice(idx, 1)[0];
+    return null;
+  });
+  stdHandler.register('list_insert', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'];
+    const idx = Number(m['index'] ?? 0);
+    const value = m['value'] ?? m['element'];
+    if (Array.isArray(list)) { list.splice(idx, 0, value); }
+    return null;
+  });
+  stdHandler.register('list_clear', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'];
+    if (Array.isArray(list)) list.length = 0;
+    return null;
+  });
+  stdHandler.register('list_filled', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const count = Number(m['count'] ?? m['length'] ?? 0);
+    const value = m['value'] ?? m['fill'] ?? null;
+    return Array(count).fill(value);
+  });
+  stdHandler.register('list_generate', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const count = Number(m['count'] ?? m['length'] ?? 0);
+    const gen = m['generator'] ?? m['function'];
+    const result: any[] = [];
+    if (typeof gen === 'function') {
+      for (let j = 0; j < count; j++) {
+        let r = gen(j);
+        if (r && typeof r.then === 'function') r = await r;
+        result.push(r);
+      }
+    }
+    return result;
+  });
+  stdHandler.register('list_contains', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? [];
+    const value = m['value'] ?? m['element'];
+    if (Array.isArray(list)) return list.includes(value);
+    if (typeof list === 'string') return list.includes(String(value));
+    return false;
+  });
+  stdHandler.register('list_remove', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'];
+    const value = m['value'] ?? m['element'];
+    if (Array.isArray(list)) {
+      const idx = list.indexOf(value);
+      if (idx >= 0) { list.splice(idx, 1); return true; }
+    }
+    return false;
+  });
+  stdHandler.register('list_remove_last', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'];
+    if (Array.isArray(list)) return list.pop();
+    return null;
+  });
+  stdHandler.register('map_from_entries', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const entries = m['entries'] ?? m['list'] ?? [];
+    const result: any = {};
+    if (Array.isArray(entries)) {
+      for (const e of entries) {
+        if (typeof e === 'object' && e !== null) {
+          result[e['key'] ?? e['name'] ?? ''] = e['value'];
+        }
+      }
+    }
+    return result;
+  });
+  stdHandler.register('map_containsKey', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'] ?? {};
+    const key = m['key'] ?? m['value'] ?? '';
+    if (typeof map === 'object' && map !== null) return String(key) in map;
+    return false;
+  });
+  stdHandler.register('map_contains_key', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'] ?? {};
+    const key = m['key'] ?? m['value'] ?? '';
+    if (typeof map === 'object' && map !== null) return String(key) in map;
+    return false;
+  });
+  stdHandler.register('map_length', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'] ?? {};
+    if (typeof map === 'object' && map !== null) return Object.keys(map).filter(k => !k.startsWith('__')).length;
+    return 0;
+  });
+  stdHandler.register('map_keys', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'] ?? {};
+    if (typeof map === 'object' && map !== null) return Object.keys(map).filter(k => !k.startsWith('__'));
+    return [];
+  });
+  stdHandler.register('map_values', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'] ?? {};
+    if (typeof map === 'object' && map !== null) return Object.keys(map).filter(k => !k.startsWith('__')).map(k => map[k]);
+    return [];
+  });
+  stdHandler.register('map_remove', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'];
+    const key = m['key'] ?? '';
+    if (typeof map === 'object' && map !== null) { const v = map[String(key)]; delete map[String(key)]; return v; }
+    return null;
+  });
+  stdHandler.register('map_put_if_absent', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'];
+    const key = String(m['key'] ?? '');
+    const value = m['value'];
+    const ifAbsent = m['ifAbsent'] ?? m['if_absent'];
+    if (typeof map === 'object' && map !== null) {
+      if (!(key in map)) map[key] = typeof ifAbsent === 'function' ? ifAbsent() : (value ?? null);
+      return map[key];
+    }
+    return null;
+  });
+  stdHandler.register('map_entries', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'] ?? {};
+    if (typeof map === 'object' && map !== null) {
+      return Object.entries(map).filter(([k]) => !k.startsWith('__')).map(([k, v]) => ({key: k, value: v}));
+    }
+    return [];
+  });
+  stdHandler.register('map_for_each', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'] ?? {};
+    const fn = m['function'] ?? m['callback'];
+    if (typeof fn === 'function' && typeof map === 'object' && map !== null) {
+      for (const [k, v] of Object.entries(map).filter(([k]) => !k.startsWith('__'))) {
+        let r = fn({key: k, value: v, arg0: k, arg1: v});
+        if (r && typeof r.then === 'function') await r;
+      }
+    }
+    return null;
+  });
+  stdHandler.register('map_map', async (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'] ?? {};
+    const fn = m['function'] ?? m['callback'];
+    const result: any = {};
+    if (typeof fn === 'function' && typeof map === 'object' && map !== null) {
+      for (const [k, v] of Object.entries(map).filter(([mk]) => !mk.startsWith('__'))) {
+        let r = fn({key: k, value: v, arg0: k, arg1: v});
+        if (r && typeof r.then === 'function') r = await r;
+        if (typeof r === 'object' && r !== null && 'key' in r) {
+          result[r.key] = r.value;
+        } else {
+          result[k] = r;
+        }
+      }
+    }
+    return result;
+  });
+  stdHandler.register('set_union', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const a = m['set'] ?? m['set1'] ?? m['collection'] ?? [];
+    const b = m['other'] ?? m['set2'] ?? [];
+    const setA = Array.isArray(a) ? new Set(a) : (a instanceof Set ? a : new Set());
+    const setB = Array.isArray(b) ? new Set(b) : (b instanceof Set ? b : new Set());
+    return new Set([...setA, ...setB]);
+  });
+  stdHandler.register('set_intersection', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const a = m['set'] ?? m['set1'] ?? m['collection'] ?? [];
+    const b = m['other'] ?? m['set2'] ?? [];
+    const setA = Array.isArray(a) ? new Set(a) : (a instanceof Set ? a : new Set());
+    const setB = Array.isArray(b) ? new Set(b) : (b instanceof Set ? b : new Set());
+    return new Set([...setA].filter(x => setB.has(x)));
+  });
+  stdHandler.register('set_difference', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const a = m['set'] ?? m['set1'] ?? m['collection'] ?? [];
+    const b = m['other'] ?? m['set2'] ?? [];
+    const setA = Array.isArray(a) ? new Set(a) : (a instanceof Set ? a : new Set());
+    const setB = Array.isArray(b) ? new Set(b) : (b instanceof Set ? b : new Set());
+    return new Set([...setA].filter(x => !setB.has(x)));
+  });
+  stdHandler.register('set_contains', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = m['set'] ?? m['collection'] ?? new Set();
+    const v = m['value'] ?? m['element'];
+    if (s instanceof Set) return s.has(v);
+    if (Array.isArray(s)) return s.includes(v);
+    return false;
+  });
+  stdHandler.register('set_to_list', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = m['set'] ?? m['collection'] ?? [];
+    if (s instanceof Set) return [...s];
+    if (Array.isArray(s)) return [...new Set(s)];
+    return [];
+  });
+  stdHandler.register('set_length', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = m['set'] ?? m['collection'] ?? new Set();
+    if (s instanceof Set) return s.size;
+    if (Array.isArray(s)) return new Set(s).size;
+    return 0;
+  });
+  stdHandler.register('set_from', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'] ?? m['iterable'] ?? [];
+    return new Set(Array.isArray(list) ? list : []);
+  });
+  stdHandler.register('string_split', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    const sep = String(m['separator'] ?? m['pattern'] ?? m['delimiter'] ?? '');
+    return s.split(sep);
+  });
+  stdHandler.register('string_substring', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    const start = Number(m['start'] ?? 0);
+    const end = m['end'] != null ? Number(m['end']) : undefined;
+    return s.substring(start, end);
+  });
+  stdHandler.register('string_contains', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    const sub = String(m['substring'] ?? m['pattern'] ?? m['other'] ?? '');
+    return s.includes(sub);
+  });
+  stdHandler.register('string_length', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    return s.length;
+  });
+  stdHandler.register('string_index_of', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    const sub = String(m['substring'] ?? m['pattern'] ?? '');
+    return s.indexOf(sub);
+  });
+  stdHandler.register('string_to_upper_case', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    return String(m['value'] ?? m['string'] ?? '').toUpperCase();
+  });
+  stdHandler.register('string_to_lower_case', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    return String(m['value'] ?? m['string'] ?? '').toLowerCase();
+  });
+  stdHandler.register('string_trim', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    return String(m['value'] ?? m['string'] ?? '').trim();
+  });
+  stdHandler.register('string_starts_with', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    const prefix = String(m['prefix'] ?? m['pattern'] ?? '');
+    return s.startsWith(prefix);
+  });
+  stdHandler.register('string_ends_with', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    const suffix = String(m['suffix'] ?? m['pattern'] ?? '');
+    return s.endsWith(suffix);
+  });
+  stdHandler.register('string_pad_left', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    const width = Number(m['width'] ?? m['length'] ?? 0);
+    const pad = String(m['padding'] ?? m['pad'] ?? ' ');
+    return s.padStart(width, pad);
+  });
+  stdHandler.register('string_pad_right', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const s = String(m['value'] ?? m['string'] ?? '');
+    const width = Number(m['width'] ?? m['length'] ?? 0);
+    const pad = String(m['padding'] ?? m['pad'] ?? ' ');
+    return s.padEnd(width, pad);
+  });
+  stdHandler.register('string_from_char_codes', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const codes = m['codes'] ?? m['list'] ?? [];
+    if (Array.isArray(codes)) return String.fromCharCode(...codes.map(Number));
+    return '';
+  });
+  stdHandler.register('math_abs', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    return Math.abs(Number(m['value'] ?? 0));
+  });
+  stdHandler.register('math_max', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    return Math.max(Number(m['left'] ?? m['a'] ?? 0), Number(m['right'] ?? m['b'] ?? 0));
+  });
+  stdHandler.register('math_min', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    return Math.min(Number(m['left'] ?? m['a'] ?? 0), Number(m['right'] ?? m['b'] ?? 0));
+  });
+  stdHandler.register('math_sqrt', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    return Math.sqrt(Number(m['value'] ?? 0));
+  });
+  stdHandler.register('math_pow', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    return Math.pow(Number(m['base'] ?? m['left'] ?? 0), Number(m['exponent'] ?? m['right'] ?? 0));
+  });
+  stdHandler.register('list_push', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'];
+    const value = m['value'] ?? m['element'];
+    if (Array.isArray(list)) { list.push(value); return list; }
+    return [...(list ?? []), value];
+  });
+  stdHandler.register('list_pop', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'];
+    if (Array.isArray(list) && list.length > 0) return list.pop();
+    return null;
+  });
+  stdHandler.register('list_peek', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const list = m['list'] ?? m['collection'];
+    if (Array.isArray(list) && list.length > 0) return list[list.length - 1];
+    return null;
+  });
+  stdHandler.register('map_create', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const result: any = {};
+    // Handle 'entry' fields (repeated)
+    const entries = m['entry'] ?? m['entries'];
+    if (Array.isArray(entries)) {
+      for (const e of entries) {
+        if (typeof e === 'object' && e !== null) {
+          result[e['key'] ?? e['name'] ?? ''] = e['value'];
+        }
+      }
+    } else if (typeof entries === 'object' && entries !== null) {
+      result[entries['key'] ?? entries['name'] ?? ''] = entries['value'];
+    }
+    return result;
+  });
+  stdHandler.register('set_create', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const elements = m['elements'] ?? m['values'] ?? [];
+    return new Set(Array.isArray(elements) ? elements : []);
+  });
+  stdHandler.register('null_check', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const value = m['value'] ?? i;
+    return value != null;
+  });
+  stdHandler.register('concat', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const left = m['left'] ?? '';
+    const right = m['right'] ?? '';
+    return String(left) + String(right);
+  });
+  stdHandler.register('to_string', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const value = m['value'] ?? i;
+    if (value === null || value === undefined) return 'null';
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    return String(value);
+  });
+  stdHandler.register('map_contains_key', (i: any) => {
+    const m = (typeof i === 'object' && i !== null) ? i : {};
+    const map = m['map'] ?? m['collection'] ?? {};
+    const key = String(m['key'] ?? m['value'] ?? '');
+    if (typeof map === 'object' && map !== null) return key in map;
+    return false;
+  });
 }
 try {
   await engine.run();

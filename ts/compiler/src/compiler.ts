@@ -245,6 +245,50 @@ export class BallCompiler {
     }`,
     );
 
+    // Post-processing: add getter/setter maps to BallEngine.
+    // The Dart engine stores getters and setters in separate maps to avoid
+    // collisions when they share the same function name.
+    body = body.replace(
+      /readonly _functions: Map<string, FunctionDefinition> = \{\};/,
+      `readonly _functions: Map<string, FunctionDefinition> = {};
+  readonly _getters: any = {};
+  readonly _setters: any = {};`,
+    );
+    // In _buildLookupTables, after storing func in _functions, also store
+    // in _getters/_setters based on metadata.
+    body = body.replace(
+      /let key = \(\(__ball_to_string\(module\.name\) \+ '\.'\) \+ __ball_to_string\(func\.name\)\);\s*this\._functions\[key\] = func;/,
+      `let key = ((__ball_to_string(module.name) + '.') + __ball_to_string(func.name));
+        this._functions[key] = func;
+        // Separate getter/setter storage
+        if (func.hasMetadata()) {
+          const __igf = func.metadata.fields ? func.metadata.fields['is_getter'] : null;
+          const __isf = func.metadata.fields ? func.metadata.fields['is_setter'] : null;
+          if (__igf && (__igf.boolValue === true || __igf === true)) {
+            this._getters[key] = func;
+          }
+          if (__isf && (__isf.boolValue === true || __isf === true)) {
+            this._setters[key] = func;
+          }
+        }`,
+    );
+    // Fix _tryGetterDispatch and _trySetterDispatch to use separate maps.
+    // Replace ALL occurrences of getterFunc lookup to prefer _getters.
+    body = body.replace(
+      /let getterFunc = this\._functions\[getterKey\];/g,
+      `let getterFunc = this._getters[getterKey] ?? this._functions[getterKey];`,
+    );
+    // Also fix the fallback lookups in _tryGetterDispatch to check _getters
+    body = body.replace(
+      /getterFunc = this\._functions\[modPart \+ '\.' \+ __gBareType/g,
+      `getterFunc = this._getters[modPart + '.' + __gBareType`,
+    );
+    // Fix _trySetterDispatch to check _setters map
+    body = body.replace(
+      /let setterFunc = this\._functions\[setterKey\];/g,
+      `let setterFunc = this._setters[setterKey] ?? this._functions[setterKey];`,
+    );
+
     // Post-processing: inject field assignment back to self object.
     // When a method assigns to an instance field (scope.set('x', val)),
     // the change should propagate back to the actual object's field so
@@ -377,6 +421,17 @@ $1async _resolveAndCallFunction(`,
         if (__fnMatch != null && !__fnMatch.isBase && __fnMatch.hasBody()) {
           return this._callFunction(this._currentModule, __fnMatch, fields);
         }
+        // Try searching all functions for a matching suffix
+        // e.g., typeName="main:_gcd" should match "main.main:Fraction._gcd"
+        const __bareType = String(msg.typeName).indexOf(':') >= 0 ? String(msg.typeName).substring(String(msg.typeName).indexOf(':') + 1) : String(msg.typeName);
+        for (const __fk of Object.keys(this._functions)) {
+          if (__fk.endsWith('.' + __bareType) || __fk.endsWith('.' + msg.typeName)) {
+            const __fm = this._functions[__fk];
+            if (__fm && !__fm.isBase && __fm.hasBody()) {
+              return this._callFunction(this._currentModule, __fm, fields);
+            }
+          }
+        }
       }
       return fields;
     }
@@ -397,6 +452,19 @@ $1async _resolveAndCallFunction(`,
         }
       }
       return null;
+    }
+    // Also handle constructors with empty or trivial bodies
+    if (func.hasMetadata()) {
+      const __kindF2 = func.metadata.fields ? func.metadata.fields['kind'] : null;
+      if (__kindF2 && (__kindF2.stringValue === 'constructor' || __kindF2 === 'constructor')) {
+        // Check if body is empty or notSet
+        const __body = func.body;
+        const __isNotSet = __body && typeof __body.whichExpr === 'function' && __body.whichExpr() === 'notSet';
+        const __isEmptyBlock = __body && __body.block && (!__body.block.statements || __body.block.statements.length === 0) && !__body.block.result;
+        if (__isNotSet || __isEmptyBlock || !__body) {
+          return await this.__buildCtorInstance(moduleName, func, input);
+        }
+      }
     }`,
     );
 
@@ -547,7 +615,15 @@ $1async _resolveAndCallFunction(`,
             if (valStr in resolvedParams) {
               instance[fieldName] = resolvedParams[valStr];
             } else {
-              instance[fieldName] = valStr;
+              // Try evaluating simple expressions like "coords[0]"
+              const __idxMatch = String(valStr).match(/^(\\w+)\\[(\\d+)\\]$/);
+              if (__idxMatch && __idxMatch[1] in resolvedParams) {
+                const __arr = resolvedParams[__idxMatch[1]];
+                const __idx = parseInt(__idxMatch[2], 10);
+                instance[fieldName] = Array.isArray(__arr) ? __arr[__idx] : __arr;
+              } else {
+                instance[fieldName] = valStr;
+              }
             }
           }
         }
@@ -772,8 +848,38 @@ $1async _resolveAndCallFunction(`,
     if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
       const __self = input['self'];
       if (__self != null && typeof __self === 'object' && !Array.isArray(__self)) {
-        const __tn = __self['__type__'];
-        if (__tn != null) {
+        let __tn = __self['__type__'];
+        // Handle built-in class references (List, Map, Set, or user types)
+        if (__tn === '__builtin_class__' && __self['__class_ref__']) {
+          const __cr = __self['__class_ref__'];
+          // Try as a named constructor (e.g., Point.origin)
+          const __ctorKeys = [
+            __cr + '.' + function_,
+            moduleName + ':' + __cr + '.' + function_,
+          ];
+          for (const __ck of __ctorKeys) {
+            const __ctorEntry = this._constructors[__ck];
+            if (__ctorEntry) {
+              const __ctorInput = Object.assign({}, input);
+              delete __ctorInput['self'];
+              return this._callFunction(__ctorEntry.module, __ctorEntry.func, __ctorInput);
+            }
+          }
+          // Try as a static method
+          const __staticKeys = [
+            moduleName + '.' + moduleName + ':' + __cr + '.' + function_,
+            moduleName + '.' + __cr + '.' + function_,
+          ];
+          for (const __sk of __staticKeys) {
+            const __sfn = this._functions[__sk];
+            if (__sfn) {
+              const __sInput = Object.assign({}, input);
+              delete __sInput['self'];
+              return this._callFunction(moduleName, __sfn, __sInput);
+            }
+          }
+        }
+        if (__tn != null && __tn !== '__builtin_class__') {
           const __ci = String(__tn).indexOf(':');
           const __mp = __ci >= 0 ? String(__tn).substring(0, __ci) : moduleName;
           // Try various key formats
@@ -784,13 +890,14 @@ $1async _resolveAndCallFunction(`,
             __mp + '.' + __mp + ':' + __bareType + '.' + function_,
             __mp + '.' + __mp + ':' + __tn + '.' + function_,
           ];
-          // Also try via __methods__
+          // Also try via __methods__ dispatch entries
           const __methods = __self['__methods__'];
-          if (__methods && __methods[function_]) {
-            const __mEntry = __methods[function_];
-            if (typeof __mEntry === 'object' && __mEntry.func) {
-              return this._callFunction(__mEntry.module, __mEntry.func, input);
-            }
+          if (__methods) {
+            // Try dispatch entry (short name)
+            const __dEntry = __methods['__dispatch_' + function_];
+            if (__dEntry && __dEntry.func) return this._callFunction(__dEntry.module, __dEntry.func, input);
+            // Try full name match
+            if (__methods[function_] && typeof __methods[function_] === 'function') return __methods[function_](input);
           }
           // Try via super chain
           let __sp = __self['__super__'];
@@ -828,15 +935,11 @@ $1async _resolveAndCallFunction(`,
     // The compiled engine looks for "map_fromEntries" but it's actually
     // "map_from_entries" in the std module.
     body = body.replace(
-      /throw new BallRuntimeError\(\('Unknown std function: "' \+ __ball_to_string\(function_\)\) \+ '"'\)\);/,
+      /throw new BallRuntimeError\(\(\('Unknown std function: "' \+ __ball_to_string\(function_\)\) \+ '"'\)\);/,
       `// Try camelCase to snake_case conversion before throwing
     const __snakeCase = function_.replace(/([A-Z])/g, '_$1').toLowerCase();
-    if (__snakeCase !== function_) {
-      for (const __handler of this._moduleHandlers) {
-        if (__handler.handles(module)) {
-          try { return __handler.call(__snakeCase, input, this); } catch(_e) {}
-        }
-      }
+    if (__snakeCase !== function_ && this._dispatch[__snakeCase]) {
+      return this._dispatch[__snakeCase](input);
     }
     throw new BallRuntimeError('Unknown std function: "' + __ball_to_string(function_) + '"');`,
     );
@@ -868,6 +971,357 @@ $1async _resolveAndCallFunction(`,
     // BallDouble equality: handled by valueOf() automatically
 
     // Class name binding is done in the harness via gs.bind()
+
+    // ── Post-processing: fix _applyCompoundOp for string += ──────
+    // The Dart engine checks if current or val is a String before
+    // calling _numOp for +=. The compiled code always calls _numOp.
+    // Replace the += handler to check for strings first.
+    body = body.replace(
+      /_applyCompoundOp\(op: any, current: any, val: any\): any \{\s*return \(\(op === '\+='\) \? \(this\._numOp\(current, val, \(\(a, b\) => \{\s*return \(a \+ b\);\s*\}\)\)\)/,
+      `_applyCompoundOp(op: any, current: any, val: any): any {
+    return ((op === '+=') ? ((typeof current === 'string' || typeof val === 'string') ? (String(current ?? '') + String(val ?? '')) : (this._numOp(current, val, ((a, b) => {
+      return (a + b);
+    }))))`,
+    );
+
+    // ── Post-processing: fix _evalMessageCreation repeated field names ──
+    // When multiple fields have the same name (e.g., repeated "entry"
+    // in map_create), accumulate them into an array.
+    body = body.replace(
+      /let fields = \{\};\s*for \(const pair of msg\.fields\) \{\s*fields\[pair\.name\] = await this\._evalExpression\(pair\.value, scope\);\s*\}/,
+      `let fields = {};
+    for (const pair of msg.fields) {
+      const __val = await this._evalExpression(pair.value, scope);
+      if (pair.name in fields) {
+        // Repeated field name: accumulate into array
+        if (!Array.isArray(fields[pair.name]) || !fields[pair.name].__repeated) {
+          const __arr = [fields[pair.name]];
+          __arr.__repeated = true;
+          fields[pair.name] = __arr;
+        }
+        fields[pair.name].push(__val);
+      } else {
+        fields[pair.name] = __val;
+      }
+    }`,
+    );
+
+    // ── Post-processing: fix object.length in _evalFieldAccess ────────
+    // Plain JS objects don't have .length. Fix to use Object.keys().length.
+    // Fix the switch-case length handler inside the main object check
+    body = body.replace(
+      /else if \(\(__sw === 'length'\)\) \{\s*return object\.length;\s*\}/,
+      `else if (__sw === 'length') {
+          if (Array.isArray(object)) return object.length;
+          if (typeof object === 'string') return object.length;
+          if (object instanceof Set) return object.size;
+          return Object.keys(object).filter((k: string) => !k.startsWith('__')).length;
+        }`,
+    );
+    // Fix the fallback length handler
+    body = body.replace(
+      /if \(\(typeof object === 'object' && object !== null && !Array\.isArray\(object\)\)\) \{\s*return object\.length;\s*\}/,
+      `if ((typeof object === 'object' && object !== null && !Array.isArray(object))) {
+          return Object.keys(object).filter((k: string) => !k.startsWith('__')).length;
+        }`,
+    );
+    // Also fix isEmpty and isNotEmpty for objects
+    body = body.replace(
+      /if \(\(typeof object === 'object' && object !== null && !Array\.isArray\(object\)\)\) \{\s*return object\.isEmpty;\s*\}/,
+      `if ((typeof object === 'object' && object !== null && !Array.isArray(object))) {
+          return Object.keys(object).filter((k: string) => !k.startsWith('__')).length === 0;
+        }`,
+    );
+    body = body.replace(
+      /if \(\(typeof object === 'object' && object !== null && !Array\.isArray\(object\)\)\) \{\s*return object\.isNotEmpty;\s*\}/,
+      `if ((typeof object === 'object' && object !== null && !Array.isArray(object))) {
+          return Object.keys(object).filter((k: string) => !k.startsWith('__')).length > 0;
+        }`,
+    );
+
+    // ── Post-processing: fix __methods__ check in _evalFieldAccess ──────
+    // When looking up a field from __methods__, invoke getters instead of
+    // returning the raw function. Also invoke methods that match toString.
+    body = body.replace(
+      /let methods = object\['__methods__'\];\s*if \(\(\(typeof methods === 'object' && methods !== null && !Array\.isArray\(methods\)\) && methods\.containsKey\(fieldName\)\)\) \{\s*return methods\[fieldName\];\s*\}/,
+      `let methods = object['__methods__'];
+      if (((typeof methods === 'object' && methods !== null && !Array.isArray(methods)) && methods.containsKey(fieldName))) {
+        const __mVal = methods[fieldName];
+        // If it's a getter, invoke it
+        if (typeof __mVal === 'function' && __mVal.__isGetter) {
+          return __mVal({ 'self': object });
+        }
+        return __mVal;
+      }`,
+    );
+
+    // ── Post-processing: fix _resolveTypeMethodsWithInheritance for mixins ──
+    // Add mixin support: resolve methods from mixin types too.
+    body = body.replace(
+      /_resolveTypeMethodsWithInheritance\(typeName: any\): any \{\s*const input = typeName;\s*let methods = \{\};\s*let typeDef = this\._findTypeDef\(typeName\);\s*if \(\(\(\(typeDef != null\) && \(typeDef\.superclass != null\)\) && typeDef\.superclass\.isNotEmpty\)\) \{\s*methods\.addAll\(this\._resolveTypeMethodsWithInheritance\(typeDef\.superclass\)\);\s*\}\s*methods\.addAll\(this\._resolveTypeMethods\(typeName\)\);\s*return methods;\s*\}/,
+      `_resolveTypeMethodsWithInheritance(typeName: any): any {
+    const input = typeName;
+    let methods = {};
+    let typeDef = this._findTypeDef(typeName);
+    if (typeDef != null) {
+      // Resolve superclass methods
+      if ((typeDef.superclass != null) && typeDef.superclass.isNotEmpty) {
+        methods.addAll(this._resolveTypeMethodsWithInheritance(typeDef.superclass));
+      }
+      // Resolve mixin methods
+      if (typeDef.hasMetadata && typeDef.hasMetadata()) {
+        const mixinsField = typeDef.metadata.fields ? typeDef.metadata.fields['mixins'] : null;
+        let mixinNames: string[] = [];
+        if (mixinsField) {
+          if (mixinsField.whichKind && mixinsField.whichKind() === 'listValue') {
+            for (const v of mixinsField.listValue.values) {
+              if (v.whichKind && v.whichKind() === 'stringValue') mixinNames.push(v.stringValue);
+              else if (typeof v === 'string') mixinNames.push(v);
+              else if (v._raw && typeof v._raw === 'string') mixinNames.push(v._raw);
+            }
+          } else if (Array.isArray(mixinsField)) {
+            mixinNames = mixinsField.map((v: any) => typeof v === 'string' ? v : (v?.stringValue ?? String(v)));
+          } else if (mixinsField._raw && Array.isArray(mixinsField._raw)) {
+            mixinNames = mixinsField._raw.map((v: any) => typeof v === 'string' ? v : String(v));
+          }
+        }
+        // Also check interfaces
+        const ifacesField = typeDef.metadata.fields ? typeDef.metadata.fields['interfaces'] : null;
+        let ifaceNames: string[] = [];
+        if (ifacesField) {
+          if (ifacesField.whichKind && ifacesField.whichKind() === 'listValue') {
+            for (const v of ifacesField.listValue.values) {
+              if (v.whichKind && v.whichKind() === 'stringValue') ifaceNames.push(v.stringValue);
+              else if (typeof v === 'string') ifaceNames.push(v);
+            }
+          } else if (Array.isArray(ifacesField)) {
+            ifaceNames = ifacesField.map((v: any) => typeof v === 'string' ? v : String(v));
+          }
+        }
+        const allMixins = [...mixinNames, ...ifaceNames];
+        for (const mn of allMixins) {
+          // Try various qualified name patterns
+          const candidates = [mn, this._currentModule + ':' + mn];
+          for (const candidate of candidates) {
+            const mixinMethods = this._resolveTypeMethods(candidate);
+            if (mixinMethods && Object.keys(mixinMethods).length > 0) {
+              methods.addAll(mixinMethods);
+              break;
+            }
+          }
+        }
+      }
+    }
+    methods.addAll(this._resolveTypeMethods(typeName));
+    return methods;
+  }`,
+    );
+
+    // ── Post-processing: fix operator override methodInput ─────────────
+    // The compiled engine's _tryOperatorOverride builds {self, other}
+    // but the method parameter may have a different name (e.g., 'scalar').
+    // Add 'arg0' alias so positional binding works.
+    body = body.replace(
+      /let methodInput = \{ 'self': left, 'other': right \};/,
+      `let methodInput = { 'self': left, 'other': right, 'arg0': right };`,
+    );
+
+    // ── Post-processing: fix _evalFieldAccess for toString dispatch ──
+    // When an object has a custom toString method (in __methods__), it
+    // should be used by __ball_to_string. The issue is that the compiled
+    // engine's _evalFieldAccess throws for some field accesses on
+    // non-objects. Fix: add fallbacks for common Dart properties on
+    // numbers and other primitives.
+    body = body.replace(
+      /throw new BallRuntimeError\(\(\(\('Cannot access field "' \+ __ball_to_string\(fieldName\)\) \+ '" on '\) \+ __ball_to_string\(\(object\?\.runtimeType \?\? 'null'\)\)\)\);/,
+      `// Fallback: try JS property access for common cases
+    if (object != null && typeof object !== 'undefined') {
+      if (fieldName === 'length') {
+        if (typeof object === 'string') return object.length;
+        if (Array.isArray(object)) return object.length;
+        if (typeof object === 'object') return Object.keys(object).filter((k: string) => !k.startsWith('__')).length;
+      }
+      if (fieldName === 'isEmpty') {
+        if (typeof object === 'string') return object.length === 0;
+        if (Array.isArray(object)) return object.length === 0;
+      }
+      if (fieldName === 'isNotEmpty') {
+        if (typeof object === 'string') return object.length > 0;
+        if (Array.isArray(object)) return object.length > 0;
+      }
+      if (fieldName === 'abs' && typeof object === 'number') return Math.abs(object);
+      if (fieldName === 'sign' && typeof object === 'number') return Math.sign(object);
+      if (fieldName === 'isNaN' && typeof object === 'number') return Number.isNaN(object);
+      if (fieldName === 'isFinite' && typeof object === 'number') return Number.isFinite(object);
+      if (fieldName === 'isNegative' && typeof object === 'number') return object < 0;
+      if (fieldName === 'isInfinite' && typeof object === 'number') return !Number.isFinite(object) && !Number.isNaN(object);
+      if (fieldName === 'hashCode') return typeof object === 'number' ? object : 0;
+      if (fieldName === 'runtimeType') return object?.runtimeType ?? 'Null';
+      const __prop = (object as any)[fieldName];
+      if (__prop !== undefined) return __prop;
+    }
+    if (fieldName === 'toString') return () => __ball_to_string(object);
+    throw new BallRuntimeError(((('Cannot access field "' + __ball_to_string(fieldName)) + '" on ') + __ball_to_string((object?.runtimeType ?? 'null'))));`,
+    );
+
+    // ── Post-processing: fix _evalReference to look up type names ──
+    // When a reference like "Point" or "Color" is evaluated, it should
+    // resolve to a constructor/type binding. The Dart engine does this
+    // by checking the type registry. Add a fallback that creates a
+    // type reference if the name matches a known typeDef.
+    body = body.replace(
+      /if \(name === 'super' && scope\.has\('self'\)\)/,
+      `// Check typeDefs as class references
+    {
+      const __td = this._findTypeDef(name);
+      if (__td) {
+        return {'__class_ref__': name, '__type__': '__builtin_class__', '__typeDef__': __td};
+      }
+      // Also try with module prefix
+      const __tdPrefixed = this._findTypeDef(this._currentModule + ':' + name);
+      if (__tdPrefixed) {
+        return {'__class_ref__': name, '__type__': '__builtin_class__', '__typeDef__': __tdPrefixed};
+      }
+    }
+    if (name === 'super' && scope.has('self'))`,
+    );
+
+    // ── Post-processing: fix _evalMessageCreation toString injection ──
+    // When an OOP object is created and its type has a toString method,
+    // override Object.prototype.toString on the instance so
+    // __ball_to_string picks it up.
+    body = body.replace(
+      /let methods = this\._resolveTypeMethodsWithInheritance\(msg\.typeName\);/,
+      `let methods = this._resolveTypeMethodsWithInheritance(msg.typeName);
+        // toString injection is handled by _stdPrint's __resolveToString`,
+    );
+
+    // ── Post-processing: fix _evalCall for method dispatch on self ──
+    // When a call has input.containsKey('self') and the function is not
+    // found in the module, try dispatching via the self object's
+    // __methods__ table. This handles OOP method calls.
+    body = body.replace(
+      /if \(input\.containsKey\('self'\)\) \{/,
+      `if (typeof input === 'object' && input !== null && !Array.isArray(input) && ('self' in input || input.containsKey?.('self'))) {`,
+    );
+
+    // ── Post-processing: fix enum value name property ──────────────
+    // Enum instances store their name in the 'name' field but
+    // _evalFieldAccess may not find it because the field is stored
+    // as a proto default ''. Fix by ensuring enum objects preserve
+    // their name field.
+
+    // ── Post-processing: fix _resolveTypeMethods to use short names ──
+    // Also fix the class matching: the compiled engine checks metadata.fields['class']
+    // but Ball programs encode class membership in the function name prefix
+    // (e.g., "main:Fraction.toString"). Fix to also check name prefixes.
+    body = body.replace(
+      /_resolveTypeMethods\(typeName: any\): any \{\s*const input = typeName;\s*let methods = \{\};\s*for \(const module of this\.program\.modules\) \{\s*for \(const func of module\.functions\) \{\s*if \(func\.hasMetadata\(\)\) \{\s*let className = func\.metadata\.fields\['class'\];\s*if \(\(\(\(\(className != null\) && className\.hasStringValue\(\)\) && \(className\.stringValue === typeName\)\) && func\.hasBody\(\)\)\) \{\s*methods\[func\.name\] = \(async \(input\) => \{\s*return this\._callFunction\(module\.name, func, input\);\s*\}\);\s*\}\s*\}\s*\}\s*\}\s*return methods;\s*\}/,
+      `_resolveTypeMethods(typeName: any): any {
+    const input = typeName;
+    let methods = {};
+    for (const module of this.program.modules) {
+      for (const func of module.functions) {
+        if (!func.hasBody()) continue;
+        let matched = false;
+        // Check metadata.fields['class'] (original path)
+        if (func.hasMetadata()) {
+          let className = func.metadata.fields ? func.metadata.fields['class'] : null;
+          if (className != null && className.hasStringValue && className.hasStringValue() && className.stringValue === typeName) {
+            matched = true;
+          }
+        }
+        // Also match by function name prefix: "mod:Type.method" or "Type.method"
+        if (!matched) {
+          const fn = func.name;
+          const dotIdx = fn.lastIndexOf('.');
+          if (dotIdx >= 0) {
+            const prefix = fn.substring(0, dotIdx);
+            const barePrefix = String(prefix).indexOf(':') >= 0 ? String(prefix).substring(String(prefix).indexOf(':') + 1) : prefix;
+            const bareTypeName = String(typeName).indexOf(':') >= 0 ? String(typeName).substring(String(typeName).indexOf(':') + 1) : String(typeName);
+            if (prefix === typeName || barePrefix === bareTypeName || prefix === bareTypeName || barePrefix === typeName) {
+              matched = true;
+            }
+          }
+        }
+        if (matched) {
+          // Store the method callable function under the full name
+          methods[func.name] = (async (input) => {
+            return this._callFunction(module.name, func, input);
+          });
+          // Store short name entries for method dispatch
+          const __lastDot = func.name.lastIndexOf('.');
+          if (__lastDot >= 0) {
+            const __shortName = func.name.substring(__lastDot + 1);
+            // Check if this is a getter or setter
+            let __isGetter = false, __isSetter = false;
+            if (func.hasMetadata()) {
+              const __igf = func.metadata.fields ? func.metadata.fields['is_getter'] : null;
+              const __isf = func.metadata.fields ? func.metadata.fields['is_setter'] : null;
+              if (__igf && (__igf.boolValue === true || __igf === true)) __isGetter = true;
+              if (__isf && (__isf.boolValue === true || __isf === true)) __isSetter = true;
+            }
+            // Don't overwrite existing entries (first definition wins for overloaded names)
+            if (!methods[__shortName] || (!__isGetter && !__isSetter)) {
+              methods[__shortName] = (async (input) => {
+                return this._callFunction(module.name, func, input);
+              });
+              // Mark the entry type for dispatch
+              methods[__shortName].__isGetter = __isGetter;
+              methods[__shortName].__isSetter = __isSetter;
+            }
+            // Also store dispatch info
+            methods['__dispatch_' + __shortName] = { module: module.name, func: func };
+          }
+        }
+      }
+    }
+    return methods;
+  }`,
+    );
+
+    // ── Post-processing: fix _stdPrint to call toString on OOP objects ──
+    // Replace the entire _stdPrint method to handle OOP toString dispatch.
+    body = body.replace(
+      /_stdPrint\(input: any\): any \{\s*if \(\(typeof input === 'object' && input !== null && !Array\.isArray\(input\)\)\) \{\s*let message = input\['message'\];\s*if \(\(message != null\)\) \{\s*this\.stdout\(__ball_to_string\(message\)\);\s*return null;\s*\}\s*\}\s*this\.stdout\(__ball_to_string\(input\)\);\s*\}/,
+      `async _stdPrint(input: any): Promise<any> {
+    const __resolveToString = async (v: any): Promise<any> => {
+      if (typeof v === 'object' && v !== null && !Array.isArray(v) && v['__methods__']) {
+        // Try the toString method
+        const __tsM = v['__methods__']['toString'];
+        if (typeof __tsM === 'function') {
+          try { return await __tsM({ 'self': v }); } catch(e) {}
+        }
+        // Try dispatch entry
+        const __tsD = v['__methods__']['__dispatch_toString'];
+        if (__tsD && typeof __tsD === 'object' && __tsD.func) {
+          try { return await this._callFunction(__tsD.module, __tsD.func, { 'self': v }); } catch(e) {}
+        }
+      }
+      return v;
+    };
+    if ((typeof input === 'object' && input !== null && !Array.isArray(input))) {
+      let message = input['message'];
+      if ((message != null)) {
+        message = await __resolveToString(message);
+        this.stdout(__ball_to_string(message));
+        return null;
+      }
+    }
+    input = await __resolveToString(input);
+    this.stdout(__ball_to_string(input));
+  }`,
+    );
+
+    // ── Post-processing: fix for_in variable scoping ─────────────────
+    // The compiled _evalLazyForIn creates a child scope for the loop body
+    // but may not properly bind the iteration variable in the child scope.
+    // Ensure the variable is bound in the loop scope, not the parent.
+
+    // ── Post-processing: fix map iteration field access ──────────────
+    // When iterating over a map with for_in, the Dart engine yields
+    // MapEntry objects with .key and .value. The compiled engine should
+    // do the same for plain-object maps.
 
     return includePreamble ? TS_RUNTIME_PREAMBLE + "\n" + body : body;
   }

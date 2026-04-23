@@ -6,6 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Ball is a programming language where every program is a Protocol Buffer message (`proto/ball/v1/ball.proto` is the single source of truth). Compilers translate Ball programs into target-language source, encoders do the reverse, and engines interpret Ball programs directly. Dart is the mature reference implementation; C++ is a prototype; Go/Python/TS/Java/C# currently ship proto bindings only.
 
+## Gemeral Rules to follow (CRITICAL)
+
+- Avoid anti-patterns, follow best practices
+- Maximize performance and minimize memory usage where possible, but not at the cost of readability or maintainability.
+- Write clear, concise code with good variable names and comments where necessary.
+- Make sure everything is covered by tests, maximize using e2e tests instead of just unit tests.
+- DO NOT leave any hanging TODOs or FIXMEs in the code. If something is not implemented, either implement it or remove the placeholder.
+- When in doubt, use Askquestions tool to get feedback on design decisions or implementation details.
+- Maximize automation via github actions, scripts, and code generation. Avoid manual steps that can be automated.
+- Follow the existing code style and patterns in the repository for consistency. If you need to introduce a new pattern, make sure to justify it and document it well.
+- Update CLAUDE.md and AGENTS.md and .claude/* as needed when making changes to the codebase, especially if it affects how agents interact with the code or how developers should work with it.
+- Always cross check your work against official latest docs, compiler source codes, and any relevant resources to ensure accuracy and completeness.
+
 ## Build & Test
 
 ```bash
@@ -20,6 +33,12 @@ cd dart/engine   && dart run bin/engine.dart   ../../examples/hello_world/hello_
 # C++ — CMake; buf auto-regenerates protos if buf CLI is on PATH
 cd cpp && mkdir -p build && cd build && cmake .. && cmake --build .
 cmake --build cpp/build --target buf_lint     # also: buf_format, buf_breaking, buf_check
+
+# TypeScript — shared protobuf types
+cd ts/shared && npm install && npm test          # protobuf-es binding tests
+
+# TS compiler tests (including compiled engine conformance)
+cd ts/compiler && npm install && npm test
 
 # Proto — lint, breaking-change check, regenerate all bindings
 buf lint
@@ -36,7 +55,7 @@ cd dart/shared && dart run bin/gen_std.dart
 2. **Metadata is cosmetic.** Stripping all metadata must never change what a program computes. Semantic content = expression tree, function signatures, type descriptors, module structure. Everything else lives in `google.protobuf.Struct metadata` fields.
 3. **Base functions have no body.** Their implementation is supplied per-platform by the target compiler/engine — this is the extensibility mechanism.
 4. **Control flow is function calls.** `if`, `for`, `while`, `for_each` are std base functions. Compilers and engines MUST evaluate them lazily — never eagerly evaluate all branches before choosing one.
-5. **Never edit generated files:** `dart/shared/lib/gen/**`, `cpp/shared/gen/**`, `dart/shared/std.json`, `dart/shared/std.bin`. Regenerate via `buf generate` or `gen_std.dart`.
+5. **Never edit generated files:** `dart/shared/lib/gen/**`, `cpp/shared/gen/**`, `ts/shared/gen/**`, `dart/shared/std.json`, `dart/shared/std.bin`. Regenerate via `buf generate` or `gen_std.dart`.
 
 ## Architecture Big Picture
 
@@ -57,6 +76,15 @@ Types are emitted from `typeDefs[]` (preferred) or the legacy `types[]` + `_meta
 - Compiler emits C++ via string concatenation; blocks become immediately-invoked lambdas.
 - Encoder consumes Clang JSON AST (`clang -Xclang -ast-dump=json`), then a normalizer rewrites `cpp_std` pointer ops into safe references or `std_memory` unsafe ops.
 - Stack sizes are bumped for deep protobuf ASTs: compiler 128 MB, encoder 256 MB; engine has 65 KB linear memory.
+
+### TypeScript workspace (`ts/`)
+
+Four packages (no workspace manager — each has its own `node_modules`):
+
+- `@ball-lang/shared` (`shared/`) — protobuf-es generated types from `ball.proto` (via `buf generate`). Depends on `@bufbuild/protobuf` v2. Provides typed messages with discriminated unions for oneofs (`expr.expr.case === "call"`), JSON/binary serialization (`fromJson`/`toJson`/`fromBinary`/`toBinary` from `@bufbuild/protobuf`), and presence checking (`field !== undefined`). API mapping from Dart protobuf: `whichExpr()` -> `expr.case`, `hasBody()` -> `body !== undefined`, `metadata.fields['key'].whichKind()` -> `typeof metadata?.['key']`.
+- `@ball-lang/compiler` — Ball -> TypeScript. Uses `ts-morph`. The preamble (`preamble.ts`) installs Dart-flavored polyfills (`whichExpr()`, `hasBody()`, etc.) on `Object.prototype` so compiled Dart code can call proto-style methods on plain JSON objects.
+- `@ball-lang/engine` — Native tree-walking interpreter (hand-written, not compiled from Dart). Uses plain proto3 JSON interfaces.
+- `@ball-lang/encoder` — TS -> Ball (stub).
 
 ### Standard library modules
 `std` (~73 fns: arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops), `std_collections` (~43 list/map fns), `std_io` (~10 console/process/time/random), `std_memory` (~30 linear-memory fns for C/C++ interop), `dart_std` (~18 Dart-specific: cascade, null_aware_access, invoke, spread, etc.).

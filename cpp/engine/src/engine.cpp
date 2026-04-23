@@ -375,8 +375,116 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                     }
                 }
 
-                // Build __super__ chain
-                {
+                // Invoke super constructor if present in initializers
+                if (init_it != func.metadata().fields().end() &&
+                    init_it->second.kind_case() == google::protobuf::Value::kListValue) {
+                    for (const auto& iv : init_it->second.list_value().values()) {
+                        if (iv.kind_case() != google::protobuf::Value::kStructValue) continue;
+                        auto kind_it2 = iv.struct_value().fields().find("kind");
+                        if (kind_it2 == iv.struct_value().fields().end() ||
+                            kind_it2->second.string_value() != "super") continue;
+                        auto args_it = iv.struct_value().fields().find("args");
+                        if (args_it == iv.struct_value().fields().end()) continue;
+                        auto args_str = args_it->second.string_value();
+                        // Strip parens: "(type, hp)" -> "type, hp"
+                        if (!args_str.empty() && args_str.front() == '(') args_str = args_str.substr(1);
+                        if (!args_str.empty() && args_str.back() == ')') args_str.pop_back();
+                        // Parse args and resolve from scope
+                        std::vector<BallValue> super_args;
+                        std::istringstream ss(args_str);
+                        std::string arg;
+                        while (std::getline(ss, arg, ',')) {
+                            arg.erase(0, arg.find_first_not_of(" \t"));
+                            arg.erase(arg.find_last_not_of(" \t") + 1);
+                            if (arg.empty()) continue;
+                            // Try as variable reference
+                            if (scope->has(arg)) {
+                                super_args.push_back(scope->lookup(arg));
+                            } else if (arg.front() == '\'' && arg.back() == '\'') {
+                                super_args.push_back(arg.substr(1, arg.size()-2));
+                            } else {
+                                try { super_args.push_back(static_cast<int64_t>(std::stoll(arg))); }
+                                catch (...) { super_args.push_back(arg); }
+                            }
+                        }
+                        // Find and call super constructor
+                        std::string sc_name;
+                        for (const auto& mod3 : program_.modules()) {
+                            for (const auto& td3 : mod3.type_defs()) {
+                                bool m3 = (td3.name() == class_name);
+                                if (!m3) { auto c=td3.name().find(':'); if(c!=std::string::npos && td3.name().substr(c+1)==class_name) m3=true; }
+                                if (!m3) { auto c=class_name.find(':'); if(c!=std::string::npos && class_name.substr(c+1)==td3.name()) m3=true; }
+                                if (!m3) continue;
+                                if (td3.has_metadata()) {
+                                    auto sc_it2 = td3.metadata().fields().find("superclass");
+                                    if (sc_it2 != td3.metadata().fields().end())
+                                        sc_name = sc_it2->second.string_value();
+                                }
+                                break;
+                            }
+                            if (!sc_name.empty()) break;
+                        }
+                        if (!sc_name.empty()) {
+                            // Build super object by calling super constructor
+                            BallMap super_input;
+                            for (size_t i = 0; i < super_args.size(); i++) {
+                                super_input["arg" + std::to_string(i)] = super_args[i];
+                            }
+                            // Try all possible constructor key forms
+                            std::vector<std::string> ctor_keys = {
+                                sc_name, sc_name + ".new",
+                                current_module_ + ":" + sc_name,
+                                current_module_ + ":" + sc_name + ".new",
+                            };
+                            bool found_ctor = false;
+                            for (const auto& key : ctor_keys) {
+                                auto ctor_it = constructors_.find(key);
+                                if (ctor_it != constructors_.end()) {
+                                    auto super_obj = call_function_internal(ctor_it->second.module, *ctor_it->second.func, BallValue(super_input));
+                                    if (is_map(super_obj)) {
+                                        obj["__super__"] = super_obj;
+                                        const auto& sm = std::any_cast<const BallMap&>(super_obj);
+                                        for (const auto& [k, v] : sm) {
+                                            if (k != "__type__" && k != "__super__" && obj.find(k) == obj.end())
+                                                obj[k] = v;
+                                        }
+                                    }
+                                    found_ctor = true;
+                                    break;
+                                }
+                            }
+                            {
+                                // Always ensure super object has args mapped to param names
+                                BallMap super_obj;
+                                super_obj["__type__"] = sc_name;
+                                // Find super constructor params to map positional args
+                                for (const auto& mod4 : program_.modules()) {
+                                    for (const auto& fn4 : mod4.functions()) {
+                                        bool match = false;
+                                        for (const auto& key : ctor_keys) {
+                                            if (fn4.name() == key) { match = true; break; }
+                                        }
+                                        if (!match) continue;
+                                        auto sp = extract_params(fn4.metadata());
+                                        for (size_t i = 0; i < sp.size() && i < super_args.size(); i++) {
+                                            super_obj[sp[i]] = super_args[i];
+                                        }
+                                        break;
+                                    }
+                                }
+                                obj["__super__"] = BallValue(super_obj);
+                                for (const auto& [k, v] : super_obj) {
+                                    if (k != "__type__" && k != "__super__" && obj.find(k) == obj.end())
+                                        obj[k] = v;
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                // Build __super__ chain for classes without explicit super() call
+                if (obj.find("__super__") == obj.end()) {
                     std::string cur_type = class_name;
                     BallMap* super_target = &obj;
                     for (int depth = 0; depth < 20; ++depth) {
@@ -482,9 +590,10 @@ BallValue Engine::call_function_internal(const std::string& module_name,
     }
 
     if (!func.input_type().empty() && input.has_value()) {
-        // Don't shadow top-level "input" variable when the function has no params
-        // (the function accesses global state, not its parameter).
-        if (!params.empty() || !global_scope_->has("input")) {
+        // Only bind "input" when it won't shadow a top-level variable
+        // of the same name. Functions with named params don't need the
+        // raw "input" binding — their params are bound separately.
+        if (!global_scope_->has("input") || params.empty()) {
             scope->bind("input", input);
         }
     }
@@ -501,11 +610,20 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                 auto type_it2 = self_map.find("__type__");
                 if (type_it2 != self_map.end() && is_string(type_it2->second)) {
                     scope->bind("this", self_it->second);
-                    for (const auto& [k, v] : self_map) {
-                        if (k != "__type__" && k != "__super__" && k != "__methods__" && k != "__type_args__") {
+                    // Bind ALL fields from self and its entire __super__ chain
+                    // Use bind (not set) so fields are available as local variables
+                    std::function<void(const BallMap&)> bind_all_fields;
+                    bind_all_fields = [&](const BallMap& m) {
+                        for (const auto& [k, v] : m) {
+                            if (k == "__type__" || k == "__super__" || k == "__methods__" || k == "__type_args__") continue;
                             if (!scope->has(k)) scope->bind(k, v);
                         }
-                    }
+                        auto sit = m.find("__super__");
+                        if (sit != m.end() && is_map(sit->second)) {
+                            bind_all_fields(std::any_cast<const BallMap&>(sit->second));
+                        }
+                    };
+                    bind_all_fields(self_map);
                     auto super_it2 = self_map.find("__super__");
                     if (super_it2 != self_map.end()) scope->bind("super", super_it2->second);
                 }
@@ -1729,6 +1847,9 @@ BallValue Engine::eval_reference(const ball::v1::Reference& ref, std::shared_ptr
             }
         }
     }
+
+    // Try global scope for top-level variables
+    if (global_scope_->has(name)) return global_scope_->lookup(name);
 
     // Fall back to scope lookup (will throw with the normal error message).
     return scope->lookup(name);
@@ -3033,9 +3154,13 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
         const auto& name = ti->second.reference().name();
         if (!op.empty() && op != "=") {
             auto computed = apply_compound_op(op, scope->lookup(name), val);
-            scope->set(name, computed); return computed;
+            scope->set(name, computed);
+            if (global_scope_->has(name)) global_scope_->set(name, computed);
+            return computed;
         }
-        scope->set(name, val); return val;
+        scope->set(name, val);
+        if (global_scope_->has(name)) global_scope_->set(name, val);
+        return val;
     }
     if (ti->second.expr_case() == ball::v1::Expression::kFieldAccess) {
         auto obj = eval_expr(ti->second.field_access().object(), scope);

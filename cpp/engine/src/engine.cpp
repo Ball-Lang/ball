@@ -356,6 +356,13 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                     }
                 }
 
+                // DEBUG constructor
+                if (func.name().find("Vehicle") != std::string::npos || func.name().find("Motor") != std::string::npos || func.name().find("Car") != std::string::npos) {
+                    std::cerr << "[CTOR] " << func.name() << " obj keys:";
+                    for (const auto& [k,v] : obj) std::cerr << " " << k << "=" << ball::to_string(v);
+                    std::cerr << "\n";
+                    std::cerr << "[CTOR] scope has type:" << scope->has("type") << " horsepower:" << scope->has("horsepower") << " doors:" << scope->has("doors") << "\n";
+                }
                 // Process params with is_this: true
                 auto params_it = func.metadata().fields().find("params");
                 if (params_it != func.metadata().fields().end() &&
@@ -483,6 +490,18 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                     }
                 }
 
+                // DEBUG after super invocation
+                if (func.name().find("Vehicle") != std::string::npos || func.name().find("Motor") != std::string::npos || func.name().find("Car") != std::string::npos) {
+                    std::cerr << "[CTOR-POST] " << func.name() << " obj keys:";
+                    for (const auto& [k,v] : obj) std::cerr << " " << k;
+                    std::cerr << "\n";
+                    if (obj.find("__super__") != obj.end() && is_map(obj["__super__"])) {
+                        const auto& sm = std::any_cast<const BallMap&>(obj["__super__"]);
+                        std::cerr << "[CTOR-POST]   __super__ keys:";
+                        for (const auto& [k,v] : sm) std::cerr << " " << k;
+                        std::cerr << "\n";
+                    }
+                }
                 // Build __super__ chain for classes without explicit super() call
                 if (obj.find("__super__") == obj.end()) {
                     std::string cur_type = class_name;
@@ -608,6 +627,28 @@ BallValue Engine::call_function_internal(const std::string& module_name,
             if (is_map(self_it->second)) {
                 const auto& self_map = std::any_cast<const BallMap&>(self_it->second);
                 auto type_it2 = self_map.find("__type__");
+                // DEBUG: log field binding for describe
+                if (func.name().find("describe") != std::string::npos) {
+                    std::cerr << "[DEBUG] " << func.name() << " self keys:";
+                    for (const auto& [k,v] : self_map) std::cerr << " " << k;
+                    std::cerr << "\n";
+                    // Walk __super__ chain
+                    BallValue sw = self_it->second;
+                    int depth = 0;
+                    while (is_map(sw)) {
+                        const auto& sm2 = std::any_cast<const BallMap&>(sw);
+                        auto sp = sm2.find("__super__");
+                        if (sp == sm2.end()) break;
+                        if (is_map(sp->second)) {
+                            const auto& sup = std::any_cast<const BallMap&>(sp->second);
+                            std::cerr << "[DEBUG]   __super__[" << depth << "] keys:";
+                            for (const auto& [k,v] : sup) std::cerr << " " << k;
+                            std::cerr << "\n";
+                        }
+                        sw = sp->second;
+                        depth++;
+                    }
+                }
                 if (type_it2 != self_map.end() && is_string(type_it2->second)) {
                     scope->bind("this", self_it->second);
                     // Bind ALL fields from self and its entire __super__ chain
@@ -2121,7 +2162,8 @@ BallValue Engine::eval_message_creation(const ball::v1::MessageCreation& msg, st
             }
         }
 
-        // Look up constructor to map positional args to field names.
+        // Look up constructor to map positional args to named fields
+        // and handle super constructor initializers.
         auto ctor_it = constructors_.find(type_name);
         if (ctor_it == constructors_.end()) {
             auto colon = type_name.find(':');
@@ -2129,8 +2171,10 @@ BallValue Engine::eval_message_creation(const ball::v1::MessageCreation& msg, st
                 ctor_it = constructors_.find(type_name.substr(colon + 1));
         }
         if (ctor_it != constructors_.end() && ctor_it->second.func->has_metadata()) {
-            auto pit = ctor_it->second.func->metadata().fields().find("params");
-            if (pit != ctor_it->second.func->metadata().fields().end() &&
+            const auto& ctor_func = *ctor_it->second.func;
+            // Map positional args to named params
+            auto pit = ctor_func.metadata().fields().find("params");
+            if (pit != ctor_func.metadata().fields().end() &&
                 pit->second.kind_case() == google::protobuf::Value::kListValue) {
                 int idx = 0;
                 for (const auto& pv : pit->second.list_value().values()) {
@@ -2145,13 +2189,102 @@ BallValue Engine::eval_message_creation(const ball::v1::MessageCreation& msg, st
                         fields.erase(arg_it);
                         fields[pname] = std::move(val);
                     }
+                    // Handle is_this: map param to field
+                    auto pthis_it = pv.struct_value().fields().find("is_this");
+                    if (pthis_it != pv.struct_value().fields().end() && pthis_it->second.bool_value()) {
+                        if (fields.find(pname) != fields.end()) {
+                            // Already set from arg mapping above
+                        }
+                    }
                     ++idx;
+                }
+            }
+            // Process super constructor initializers
+            auto init_it = ctor_func.metadata().fields().find("initializers");
+            if (init_it != ctor_func.metadata().fields().end() &&
+                init_it->second.kind_case() == google::protobuf::Value::kListValue) {
+                for (const auto& iv : init_it->second.list_value().values()) {
+                    if (iv.kind_case() != google::protobuf::Value::kStructValue) continue;
+                    auto kind_it2 = iv.struct_value().fields().find("kind");
+                    if (kind_it2 == iv.struct_value().fields().end() ||
+                        kind_it2->second.string_value() != "super") continue;
+                    auto args_it = iv.struct_value().fields().find("args");
+                    if (args_it == iv.struct_value().fields().end()) continue;
+                    auto args_str = args_it->second.string_value();
+                    if (!args_str.empty() && args_str.front() == '(') args_str = args_str.substr(1);
+                    if (!args_str.empty() && args_str.back() == ')') args_str.pop_back();
+                    // Parse and resolve super args
+                    std::vector<BallValue> super_args;
+                    std::istringstream ss(args_str);
+                    std::string arg;
+                    while (std::getline(ss, arg, ',')) {
+                        arg.erase(0, arg.find_first_not_of(" \t"));
+                        arg.erase(arg.find_last_not_of(" \t") + 1);
+                        if (arg.empty()) continue;
+                        if (fields.find(arg) != fields.end()) {
+                            super_args.push_back(fields[arg]);
+                        } else if (arg.front() == '\'' && arg.back() == '\'') {
+                            super_args.push_back(arg.substr(1, arg.size()-2));
+                        } else {
+                            try { super_args.push_back(static_cast<int64_t>(std::stoll(arg))); }
+                            catch (...) { super_args.push_back(arg); }
+                        }
+                    }
+                    // Find superclass name
+                    std::string sc_name;
+                    for (const auto& mod3 : program_.modules()) {
+                        for (const auto& td3 : mod3.type_defs()) {
+                            bool m3 = (td3.name() == type_name);
+                            if (!m3) { auto c=td3.name().find(':'); if(c!=std::string::npos && td3.name().substr(c+1)==type_name) m3=true; }
+                            if (!m3) { auto c=type_name.find(':'); if(c!=std::string::npos && type_name.substr(c+1)==td3.name()) m3=true; }
+                            if (!m3) continue;
+                            if (td3.has_metadata()) {
+                                auto sc_it2 = td3.metadata().fields().find("superclass");
+                                if (sc_it2 != td3.metadata().fields().end())
+                                    sc_name = sc_it2->second.string_value();
+                            }
+                            break;
+                        }
+                        if (!sc_name.empty()) break;
+                    }
+                    if (!sc_name.empty()) {
+                        // Build super object via constructor
+                        BallMap super_input;
+                        for (size_t i = 0; i < super_args.size(); i++) {
+                            super_input["arg" + std::to_string(i)] = super_args[i];
+                        }
+                        // Find and call super constructor
+                        std::vector<std::string> ctor_keys = {
+                            sc_name, sc_name + ".new",
+                            current_module_ + ":" + sc_name,
+                            current_module_ + ":" + sc_name + ".new",
+                        };
+                        bool found_super = false;
+                        for (const auto& key : ctor_keys) {
+                            auto sc_ctor = constructors_.find(key);
+                            if (sc_ctor != constructors_.end()) {
+                                auto super_obj = call_function_internal(
+                                    sc_ctor->second.module, *sc_ctor->second.func, BallValue(super_input));
+                                if (is_map(super_obj)) {
+                                    fields["__super__"] = super_obj;
+                                    const auto& sm = std::any_cast<const BallMap&>(super_obj);
+                                    for (const auto& [k, v] : sm) {
+                                        if (k != "__type__" && k != "__super__" && fields.find(k) == fields.end())
+                                            fields[k] = v;
+                                    }
+                                }
+                                found_super = true;
+                                break;
+                            }
+                        }
+                    }
+                    break;
                 }
             }
         }
 
         // Check for superclass via type definitions. Build __super__ chain
-        // iteratively for multi-level inheritance.
+        // iteratively for multi-level inheritance (fallback).
         {
             std::string cur_type = type_name;
             BallMap* super_target = &fields;

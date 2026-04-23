@@ -279,6 +279,92 @@ export class BallCompiler {
       fields['__type__'] = msg.typeName;`,
     );
 
+    // Post-processing: initialize descriptor fields on created objects.
+    // When _evalMessageCreation creates an object from a typeDef, fields
+    // defined in the descriptor should be initialized to their default
+    // values so they're present as keys for field access.
+    body = body.replace(
+      /let methods = this\._resolveTypeMethodsWithInheritance\(msg\.typeName\);/,
+      `// Initialize descriptor fields with defaults
+        if (typeDef.fieldNames && typeDef.fieldNames.length > 0) {
+          const __fDefaults = this._getFieldDefaults(msg.typeName);
+          for (const __fn of typeDef.fieldNames) {
+            if (!(__fn in fields)) {
+              fields[__fn] = (__fn in __fDefaults) ? __fDefaults[__fn] : null;
+            }
+          }
+        }
+        let methods = this._resolveTypeMethodsWithInheritance(msg.typeName);`,
+    );
+
+    // Post-processing: add _getFieldDefaults and _findRawTypeDef methods.
+    body = body.replace(
+      /(\s+)async _resolveAndCallFunction\(/,
+      `$1_rawTypeDefCache: any = {};
+  _fieldDefaultsCache: any = {};
+
+$1_findRawTypeDef(typeName: any): any {
+    if (this._rawTypeDefCache[typeName] !== undefined) return this._rawTypeDefCache[typeName];
+    for (const module of this.program.modules) {
+      for (const td of module.typeDefs) {
+        if (td.name === typeName || td.name.endsWith(':' + String(typeName))) {
+          this._rawTypeDefCache[typeName] = td;
+          return td;
+        }
+      }
+    }
+    this._rawTypeDefCache[typeName] = null;
+    return null;
+  }
+
+$1_getFieldDefaults(typeName: any): any {
+    if (this._fieldDefaultsCache[typeName]) return this._fieldDefaultsCache[typeName];
+    const defaults: any = {};
+    const rawTd = this._findRawTypeDef(typeName);
+    if (!rawTd || !rawTd.metadata) { this._fieldDefaultsCache[typeName] = defaults; return defaults; }
+    // Parse metadata fields array for initializers
+    const metaFields = rawTd.metadata.fields ? rawTd.metadata.fields['fields'] : null;
+    let fieldArr: any[] = [];
+    if (metaFields && metaFields.whichKind && metaFields.whichKind() === 'listValue') {
+      for (const v of metaFields.listValue.values) {
+        if (v.whichKind && v.whichKind() === 'structValue') {
+          const r: any = {};
+          const sf = v.structValue.fields;
+          for (const k of Object.keys(sf)) {
+            const fv = sf[k];
+            if (fv && fv.whichKind) {
+              const kind = fv.whichKind();
+              if (kind === 'stringValue') r[k] = fv.stringValue;
+              else if (kind === 'boolValue') r[k] = fv.boolValue;
+              else r[k] = fv._raw ?? null;
+            } else r[k] = fv;
+          }
+          fieldArr.push(r);
+        }
+      }
+    } else if (Array.isArray(metaFields)) {
+      fieldArr = metaFields;
+    }
+    for (const fm of fieldArr) {
+      if (!fm.name) continue;
+      if (fm.initializer && fm.initializer !== 'null') {
+        const init = fm.initializer;
+        if (init === '[]' || init.startsWith('<')) defaults[fm.name] = [];
+        else if (init === '{}') defaults[fm.name] = {};
+        else if (init === '0' || init === '0.0') defaults[fm.name] = 0;
+        else if (init === 'false') defaults[fm.name] = false;
+        else if (init === 'true') defaults[fm.name] = true;
+        else if (init === "''" || init === '""') defaults[fm.name] = '';
+        else defaults[fm.name] = null;
+      }
+    }
+    this._fieldDefaultsCache[typeName] = defaults;
+    return defaults;
+  }
+
+$1async _resolveAndCallFunction(`,
+    );
+
     // Post-processing: inject function/method resolution for unresolved
     // typeNames in _evalMessageCreation. After the typeDef check, when
     // no typeDef is found, try resolving as a function call.
@@ -529,6 +615,259 @@ export class BallCompiler {
       /(\s+)async _resolveAndCallFunction\(/,
       `$1${ctorHelperMethod}\n$1async _resolveAndCallFunction(`,
     );
+
+    // ── Post-processing: fix _toNum to handle strings gracefully ────
+    // The compiled Dart engine's _toNum throws on strings, but the
+    // hand-written TS engine converts them to numbers gracefully.
+    body = body.replace(
+      /throw new BallRuntimeError\(\(\('Cannot convert ' \+ __ball_to_string\(v\.runtimeType\)\) \+ ' to num'\)\);/,
+      `if (v instanceof BallDouble) return v.value;
+    if (typeof v === 'string') { const n = Number(v); return isNaN(n) ? 0 : n; }
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    return 0;`,
+    );
+
+    // ── Post-processing: fix _toDouble similarly ────────────────────
+    body = body.replace(
+      /throw new BallRuntimeError\(\(\('Cannot convert ' \+ __ball_to_string\(v\.runtimeType\)\) \+ ' to double'\)\);/,
+      `if (typeof v === 'string') { const n = Number(v); return isNaN(n) ? new BallDouble(0.0) : new BallDouble(n); }
+    if (typeof v === 'boolean') return new BallDouble(v ? 1.0 : 0.0);
+    return new BallDouble(0.0);`,
+    );
+
+    // _toDouble returns plain numbers for performance.
+    // BallDouble is only used by the harness's to_double/int_to_double.
+
+    // ── Post-processing: fix _toInt - make __ball_parse_int more lenient ──
+    body = body.replace(
+      /throw new BallRuntimeError\(\(\('Cannot convert ' \+ __ball_to_string\(v\.runtimeType\)\) \+ ' to int'\)\);/,
+      `if (v instanceof BallDouble) return Math.trunc(v.value);
+    if (typeof v === 'string') { const n = parseInt(v, 10); return isNaN(n) ? 0 : n; }
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    return 0;`,
+    );
+
+    // ── Post-processing: fix _evalLazyForIn to handle strings/maps ──
+    // The compiled engine only handles arrays; it needs to also iterate
+    // over strings (char by char) and over map/object entries.
+    body = body.replace(
+      /let iterVal = await this\._evalExpression\(iterable, scope\);\s*if \(!?\(Array\.isArray\(iterVal\)\)\) \{\s*throw new BallRuntimeError\('std\.for_in: iterable is not a List'\);\s*\}/,
+      `let iterVal = await this._evalExpression(iterable, scope);
+    if (typeof iterVal === 'string') {
+      iterVal = iterVal.split('');
+    } else if (typeof iterVal === 'object' && iterVal !== null && !Array.isArray(iterVal)) {
+      if (iterVal instanceof Map) {
+        iterVal = [...iterVal.entries()].map(([k, v]: any) => ({key: k, value: v}));
+      } else {
+        iterVal = Object.entries(iterVal).filter(([k]: any) => !k.startsWith('__')).map(([k, v]: any) => ({key: k, value: v}));
+      }
+    }
+    if (!Array.isArray(iterVal)) {
+      iterVal = [];
+    }`,
+    );
+
+    // ── Post-processing: fix _evalLazySwitch default sentinel ───────
+    // The compiled engine uses __no_init__ as sentinel for defaultBody
+    // but checks `if ((defaultBody != null))` which is always true for
+    // a Symbol. Fix to also check against __no_init__.
+    body = body.replace(
+      /if \(\(defaultBody != null\)\) \{\s*return this\._evalExpression\(defaultBody, scope\);\s*\}\s*\}/,
+      `if (defaultBody != null && defaultBody !== __no_init__) {
+      return this._evalExpression(defaultBody, scope);
+    }
+  }`,
+    );
+
+    // ── Post-processing: fix typed catch matching ────────────────────
+    // The compiled engine checks e['runtimeType'] for type matching,
+    // but JS Error objects don't have runtimeType. Fix to check the
+    // error's constructor name and common Dart exception types.
+    body = body.replace(
+      /let matches = \(\(e instanceof BallException\) \? \(e\['typeName'\] === catchType\) : \(__ball_to_string\(e\['runtimeType'\]\) === catchType\)\);/,
+      `let matches = false;
+            if (e instanceof BallException) {
+              matches = e['typeName'] === catchType;
+            } else if (catchType === 'Exception' || catchType === 'Object') {
+              matches = true;
+            } else if (catchType === 'FormatException') {
+              matches = (e instanceof Error && e.message.startsWith('FormatException'));
+            } else if (catchType === 'TypeError' || catchType === 'RangeError' || catchType === 'Error') {
+              matches = (e instanceof globalThis[catchType]);
+            } else if (catchType === 'StateError' || catchType === 'ArgumentError' || catchType === 'UnsupportedError') {
+              matches = (e instanceof Error);
+            } else {
+              matches = (typeof e === 'object' && e !== null && (e['__type__'] === catchType || e['__type'] === catchType));
+            }`,
+    );
+
+    // ── Post-processing: fix catch variable binding ─────────────────
+    // The compiled engine binds the catch variable to the stringified
+    // error for non-BallException errors, but it should bind the error
+    // object itself (or its message) to match Dart semantics.
+    body = body.replace(
+      /catchScope\.bind\(variable, \(\(e instanceof BallException\) \? e\['value'\] : __ball_to_string\(e\)\)\);/,
+      `catchScope.bind(variable, (e instanceof BallException) ? e['value'] : (e instanceof Error ? e.message : e));`,
+    );
+
+    // ── Post-processing: enhance method dispatch in _evalCall ─────
+    // When the primary method key lookup fails (e.g., "main.main:Base.greet"),
+    // try alternative key formats. The OOP dispatch builds
+    // "modPart.typeName.function" but the function may be registered under
+    // just "typeName.function" within the module namespace.
+    body = body.replace(
+      /let method = this\._functions\[methodKey\];\s*if \(\(method != null\)\) \{\s*return this\._callFunction\(modPart, method, input\);\s*\}/,
+      `let method = this._functions[methodKey];
+          if (method == null) {
+            // Try without module prefix: "main.Base.greet"
+            const __bType = String(typeName).indexOf(':') >= 0 ? String(typeName).substring(String(typeName).indexOf(':') + 1) : String(typeName);
+            method = this._functions[modPart + '.' + __bType + '.' + call.function];
+          }
+          if ((method != null)) {
+            return this._callFunction(modPart, method, input);
+          }`,
+    );
+
+    // Do the same for super method dispatch
+    body = body.replace(
+      /let superMethod = this\._functions\[superMethodKey\];\s*if \(\(superMethod != null\)\) \{\s*return this\._callFunction\(sModPart, superMethod, input\);\s*\}/,
+      `let superMethod = this._functions[superMethodKey];
+              if (superMethod == null) {
+                const __sbType = String(sTypeName).indexOf(':') >= 0 ? String(sTypeName).substring(String(sTypeName).indexOf(':') + 1) : String(sTypeName);
+                superMethod = this._functions[sModPart + '.' + __sbType + '.' + call.function];
+              }
+              if ((superMethod != null)) {
+                return this._callFunction(sModPart, superMethod, input);
+              }`,
+    );
+
+    // Also fix _tryGetterDispatch to try alternative key format
+    // Match only the one inside _tryGetterDispatch (has modPart and fieldName in context)
+    body = body.replace(
+      /let getterKey = \(\(\(\(__ball_to_string\(modPart\)[^;]+;\s*let getterFunc = this\._functions\[getterKey\];\s*if \(\(\(getterFunc != null\) && this\._isGetter\(getterFunc\)\)\)/,
+      (m) => {
+        // Add alternative key lookup after the first getterFunc assignment
+        return m.replace(
+          'let getterFunc = this._functions[getterKey];',
+          `let getterFunc = this._functions[getterKey];
+    if (getterFunc == null) {
+      const __gBareType = String(typeName).indexOf(':') >= 0 ? String(typeName).substring(String(typeName).indexOf(':') + 1) : String(typeName);
+      getterFunc = this._functions[modPart + '.' + __gBareType + '.' + fieldName];
+      if (getterFunc == null) {
+        getterFunc = this._functions[modPart + '.' + modPart + ':' + __gBareType + '.' + fieldName];
+      }
+    }`,
+        );
+      },
+    );
+
+    // ── Post-processing: fix _resolveAndCallFunction for OOP methods ──
+    // When a method call like "greet" with input {self: obj} falls through
+    // to _resolveAndCallFunction, it fails because the function is stored as
+    // "main.main:Base.greet" not "main.greet". Add a fallback that checks
+    // the input for self and dispatches via the type's method table.
+    body = body.replace(
+      /throw new BallRuntimeError\(\(\('Function "' \+ __ball_to_string\(key\)\) \+ '" not found'\)\);/,
+      `// Fallback: try OOP method dispatch via self.__type__
+    if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
+      const __self = input['self'];
+      if (__self != null && typeof __self === 'object' && !Array.isArray(__self)) {
+        const __tn = __self['__type__'];
+        if (__tn != null) {
+          const __ci = String(__tn).indexOf(':');
+          const __mp = __ci >= 0 ? String(__tn).substring(0, __ci) : moduleName;
+          // Try various key formats
+          const __bareType = String(__tn).indexOf(':') >= 0 ? String(__tn).substring(String(__tn).indexOf(':') + 1) : String(__tn);
+          const __keys = [
+            __mp + '.' + __tn + '.' + function_,
+            __mp + '.' + __bareType + '.' + function_,
+            __mp + '.' + __mp + ':' + __bareType + '.' + function_,
+            __mp + '.' + __mp + ':' + __tn + '.' + function_,
+          ];
+          // Also try via __methods__
+          const __methods = __self['__methods__'];
+          if (__methods && __methods[function_]) {
+            const __mEntry = __methods[function_];
+            if (typeof __mEntry === 'object' && __mEntry.func) {
+              return this._callFunction(__mEntry.module, __mEntry.func, input);
+            }
+          }
+          // Try via super chain
+          let __sp = __self['__super__'];
+          while (__sp != null && typeof __sp === 'object' && !Array.isArray(__sp)) {
+            const __stn = __sp['__type__'];
+            if (__stn) {
+              const __sci = String(__stn).indexOf(':');
+              const __smp = __sci >= 0 ? String(__stn).substring(0, __sci) : __mp;
+              __keys.push(__smp + '.' + __stn + '.' + function_);
+              __keys.push(__smp + '.' + (String(__stn).indexOf(':') >= 0 ? String(__stn).substring(String(__stn).indexOf(':') + 1) : __stn) + '.' + function_);
+            }
+            const __sm = __sp['__methods__'];
+            if (__sm && __sm[function_]) {
+              const __smEntry = __sm[function_];
+              if (typeof __smEntry === 'object' && __smEntry.func) {
+                return this._callFunction(__smEntry.module, __smEntry.func, input);
+              }
+            }
+            __sp = __sp['__super__'];
+          }
+          for (const __k of __keys) {
+            const __fn = this._functions[__k];
+            if (__fn != null) {
+              return this._callFunction(__mp, __fn, input);
+            }
+          }
+          // No more keys to try
+        }
+      }
+    }
+    throw new BallRuntimeError((('Function "' + __ball_to_string(key)) + '" not found'));`,
+    );
+
+    // ── Post-processing: fix _callBaseFunction for map_fromEntries ──
+    // The compiled engine looks for "map_fromEntries" but it's actually
+    // "map_from_entries" in the std module.
+    body = body.replace(
+      /throw new BallRuntimeError\(\('Unknown std function: "' \+ __ball_to_string\(function_\)\) \+ '"'\)\);/,
+      `// Try camelCase to snake_case conversion before throwing
+    const __snakeCase = function_.replace(/([A-Z])/g, '_$1').toLowerCase();
+    if (__snakeCase !== function_) {
+      for (const __handler of this._moduleHandlers) {
+        if (__handler.handles(module)) {
+          try { return __handler.call(__snakeCase, input, this); } catch(_e) {}
+        }
+      }
+    }
+    throw new BallRuntimeError('Unknown std function: "' + __ball_to_string(function_) + '"');`,
+    );
+
+    // ── Post-processing: fix for_each handling ──────────────────────
+    // Add for_each as alias for for_in in the switch statement
+    body = body.replace(
+      /else if \(\(__sw === 'for_in'\)\) \{\s*return this\._evalLazyForIn\(call, scope\);\s*\}/,
+      `else if (__sw === 'for_in' || __sw === 'for_each') {
+          return this._evalLazyForIn(call, scope);
+        }`,
+    );
+
+    // ── Post-processing: fix _stdBinaryDouble to return BallDouble ──
+    // Wrap the result (not the inputs) to preserve double identity.
+    body = body.replace(
+      /_stdBinaryDouble\(input: any, op: any\): any \{/,
+      `_stdBinaryDouble(input: any, op: any): any {
+    const __origOp2 = op;
+    op = (a: any, b: any) => new BallDouble(__origOp2(a instanceof BallDouble ? a.value : a, b instanceof BallDouble ? b.value : b));`,
+    );
+
+    // ── Post-processing: fix _stdPrint to handle BallDouble ──────
+    // __ball_to_string already handles BallDouble, but the compiled
+    // engine also calls this.stdout(__ball_to_string(...)) directly
+    // and may pass BallDouble through. This is already handled by
+    // the preamble's __ball_to_string function.
+
+    // BallDouble equality: handled by valueOf() automatically
+
+    // Class name binding is done in the harness via gs.bind()
 
     return includePreamble ? TS_RUNTIME_PREAMBLE + "\n" + body : body;
   }

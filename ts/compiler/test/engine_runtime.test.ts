@@ -320,21 +320,45 @@ if (gs && gs.bind) {
 }
 // Register missing std functions that the encoder didn't capture.
 if (stdHandler.register) {
+  // BallDouble is defined in the compiled engine's preamble. We access
+  // it from the harness by dynamically importing the engine module.
+  // For now, use a simple wrapper that marks doubles.
+  const __BallDouble = class {
+    value: number;
+    constructor(v: number) { this.value = v; }
+    valueOf() { return this.value; }
+    toString() {
+      const v = this.value;
+      if (!isFinite(v)) return v.toString();
+      if (Number.isInteger(v)) return v.toFixed(1);
+      return v.toString();
+    }
+    [Symbol.toPrimitive](hint: string) {
+      if (hint === 'string') return this.toString();
+      return this.value;
+    }
+  };
   stdHandler.register('to_double', (i: any) => {
-    if (typeof i === 'number') return i;
+    if (i instanceof __BallDouble) return i;
+    if (typeof i === 'number') return new __BallDouble(i);
     if (typeof i === 'object' && i !== null) {
       const v = i['value'] ?? i;
-      return typeof v === 'number' ? v + 0.0 : Number(v);
+      if (v instanceof __BallDouble) return v;
+      const n = typeof v === 'number' ? v : Number(v);
+      return new __BallDouble(isNaN(n) ? 0 : n);
     }
-    return Number(i);
+    const n = Number(i);
+    return new __BallDouble(isNaN(n) ? 0 : n);
   });
   stdHandler.register('int_to_double', (i: any) => {
-    if (typeof i === 'number') return i + 0.0;
+    if (typeof i === 'number') return new __BallDouble(i);
     if (typeof i === 'object' && i !== null) {
       const v = i['value'] ?? i;
-      return Number(v);
+      const n = typeof v === 'number' ? v : Number(v);
+      return new __BallDouble(isNaN(n) ? 0 : n);
     }
-    return Number(i);
+    const n = Number(i);
+    return new __BallDouble(isNaN(n) ? 0 : n);
   });
   stdHandler.register('string_code_unit_at', (i: any) => {
     const m = (typeof i === 'object' && i !== null) ? i : {};

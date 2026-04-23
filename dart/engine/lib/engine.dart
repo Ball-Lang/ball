@@ -630,7 +630,8 @@ class BallEngine {
       for (final func in module.functions) {
         if (!func.hasMetadata()) continue;
         final kindValue = func.metadata.fields['kind'];
-        if (kindValue?.stringValue != 'top_level_variable') continue;
+        final kindStr = kindValue?.stringValue;
+        if (kindStr != 'top_level_variable' && kindStr != 'static_field') continue;
         _currentModule = module.name;
         var value = func.hasBody()
             ? await _evalExpression(func.body, _globalScope)
@@ -700,7 +701,14 @@ class BallEngine {
           !(input is Map<String, Object?> && input.containsKey('self'))) {
         // Single parameter — bind the input directly (but not for instance
         // methods where `self` is mixed in; those use the map extraction path).
-        scope.bind(params[0], input);
+        // If input is a map with positional args (arg0), extract the value.
+        if (input is Map<String, Object?> &&
+            input.containsKey('arg0') &&
+            !input.containsKey(params[0])) {
+          scope.bind(params[0], input['arg0']);
+        } else {
+          scope.bind(params[0], input);
+        }
       } else if (input is Map<String, Object?>) {
         // Multiple parameters — named args or positional arg0/arg1.
         for (var i = 0; i < params.length; i++) {
@@ -830,6 +838,54 @@ class BallEngine {
       }
     }
 
+    // Process field initializers from constructor metadata.
+    if (func.hasMetadata()) {
+      final initsField = func.metadata.fields['initializers'];
+      if (initsField != null &&
+          initsField.whichKind() == structpb.Value_Kind.listValue) {
+        for (final init in initsField.listValue.values) {
+          if (init.whichKind() != structpb.Value_Kind.structValue) continue;
+          final kind = init.structValue.fields['kind']?.stringValue;
+          final name = init.structValue.fields['name']?.stringValue;
+          if (kind == 'field' && name != null) {
+            final valField = init.structValue.fields['value'];
+            if (valField != null && valField.hasStringValue()) {
+              final valStr = valField.stringValue;
+              // Try to evaluate as param reference with index (e.g. "coords[0]").
+              final indexMatch = RegExp(r'^(\w+)\[(\d+)\]$').firstMatch(valStr);
+              if (indexMatch != null) {
+                final arrName = indexMatch.group(1)!;
+                final idx = int.parse(indexMatch.group(2)!);
+                final arr = resolvedParams[arrName];
+                if (arr is List && idx < arr.length) {
+                  instance[name] = arr[idx];
+                } else {
+                  instance[name] = null;
+                }
+              } else if (valStr == 'true') {
+                instance[name] = true;
+              } else if (valStr == 'false') {
+                instance[name] = false;
+              } else if (num.tryParse(valStr) != null) {
+                final numVal = num.parse(valStr);
+                instance[name] = valStr.contains('.') ? numVal.toDouble() : numVal.toInt();
+              } else {
+                // Try as a param/variable reference.
+                instance[name] = resolvedParams[valStr] ?? valStr;
+              }
+            } else if (valField != null && valField.hasNumberValue()) {
+              final n = valField.numberValue;
+              instance[name] = n == n.toInt() ? n.toInt() : n;
+            } else if (valField != null && valField.hasBoolValue()) {
+              instance[name] = valField.boolValue;
+            } else {
+              instance[name] = null;
+            }
+          }
+        }
+      }
+    }
+
     // Process super constructor initializers.
     final typeDef = _findTypeDef(typeName);
     if (typeDef != null) {
@@ -884,9 +940,20 @@ class BallEngine {
             // Build input for the super constructor.
             final superInput = <String, Object?>{};
             for (var i = 0; i < argNames.length; i++) {
-              final argName = argNames[i];
-              if (resolvedParams.containsKey(argName)) {
-                superInput['arg$i'] = resolvedParams[argName];
+              final token = argNames[i];
+              if (resolvedParams.containsKey(token)) {
+                superInput['arg$i'] = resolvedParams[token];
+              } else if ((token.startsWith("'") && token.endsWith("'")) ||
+                         (token.startsWith('"') && token.endsWith('"'))) {
+                // String literal: strip quotes.
+                superInput['arg$i'] = token.substring(1, token.length - 1);
+              } else if (num.tryParse(token) != null) {
+                final n = num.parse(token);
+                superInput['arg$i'] = token.contains('.') ? n.toDouble() : n.toInt();
+              } else if (token == 'true') {
+                superInput['arg$i'] = true;
+              } else if (token == 'false') {
+                superInput['arg$i'] = false;
               }
             }
             // Find and invoke the super constructor.
@@ -1173,6 +1240,19 @@ class BallEngine {
 
     // Eager evaluation for all other calls
     final input = call.hasInput() ? await _evalExpression(call.input, scope) : null;
+
+    // Well-known global functions (not in any module).
+    if (call.module.isEmpty) {
+      switch (call.function) {
+        case 'identical':
+          if (input is Map<String, Object?>) {
+            final a = input['arg0'] ?? input['left'];
+            final b = input['arg1'] ?? input['right'];
+            return identical(a, b);
+          }
+          return false;
+      }
+    }
 
     // Hot-path fast dispatch: explicitly-qualified std/dart_std calls are
     // always base functions. Skip the `$module.$function` string alloc
@@ -1503,6 +1583,11 @@ class BallEngine {
             final kindField = f.metadata.fields['kind'];
             final kind = kindField?.stringValue;
             if (kind == 'top_level_variable') {
+              // Use the current value from globalScope (which may have been
+              // mutated via assign) instead of re-evaluating the body.
+              if (_globalScope.has(name)) {
+                return _globalScope.lookup(name);
+              }
               return _callFunction(m.name, f, null);
             }
             if (kind == 'function') {
@@ -1510,6 +1595,27 @@ class BallEngine {
               return (BallValue input) async {
                 return _callFunction(modName, f, input);
               };
+            }
+          }
+        }
+      }
+    }
+
+    // Static field lookup: when inside a method/constructor, resolve bare names
+    // like "_cache" to "ClassName._cache" static fields.
+    // Use the cached value from _globalScope if already initialized.
+    for (final m in program.modules) {
+      for (final f in m.functions) {
+        if (f.hasMetadata()) {
+          final kind = f.metadata.fields['kind']?.stringValue;
+          if (kind == 'static_field') {
+            final dotIdx = f.name.lastIndexOf('.');
+            if (dotIdx >= 0 && f.name.substring(dotIdx + 1) == name) {
+              // Return the cached value from _globalScope.
+              if (_globalScope.has(f.name)) {
+                return _globalScope.lookup(f.name);
+              }
+              return _callFunction(m.name, f, null);
             }
           }
         }
@@ -1803,6 +1909,30 @@ class BallEngine {
     }
 
     return _sentinel;
+  }
+
+  /// When inside a method, sync a field assignment back to the self object.
+  /// Mirrors the TS engine's syncFieldToSelf.
+  void _syncFieldToSelf(_Scope scope, String fieldName, BallValue val) {
+    if (!scope.has('self')) return;
+    try {
+      final self = scope.lookup('self');
+      if (self is Map<String, Object?> && self.containsKey('__type__')) {
+        if (self.containsKey(fieldName)) {
+          self[fieldName] = val;
+        }
+        // Also sync to __super__ chain.
+        var superObj = self['__super__'];
+        while (superObj is Map<String, Object?>) {
+          if (superObj.containsKey(fieldName)) {
+            superObj[fieldName] = val;
+          }
+          superObj = superObj['__super__'];
+        }
+      }
+    } catch (_) {
+      // Ignore — not inside a method.
+    }
   }
 
   // ---- Message Creation ----
@@ -2685,9 +2815,17 @@ class BallEngine {
           // Untyped catches match any exception.
           final catchType = _stringFieldVal(cf, 'type');
           if (catchType != null && catchType.isNotEmpty) {
-            final matches = e is BallException
-                ? e.typeName == catchType
-                : e.runtimeType.toString() == catchType;
+            bool matches;
+            if (e is BallException) {
+              // Match fully-qualified or bare type name.
+              // e.typeName may be "main:FormatException", catchType may be "FormatException".
+              final eType = e.typeName;
+              final eColonIdx = eType.indexOf(':');
+              final eBare = eColonIdx >= 0 ? eType.substring(eColonIdx + 1) : eType;
+              matches = eType == catchType || eBare == catchType;
+            } else {
+              matches = e.runtimeType.toString() == catchType;
+            }
             if (!matches) continue;
           }
           final variable = _stringFieldVal(cf, 'variable') ?? 'e';
@@ -2785,6 +2923,26 @@ class BallEngine {
       return _evalNullAwareAssign(target, value, scope);
     }
 
+    // Detect in-place mutation pattern: assign(target: var, value: list_remove_at(list: var, ...))
+    // When the list argument and target reference the same variable, the mutation
+    // already happens in place. Return the removed element without overwriting the variable.
+    if (target.whichExpr() == Expression_Expr.reference &&
+        value.whichExpr() == Expression_Expr.call) {
+      final valFn = value.call.function;
+      final valMod = value.call.module;
+      if ((valFn == 'list_remove_at' || valFn == 'list_pop' || valFn == 'list_remove_last') &&
+          (valMod == 'std' || valMod == 'std_collections' || valMod.isEmpty)) {
+        final valFields = _lazyFields(value.call);
+        final listExpr = valFields['list'];
+        if (listExpr != null &&
+            listExpr.whichExpr() == Expression_Expr.reference &&
+            listExpr.reference.name == target.reference.name) {
+          // In-place mutation: evaluate value (mutates the list) and return it.
+          return await _evalExpression(value, scope);
+        }
+      }
+    }
+
     final val = await _evalExpression(value, scope);
 
     // Simple reference assignment
@@ -2794,9 +2952,19 @@ class BallEngine {
         final current = scope.lookup(name);
         final computed = _applyCompoundOp(op, current, val);
         scope.set(name, computed);
+        _syncFieldToSelf(scope, name, computed);
+        // Also sync to global scope for top-level mutable variables.
+        if (_globalScope.has(name) && !scope.has(name)) {
+          _globalScope.set(name, computed);
+        }
         return computed;
       }
       scope.set(name, val);
+      _syncFieldToSelf(scope, name, val);
+      // Also sync to global scope for top-level mutable variables.
+      if (_globalScope.has(name)) {
+        _globalScope.set(name, val);
+      }
       return val;
     }
 
@@ -2939,7 +3107,53 @@ class BallEngine {
       final isPre = call.function.startsWith('pre');
       final updated = isInc ? current + 1 : current - 1;
       scope.set(name, updated);
+      _syncFieldToSelf(scope, name, updated);
+      if (_globalScope.has(name)) {
+        _globalScope.set(name, updated);
+      }
       return isPre ? updated : current;
+    }
+
+    // Index-based increment/decrement: value is std.index(target, index)
+    // e.g. count[x]++ => post_increment(value=index(target=count, index=x))
+    if (valueExpr.whichExpr() == Expression_Expr.call &&
+        valueExpr.call.function == 'index' &&
+        (valueExpr.call.module == 'std' || valueExpr.call.module.isEmpty)) {
+      final indexFields = _lazyFields(valueExpr.call);
+      final targetExpr = indexFields['target'];
+      final indexExpr = indexFields['index'];
+      if (targetExpr != null && indexExpr != null) {
+        final container = await _evalExpression(targetExpr, scope);
+        final idx = await _evalExpression(indexExpr, scope);
+        final isInc = call.function.contains('increment');
+        final isPre = call.function.startsWith('pre');
+        if (container is List && idx is int) {
+          final current = _toNum(container[idx]);
+          final updated = isInc ? current + 1 : current - 1;
+          container[idx] = updated;
+          return isPre ? updated : current;
+        }
+        if (container is Map) {
+          final current = _toNum(container[idx]);
+          final updated = isInc ? current + 1 : current - 1;
+          container[idx] = updated;
+          return isPre ? updated : current;
+        }
+      }
+    }
+
+    // Field access increment/decrement: value is obj.field
+    if (valueExpr.whichExpr() == Expression_Expr.fieldAccess) {
+      final obj = await _evalExpression(valueExpr.fieldAccess.object, scope);
+      final fieldName = valueExpr.fieldAccess.field_2;
+      final isInc = call.function.contains('increment');
+      final isPre = call.function.startsWith('pre');
+      if (obj is Map<String, Object?>) {
+        final current = _toNum(obj[fieldName]);
+        final updated = isInc ? current + 1 : current - 1;
+        obj[fieldName] = updated;
+        return isPre ? updated : current;
+      }
     }
 
     // Fallback: just compute
@@ -3537,6 +3751,9 @@ class BallEngine {
           case 'writeln':
             self['__buffer__'] = (self['__buffer__'] as String? ?? '') + _ballToString(arg0) + '\n';
             return null;
+          case 'writeCharCode':
+            self['__buffer__'] = (self['__buffer__'] as String? ?? '') + String.fromCharCode(_toInt(arg0));
+            return null;
           case 'toString': return self['__buffer__'] ?? '';
           case 'clear': self['__buffer__'] = ''; return null;
           case 'length': return (self['__buffer__'] as String? ?? '').length;
@@ -3640,10 +3857,13 @@ class BallEngine {
         final methodKey = '$cModPart.$cTypeName.$op';
         final method = _functions[methodKey];
         if (method != null) {
-          // Build input matching method-call convention: {self, other}.
+          // Build input matching method-call convention: {self, other, arg0, right}.
+          // Include arg0 so positional param binding works for any param name.
           final methodInput = <String, Object?>{
             'self': left,
             'other': right,
+            'arg0': right,
+            'right': right,
           };
           return _callFunction(cModPart, method, methodInput);
         }
@@ -3675,6 +3895,13 @@ class BallEngine {
           'count': count,
           'value': value,
         });
+      case 'List.of':
+      case 'List.from':
+        final source = args['arg0'] ?? args['value'];
+        if (source is List) return source.toList();
+        if (source is Set) return source.toList();
+        if (source is Iterable) return source.toList();
+        return <Object?>[];
       case 'Map.fromEntries':
         final list = args['arg0'] ?? args['list'];
         return _callBaseFunction('std', 'map_from_entries', <String, Object?>{
@@ -3869,7 +4096,7 @@ class BallEngine {
       },
       'list_remove_at': (i) {
         final m = i as Map<String, Object?>;
-        final list = (m['list'] as List).toList();
+        final list = m['list'] as List;
         return list.removeAt(_toInt(m['index']));
       },
       'list_get': (i) {
@@ -4102,7 +4329,12 @@ class BallEngine {
         }
         return <Object?>[];
       },
-      'list_to_list': (i) => ((i as Map<String, Object?>)['list'] as List).toList(),
+      'list_to_list': (i) {
+        final raw = (i as Map<String, Object?>)['list'];
+        if (raw is List) return raw.toList();
+        if (raw is Set) return raw.toList();
+        return <Object?>[];
+      },
       'list_foreach': (i) async {
         final m = i as Map<String, Object?>;
         final collection = m['list'];
@@ -4296,7 +4528,13 @@ class BallEngine {
         final val = _extractUnaryArg(i);
         String typeName = 'Exception';
         if (val is Map<String, Object?>) {
-          typeName = (val['__type'] as String?) ?? 'Exception';
+          typeName = (val['__type__'] as String?) ??
+              (val['__type'] as String?) ?? 'Exception';
+          // Ensure 'message' field exists for standard exception types.
+          // The encoder stores the message as arg0; Dart code accesses e.message.
+          if (!val.containsKey('message') && val.containsKey('arg0')) {
+            val['message'] = val['arg0'];
+          }
         }
         throw BallException(typeName, val);
       },
@@ -4375,8 +4613,14 @@ class BallEngine {
           _stdConvert(i, (v) => (v as String).trimRight()),
       'string_replace': (i) => _stdStringReplace(i, false),
       'string_replace_all': (i) => _stdStringReplace(i, true),
-      'string_split': (i) =>
-          _stdBinaryAny(i, (a, b) => (a as String).split(b as String)),
+      'string_split': (i) {
+        if (i is Map<String, Object?>) {
+          final str = (i['string'] ?? i['value'] ?? i['left'] ?? '') as String;
+          final delim = (i['delimiter'] ?? i['separator'] ?? i['right'] ?? '') as String;
+          return str.split(delim);
+        }
+        return <String>[];
+      },
       'string_repeat': _stdStringRepeat,
       'string_pad_left': (i) => _stdStringPad(i, true),
       'string_pad_right': (i) => _stdStringPad(i, false),
@@ -5437,7 +5681,7 @@ class BallEngine {
     if (input is! Map<String, Object?>) {
       throw BallRuntimeError('Expected message');
     }
-    final target = input['target'] as String;
+    final target = (input['target'] ?? input['value'] ?? input['string']) as String;
     final index = _toInt(input['index']);
     return target.codeUnitAt(index);
   }
@@ -5505,9 +5749,22 @@ class BallEngine {
     if (input is! Map<String, Object?>) {
       throw BallRuntimeError('Expected message');
     }
-    final value = _toNum(input['value']);
-    final min = _toNum(input['min']);
-    final max = _toNum(input['max']);
+    // Handle static method style: math_clamp({value: classRef, min: val, max: lo, arg2: hi})
+    // where value is a class reference object, not a number.
+    final rawValue = input['value'];
+    num value;
+    num min;
+    num max;
+    if (rawValue is Map<String, Object?>) {
+      // Static method dispatch: shift args.
+      value = _toNum(input['min']);
+      min = _toNum(input['max']);
+      max = _toNum(input['arg2']);
+    } else {
+      value = _toNum(rawValue);
+      min = _toNum(input['min']);
+      max = _toNum(input['max']);
+    }
     return value.clamp(min, max);
   }
 

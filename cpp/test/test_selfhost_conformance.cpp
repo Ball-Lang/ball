@@ -44,32 +44,57 @@ static std::any proto_struct_to_any(const google::protobuf::Struct& s);
 static std::any proto_value_obj_to_any(const google::protobuf::Value& v);
 
 static std::any proto_struct_to_any(const google::protobuf::Struct& s) {
-    BallMap result;
+    // Produce protobuf-style Struct: {fields: {key1: value_obj1, key2: value_obj2}}
+    BallMap fields;
     for (auto& [key, val] : s.fields()) {
-        result[key] = proto_value_obj_to_any(val);
+        fields[key] = proto_value_obj_to_any(val);
     }
+    BallMap result;
+    result["fields"] = std::any(fields);
     return std::any(result);
 }
 
 static std::any proto_value_obj_to_any(const google::protobuf::Value& v) {
+    // Produce protobuf-style Value objects that the self-hosted engine expects.
+    // The engine checks ball_which_kind() which looks for keys like "stringValue",
+    // "numberValue", "boolValue", "listValue", "structValue", "nullValue".
     using VK = google::protobuf::Value::KindCase;
     switch (v.kind_case()) {
-        case VK::kNullValue:
-            return std::any{};
-        case VK::kNumberValue:
-            return std::any(v.number_value());
-        case VK::kStringValue:
-            return std::any(v.string_value());
-        case VK::kBoolValue:
-            return std::any(v.bool_value());
-        case VK::kStructValue:
-            return proto_struct_to_any(v.struct_value());
+        case VK::kNullValue: {
+            BallMap result;
+            result["nullValue"] = std::any(int64_t(0));
+            return std::any(result);
+        }
+        case VK::kNumberValue: {
+            BallMap result;
+            result["numberValue"] = std::any(v.number_value());
+            return std::any(result);
+        }
+        case VK::kStringValue: {
+            BallMap result;
+            result["stringValue"] = std::any(v.string_value());
+            return std::any(result);
+        }
+        case VK::kBoolValue: {
+            BallMap result;
+            result["boolValue"] = std::any(v.bool_value());
+            return std::any(result);
+        }
+        case VK::kStructValue: {
+            BallMap result;
+            result["structValue"] = proto_struct_to_any(v.struct_value());
+            return std::any(result);
+        }
         case VK::kListValue: {
             BallList list;
             for (auto& el : v.list_value().values()) {
                 list.push_back(proto_value_obj_to_any(el));
             }
-            return std::any(list);
+            BallMap inner;
+            inner["values"] = std::any(list);
+            BallMap result;
+            result["listValue"] = std::any(inner);
+            return std::any(result);
         }
         default:
             return std::any{};
@@ -128,45 +153,48 @@ static std::any proto_msg_to_any(const google::protobuf::Message& msg) {
                 result[key] = proto_msg_to_any(sub);
             }
         } else {
+            // For oneof fields, always store if the field is set (even zero/false/empty values)
+            bool is_oneof = field->containing_oneof() != nullptr;
+            bool force_store = is_oneof && ref->HasField(msg, field);
             switch (field->type()) {
                 case google::protobuf::FieldDescriptor::TYPE_STRING: {
                     auto v = ref->GetString(msg, field);
-                    if (!v.empty()) result[key] = std::any(v);
+                    if (!v.empty() || force_store) result[key] = std::any(v);
                     break;
                 }
                 case google::protobuf::FieldDescriptor::TYPE_INT32: {
                     auto v = ref->GetInt32(msg, field);
-                    if (v != 0) result[key] = std::any(static_cast<int64_t>(v));
+                    if (v != 0 || force_store) result[key] = std::any(static_cast<int64_t>(v));
                     break;
                 }
                 case google::protobuf::FieldDescriptor::TYPE_INT64: {
                     auto v = ref->GetInt64(msg, field);
-                    if (v != 0) result[key] = std::any(v);
+                    if (v != 0 || force_store) result[key] = std::any(v);
                     break;
                 }
                 case google::protobuf::FieldDescriptor::TYPE_BOOL: {
                     auto v = ref->GetBool(msg, field);
-                    if (v) result[key] = std::any(v);
+                    if (v || force_store) result[key] = std::any(v);
                     break;
                 }
                 case google::protobuf::FieldDescriptor::TYPE_DOUBLE: {
                     auto v = ref->GetDouble(msg, field);
-                    if (v != 0.0) result[key] = std::any(v);
+                    if (v != 0.0 || force_store) result[key] = std::any(v);
                     break;
                 }
                 case google::protobuf::FieldDescriptor::TYPE_FLOAT: {
                     auto v = ref->GetFloat(msg, field);
-                    if (v != 0.0f) result[key] = std::any(static_cast<double>(v));
+                    if (v != 0.0f || force_store) result[key] = std::any(static_cast<double>(v));
                     break;
                 }
                 case google::protobuf::FieldDescriptor::TYPE_ENUM: {
                     auto v = ref->GetEnumValue(msg, field);
-                    if (v != 0) result[key] = std::any(static_cast<int64_t>(v));
+                    if (v != 0 || force_store) result[key] = std::any(static_cast<int64_t>(v));
                     break;
                 }
                 case google::protobuf::FieldDescriptor::TYPE_BYTES: {
                     auto v = ref->GetString(msg, field);
-                    if (!v.empty()) result[key] = std::any(v);
+                    if (!v.empty() || force_store) result[key] = std::any(v);
                     break;
                 }
                 default:

@@ -101,6 +101,14 @@ function __dart_mod(a: number, b: number): number {
 // Active exception for rethrow. Catch bodies shadow with a local.
 let __ball_active_error: any = undefined;
 
+// Safe own-property lookup. Returns undefined if key is not an own property.
+// Avoids triggering Object.prototype getters (entries, keys, values) on
+// plain objects that aren't meant to be Dart Maps.
+function __ball_own(obj: any, key: any): any {
+  if (obj == null || typeof obj !== 'object') return undefined;
+  return Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined;
+}
+
 // Dart type shims — provide static methods for Dart built-in types
 // that don't exist in JS (int, double, num, bool).
 const int = {
@@ -298,7 +306,7 @@ function __ball_cascade(target: any, ops: any[]): any {
       value: function (k: any) {
         if (this instanceof Map) return this.has(k);
         if (this == null || typeof this !== 'object') return false;
-        return k in this;
+        return Object.prototype.hasOwnProperty.call(this, k);
       },
     });
   }

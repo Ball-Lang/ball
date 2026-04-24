@@ -488,7 +488,7 @@ $1async _resolveAndCallFunction(`,
           'filled': {arg0: 'count', arg1: 'value'},
           'from': {arg0: 'list'},
           'of': {arg0: 'list'},
-          'fromEntries': {arg0: 'entries'},
+          'fromEntries': {arg0: 'list'},
         };
         const __am = __argMaps[__fn];
         if (__am) {
@@ -500,7 +500,24 @@ $1async _resolveAndCallFunction(`,
         }
         const __stdNames: string[] = [];
         if (__cr === 'List') __stdNames.push('dart_list_' + __fn, 'list_' + __fn, __fn);
-        else if (__cr === 'Map') __stdNames.push('map_' + __fn, 'dart_map_' + __fn, 'map_from_entries', __fn);
+        else if (__cr === 'Map') {
+          __stdNames.push('map_' + __fn, 'dart_map_' + __fn, 'map_from_entries', __fn);
+          // Special case: Map.fromEntries - handle directly
+          if (__fn === 'fromEntries') {
+            const __feList = __stdInput['list'] ?? __stdInput['entries'] ?? __stdInput['arg0'] ?? [];
+            if (Array.isArray(__feList)) {
+              const __feResult: any = {};
+              for (const __fe of __feList) {
+                if (typeof __fe === 'object' && __fe !== null) {
+                  const __fek = Object.prototype.hasOwnProperty.call(__fe, 'key') ? __fe['key'] : (Object.prototype.hasOwnProperty.call(__fe, 'arg0') ? __fe['arg0'] : '');
+                  const __fev = Object.prototype.hasOwnProperty.call(__fe, 'value') ? __fe['value'] : (Object.prototype.hasOwnProperty.call(__fe, 'arg1') ? __fe['arg1'] : undefined);
+                  __feResult[String(__fek)] = __fev;
+                }
+              }
+              return __feResult;
+            }
+          }
+        }
         else if (__cr === 'Set') __stdNames.push('set_' + __fn, 'dart_set_' + __fn, __fn);
         for (const __sn of __stdNames) {
           try { return await this._callBaseFunction('std', __sn, __stdInput); } catch (e) {}
@@ -810,6 +827,11 @@ $1async _resolveAndCallFunction(`,
             // Try without module prefix: "main.Base.greet"
             const __bType = String(typeName).indexOf(':') >= 0 ? String(typeName).substring(String(typeName).indexOf(':') + 1) : String(typeName);
             method = this._functions[modPart + '.' + __bType + '.' + call.function];
+          }
+          if (method == null) {
+            // Try with module-qualified name: "main.main:Child.greet"
+            const __qType = String(typeName).indexOf(':') >= 0 ? String(typeName) : modPart + ':' + String(typeName);
+            method = this._functions[modPart + '.' + __qType + '.' + call.function];
           }
           if ((method != null)) {
             return this._callFunction(modPart, method, input);
@@ -1140,9 +1162,10 @@ $1async _resolveAndCallFunction(`,
       if ((typeDef.superclass != null) && typeDef.superclass.isNotEmpty) {
         methods.addAll(this._resolveTypeMethodsWithInheritance(typeDef.superclass));
       }
-      // Resolve mixin methods
-      if (typeDef.hasMetadata && typeDef.hasMetadata()) {
-        const mixinsField = typeDef.metadata.fields ? typeDef.metadata.fields['mixins'] : null;
+      // Resolve mixin methods — use raw typeDef for metadata access
+      const __rawTd = this._findRawTypeDef(typeName);
+      if (__rawTd && __rawTd.hasMetadata && __rawTd.hasMetadata()) {
+        const mixinsField = __rawTd.metadata.fields ? __rawTd.metadata.fields['mixins'] : null;
         let mixinNames: string[] = [];
         if (mixinsField) {
           if (mixinsField.whichKind && mixinsField.whichKind() === 'listValue') {
@@ -1158,7 +1181,7 @@ $1async _resolveAndCallFunction(`,
           }
         }
         // Also check interfaces
-        const ifacesField = typeDef.metadata.fields ? typeDef.metadata.fields['interfaces'] : null;
+        const ifacesField = __rawTd.metadata.fields ? __rawTd.metadata.fields['interfaces'] : null;
         let ifaceNames: string[] = [];
         if (ifacesField) {
           if (ifacesField.whichKind && ifacesField.whichKind() === 'listValue') {
@@ -1245,10 +1268,16 @@ $1async _resolveAndCallFunction(`,
       /if \(name === 'super' && scope\.has\('self'\)\)/,
       `// Check enums first (before typeDefs, to avoid short-circuiting)
     {
-      const __enumVals = this._enumValues[name] ?? this._enumValues[this._currentModule + ':' + name];
+      const __hasEnum = Object.prototype.hasOwnProperty.call(this._enumValues, name);
+      const __hasEnumPfx = !__hasEnum && Object.prototype.hasOwnProperty.call(this._enumValues, this._currentModule + ':' + name);
+      const __enumVals = __hasEnum ? this._enumValues[name] : (__hasEnumPfx ? this._enumValues[this._currentModule + ':' + name] : undefined);
       if (__enumVals != null) {
         return __enumVals;
       }
+    }
+    // Check scope first — variables shadow typeDefs
+    if (scope.has(name)) {
+      return scope.lookup(name);
     }
     // Check typeDefs as class references (only if not an enum)
     {
@@ -1294,8 +1323,208 @@ $1async _resolveAndCallFunction(`,
         });
       }
     }
+    // Fallback: check if self has a matching method (getter) in __methods__
+    if (scope.has('self')) {
+      const __selfObj = scope.lookup('self');
+      if (__selfObj && typeof __selfObj === 'object' && !Array.isArray(__selfObj)) {
+        const __methods = __selfObj['__methods__'];
+        if (__methods) {
+          const __mEntry = __methods[name];
+          if (typeof __mEntry === 'function') {
+            if (__mEntry.__isGetter) {
+              return __mEntry({ 'self': __selfObj });
+            }
+          }
+          const __dEntry = __methods['__dispatch_' + name];
+          if (__dEntry && __dEntry.func) {
+            // Check if it's a getter
+            const __igf = __dEntry.func.hasMetadata ? (__dEntry.func.metadata?.fields?.['is_getter']) : null;
+            if (__igf && (__igf.boolValue === true || __igf === true)) {
+              return this._callFunction(__dEntry.module, __dEntry.func, { 'self': __selfObj });
+            }
+          }
+        }
+      }
+    }
     return scope.lookup(name);
   }`,
+    );
+
+    // ── Post-processing: fix raw _enumValues/constructors/functions lookups ──
+    // Plain object property access like obj[name] can trigger Object.prototype
+    // getters (e.g., 'values', 'keys', 'entries') installed by the preamble.
+    // Fix raw enum lookup in _evalReference to use hasOwnProperty.
+    body = body.replace(
+      /let enumVals = this\._enumValues\[name\];/,
+      `let enumVals = Object.prototype.hasOwnProperty.call(this._enumValues, name) ? this._enumValues[name] : undefined;`,
+    );
+    // Fix raw constructor lookup to use hasOwnProperty
+    body = body.replace(
+      /let ctorEntry = this\._constructors\[name\];/,
+      `let ctorEntry = Object.prototype.hasOwnProperty.call(this._constructors, name) ? this._constructors[name] : undefined;`,
+    );
+
+    // ── Post-processing: fix _evalIncDec for indexed/field expressions ──
+    // The compiled engine only handles reference expressions (var++).
+    // Add support for index (arr[i]++) and fieldAccess (obj.field++).
+    body = body.replace(
+      /let val = await this\._evalExpression\(valueExpr, scope\);\s*let isInc = call\.function\.contains\('increment'\);\s*return \(isInc \? \(val \+ 1\) : \(val - 1\)\);\s*\}/,
+      `// Handle indexed expressions: count[x]++ => post_increment(value: index(target, index))
+    if (valueExpr.whichExpr() === Expression_Expr.call && valueExpr.call.function === 'index' && (valueExpr.call.module === 'std' || valueExpr.call.module === '' || !valueExpr.call.module)) {
+      const __iiFields = this._lazyFields(valueExpr.call);
+      const __iiTarget = __iiFields['target'];
+      const __iiIndex = __iiFields['index'];
+      if (__iiTarget && __iiIndex) {
+        const __container = await this._evalExpression(__iiTarget, scope);
+        const __idx = await this._evalExpression(__iiIndex, scope);
+        if (__container != null && __idx != null) {
+          const __current = this._toNum(Array.isArray(__container) ? __container[__idx] : __container[String(__idx)]);
+          const __isInc2 = call.function.contains('increment');
+          const __isPre2 = call.function.startsWith('pre');
+          const __updated = __isInc2 ? __current + 1 : __current - 1;
+          if (Array.isArray(__container)) __container[__idx] = __updated;
+          else __container[String(__idx)] = __updated;
+          return __isPre2 ? __updated : __current;
+        }
+      }
+    }
+    // Handle field access: obj.field++ => post_increment(value: fieldAccess)
+    if (valueExpr.whichExpr() === Expression_Expr.fieldAccess) {
+      const __faObj = await this._evalExpression(valueExpr.fieldAccess.object, scope);
+      if (__faObj && typeof __faObj === 'object' && !Array.isArray(__faObj)) {
+        const __faField = valueExpr.fieldAccess.field_2 ?? valueExpr.fieldAccess.field;
+        const __faCurrent = this._toNum(__faObj[__faField]);
+        const __faIsInc = call.function.contains('increment');
+        const __faIsPre = call.function.startsWith('pre');
+        const __faUpdated = __faIsInc ? __faCurrent + 1 : __faCurrent - 1;
+        __faObj[__faField] = __faUpdated;
+        return __faIsPre ? __faUpdated : __faCurrent;
+      }
+    }
+    let val = await this._evalExpression(valueExpr, scope);
+    let isInc = call.function.contains('increment');
+    return (isInc ? (val + 1) : (val - 1));
+  }`,
+    );
+
+    // ── Post-processing: fix _stdMathClamp for static method call pattern ──
+    // When math_clamp is called via MathUtils.clamp(v, lo, hi), the encoder
+    // maps it as math_clamp(value: MathUtils_ref, min: v, max: lo, arg2: hi).
+    // Detect when value is an object (class ref) and remap args.
+    body = body.replace(
+      /let value = this\._toNum\(input\['value'\]\);\s*let min = this\._toNum\(input\['min'\]\);\s*let max = this\._toNum\(input\['max'\]\);\s*return value\.clamp\(min, max\);/,
+      `let __clampV: any, __clampLo: any, __clampHi: any;
+    if (input['value'] != null && typeof input['value'] === 'object') {
+      // Static method style: value is class ref, actual args are min/max/arg2
+      __clampV = this._toNum(input['min']);
+      __clampLo = this._toNum(input['max']);
+      __clampHi = this._toNum(input['arg2']);
+    } else {
+      __clampV = this._toNum(input['value'] ?? input);
+      __clampLo = this._toNum(input['min'] ?? input['low'] ?? input['lower']);
+      __clampHi = this._toNum(input['max'] ?? input['high'] ?? input['upper']);
+    }
+    return Math.min(Math.max(__clampV, __clampLo), __clampHi);`,
+    );
+
+    // ── Post-processing: fix single-param binding for static method calls ──
+    // When _callFunction receives {arg0: value} for a single-param function,
+    // it should bind the param to arg0's value, not to the whole object.
+    body = body.replace(
+      /if \(\(\(params\.length === 1\) && !\(\(typeof input === 'object' && input !== null && !Array\.isArray\(input\)\) && input\.containsKey\('self'\)\)\)\) \{\s*scope\.bind\(params\[0\], input\);\s*\}/,
+      `if (((params.length === 1) && !((typeof input === 'object' && input !== null && !Array.isArray(input)) && input.containsKey('self')))) {
+        // If input is an object with positional arg keys, extract the value
+        if ((typeof input === 'object' && input !== null && !Array.isArray(input)) && (input.containsKey('arg0') || input.containsKey(params[0]))) {
+          scope.bind(params[0], input.containsKey(params[0]) ? input[params[0]] : input['arg0']);
+        } else {
+          scope.bind(params[0], input);
+        }
+      }`,
+    );
+
+    // ── Post-processing: fix _initTopLevelVariables to handle static_field ──
+    // Static fields (like Logger._cache) should also be initialized as
+    // top-level variables. The compiled engine only handles 'top_level_variable'.
+    body = body.replace(
+      /if \(\(kindValue\?\.stringValue !== 'top_level_variable'\)\)/,
+      `if (kindValue?.stringValue !== 'top_level_variable' && kindValue?.stringValue !== 'static_field')`,
+    );
+
+    // ── Post-processing: fix static field name binding ──
+    // Static fields have qualified names like "main:Logger._cache". When binding
+    // to global scope, also bind the short name (e.g., "_cache").
+    // Also convert empty Set to Map if outputType says Map.
+    body = body.replace(
+      /this\._globalScope\.bind\(func\.name, value\);/,
+      `// Convert empty Set to Map if outputType says Map
+        if (func.outputType && typeof func.outputType === 'string' && func.outputType.startsWith('Map')) {
+          if (value instanceof Set && value.size === 0) value = {};
+          if (Array.isArray(value) && value.length === 0) value = {};
+        }
+        this._globalScope.bind(func.name, value);
+        // Also bind short name for unqualified access
+        const __dotIdx = func.name.lastIndexOf('.');
+        if (__dotIdx >= 0) {
+          this._globalScope.bind(func.name.substring(__dotIdx + 1), value);
+        }`,
+    );
+
+    // ── Post-processing: fix _trySetterDispatch key format ──
+    // The compiled engine appends '=' to the setter key, but the functions are
+    // stored WITHOUT '='. Try both formats.
+    body = body.replace(
+      /let setterKey = \(\(\(\(\(__ball_to_string\(modPart\) \+ '\.'\) \+ __ball_to_string\(typeName\)\) \+ '\.'\) \+ __ball_to_string\(fieldName\)\) \+ '='\);\s*let setterFunc = this\._setters\[setterKey\] \?\? this\._functions\[setterKey\];/,
+      `let setterKey = (((((__ball_to_string(modPart) + '.') + __ball_to_string(typeName)) + '.') + __ball_to_string(fieldName)) + '=');
+    let setterKeyNoEq = ((((__ball_to_string(modPart) + '.') + __ball_to_string(typeName)) + '.') + __ball_to_string(fieldName));
+    let setterFunc = this._setters[setterKey] ?? this._setters[setterKeyNoEq] ?? this._functions[setterKey] ?? this._functions[setterKeyNoEq];`,
+    );
+    // Also fix getter key to try module-qualified name
+    body = body.replace(
+      /let getterKey = \(\(\(\(__ball_to_string\(modPart\) \+ '\.'\) \+ __ball_to_string\(typeName\)\) \+ '\.'\) \+ __ball_to_string\(fieldName\)\);\s*let getterFunc = this\._getters\[getterKey\] \?\? this\._functions\[getterKey\];/,
+      `let getterKey = ((((__ball_to_string(modPart) + '.') + __ball_to_string(typeName)) + '.') + __ball_to_string(fieldName));
+    let getterFunc = this._getters[getterKey] ?? this._functions[getterKey];
+    if (getterFunc == null) {
+      // Try with module-qualified type: "main.main:Temperature.celsius"
+      const __gqType = String(typeName).indexOf(':') >= 0 ? String(typeName) : modPart + ':' + String(typeName);
+      const __gqKey = modPart + '.' + __gqType + '.' + fieldName;
+      getterFunc = this._getters[__gqKey] ?? this._functions[__gqKey];
+    }`,
+    );
+
+    // ── Post-processing: fix _stdAdd to preserve BallDouble ──
+    // _stdAdd doesn't check for BallDouble operands. Wrap the result if either
+    // operand is BallDouble, matching _stdBinary's behavior.
+    body = body.replace(
+      /return \(this\._toNum\(left\) \+ this\._toNum\(right\)\);\s*\}\s*\n\s*_stdBinary/,
+      `const __ladd = left instanceof BallDouble;
+    const __radd = right instanceof BallDouble;
+    const __addR = this._toNum(left) + this._toNum(right);
+    return (__ladd || __radd) ? new BallDouble(__addR) : __addR;
+  }
+
+  _stdBinary`,
+    );
+
+    // ── Post-processing: fix map_from_entries built-in handler ──
+    // The engine's built-in map_from_entries handler is broken. Replace it with
+    // a correct implementation that handles MapEntry objects with arg0/arg1 fields.
+    body = body.replace(
+      /'map_from_entries': \(\(i\) => \{[\s\S]*?\}\), 'map_merge'/,
+      `'map_from_entries': ((i) => {
+        const input = i;
+        const _own = (o, k) => Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined;
+        const list = _own(i, 'list') ?? _own(i, 'entries') ?? _own(i, 'arg0') ?? [];
+        if (!Array.isArray(list)) return {};
+        const result = {};
+        for (const e of list) {
+          if (typeof e === 'object' && e !== null) {
+            const k = _own(e, 'key') ?? _own(e, 'arg0') ?? _own(e, 'name') ?? '';
+            const v = Object.prototype.hasOwnProperty.call(e, 'value') ? e['value'] : (_own(e, 'arg1') ?? undefined);
+            result[String(k)] = v;
+          }
+        }
+        return result;
+      }), 'map_merge'`,
     );
 
     // ── Post-processing: fix _evalMessageCreation toString injection ──
@@ -1491,6 +1720,31 @@ $1async _resolveAndCallFunction(`,
         }
       }
       let value = cf['value'] ?? cf['pattern'];
+      // Handle pattern_expr (e.g., ConstPattern with enum values)
+      let __patternExpr = cf['pattern_expr'];
+      if (!__matched && __patternExpr != null) {
+        let __pe = await this._evalExpression(__patternExpr, scope);
+        let __pv = (__pe && typeof __pe === 'object' && !Array.isArray(__pe) && 'value' in __pe) ? __pe['value'] : __pe;
+        // Compare enum-style: by identity, by index, or by name
+        if (__pv === subjectVal) { __matched = true; }
+        else if (typeof __pv === 'object' && typeof subjectVal === 'object' && __pv !== null && subjectVal !== null) {
+          if (__pv['name'] === subjectVal['name'] && __pv['__type__'] === subjectVal['__type__']) { __matched = true; }
+          else if (__pv['index'] != null && __pv['index'] === subjectVal['index'] && __pv['__type__'] === subjectVal['__type__']) { __matched = true; }
+        }
+        if (__matched) {
+          let body = cf['body'];
+          if (body != null) {
+            const __isEmptyBlock2 = body.block && (!body.block.statements || body.block.statements.length === 0) && !body.block.result && !body.block.hasResult?.();
+            if (!__isEmptyBlock2) {
+              const __switchResult2 = await this._evalExpression(body, scope);
+              if (__switchResult2 instanceof _FlowSignal && __switchResult2.kind === 'break' && (__switchResult2.label == null || __switchResult2.label === '')) return null;
+              return __switchResult2;
+            }
+          }
+          // Fall through if no body
+          value = null; // skip the value check below
+        }
+      }
       if ((value != null)) {
         let caseVal = await this._evalExpression(value, scope);
         // Strip surrounding quotes from pattern strings (encoder artifact)
@@ -1536,6 +1790,19 @@ $1async _resolveAndCallFunction(`,
     body = body.replace(
       /let __eType = \(e instanceof BallException\)/,
       `let __eType = (e && typeof e === 'object' && 'typeName' in e)`,
+    );
+
+    // ── Post-processing: fix _callFunction 'input' binding shadowing ──
+    // Don't bind 'input' as a variable when the global scope already has
+    // a top-level variable named 'input'. This prevents shadowing.
+    body = body.replace(
+      /if \(\(func\.inputType\.isNotEmpty && \(input != null\)\)\) \{\s*scope\.bind\('input', input\);\s*\}/,
+      `if ((func.inputType.isNotEmpty && (input != null))) {
+      // Only bind 'input' if it won't shadow a top-level variable named 'input'
+      if (!this._globalScope.has('input') || func.name === this.program.entryFunction) {
+        scope.bind('input', input);
+      }
+    }`,
     );
 
     // ── Post-processing: fix _callFunction to handle multi-param positional binding ──

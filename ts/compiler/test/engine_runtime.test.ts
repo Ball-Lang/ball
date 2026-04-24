@@ -416,7 +416,14 @@ if (gs && gs.bind) {
   gs.bind('RegExp', {'__class_ref__': 'RegExp', '__type__': '__builtin_class__'});
   gs.bind('DateTime', {'__class_ref__': 'DateTime', '__type__': '__builtin_class__'});
   gs.bind('Duration', {'__class_ref__': 'Duration', '__type__': '__builtin_class__'});
-  gs.bind('identical', (a: any, b: any) => a === b);
+  gs.bind('identical', (input: any) => {
+    if (input && typeof input === 'object' && !Array.isArray(input)) {
+      const a = input['arg0'] ?? input['left'] ?? input['a'];
+      const b = input['arg1'] ?? input['right'] ?? input['b'];
+      return a === b;
+    }
+    return false;
+  });
   gs.bind('print', (msg: any) => { console.log(String(msg)); });
 }
 // Register missing std functions that the encoder didn't capture.
@@ -768,21 +775,26 @@ if (stdHandler.register) {
     if (Array.isArray(list)) return list.pop();
     return null;
   });
-  stdHandler.register('map_from_entries', (i: any) => {
+  // Register both camelCase and snake_case to ensure the handler is found
+  const __mapFromEntries = (i: any) => {
     const m = (typeof i === 'object' && i !== null) ? i : {};
-    const entries = m['entries'] ?? m['list'] ?? m['arg0'] ?? [];
+    // Use hasOwnProperty to avoid triggering Object.prototype.entries getter
+    const _own = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined;
+    const entries = _own(m, 'entries') ?? _own(m, 'list') ?? _own(m, 'arg0') ?? [];
     const result: any = {};
     if (Array.isArray(entries)) {
       for (const e of entries) {
         if (typeof e === 'object' && e !== null) {
-          const k = e['key'] ?? e['arg0'] ?? e['name'] ?? '';
-          const v = 'value' in e ? e['value'] : ('arg1' in e ? e['arg1'] : undefined);
+          const k = _own(e, 'key') ?? _own(e, 'arg0') ?? _own(e, 'name') ?? '';
+          const v = Object.prototype.hasOwnProperty.call(e, 'value') ? e['value'] : (_own(e, 'arg1') ?? undefined);
           result[k] = v;
         }
       }
     }
     return result;
-  });
+  };
+  stdHandler.register('map_from_entries', __mapFromEntries);
+  stdHandler.register('map_fromEntries', __mapFromEntries);
   stdHandler.register('map_containsKey', (i: any) => {
     const m = (typeof i === 'object' && i !== null) ? i : {};
     const map = m['map'] ?? m['collection'] ?? {};

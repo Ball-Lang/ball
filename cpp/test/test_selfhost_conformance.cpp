@@ -280,14 +280,16 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
         // Run the program
         engine.run();
     } catch (const BallException& be) {
-        // Ball exceptions — capture message for debugging
         std::cout.rdbuf(oldBuf);
         if (captured.str().empty()) {
-            failure_msg = std::string("BallException: ") + be.what();
+            failure_msg = std::string("BallException: ") + be.what() + " type=" + be.type_name;
             return false;
         }
-        // Partially successful — had output before the exception
         std::cout.rdbuf(captured.rdbuf());
+    } catch (const std::bad_any_cast& bac) {
+        std::cout.rdbuf(oldBuf);
+        failure_msg = std::string("bad_any_cast: ") + bac.what();
+        return false;
     } catch (const std::exception& e) {
         std::cout.rdbuf(oldBuf);
         failure_msg = std::string("engine threw: ") + e.what();

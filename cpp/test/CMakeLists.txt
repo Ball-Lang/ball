@@ -136,6 +136,34 @@ if(EXISTS "${BALL_SELFHOST_CPP}")
     )
 endif()
 
+# Self-hosted engine conformance tests — runs conformance programs through
+# the compiled Ball engine (engine_rt.cpp). Includes engine_rt.cpp directly
+# and links against protobuf for JSON parsing of Ball programs.
+add_executable(test_selfhost_conformance test_selfhost_conformance.cpp)
+target_include_directories(test_selfhost_conformance PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
+)
+target_link_libraries(test_selfhost_conformance ball_shared)
+target_compile_options(test_selfhost_conformance PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W0 /bigobj>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-w>
+)
+target_compile_definitions(test_selfhost_conformance PRIVATE
+    BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
+)
+set_target_properties(test_selfhost_conformance PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+)
+# Bump stack to 32 MB — the self-hosted engine has deep recursion
+if(MSVC)
+    target_link_options(test_selfhost_conformance PRIVATE /STACK:33554432)
+elseif(APPLE)
+    target_link_options(test_selfhost_conformance PRIVATE -Wl,-stack_size,0x2000000)
+else()
+    target_link_options(test_selfhost_conformance PRIVATE -Wl,-z,stacksize=33554432)
+endif()
+
 enable_testing()
 add_test(NAME engine_tests COMMAND test_engine)
 add_test(NAME compiler_tests COMMAND test_compiler)

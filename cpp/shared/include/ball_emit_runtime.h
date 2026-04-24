@@ -98,6 +98,71 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 }
 
 // ================================================================
+// Type-check helpers for compiled Ball programs
+// ================================================================
+//
+// These free functions mirror ball::is_map, ball::is_list, etc. from
+// ball_shared.h but live in the global namespace so compiled programs
+// (which embed this header, not ball_shared.h) can use them.
+
+using BallValue_RT = std::any;
+using BallMap_RT = std::map<std::string, std::any>;
+using BallList_RT = std::vector<std::any>;
+using BallFunc_RT = std::function<std::any(std::any)>;
+
+inline bool ball_is_int(const std::any& v) { return v.has_value() && v.type() == typeid(int64_t); }
+inline bool ball_is_double(const std::any& v) { return v.has_value() && v.type() == typeid(double); }
+inline bool ball_is_string(const std::any& v) { return v.has_value() && v.type() == typeid(std::string); }
+inline bool ball_is_bool(const std::any& v) { return v.has_value() && v.type() == typeid(bool); }
+inline bool ball_is_list(const std::any& v) { return v.has_value() && v.type() == typeid(BallList_RT); }
+inline bool ball_is_map(const std::any& v) {
+    return v.has_value() && v.type() == typeid(BallMap_RT);
+}
+inline bool ball_is_function(const std::any& v) { return v.has_value() && v.type() == typeid(BallFunc_RT); }
+
+// Check if a value is a FlowSignal (a map with a "kind" field).
+inline bool ball_is_flow_signal(const std::any& v) {
+    if (!v.has_value() || v.type() != typeid(BallMap_RT)) return false;
+    const auto& m = std::any_cast<const BallMap_RT&>(v);
+    return m.count("kind") > 0;
+}
+
+// Compare type names accounting for module-qualified forms.
+inline bool ball_type_name_matches(const std::string& obj_type, const std::string& check_type) {
+    if (obj_type == check_type) return true;
+    auto colon1 = obj_type.find(':');
+    if (colon1 != std::string::npos && obj_type.substr(colon1 + 1) == check_type) return true;
+    auto colon2 = check_type.find(':');
+    if (colon2 != std::string::npos && check_type.substr(colon2 + 1) == obj_type) return true;
+    if (colon1 != std::string::npos && colon2 != std::string::npos) {
+        return obj_type.substr(colon1 + 1) == check_type.substr(colon2 + 1);
+    }
+    return false;
+}
+
+// Check if a map value's __type__ matches a type name (walks __super__ chain).
+inline bool ball_object_type_matches(const std::any& value, const std::string& type) {
+    if (!value.has_value() || value.type() != typeid(BallMap_RT)) return false;
+    const auto& m = std::any_cast<const BallMap_RT&>(value);
+    auto it = m.find("__type__");
+    if (it != m.end() && it->second.has_value() && it->second.type() == typeid(std::string)) {
+        if (ball_type_name_matches(std::any_cast<const std::string&>(it->second), type)) return true;
+    }
+    auto sit = m.find("__super__");
+    std::any super_obj = (sit != m.end()) ? sit->second : std::any{};
+    while (super_obj.has_value() && super_obj.type() == typeid(BallMap_RT)) {
+        const auto& sm = std::any_cast<const BallMap_RT&>(super_obj);
+        auto st = sm.find("__type__");
+        if (st != sm.end() && st->second.has_value() && st->second.type() == typeid(std::string)) {
+            if (ball_type_name_matches(std::any_cast<const std::string&>(st->second), type)) return true;
+        }
+        auto ss = sm.find("__super__");
+        super_obj = (ss != sm.end()) ? ss->second : std::any{};
+    }
+    return false;
+}
+
+// ================================================================
 // Dart protobuf API bridge helpers
 // ================================================================
 //

@@ -1224,23 +1224,22 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     // ── Type system ──
     if (fn == "is" || fn == "is_not") {
         auto val = get_message_field(call, "value");
-        auto type_str = get_message_field(call, "type");
-        std::string tn = type_str;
-        if (tn.size() >= 2 && tn.front() == '"' && tn.back() == '"')
-            tn = tn.substr(1, tn.size() - 2);
+        // Use get_string_field to extract the raw type name string,
+        // not the compiled C++ literal (which would be e.g. "Map"s).
+        std::string tn = get_string_field(call, "type");
         auto lt = tn.find('<'); if (lt != std::string::npos) tn = tn.substr(0, lt);
         if (!tn.empty() && tn.back() == '?') tn.pop_back();
         auto col = tn.find(':'); if (col != std::string::npos) tn = tn.substr(col + 1);
         std::string ck;
-        if (tn == "Map" || tn == "HashMap") ck = "ball::is_map(" + val + ")";
-        else if (tn == "List" || tn == "Iterable") ck = "ball::is_list(" + val + ")";
-        else if (tn == "String") ck = "ball::is_string(" + val + ")";
-        else if (tn == "int") ck = "ball::is_int(" + val + ")";
-        else if (tn == "double" || tn == "num") ck = "(ball::is_int(" + val + ") || ball::is_double(" + val + "))";
-        else if (tn == "bool") ck = "ball::is_bool(" + val + ")";
-        else if (tn == "Function") ck = "ball::is_function(" + val + ")";
-        else if (tn == "_FlowSignal" || tn == "FlowSignal") ck = "_isFlowSignal(" + val + ")";
-        else ck = "ball::object_type_matches(" + val + ", \"" + tn + "\"s)";
+        if (tn == "Map" || tn == "HashMap") ck = "ball_is_map(" + val + ")";
+        else if (tn == "List" || tn == "Iterable") ck = "ball_is_list(" + val + ")";
+        else if (tn == "String") ck = "ball_is_string(" + val + ")";
+        else if (tn == "int") ck = "ball_is_int(" + val + ")";
+        else if (tn == "double" || tn == "num") ck = "(ball_is_int(" + val + ") || ball_is_double(" + val + "))";
+        else if (tn == "bool") ck = "ball_is_bool(" + val + ")";
+        else if (tn == "Function") ck = "ball_is_function(" + val + ")";
+        else if (tn == "_FlowSignal" || tn == "FlowSignal") ck = "ball_is_flow_signal(" + val + ")";
+        else ck = "ball_object_type_matches(" + val + ", \"" + tn + "\"s)";
         return fn == "is" ? ck : ("!(" + ck + ")");
     }
     if (fn == "as") return get_message_field(call, "value");

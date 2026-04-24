@@ -1060,7 +1060,8 @@ if (stdHandler.register) {
   stdHandler.register('null_check', (i: any) => {
     const m = (typeof i === 'object' && i !== null) ? i : {};
     const value = m['value'] ?? i;
-    return value != null;
+    if (value == null) throw new Error('Null check operator used on a null value');
+    return value;
   });
   stdHandler.register('concat', (i: any) => {
     const m = (typeof i === 'object' && i !== null) ? i : {};
@@ -1247,7 +1248,7 @@ if (stdHandler.register) {
       return list.slice(start, end);
     }
     if (val != null && !Array.isArray(val)) {
-      return list.slice(0, Number(val));
+      return list.slice(Number(val));
     }
     return [...list];
   });

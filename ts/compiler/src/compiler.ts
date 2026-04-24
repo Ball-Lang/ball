@@ -499,9 +499,9 @@ $1async _resolveAndCallFunction(`,
           }
         }
         const __stdNames: string[] = [];
-        if (__cr === 'List') __stdNames.push('dart_list_' + __fn, 'list_' + __fn);
-        else if (__cr === 'Map') __stdNames.push('map_' + __fn, 'dart_map_' + __fn, 'map_from_entries');
-        else if (__cr === 'Set') __stdNames.push('set_' + __fn, 'dart_set_' + __fn);
+        if (__cr === 'List') __stdNames.push('dart_list_' + __fn, 'list_' + __fn, __fn);
+        else if (__cr === 'Map') __stdNames.push('map_' + __fn, 'dart_map_' + __fn, 'map_from_entries', __fn);
+        else if (__cr === 'Set') __stdNames.push('set_' + __fn, 'dart_set_' + __fn, __fn);
         for (const __sn of __stdNames) {
           try { return await this._callBaseFunction('std', __sn, __stdInput); } catch (e) {}
           try { return await this._callBaseFunction('dart_std', __sn, __stdInput); } catch (e) {}
@@ -717,7 +717,8 @@ $1async _resolveAndCallFunction(`,
     // ── Post-processing: fix _toDouble similarly ────────────────────
     body = body.replace(
       /throw new BallRuntimeError\(\(\('Cannot convert ' \+ __ball_to_string\(v\.runtimeType\)\) \+ ' to double'\)\);/,
-      `if (typeof v === 'string') { const n = Number(v); return isNaN(n) ? new BallDouble(0.0) : new BallDouble(n); }
+      `if (v instanceof BallDouble) return v;
+    if (typeof v === 'string') { const n = Number(v); return isNaN(n) ? new BallDouble(0.0) : new BallDouble(n); }
     if (typeof v === 'boolean') return new BallDouble(v ? 1.0 : 0.0);
     return new BallDouble(0.0);`,
     );
@@ -1242,7 +1243,14 @@ $1async _resolveAndCallFunction(`,
     // type reference if the name matches a known typeDef.
     body = body.replace(
       /if \(name === 'super' && scope\.has\('self'\)\)/,
-      `// Check typeDefs as class references
+      `// Check enums first (before typeDefs, to avoid short-circuiting)
+    {
+      const __enumVals = this._enumValues[name] ?? this._enumValues[this._currentModule + ':' + name];
+      if (__enumVals != null) {
+        return __enumVals;
+      }
+    }
+    // Check typeDefs as class references (only if not an enum)
     {
       const __td = this._findTypeDef(name);
       if (__td) {
@@ -1499,7 +1507,12 @@ $1async _resolveAndCallFunction(`,
           if (body != null) {
             const __isEmptyBlock = body.block && (!body.block.statements || body.block.statements.length === 0) && !body.block.result && !body.block.hasResult?.();
             if (!__isEmptyBlock) {
-              return this._evalExpression(body, scope);
+              const __switchResult = await this._evalExpression(body, scope);
+              // Consume unlabeled break (switch break, not loop break)
+              if (__switchResult instanceof _FlowSignal && __switchResult.kind === 'break' && (__switchResult.label == null || __switchResult.label === '')) {
+                return null;
+              }
+              return __switchResult;
             }
           }
           // No body or empty body = fall through to next case
@@ -1507,7 +1520,11 @@ $1async _resolveAndCallFunction(`,
       }
     }
     if (defaultBody != null && defaultBody !== __no_init__) {
-      return this._evalExpression(defaultBody, scope);
+      const __defResult = await this._evalExpression(defaultBody, scope);
+      if (__defResult instanceof _FlowSignal && __defResult.kind === 'break' && (__defResult.label == null || __defResult.label === '')) {
+        return null;
+      }
+      return __defResult;
     }
   }`,
     );
@@ -1537,6 +1554,327 @@ $1async _resolveAndCallFunction(`,
           scope.bind(params[__pi], input[__argKey]);
         }
       }`,
+    );
+
+    // ── Post-processing: fix throw to read __type__ (double underscore) ──
+    // The compiled engine's throw handler reads val['__type'] (single underscore)
+    // but the messageCreation sets val['__type__'] (double underscore).
+    body = body.replace(
+      /typeName = \(val\['__type'\] \?\? 'Exception'\);/,
+      `typeName = (val['__type__'] ?? val['__type'] ?? 'Exception');
+          // Strip module prefix for catch matching: "main:FormatException" -> "FormatException"
+          const __typeColonIdx = typeName.indexOf(':');
+          if (__typeColonIdx >= 0) typeName = typeName.substring(__typeColonIdx + 1);`,
+    );
+
+    // ── Post-processing: fix typed catch matching for user-defined types ──
+    // When the thrown value is a user-defined type like "FormatException" or
+    // "RangeError" (created via messageCreation), match by __type__ field.
+    // Also need to check BallException.value.__type__ for nested type info.
+    body = body.replace(
+      /if \(e instanceof BallException\) \{\s*matches = e\['typeName'\] === catchType;\s*\}/,
+      `if (e instanceof BallException) {
+              matches = e['typeName'] === catchType;
+              // Also check if the value inside has a matching type
+              if (!matches && typeof e['value'] === 'object' && e['value'] !== null) {
+                let __valType = e['value']['__type__'] ?? e['value']['__type'] ?? '';
+                const __vtci = __valType.indexOf(':');
+                if (__vtci >= 0) __valType = __valType.substring(__vtci + 1);
+                matches = __valType === catchType;
+              }
+            }`,
+    );
+
+    // ── Post-processing: fix catch variable binding for BallException ──
+    // Bind the exception value as-is. If it's a typed exception object,
+    // add a 'message' field from arg0 for Dart compatibility.
+    body = body.replace(
+      /catchScope\.bind\(variable, \(e instanceof BallException\) \? e\['value'\] : \(e instanceof Error \? e\.message : e\)\);/,
+      `{
+              let __catchVal = e;
+              if (e instanceof BallException) {
+                __catchVal = e['value'];
+                // Add 'message' field from arg0 if it's a typed exception object
+                if (typeof __catchVal === 'object' && __catchVal !== null && !('message' in __catchVal) && 'arg0' in __catchVal) {
+                  __catchVal['message'] = __catchVal['arg0'];
+                }
+              } else if (e instanceof Error) {
+                __catchVal = e.message;
+              }
+              catchScope.bind(variable, __catchVal);
+            }`,
+    );
+
+    // ── Post-processing: fix list_map/list_filter/etc callback field name ──
+    // The compiled engine's built-in list_map uses m['callback'] but the Ball
+    // programs pass the callback as 'value' or 'function'. Fix to check all.
+    // Fix callback resolution: some Ball programs pass the callback as
+    // 'value' or 'function' instead of 'callback'. But only apply this
+    // to the list_filter and list_map functions (not all uses of cb).
+    body = body.replace(
+      /let cb = m\['callback'\];\s*let result = \[\];/g,
+      `let cb = m['callback'] ?? m['function'] ?? m['value'];
+        let result = [];`,
+    );
+
+    // ── Post-processing: fix in-place mutation detection in _evalAssign ──
+    // The Dart engine detects patterns like assign(target: var, value: list_remove_at(list: var, ...))
+    // where the list and target reference the same variable. In this case, the mutation
+    // already happened in-place, so we return the removed element without overwriting.
+    body = body.replace(
+      /let val = await this\._evalExpression\(value, scope\);\s*if \(\(target\.whichExpr\(\) === Expression_Expr\.reference\)\) \{/,
+      `// Detect in-place mutation pattern
+    if (target.whichExpr() === Expression_Expr.reference && value.whichExpr() === Expression_Expr.call) {
+      const __valFn = value.call.function;
+      const __valMod = value.call.module;
+      if ((__valFn === 'list_remove_at' || __valFn === 'list_pop' || __valFn === 'list_remove_last') && (__valMod === 'std' || __valMod === 'std_collections' || __valMod === '')) {
+        const __valFields = this._lazyFields(value.call);
+        const __listExpr = __valFields['list'];
+        if (__listExpr != null && __listExpr.whichExpr() === Expression_Expr.reference && __listExpr.reference.name === target.reference.name) {
+          // In-place mutation: evaluate the call (mutates the list), return the result
+          // but don't overwrite the variable
+          const __mutResult = await this._evalExpression(value, scope);
+          return __mutResult;
+        }
+      }
+    }
+    let val = await this._evalExpression(value, scope);
+    if ((target.whichExpr() === Expression_Expr.reference)) {`,
+    );
+
+    // ── Post-processing: fix empty Set → Map conversion for let statements ──
+    // The Dart encoder uses set_create for empty map literals. The Dart engine
+    // converts empty Sets to Maps when the let type says 'Map'. Add the same
+    // logic to the compiled engine's _evalStatement.
+    body = body.replace(
+      /let value = await this\._evalExpression\(stmt\.let\.value, scope\);\s*if \(\(value instanceof _FlowSignal\)\) \{\s*return value;\s*\}\s*scope\.bind\(stmt\.let\.name, value\);/,
+      `let value = await this._evalExpression(stmt.let.value, scope);
+        if ((value instanceof _FlowSignal)) {
+          return value;
+        }
+        // Convert empty Set to Map if type metadata says Map
+        if (stmt.let.hasMetadata && stmt.let.hasMetadata()) {
+          const __letType = stmt.let.metadata.fields ? stmt.let.metadata.fields['type'] : null;
+          const __lt = __letType ? (__letType.stringValue ?? __letType) : null;
+          if (typeof __lt === 'string' && __lt.startsWith('Map')) {
+            if (value instanceof Set && value.size === 0) value = {};
+            if (value === null || value === undefined) value = {};
+          }
+          // Also convert empty list/set to empty map for var declarations
+          if (typeof __lt === 'string' && __lt.startsWith('Map') && Array.isArray(value) && value.length === 0) {
+            value = {};
+          }
+        }
+        scope.bind(stmt.let.name, value);`,
+    );
+
+    // ── Post-processing: fix .isNotEmpty / .isEmpty on plain objects ───
+    // The compiled Dart engine uses `.isNotEmpty` on plain objects returned
+    // by _resolveTypeMethods and _resolveTypeMethodsWithInheritance. Plain JS
+    // objects don't have isNotEmpty/isEmpty. Fix the specific occurrences.
+    body = body.replace(
+      /if \(methods\.isNotEmpty\) \{\s*fields\['__methods__'\]/,
+      `if (Object.keys(methods).length > 0) {\n          fields['__methods__']`,
+    );
+    body = body.replace(
+      /if \(parentMethods\.isNotEmpty\) \{\s*superFields\['__methods__'\]/,
+      `if (Object.keys(parentMethods).length > 0) {\n        superFields['__methods__']`,
+    );
+
+    // ── Post-processing: fix labeled loops to pass label to inner loop ──
+    // The compiled engine's _evalLabeled just evaluates the body and catches
+    // matching signals. It needs to delegate to a labeled loop evaluator that
+    // passes the label to the inner for/while loop for proper continue handling.
+    body = body.replace(
+      /async _evalLabeled\(call: any, scope: any\): Promise<any> \{\s*let fields = this\._lazyFields\(call\);\s*let label = this\._stringFieldVal\(fields, 'label'\);\s*let body = fields\['body'\];\s*if \(\(body == null\)\) \{\s*return null;\s*\}\s*let result = await this\._evalExpression\(body, scope\);\s*if \(\(\(\(result instanceof _FlowSignal\) && \(\(result\.kind === 'break'\) \|\| \(result\.kind === 'continue'\)\)\) && \(result\.label === label\)\)\) \{\s*return null;\s*\}\s*return result;\s*\}/,
+      `async _evalLabeled(call: any, scope: any): Promise<any> {
+    let fields = this._lazyFields(call);
+    let label = this._stringFieldVal(fields, 'label');
+    let body = fields['body'];
+    if ((body == null)) {
+      return null;
+    }
+    // If the body contains a loop, pass the label to it for proper
+    // labeled break/continue handling (running update on continue, etc.)
+    if (label != null && label.length > 0) {
+      const loopCall = this.__extractLoopFromBody(body);
+      if (loopCall != null) {
+        const result = await this.__evalLabeledFor(loopCall, label, scope);
+        if (result instanceof _FlowSignal && (result.kind === 'break' || result.kind === 'continue') && result.label === label) {
+          return null;
+        }
+        return result;
+      }
+    }
+    let result = await this._evalExpression(body, scope);
+    if ((((result instanceof _FlowSignal) && ((result.kind === 'break') || (result.kind === 'continue'))) && (result.label === label))) {
+      return null;
+    }
+    return result;
+  }
+
+  __extractLoopFromBody(expr: any): any {
+    if (expr.whichExpr() === Expression_Expr.call) {
+      const fn = expr.call.function;
+      if (fn === 'for' || fn === 'while' || fn === 'for_in' || fn === 'do_while') return expr.call;
+    }
+    if (expr.whichExpr() === Expression_Expr.block && expr.block.statements.length === 1) {
+      const stmt = expr.block.statements[0];
+      if (stmt.whichStmt() === Statement_Stmt.expression && stmt.expression.whichExpr() === Expression_Expr.call) {
+        const fn = stmt.expression.call.function;
+        if (fn === 'for' || fn === 'while' || fn === 'for_in' || fn === 'do_while') return stmt.expression.call;
+      }
+    }
+    return null;
+  }
+
+  async __evalLabeledFor(loopCall: any, label: any, scope: any): Promise<any> {
+    const fn = loopCall.function;
+    if (fn === 'for') return this.__evalLabeledForLoop(loopCall, label, scope);
+    if (fn === 'for_in') return this.__evalLabeledForIn(loopCall, label, scope);
+    if (fn === 'while') return this.__evalLabeledWhile(loopCall, label, scope);
+    if (fn === 'do_while') return this.__evalLabeledDoWhile(loopCall, label, scope);
+    return this._evalExpression({call: loopCall}, scope);
+  }
+
+  async __evalLabeledForLoop(call: any, label: any, scope: any): Promise<any> {
+    const fields = this._lazyFields(call);
+    const initExpr = fields['init'];
+    const condition = fields['condition'];
+    const update = fields['update'];
+    const body = fields['body'];
+    const forScope = scope.child();
+    if (initExpr != null) {
+      if (initExpr.whichExpr() === Expression_Expr.block) {
+        for (const stmt of initExpr.block.statements) {
+          await this._evalStatement(stmt, forScope);
+        }
+      } else if (initExpr.whichExpr() === Expression_Expr.literal && initExpr.literal.hasStringValue()) {
+        const s = initExpr.literal.stringValue;
+        const match = new RegExp('(?:var|final|int|double|String)\\\\s+(\\\\w+)\\\\s*=\\\\s*(.+)').firstMatch(s);
+        if (match != null) {
+          const varName = match.group(1);
+          const rawVal = match.group(2).trim();
+          const parsed = int.tryParse(rawVal) ?? double.tryParse(rawVal) ?? (rawVal === 'true' ? true : rawVal === 'false' ? false : rawVal);
+          forScope.bind(varName, parsed);
+        }
+      } else {
+        await this._evalExpression(initExpr, forScope);
+      }
+    }
+    while (true) {
+      if (condition != null) {
+        const condVal = await this._evalExpression(condition, forScope);
+        if (!this._toBool(condVal)) break;
+      }
+      if (body != null) {
+        const result = await this._evalExpression(body, forScope);
+        if (result instanceof _FlowSignal) {
+          if (result.kind === 'return') return result;
+          if (result.label === label) {
+            if (result.kind === 'break') break;
+            if (result.kind === 'continue') {
+              if (update != null) await this._evalExpression(update, forScope);
+              continue;
+            }
+          }
+          if (result.label != null && result.label.length > 0) return result;
+          if (result.kind === 'break') break;
+          // unlabeled continue: fall through to update
+        }
+      }
+      if (update != null) await this._evalExpression(update, forScope);
+    }
+    return null;
+  }
+
+  async __evalLabeledForIn(call: any, label: any, scope: any): Promise<any> {
+    const fields = this._lazyFields(call);
+    const variable = this._stringFieldVal(fields, 'variable') ?? 'item';
+    const iterable = fields['iterable'];
+    const body = fields['body'];
+    if (iterable == null || body == null) return null;
+    let iterVal = await this._evalExpression(iterable, scope);
+    if (typeof iterVal === 'string') iterVal = iterVal.split('');
+    else if (typeof iterVal === 'object' && iterVal !== null && !Array.isArray(iterVal)) {
+      if (iterVal instanceof Map) iterVal = [...iterVal.entries()].map(([k, v]: any) => ({key: k, value: v}));
+      else iterVal = Object.entries(iterVal).filter(([k]: any) => !k.startsWith('__')).map(([k, v]: any) => ({key: k, value: v}));
+    }
+    if (!Array.isArray(iterVal)) iterVal = [];
+    for (const item of iterVal) {
+      const loopScope = scope.child();
+      loopScope.bind(variable, item);
+      const result = await this._evalExpression(body, loopScope);
+      if (result instanceof _FlowSignal) {
+        if (result.kind === 'return') return result;
+        if (result.label === label) {
+          if (result.kind === 'break') break;
+          if (result.kind === 'continue') continue;
+        }
+        if (result.label != null && result.label.length > 0) return result;
+        if (result.kind === 'break') break;
+      }
+    }
+    return null;
+  }
+
+  async __evalLabeledWhile(call: any, label: any, scope: any): Promise<any> {
+    const fields = this._lazyFields(call);
+    const condition = fields['condition'];
+    const body = fields['body'];
+    while (true) {
+      if (condition != null) {
+        const condVal = await this._evalExpression(condition, scope);
+        if (!this._toBool(condVal)) break;
+      }
+      if (body != null) {
+        const result = await this._evalExpression(body, scope);
+        if (result instanceof _FlowSignal) {
+          if (result.kind === 'return') return result;
+          if (result.label === label) {
+            if (result.kind === 'break') break;
+            if (result.kind === 'continue') continue;
+          }
+          if (result.label != null && result.label.length > 0) return result;
+          if (result.kind === 'break') break;
+        }
+      }
+    }
+    return null;
+  }
+
+  async __evalLabeledDoWhile(call: any, label: any, scope: any): Promise<any> {
+    const fields = this._lazyFields(call);
+    const condition = fields['condition'];
+    const body = fields['body'];
+    do {
+      if (body != null) {
+        const result = await this._evalExpression(body, scope);
+        if (result instanceof _FlowSignal) {
+          if (result.kind === 'return') return result;
+          if (result.label === label) {
+            if (result.kind === 'break') break;
+            if (result.kind === 'continue') continue;
+          }
+          if (result.label != null && result.label.length > 0) return result;
+          if (result.kind === 'break') break;
+        }
+      }
+      if (condition != null) {
+        const condVal = await this._evalExpression(condition, scope);
+        if (!this._toBool(condVal)) break;
+      }
+    } while (true);
+    return null;
+  }`,
+    );
+
+    // ── Post-processing: fix _evalLazyTry for typed catch ──────────────
+    // The compiled engine's catch type matching fails for standard exception
+    // types. Enhance the matching logic.
+    body = body.replace(
+      /if \(\(\(catchType != null\) && catchType\.isNotEmpty\)\)/,
+      `if (catchType != null && (typeof catchType === 'string' ? catchType.length > 0 : catchType.isNotEmpty))`,
     );
 
     return includePreamble ? TS_RUNTIME_PREAMBLE + "\n" + body : body;

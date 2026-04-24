@@ -57,7 +57,6 @@ public:
     BallDyn& operator=(bool v) { _val = v; return *this; }
     BallDyn& operator=(const std::string& v) { _val = v; return *this; }
     BallDyn& operator=(const char* v) { _val = std::string(v); return *this; }
-    BallDyn& operator=(std::any v) { _val = std::move(v); return *this; }
 
     // Implicit conversion to std::any
     operator std::any() const { return _val; }
@@ -110,7 +109,7 @@ public:
     }
 
     // Field/index access via operator[]
-    // Returns a reference to a field in the underlying map, or creates one.
+    // Returns a copy of the field value. For mutation, use the set() method.
     BallDyn operator[](const std::string& key) const {
         if (_val.type() == typeid(BallMap)) {
             auto& m = const_cast<BallMap&>(std::any_cast<const BallMap&>(_val));
@@ -136,6 +135,34 @@ public:
                 return BallDyn(std::any(v[idx]));
         }
         return BallDyn();
+    }
+
+    // Mutation: set a field in the underlying map/list.
+    // `obj.set("key", value)` modifies the map entry in-place.
+    void set(const std::string& key, const std::any& value) {
+        if (_val.type() == typeid(BallMap)) {
+            std::any_cast<BallMap&>(_val)[key] = value;
+        } else if (_val.type() == typeid(BallUMap)) {
+            std::any_cast<BallUMap&>(_val)[key] = value;
+        }
+    }
+    void set(const std::string& key, const BallDyn& value) {
+        set(key, value._val);
+    }
+    void set(int64_t idx, const std::any& value) {
+        if (_val.type() == typeid(BallList)) {
+            auto& v = std::any_cast<BallList&>(_val);
+            if (idx >= 0 && static_cast<size_t>(idx) < v.size())
+                v[idx] = value;
+        }
+    }
+
+    // BallDyn-keyed access: convert key to string and delegate
+    BallDyn operator[](const BallDyn& key) const {
+        return (*this)[static_cast<std::string>(key)];
+    }
+    void set(const BallDyn& key, const BallDyn& value) {
+        set(static_cast<std::string>(key), value._val);
     }
 
     // Map operations
@@ -228,8 +255,114 @@ public:
         return false;
     }
     bool operator!=(const std::string& s) const { return !(*this == s); }
+    bool operator==(const char* s) const { return *this == std::string(s); }
+    bool operator!=(const char* s) const { return !(*this == std::string(s)); }
+    bool operator==(int64_t v) const {
+        if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val) == v;
+        return false;
+    }
+    bool operator!=(int64_t v) const { return !(*this == v); }
+    bool operator==(int v) const { return *this == static_cast<int64_t>(v); }
+    bool operator!=(int v) const { return !(*this == static_cast<int64_t>(v)); }
+    bool operator==(bool v) const {
+        if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) == v;
+        return false;
+    }
+    bool operator!=(bool v) const { return !(*this == v); }
+    bool operator==(double v) const {
+        if (_val.type() == typeid(double)) return std::any_cast<double>(_val) == v;
+        return false;
+    }
+    bool operator!=(double v) const { return !(*this == v); }
     friend bool operator==(const std::string& s, const BallDyn& d) { return d == s; }
     friend bool operator!=(const std::string& s, const BallDyn& d) { return d != s; }
+    friend bool operator==(int64_t v, const BallDyn& d) { return d == v; }
+    friend bool operator!=(int64_t v, const BallDyn& d) { return d != v; }
+
+    // Arithmetic operators for BallDyn
+    BallDyn operator+(const BallDyn& o) const {
+        // String concatenation
+        if (_val.type() == typeid(std::string) || o._val.type() == typeid(std::string))
+            return BallDyn(static_cast<std::string>(*this) + static_cast<std::string>(o));
+        // Integer arithmetic
+        if (_val.type() == typeid(int64_t) && o._val.type() == typeid(int64_t))
+            return BallDyn(std::any_cast<int64_t>(_val) + std::any_cast<int64_t>(o._val));
+        // Double arithmetic
+        return BallDyn(static_cast<double>(*this) + static_cast<double>(o));
+    }
+    BallDyn operator-(const BallDyn& o) const {
+        if (_val.type() == typeid(int64_t) && o._val.type() == typeid(int64_t))
+            return BallDyn(std::any_cast<int64_t>(_val) - std::any_cast<int64_t>(o._val));
+        return BallDyn(static_cast<double>(*this) - static_cast<double>(o));
+    }
+    BallDyn operator*(const BallDyn& o) const {
+        if (_val.type() == typeid(int64_t) && o._val.type() == typeid(int64_t))
+            return BallDyn(std::any_cast<int64_t>(_val) * std::any_cast<int64_t>(o._val));
+        return BallDyn(static_cast<double>(*this) * static_cast<double>(o));
+    }
+    BallDyn operator/(const BallDyn& o) const {
+        return BallDyn(static_cast<double>(*this) / static_cast<double>(o));
+    }
+    BallDyn operator%(const BallDyn& o) const {
+        if (_val.type() == typeid(int64_t) && o._val.type() == typeid(int64_t))
+            return BallDyn(std::any_cast<int64_t>(_val) % std::any_cast<int64_t>(o._val));
+        return BallDyn(static_cast<int64_t>(static_cast<double>(*this)) %
+                       static_cast<int64_t>(static_cast<double>(o)));
+    }
+    BallDyn operator-() const {
+        if (_val.type() == typeid(int64_t)) return BallDyn(-std::any_cast<int64_t>(_val));
+        if (_val.type() == typeid(double)) return BallDyn(-std::any_cast<double>(_val));
+        return BallDyn();
+    }
+    // Comparison operators for ordering
+    bool operator<(const BallDyn& o) const {
+        if (_val.type() == typeid(int64_t) && o._val.type() == typeid(int64_t))
+            return std::any_cast<int64_t>(_val) < std::any_cast<int64_t>(o._val);
+        if (_val.type() == typeid(std::string) && o._val.type() == typeid(std::string))
+            return std::any_cast<const std::string&>(_val) < std::any_cast<const std::string&>(o._val);
+        return static_cast<double>(*this) < static_cast<double>(o);
+    }
+    bool operator>(const BallDyn& o) const { return o < *this; }
+    bool operator<=(const BallDyn& o) const { return !(o < *this); }
+    bool operator>=(const BallDyn& o) const { return !(*this < o); }
+
+    // Arithmetic with int64_t
+    BallDyn operator+(int64_t v) const {
+        if (_val.type() == typeid(int64_t)) return BallDyn(std::any_cast<int64_t>(_val) + v);
+        return BallDyn(static_cast<double>(*this) + v);
+    }
+    BallDyn operator-(int64_t v) const {
+        if (_val.type() == typeid(int64_t)) return BallDyn(std::any_cast<int64_t>(_val) - v);
+        return BallDyn(static_cast<double>(*this) - v);
+    }
+    friend BallDyn operator+(int64_t v, const BallDyn& d) { return d + v; }
+
+    // String field access (Dart protobuf style: e.g. literal.stringValue)
+    // Returns the value as a string, or empty if not a string.
+    BallDyn __get_stringValue() const {
+        // For protobuf-style access: obj["stringValue"] already works via operator[].
+        // This is a convenience for `.stringValue` field access syntax.
+        return (*this)["stringValue"s];
+    }
+
+    // indexOf: find an element in a BallDyn list, or a substring in a string.
+    int64_t indexOf(const BallDyn& needle) const {
+        if (_val.type() == typeid(BallList)) {
+            auto& v = std::any_cast<const BallList&>(_val);
+            for (size_t i = 0; i < v.size(); i++) {
+                BallDyn el(v[i]);
+                if (el == needle) return static_cast<int64_t>(i);
+            }
+            return -1;
+        }
+        if (_val.type() == typeid(std::string) && needle._val.type() == typeid(std::string)) {
+            auto& s = std::any_cast<const std::string&>(_val);
+            auto& n = std::any_cast<const std::string&>(needle._val);
+            auto pos = s.find(n);
+            return pos == std::string::npos ? -1 : static_cast<int64_t>(pos);
+        }
+        return -1;
+    }
 
     // Iteration support (for range-based for loops over lists)
     struct Iterator {
@@ -268,6 +401,110 @@ public:
 // Stream output
 inline std::ostream& operator<<(std::ostream& os, const BallDyn& d) {
     return os << static_cast<std::string>(d);
+}
+
+// ball_to_string overload for BallDyn
+inline std::string ball_to_string(const BallDyn& d) {
+    return static_cast<std::string>(d);
+}
+
+// bind/child/resolve overloads for BallDyn
+inline void bind(BallDyn& scope, const std::any& name, const std::any& value) {
+    scope.set(ball_to_string(name), value);
+}
+inline void bind(BallDyn& scope, const BallDyn& name, const BallDyn& value) {
+    scope.set(static_cast<std::string>(name), value._val);
+}
+inline BallDyn child(const BallDyn& scope) {
+    BallMap newScope;
+    newScope["__parent__"] = scope._val;
+    return BallDyn(newScope);
+}
+inline std::any resolve(const BallDyn& scope, const std::string& name) {
+    return resolve(scope._val, name);
+}
+// nextDouble overload for BallDyn (wrapping RandomType)
+inline double nextDouble(const BallDyn&) {
+    static RandomType fallback_random;
+    return nextDouble(fallback_random);
+}
+inline int64_t nextInt(const BallDyn&, int64_t max_) {
+    static RandomType fallback_random;
+    return nextInt(fallback_random, max_);
+}
+inline int64_t nextInt(const BallDyn& r, const BallDyn& max_) {
+    return nextInt(r, static_cast<int64_t>(max_));
+}
+
+// ── Self-hosted engine type stubs ──
+// Types from the Dart Ball engine that are compiled to C++ but lack
+// protobuf descriptors (so the compiler can't emit their struct bodies).
+// Defined here as BallDyn wrappers so they inherit all BallDyn operations.
+// Macro for defining a BallDyn-derived stub type with all constructors.
+#define BALL_DYN_STUB(Name) \
+    struct Name : public BallDyn { \
+        using BallDyn::BallDyn; \
+        using BallDyn::operator=; \
+        Name() : BallDyn() {} \
+        Name(const BallDyn& d) : BallDyn(d) {} \
+        Name(BallDyn&& d) : BallDyn(std::move(d)) {} \
+        Name& operator=(const BallDyn& d) { BallDyn::operator=(d); return *this; } \
+    }
+
+BALL_DYN_STUB(_FlowSignal);
+BALL_DYN_STUB(_Scope);
+BALL_DYN_STUB(BallRuntimeError);
+BALL_DYN_STUB(BallFuture);
+BALL_DYN_STUB(BallGenerator);
+BALL_DYN_STUB(_ExitSignal);
+BALL_DYN_STUB(BallModuleHandler);
+BALL_DYN_STUB(StdModuleHandler);
+
+#undef BALL_DYN_STUB
+
+// ── ball_where / ball_map overloads for BallDyn ──
+template<typename F>
+inline BallList ball_where(const BallDyn& v, F pred) {
+    BallList result;
+    for (auto it = v.begin(); it != v.end(); ++it) {
+        BallDyn el = *it;
+        if (pred(el._val)) result.push_back(el._val);
+    }
+    return result;
+}
+template<typename F>
+inline BallList ball_map(const BallDyn& v, F fn) {
+    BallList result;
+    for (auto it = v.begin(); it != v.end(); ++it) {
+        BallDyn el = *it;
+        result.push_back(fn(el._val));
+    }
+    return result;
+}
+
+// ball_set specialization for BallDyn — uses .set() method
+// since BallDyn::operator[] returns by value.
+template<>
+inline void ball_set<BallDyn>(BallDyn& obj, const std::string& key, const std::any& value) {
+    obj.set(key, value);
+}
+template<>
+inline void ball_set<BallDyn>(BallDyn& obj, int64_t idx, const std::any& value) {
+    obj.set(idx, value);
+}
+// ball_set with BallDyn value
+inline void ball_set(BallDyn& obj, const std::string& key, const BallDyn& value) {
+    obj.set(key, value._val);
+}
+inline void ball_set(BallDyn& obj, const BallDyn& key, const BallDyn& value) {
+    obj.set(static_cast<std::string>(key), value._val);
+}
+// ball_set for std::map with BallDyn key
+inline void ball_set(std::map<std::string, std::any>& m, const BallDyn& key, const std::any& value) {
+    m[static_cast<std::string>(key)] = value;
+}
+inline void ball_set(std::unordered_map<std::string, std::any>& m, const BallDyn& key, const std::any& value) {
+    m[static_cast<std::string>(key)] = value;
 }
 
 // String concatenation

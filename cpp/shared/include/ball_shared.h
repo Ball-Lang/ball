@@ -7,18 +7,27 @@
 
 #include <algorithm>
 #include <any>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <fstream>
 #include <functional>
+#include <iomanip>
+#include <iostream>
 #include <map>
 #include <memory>
+#include <random>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <variant>
 #include <vector>
+
+using namespace std::string_literals;
 
 // Shared runtime helpers (BallException, ball_to_string). The compiler
 // also embeds this file verbatim into every emitted C++ program so the

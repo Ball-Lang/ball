@@ -53,6 +53,12 @@ private:
     // catch-side payload reads reach the original throw values.
     std::unordered_set<std::string> catch_bound_vars_;
 
+    // Set of method basenames belonging to the class currently being
+    // emitted. When a reference matches one of these names, the compiler
+    // wraps it in a lambda to bind `this` (member function pointers
+    // can't be stored directly as std::any/std::function values).
+    std::unordered_set<std::string> current_class_methods_;
+
     void build_lookup_tables();
     std::vector<std::string> extract_params(const google::protobuf::Struct& metadata);
     std::map<std::string, std::string> read_meta(const ball::v1::FunctionDefinition& func);

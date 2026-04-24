@@ -2555,7 +2555,6 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
 
     // Determine kind (struct vs class)
     std::string kind_kw = "struct";
-    if (tmeta.count("kind") && tmeta["kind"] == "class") kind_kw = "class";
 
     // Build inheritance list
     std::string bases;

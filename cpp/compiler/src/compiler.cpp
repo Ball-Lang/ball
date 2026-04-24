@@ -1222,8 +1222,27 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "math_cos") return "std::cos(" + get_message_field(call, "value") + ")";
 
     // ── Type system ──
-    if (fn == "is") return "/* is check */ true";
-    if (fn == "is_not") return "/* is_not check */ false";
+    if (fn == "is" || fn == "is_not") {
+        auto val = get_message_field(call, "value");
+        auto type_str = get_message_field(call, "type");
+        std::string tn = type_str;
+        if (tn.size() >= 2 && tn.front() == '"' && tn.back() == '"')
+            tn = tn.substr(1, tn.size() - 2);
+        auto lt = tn.find('<'); if (lt != std::string::npos) tn = tn.substr(0, lt);
+        if (!tn.empty() && tn.back() == '?') tn.pop_back();
+        auto col = tn.find(':'); if (col != std::string::npos) tn = tn.substr(col + 1);
+        std::string ck;
+        if (tn == "Map" || tn == "HashMap") ck = "ball::is_map(" + val + ")";
+        else if (tn == "List" || tn == "Iterable") ck = "ball::is_list(" + val + ")";
+        else if (tn == "String") ck = "ball::is_string(" + val + ")";
+        else if (tn == "int") ck = "ball::is_int(" + val + ")";
+        else if (tn == "double" || tn == "num") ck = "(ball::is_int(" + val + ") || ball::is_double(" + val + "))";
+        else if (tn == "bool") ck = "ball::is_bool(" + val + ")";
+        else if (tn == "Function") ck = "ball::is_function(" + val + ")";
+        else if (tn == "_FlowSignal" || tn == "FlowSignal") ck = "_isFlowSignal(" + val + ")";
+        else ck = "ball::object_type_matches(" + val + ", \"" + tn + "\"s)";
+        return fn == "is" ? ck : ("!(" + ck + ")");
+    }
     if (fn == "as") return get_message_field(call, "value");
     if (fn == "null_coalesce") {
         auto left = get_message_field(call, "left");

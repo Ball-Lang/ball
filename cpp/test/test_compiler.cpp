@@ -483,9 +483,10 @@ TEST(compile_field_access) {
 
     auto prog = build_program(print_call(std_unary("to_string", std::move(access))));
     auto out = compile_program(prog);
-    // Should contain some form of field access like .x or ["x"]
+    // Should contain some form of field access like .x, ["x"], or ["x"s]
     ASSERT_TRUE(out.find(".x") != std::string::npos ||
-                out.find("[\"x\"]") != std::string::npos);
+                out.find("[\"x\"]") != std::string::npos ||
+                out.find("[\"x\"s]") != std::string::npos);
 }
 
 // ================================================================

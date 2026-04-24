@@ -62,14 +62,33 @@ add_custom_command(
     COMMENT "Generating ball_emit_runtime_embed.h"
     VERBATIM
 )
+
+# Generate ball_dyn_embed.h from ball_dyn.h — the dynamic value type
+# for Ball compiled programs that need dynamic typing.
+set(BALL_DYN_SRC "${CMAKE_CURRENT_SOURCE_DIR}/include/ball_dyn.h")
+set(BALL_DYN_EMBED "${CMAKE_CURRENT_BINARY_DIR}/gen/ball_dyn_embed.h")
+add_custom_command(
+    OUTPUT  "${BALL_DYN_EMBED}"
+    COMMAND ${CMAKE_COMMAND}
+            -DIN=${BALL_DYN_SRC}
+            -DOUT=${BALL_DYN_EMBED}
+            -DVAR_NAME=BALL_DYN_SOURCE
+            -P  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedRuntimeHeader.cmake"
+    DEPENDS "${BALL_DYN_SRC}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedRuntimeHeader.cmake"
+    COMMENT "Generating ball_dyn_embed.h"
+    VERBATIM
+)
+
 add_custom_target(ball_emit_runtime_gen
-    DEPENDS "${BALL_EMIT_RUNTIME_EMBED}"
+    DEPENDS "${BALL_EMIT_RUNTIME_EMBED}" "${BALL_DYN_EMBED}"
 )
 
 add_library(ball_shared
     src/ball_shared.cpp
     ${BALL_PROTO_SOURCES}
     "${BALL_EMIT_RUNTIME_EMBED}"
+    "${BALL_DYN_EMBED}"
 )
 add_dependencies(ball_shared ball_emit_runtime_gen)
 

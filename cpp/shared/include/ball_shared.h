@@ -5,15 +5,18 @@
 // Mirrors the Dart `ball_base` package: re-exports protobuf types and
 // provides the universal std module builders.
 
+#include <algorithm>
 #include <any>
 #include <cmath>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 

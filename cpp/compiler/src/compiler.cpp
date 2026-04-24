@@ -2,6 +2,7 @@
 
 #include "compiler.h"
 #include "ball_emit_runtime_embed.h"
+#include "ball_dyn_embed.h"
 
 #include <algorithm>
 #include <cmath>
@@ -122,29 +123,29 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     if (ball_type == "Set" || ball_type.find("Set<") == 0) return "std::vector<std::any>";
     if (ball_type == "dynamic" || ball_type == "Object" || ball_type == "Object?"
         || ball_type == "dynamic?" || ball_type == "Never")
-        return "std::any";
+        return "BallDyn";
 
     // Dart "BallValue" is a typedef for Object?/dynamic
-    if (ball_type == "BallValue") return "std::any";
+    if (ball_type == "BallValue") return "BallDyn";
 
     // Nullable type: strip trailing '?' and map the base type
     if (!ball_type.empty() && ball_type.back() == '?') {
         auto base = ball_type.substr(0, ball_type.size() - 1);
-        // Record types (Dart `({...})?`) → std::any
+        // Record types (Dart `({...})?`) → BallDyn
         if (!base.empty() && base.front() == '(' && base.back() == ')') {
-            return "std::any";
+            return "BallDyn";
         }
         return map_type(base);
     }
 
-    // Record types `({...})` → std::any
+    // Record types `({...})` → BallDyn
     if (!ball_type.empty() && ball_type.front() == '(' && ball_type.back() == ')') {
-        return "std::any";
+        return "BallDyn";
     }
 
-    // FutureOr<T> → std::any (sync simulation)
+    // FutureOr<T> → BallDyn (sync simulation)
     if (ball_type == "FutureOr" || ball_type.find("FutureOr<") == 0)
-        return "std::any";
+        return "BallDyn";
 
     // Dart exception types → C++ equivalents
     if (ball_type == "Exception") return "std::runtime_error";
@@ -154,9 +155,9 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     if (ball_type == "StringSink" || ball_type == "StringBuffer")
         return "std::ostringstream";
     if (ball_type == "IOSink") return "std::ostream";
-    if (ball_type == "Random") return "std::any";
+    if (ball_type == "Random") return "BallDyn";
     if (ball_type == "Completer" || ball_type.find("Completer<") == 0)
-        return "std::any";
+        return "BallDyn";
 
     // Dart RegExp → std::regex
     if (ball_type == "RegExp") return "std::regex";
@@ -167,12 +168,12 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
         return "std::vector<std::any>";
     if (ball_type == "Type") return "std::string";
     if (ball_type == "Iterator" || ball_type.find("Iterator<") == 0)
-        return "std::any";
+        return "BallDyn";
     if (ball_type == "MapEntry" || ball_type.find("MapEntry<") == 0)
-        return "std::pair<std::string, std::any>";
-    if (ball_type == "Null") return "std::any";
+        return "std::pair<std::string, BallDyn>";
+    if (ball_type == "Null") return "BallDyn";
     if (ball_type == "int?" || ball_type == "double?" || ball_type == "num?")
-        return "std::any";
+        return "BallDyn";
 
     // Dart function type syntax: `ReturnType Function(A, B, C)` →
     // `std::function<ReturnType(A, B, C)>`. Split on ` Function(`;
@@ -222,7 +223,7 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
         }
     }
     if (ball_type == "Function") return "std::function<std::any(std::any)>";
-    if (ball_type == "Future" || ball_type.find("Future<") == 0) return "std::any /* future */";
+    if (ball_type == "Future" || ball_type.find("Future<") == 0) return "BallDyn /* future */";
     // User-defined type
     return sanitize_name(ball_type);
 }
@@ -263,6 +264,8 @@ std::string CppCompiler::sanitize_name(const std::string& name) {
         "atan2", "min", "max", "fmod", "div", "hypot",
         "strcmp", "strlen", "strcpy", "memcpy", "memset", "malloc",
         "free", "exit", "atoi", "atof", "rand", "srand",
+        // C stdio macros that conflict as identifiers
+        "stdout", "stderr", "stdin",
     };
     if (stdlib_collisions.count(result)) result += "_";
     return result;
@@ -385,6 +388,17 @@ std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
     if (ref.name() == "__no_init__") return "std::any{}";
     // Dart sentinel object → unique marker
     if (ref.name() == "_sentinel") return "std::any{}";
+    // Dart type objects used as values (e.g., int.tryParse, double.tryParse)
+    // → emit as string constants representing the type name.
+    if (ref.name() == "int") return "\"int\"s";
+    if (ref.name() == "double") return "\"double\"s";
+    if (ref.name() == "num") return "\"num\"s";
+    if (ref.name() == "String") return "\"String\"s";
+    if (ref.name() == "bool") return "\"bool\"s";
+    // Dart collection type constructors used as values
+    if (ref.name() == "Map") return "\"Map\"s";
+    if (ref.name() == "List") return "\"List\"s";
+    if (ref.name() == "Set") return "\"Set\"s";
     return sanitize_name(ref.name());
 }
 
@@ -398,6 +412,17 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
         const auto& ref_name = access.object().reference().name();
         if (catch_bound_vars_.count(ref_name) > 0) {
             return ref_name + ".fields.at(\"" + field + "\")";
+        }
+        // Dart protobuf oneof enum constants → string literals.
+        // The Dart encoder emits `Expression_Expr.call`, `Literal_Value.listValue`,
+        // etc. as field-access on a reference. The raw proto names may contain
+        // dots (e.g. `structpb.Value_Kind`) which sanitize_name converts to
+        // underscores. Check both raw and sanitized forms.
+        std::string sref = sanitize_name(ref_name);
+        if (sref == "Expression_Expr" || sref == "Literal_Value" ||
+            sref == "structpb_Value_Kind" || sref == "ModuleImport_Source" ||
+            sref == "Statement_Stmt") {
+            return "\"" + field + "\"s";
         }
     }
     // Common virtual properties → C++ equivalents
@@ -422,7 +447,10 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
             }
         }
     }
-    return obj + "." + sanitize_name(field);
+    // Default: bracket-notation field access. This enables dynamic access
+    // on map-like objects (BallDyn, std::map, std::unordered_map) while
+    // remaining compatible with structs that provide operator[].
+    return obj + "[\"" + field + "\"s]";
 }
 
 std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreation& msg) {
@@ -1525,6 +1553,128 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
                "return o.str();"
                "}(" + self + ", " + arg0 + ")";
     }
+    if (fn == "compareTo") {
+        return "[](const auto& a, const auto& b) -> int64_t { return a < b ? -1 : (a > b ? 1 : 0); }(" + self + ", " + arg0 + ")";
+    }
+    if (fn == "clamp") {
+        return "[](auto v, auto lo, auto hi){ return v < lo ? lo : (v > hi ? hi : v); }(" + self + ", " + arg0 + ", " + arg1 + ")";
+    }
+    if (fn == "gcd") {
+        return "[](int64_t a, int64_t b) -> int64_t { while(b){auto t=b;b=a%b;a=t;} return std::abs(a); }(" + self + ", " + arg0 + ")";
+    }
+    if (fn == "replaceFirst") {
+        return "[](std::string s, const std::string& f, const std::string& t){"
+               "auto p=s.find(f);if(p!=std::string::npos)s.replace(p,f.size(),t);return s;"
+               "}(" + self + ", " + arg0 + ", " + arg1 + ")";
+    }
+    if (fn == "lastIndexOf") {
+        return "[](const std::string& s, const std::string& p) -> int64_t {"
+               "auto i=s.rfind(p); return i==std::string::npos ? -1 : static_cast<int64_t>(i);"
+               "}(" + self + ", " + arg0 + ")";
+    }
+
+    // ── Dart protobuf oneof discriminators ──
+    // The Dart encoder emits `expr.whichExpr()` as a method call with self=expr.
+    // Return a string tag that matches the Expression_Expr.xxx constants.
+    if (fn == "whichExpr") {
+        return "ball_which_expr(" + self + ")";
+    }
+    if (fn == "whichValue") {
+        return "ball_which_value(" + self + ")";
+    }
+    if (fn == "whichKind") {
+        return "ball_which_kind(" + self + ")";
+    }
+    if (fn == "whichSource") {
+        return "ball_which_source(" + self + ")";
+    }
+    if (fn == "whichStmt") {
+        return "ball_which_stmt(" + self + ")";
+    }
+
+    // ── Dart protobuf `has*` methods ──
+    if (fn == "hasBody") {
+        return "ball_has_field(" + self + ", \"body\"s)";
+    }
+    if (fn == "hasMetadata") {
+        return "ball_has_field(" + self + ", \"metadata\"s)";
+    }
+    if (fn == "hasInput") {
+        return "ball_has_field(" + self + ", \"input\"s)";
+    }
+    if (fn == "hasCall") {
+        return "ball_has_field(" + self + ", \"call\"s)";
+    }
+    if (fn == "hasDescriptor") {
+        return "ball_has_field(" + self + ", \"descriptor\"s)";
+    }
+    if (fn == "hasStringValue") {
+        return "ball_has_field(" + self + ", \"stringValue\"s)";
+    }
+    if (fn == "hasResult") {
+        return "ball_has_field(" + self + ", \"result\"s)";
+    }
+    if (fn == "hasMatch") {
+        return "std::regex_search(" + arg0 + ", " + self + ")";
+    }
+
+    // ── Dart collection helpers ──
+    if (fn == "toList") {
+        return "ball_to_list(" + self + ")";
+    }
+    if (fn == "toSet") {
+        return "ball_to_set(" + self + ")";
+    }
+    if (fn == "where") {
+        return "ball_where(" + self + ", " + arg0 + ")";
+    }
+    if (fn == "map") {
+        return "ball_map(" + self + ", " + arg0 + ")";
+    }
+    if (fn == "every") {
+        return "ball_every(" + self + ", " + arg0 + ")";
+    }
+    if (fn == "addAll") {
+        return "ball_add_all(" + self + ", " + arg0 + ")";
+    }
+    if (fn == "putIfAbsent") {
+        return "ball_put_if_absent(" + self + ", " + arg0 + ", " + arg1 + ")";
+    }
+    if (fn == "take") {
+        return "ball_take(" + self + ", " + arg0 + ")";
+    }
+    if (fn == "skip") {
+        return "ball_skip(" + self + ", " + arg0 + ")";
+    }
+    if (fn == "sort") {
+        if (arg0.empty()) {
+            return "std::sort(" + self + ".begin(), " + self + ".end())";
+        }
+        return "std::sort(" + self + ".begin(), " + self + ".end(), " + arg0 + ")";
+    }
+    if (fn == "fromEntries") {
+        return "ball_from_entries(" + self + ")";
+    }
+
+    // ── Dart regex helpers ──
+    if (fn == "firstMatch") {
+        return "ball_first_match(" + self + ", " + arg0 + ")";
+    }
+    if (fn == "group") {
+        return "ball_group(" + self + ", " + arg0 + ")";
+    }
+    if (fn == "allMatches") {
+        return "ball_all_matches(" + self + ", " + arg0 + ")";
+    }
+
+    // ── Dart utility functions ──
+    if (fn == "unmodifiable") {
+        // unmodifiable(type, collection) → just return the collection (C++ has no unmodifiable)
+        return arg0;
+    }
+    if (fn == "tryParse") {
+        return "ball_try_parse(" + self + ", " + arg0 + ")";
+    }
 
     // Fallback: treat as a user-defined function call passing self + args
     std::string func_name = sanitize_name(fn);
@@ -1552,6 +1702,20 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
         out_ << "auto " << sanitize_name(stmt.let().name()) << " = "
              << compile_expr(stmt.let().value()) << ";\n";
     } else if (stmt.has_expression()) {
+        // Block expressions used as statements: if the block has only
+        // let bindings (no result expression), emit them inline so the
+        // variables are visible in the enclosing scope. This is needed
+        // for Dart record pattern destructuring which encodes as a block
+        // with multiple let bindings.
+        if (stmt.expression().expr_case() == ball::v1::Expression::kBlock) {
+            const auto& block = stmt.expression().block();
+            if (!block.has_result()) {
+                for (const auto& s : block.statements()) {
+                    compile_statement(s);
+                }
+                return;
+            }
+        }
         auto expr_str = compile_expr(stmt.expression());
         // Special handling for return in statement context
         if (stmt.expression().expr_case() == ball::v1::Expression::kCall) {
@@ -2106,6 +2270,10 @@ void CppCompiler::emit_includes() {
     // emitted C++ program AND the engine (via ball_shared.h).
     out_ << BALL_EMIT_RUNTIME_SOURCE;
     emit_newline();
+
+    // Splice the BallDyn dynamic value type for dynamic typing support.
+    out_ << BALL_DYN_SOURCE;
+    emit_newline();
 }
 
 // Helper: extract a metadata list field as vector<string>
@@ -2316,7 +2484,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                 case google::protobuf::FieldDescriptorProto::TYPE_BOOL:
                     type = "bool"; break;
                 default:
-                    type = "std::any"; break;
+                    type = "BallDyn"; break;
             }
             emit_line(type + " " + sanitize_name(field.name()) + ";");
         }

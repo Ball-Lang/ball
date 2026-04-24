@@ -120,6 +120,22 @@ else()
     target_link_options(test_encoder PRIVATE -Wl,-z,stacksize=268435456)
 endif()
 
+# Self-hosted engine compilation test — compile the Ball engine compiled
+# to C++ via the Ball C++ compiler.  This is a compile-only check; we
+# don't link or run it (it's a standalone self-contained .cpp file).
+set(BALL_SELFHOST_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../../dart/self_host/lib/engine_rt.cpp")
+if(EXISTS "${BALL_SELFHOST_CPP}")
+    add_library(test_selfhost_compile OBJECT "${BALL_SELFHOST_CPP}")
+    target_compile_options(test_selfhost_compile PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W0 /bigobj>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-w>
+    )
+    set_target_properties(test_selfhost_compile PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+    )
+endif()
+
 enable_testing()
 add_test(NAME engine_tests COMMAND test_engine)
 add_test(NAME compiler_tests COMMAND test_compiler)

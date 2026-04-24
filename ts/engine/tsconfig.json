@@ -11,7 +11,9 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "rewriteRelativeImportExtensions": true,
     "newLine": "lf"
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/index.handwritten.ts"]
 }

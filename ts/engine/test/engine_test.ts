@@ -11,9 +11,9 @@ import { BallEngine } from '../src/index.ts';
 let passed = 0;
 let failed = 0;
 
-function test(name: string, fn: () => void) {
+async function test(name: string, fn: () => void | Promise<void>) {
   try {
-    fn();
+    await fn();
     console.log(`  ✓ ${name}`);
     passed++;
   } catch (e: any) {
@@ -32,6 +32,10 @@ function assertEqual(actual: any, expected: any, label = '') {
   }
 }
 
+// ── Main ───────────────────────────────────────────────────────────────────
+
+async function main() {
+
 // ── Unit tests ──────────────────────────────────────────────────────────────
 
 console.log('Ball TypeScript Engine Tests');
@@ -39,7 +43,7 @@ console.log('===========================\n');
 
 console.log('Literals:');
 
-test('int literal', () => {
+await test('int literal', async () => {
   const prog = {
     modules: [{
       name: 'std', functions: [{ name: 'print', isBase: true }],
@@ -52,11 +56,11 @@ test('int literal', () => {
     entryModule: 'main', entryFunction: 'main',
   };
   const engine = new BallEngine(prog);
-  engine.run();
+  await engine.run();
   assertEqual(engine.getOutput()[0], '42');
 });
 
-test('string literal', () => {
+await test('string literal', async () => {
   const prog = {
     modules: [{
       name: 'std', functions: [{ name: 'print', isBase: true }],
@@ -69,13 +73,13 @@ test('string literal', () => {
     entryModule: 'main', entryFunction: 'main',
   };
   const engine = new BallEngine(prog);
-  engine.run();
+  await engine.run();
   assertEqual(engine.getOutput()[0], 'hello');
 });
 
 console.log('\nArithmetic:');
 
-test('add', () => {
+await test('add', async () => {
   const prog = {
     modules: [{
       name: 'std', functions: [
@@ -98,13 +102,13 @@ test('add', () => {
     entryModule: 'main', entryFunction: 'main',
   };
   const engine = new BallEngine(prog);
-  engine.run();
+  await engine.run();
   assertEqual(engine.getOutput()[0], '7');
 });
 
 console.log('\nControl flow:');
 
-test('if-then-else', () => {
+await test('if-then-else', async () => {
   const prog = {
     modules: [{
       name: 'std', functions: [
@@ -134,11 +138,11 @@ test('if-then-else', () => {
     entryModule: 'main', entryFunction: 'main',
   };
   const engine = new BallEngine(prog);
-  engine.run();
+  await engine.run();
   assertEqual(engine.getOutput()[0], 'yes');
 });
 
-test('while loop', () => {
+await test('while loop', async () => {
   const prog = {
     modules: [{
       name: 'std', functions: [
@@ -166,7 +170,7 @@ test('while loop', () => {
                   { expression: { call: { module: 'std', function: 'print', input: { reference: { name: 'i' } } } } },
                   { expression: { call: { module: 'std', function: 'assign', input: {
                     messageCreation: { fields: [
-                      { name: 'name', value: { literal: { stringValue: 'i' } } },
+                      { name: 'target', value: { reference: { name: 'i' } } },
                       { name: 'value', value: { call: { module: 'std', function: 'add', input: {
                         messageCreation: { fields: [
                           { name: 'left', value: { reference: { name: 'i' } } },
@@ -185,7 +189,7 @@ test('while loop', () => {
     entryModule: 'main', entryFunction: 'main',
   };
   const engine = new BallEngine(prog);
-  engine.run();
+  await engine.run();
   assertEqual(engine.getOutput().join(','), '0,1,2');
 });
 
@@ -200,12 +204,12 @@ try {
     const name = file.replace('.ball.json', '');
     const expectedFile = join(conformanceDir, `${name}.expected_output.txt`);
 
-    test(`conformance: ${name}`, () => {
+    await test(`conformance: ${name}`, async () => {
       const programJson = readFileSync(join(conformanceDir, file), 'utf-8');
       const expectedOutput = readFileSync(expectedFile, 'utf-8').replace(/\r\n/g, '\n').trim();
 
       const engine = new BallEngine(programJson);
-      engine.run();
+      await engine.run();
       const actual = engine.getOutput().join('\n').trim();
 
       if (actual !== expectedOutput) {
@@ -228,3 +232,7 @@ try {
 console.log(`\n===========================`);
 console.log(`Results: ${passed} passed, ${failed} failed, ${passed + failed} total`);
 process.exit(failed > 0 ? 1 : 0);
+
+} // end main()
+
+main();

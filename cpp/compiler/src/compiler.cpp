@@ -114,12 +114,64 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     if (ball_type.empty() || ball_type == "void") return "void";
     if (ball_type == "int") return "int64_t";
     if (ball_type == "double" || ball_type == "num") return "double";
-    if (ball_type == "String") return "std::string";
-    if (ball_type == "bool") return "bool";
+    if (ball_type == "String" || ball_type == "String?") return "std::string";
+    if (ball_type == "bool" || ball_type == "bool?") return "bool";
     if (ball_type == "List" || ball_type.find("List<") == 0) return "std::vector<std::any>";
     if (ball_type == "Map" || ball_type.find("Map<") == 0)
         return "std::unordered_map<std::string, std::any>";
-    if (ball_type == "dynamic" || ball_type == "Object" || ball_type == "Object?")
+    if (ball_type == "Set" || ball_type.find("Set<") == 0) return "std::vector<std::any>";
+    if (ball_type == "dynamic" || ball_type == "Object" || ball_type == "Object?"
+        || ball_type == "dynamic?" || ball_type == "Never")
+        return "std::any";
+
+    // Dart "BallValue" is a typedef for Object?/dynamic
+    if (ball_type == "BallValue") return "std::any";
+
+    // Nullable type: strip trailing '?' and map the base type
+    if (!ball_type.empty() && ball_type.back() == '?') {
+        auto base = ball_type.substr(0, ball_type.size() - 1);
+        // Record types (Dart `({...})?`) → std::any
+        if (!base.empty() && base.front() == '(' && base.back() == ')') {
+            return "std::any";
+        }
+        return map_type(base);
+    }
+
+    // Record types `({...})` → std::any
+    if (!ball_type.empty() && ball_type.front() == '(' && ball_type.back() == ')') {
+        return "std::any";
+    }
+
+    // FutureOr<T> → std::any (sync simulation)
+    if (ball_type == "FutureOr" || ball_type.find("FutureOr<") == 0)
+        return "std::any";
+
+    // Dart exception types → C++ equivalents
+    if (ball_type == "Exception") return "std::runtime_error";
+    if (ball_type == "Error") return "std::runtime_error";
+
+    // Dart IO types
+    if (ball_type == "StringSink" || ball_type == "StringBuffer")
+        return "std::ostringstream";
+    if (ball_type == "IOSink") return "std::ostream";
+    if (ball_type == "Random") return "std::any";
+    if (ball_type == "Completer" || ball_type.find("Completer<") == 0)
+        return "std::any";
+
+    // Dart RegExp → std::regex
+    if (ball_type == "RegExp") return "std::regex";
+    if (ball_type == "Match" || ball_type == "RegExpMatch")
+        return "std::smatch";
+    if (ball_type == "Duration") return "int64_t";
+    if (ball_type == "Iterable" || ball_type.find("Iterable<") == 0)
+        return "std::vector<std::any>";
+    if (ball_type == "Type") return "std::string";
+    if (ball_type == "Iterator" || ball_type.find("Iterator<") == 0)
+        return "std::any";
+    if (ball_type == "MapEntry" || ball_type.find("MapEntry<") == 0)
+        return "std::pair<std::string, std::any>";
+    if (ball_type == "Null") return "std::any";
+    if (ball_type == "int?" || ball_type == "double?" || ball_type == "num?")
         return "std::any";
 
     // Dart function type syntax: `ReturnType Function(A, B, C)` →
@@ -327,6 +379,12 @@ std::string CppCompiler::compile_literal(const ball::v1::Literal& lit) {
 }
 
 std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
+    // Dart's `this` → C++ `(*this)` (dereference the pointer for value semantics)
+    if (ref.name() == "this") return "(*this)";
+    // Dart uninitialized sentinel → C++ default-initialized std::any
+    if (ref.name() == "__no_init__") return "std::any{}";
+    // Dart sentinel object → unique marker
+    if (ref.name() == "_sentinel") return "std::any{}";
     return sanitize_name(ref.name());
 }
 
@@ -381,8 +439,171 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
         result += "}";
         return result;
     }
+
+    // Check if the type name refers to a known function rather than a type.
+    // The Dart encoder emits method calls on `this` as messageCreations
+    // with typeName = "module:functionName" and argN fields. When the
+    // typeName matches a function in our lookup, emit a function call
+    // instead of a struct construction.
+    {
+        bool is_func = false;
+        std::string tn = msg.type_name();
+
+        // Parse "module:funcName" format
+        auto colon = tn.find(':');
+        std::string mod_part, func_part;
+        if (colon != std::string::npos) {
+            mod_part = tn.substr(0, colon);
+            func_part = tn.substr(colon + 1);
+        } else {
+            func_part = tn;
+        }
+
+        // Direct lookup: "module.module:funcName"
+        std::string entry_mod = mod_part.empty() ? program_.entry_module() : mod_part;
+        if (functions_.count(entry_mod + "." + tn) > 0) {
+            is_func = true;
+        }
+        // Try "module.funcName" (without module prefix)
+        if (!is_func && functions_.count(entry_mod + "." + func_part) > 0) {
+            is_func = true;
+        }
+        // Try matching by method basename: if the func_part is "_foo",
+        // find any function like "main:ClassName._foo" in the module.
+        // This handles the case where the encoder strips the class name.
+        if (!is_func) {
+            for (const auto& [key, fptr] : functions_) {
+                // key format: "module.module:Class.method"
+                // Look for keys where the method basename matches func_part
+                auto dot = key.rfind('.');
+                if (dot != std::string::npos) {
+                    std::string basename = key.substr(dot + 1);
+                    if (basename == func_part) {
+                        // Verify it's in the same module
+                        auto key_mod = key.substr(0, key.find('.'));
+                        if (key_mod == entry_mod) {
+                            is_func = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (is_func) {
+            // Emit as function call with positional arguments
+            std::string func_name = sanitize_name(msg.type_name());
+            std::string result = func_name + "(";
+            bool first = true;
+            for (const auto& f : msg.fields()) {
+                if (!first) result += ", ";
+                result += compile_expr(f.value());
+                first = false;
+            }
+            result += ")";
+            return result;
+        }
+    }
+
     // Named type → aggregate/constructor
-    std::string type = sanitize_name(msg.type_name());
+    // Try map_type first to map Dart types (RegExp, Duration, etc.) to C++ equivalents.
+    // If map_type returns a stdlib type (contains ::), use it; otherwise sanitize.
+    std::string type;
+    {
+        auto mapped = map_type(msg.type_name());
+        // Also try with colon-stripped name
+        auto colon = msg.type_name().find(':');
+        auto bare = colon != std::string::npos ? msg.type_name().substr(colon + 1) : msg.type_name();
+        auto bare_mapped = map_type(bare);
+        if (mapped.find("::") != std::string::npos) {
+            type = mapped;
+        } else if (bare_mapped.find("::") != std::string::npos) {
+            type = bare_mapped;
+        } else {
+            type = sanitize_name(msg.type_name());
+        }
+    }
+
+    // If all fields are positional (argN), emit a constructor call
+    // instead of designated initializers (which require matching field names).
+    bool all_positional = !msg.fields().empty();
+    for (const auto& f : msg.fields()) {
+        auto fn = f.name();
+        // Check if field name is "arg0", "arg1", etc.
+        if (fn.size() < 4 || fn.substr(0, 3) != "arg") {
+            all_positional = false;
+            break;
+        }
+        bool all_digits = true;
+        for (size_t i = 3; i < fn.size(); i++) {
+            if (fn[i] < '0' || fn[i] > '9') { all_digits = false; break; }
+        }
+        if (!all_digits) { all_positional = false; break; }
+    }
+
+    if (all_positional) {
+        // Emit as constructor call with positional args
+        std::string result = type + "(";
+        bool first = true;
+        for (const auto& f : msg.fields()) {
+            if (!first) result += ", ";
+            result += compile_expr(f.value());
+            first = false;
+        }
+        result += ")";
+        return result;
+    }
+
+    // Check if there are any argN fields mixed with named fields.
+    // If so, look up the constructor to resolve argN to actual param names.
+    bool has_arg_fields = false;
+    for (const auto& f : msg.fields()) {
+        if (f.name().size() >= 4 && f.name().substr(0, 3) == "arg") {
+            has_arg_fields = true;
+            break;
+        }
+    }
+
+    if (has_arg_fields) {
+        // Try to find constructor parameter names
+        auto colon = msg.type_name().find(':');
+        auto bare = colon != std::string::npos ? msg.type_name().substr(colon + 1) : msg.type_name();
+        std::string ctor_key = program_.entry_module() + "." + msg.type_name() + ".new";
+        auto it = functions_.find(ctor_key);
+        if (it == functions_.end()) {
+            // Try with module prefix in the function name
+            ctor_key = program_.entry_module() + "." +
+                       program_.entry_module() + ":" + bare + ".new";
+            it = functions_.find(ctor_key);
+        }
+        std::vector<std::string> ctor_params;
+        if (it != functions_.end() && it->second->has_metadata()) {
+            ctor_params = extract_params(it->second->metadata());
+        }
+
+        // Build a mapping of actual field values, resolving argN to param names
+        std::string result = type + "{";
+        bool first = true;
+        for (const auto& f : msg.fields()) {
+            if (!first) result += ", ";
+            std::string field_name = f.name();
+            // Resolve argN to constructor parameter name
+            if (field_name.size() >= 4 && field_name.substr(0, 3) == "arg") {
+                try {
+                    int idx = std::stoi(field_name.substr(3));
+                    if (idx >= 0 && idx < static_cast<int>(ctor_params.size())) {
+                        field_name = ctor_params[idx];
+                    }
+                } catch (...) {}
+            }
+            result += "." + sanitize_name(field_name) + " = " + compile_expr(f.value());
+            first = false;
+        }
+        result += "}";
+        return result;
+    }
+
+    // Named fields → designated initializers
     std::string result = type + "{";
     bool first = true;
     for (const auto& f : msg.fields()) {
@@ -631,8 +852,38 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "negate") return compile_unary_op("-", call);
 
     // ── Comparison ──
-    if (fn == "equals") return compile_binary_op("==", call);
-    if (fn == "not_equals") return compile_binary_op("!=", call);
+    // Special case: null checks. `x == null` / `x != null` cannot use
+    // plain C++ `==`/`!=` on std::any (which has no comparison operators).
+    // Detect when one side is a null literal and emit `.has_value()`.
+    if (fn == "equals" || fn == "not_equals") {
+        auto* left_expr = get_message_field_expr(call, "left");
+        auto* right_expr = get_message_field_expr(call, "right");
+        auto is_null = [](const ball::v1::Expression* e) -> bool {
+            if (!e) return false;
+            // Null reference (name "null" or empty reference)
+            if (e->expr_case() == ball::v1::Expression::kReference &&
+                (e->reference().name() == "null" || e->reference().name().empty()))
+                return true;
+            // Null literal (default/unset literal value)
+            if (e->expr_case() == ball::v1::Expression::kLiteral &&
+                e->literal().value_case() == ball::v1::Literal::VALUE_NOT_SET)
+                return true;
+            return false;
+        };
+        bool left_null = is_null(left_expr);
+        bool right_null = is_null(right_expr);
+        if (right_null) {
+            auto left = get_message_field(call, "left");
+            if (fn == "equals") return "!" + left + ".has_value()";
+            else return left + ".has_value()";
+        }
+        if (left_null) {
+            auto right = get_message_field(call, "right");
+            if (fn == "equals") return "!" + right + ".has_value()";
+            else return right + ".has_value()";
+        }
+        return compile_binary_op(fn == "equals" ? "==" : "!=", call);
+    }
     if (fn == "less_than") return compile_binary_op("<", call);
     if (fn == "greater_than") return compile_binary_op(">", call);
     if (fn == "lte") return compile_binary_op("<=", call);
@@ -1060,6 +1311,36 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             return result;
         }
         return "std::map<std::string,std::any>{}";
+    }
+
+    // ── Typed list ──
+    // `typed_list` creates an empty list of a specific type → empty vector
+    if (fn == "typed_list") {
+        return "std::vector<std::any>{}";
+    }
+
+    // ── Null-aware access / call ──
+    // `x?.field` → access field only if x has a value
+    if (fn == "null_aware_access") {
+        auto target = get_message_field(call, "target");
+        auto field = get_string_field(call, "field");
+        if (!field.empty()) {
+            return "(" + target + ".has_value() ? " + target + "." + sanitize_name(field) + " : std::any{})";
+        }
+        return target;
+    }
+    // `x?.method()` → call only if x has a value
+    if (fn == "null_aware_call") {
+        auto target = get_message_field(call, "target");
+        auto callback = get_message_field(call, "callback");
+        if (!callback.empty()) {
+            return "(" + target + ".has_value() ? " + callback + "(" + target + ") : std::any{})";
+        }
+        return target;
+    }
+    // `x?.cascade(...)` → cascade only if x has a value
+    if (fn == "null_aware_cascade") {
+        return get_message_field(call, "target");
     }
 
     // Default: unknown std call → comment marker
@@ -1984,14 +2265,29 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
     // Build inheritance list
     std::string bases;
     if (tmeta.count("superclass") && !tmeta["superclass"].empty()) {
-        bases = " : public " + sanitize_name(tmeta["superclass"]);
+        // Use map_type for known Dart base classes (Exception, Error, etc.)
+        // then fall back to sanitize_name for user-defined types.
+        auto superclass_name = tmeta["superclass"];
+        auto mapped = map_type(superclass_name);
+        // If map_type returned a C++ stdlib type (contains ::), use it directly.
+        // Otherwise, use sanitize_name for user-defined types.
+        if (mapped.find("::") != std::string::npos) {
+            bases = " : public " + mapped;
+        } else {
+            bases = " : public " + sanitize_name(superclass_name);
+        }
     }
     // Additional base classes from interfaces[]
     if (td.has_metadata()) {
         auto ifaces = read_meta_list(td.metadata(), "interfaces");
         for (const auto& iface : ifaces) {
             bases += bases.empty() ? " : " : ", ";
-            bases += "public " + sanitize_name(iface);
+            auto iface_mapped = map_type(iface);
+            if (iface_mapped.find("::") != std::string::npos) {
+                bases += "public " + iface_mapped;
+            } else {
+                bases += "public " + sanitize_name(iface);
+            }
         }
         // Virtual bases
         auto vbases = read_meta_list(td.metadata(), "virtual_bases");

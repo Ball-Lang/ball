@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/protobuf-populate"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/8cc4f2ef4080f722f6a75ce59caee0b1/protobuf-populate.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/13ba558d62f740ac4419b7c0127801ea/protobuf-populate-complete.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/ba540d2403b6c142bb00ba3711c7be48/protobuf-populate-build.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/ba540d2403b6c142bb00ba3711c7be48/protobuf-populate-configure.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/ba540d2403b6c142bb00ba3711c7be48/protobuf-populate-download.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/ba540d2403b6c142bb00ba3711c7be48/protobuf-populate-install.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/ba540d2403b6c142bb00ba3711c7be48/protobuf-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/ba540d2403b6c142bb00ba3711c7be48/protobuf-populate-patch.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/ba540d2403b6c142bb00ba3711c7be48/protobuf-populate-test.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/ba540d2403b6c142bb00ba3711c7be48/protobuf-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"protobuf-populate"
+		],
+		"name" : "protobuf-populate"
+	}
+}

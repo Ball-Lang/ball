@@ -90,6 +90,33 @@ public:
             return std::to_string(d);
         }
         if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) ? "true" : "false";
+        // List: Dart-style [a, b, c]
+        if (_val.type() == typeid(BallList)) {
+            auto& v = std::any_cast<const BallList&>(_val);
+            std::string out = "[";
+            bool first = true;
+            for (const auto& el : v) {
+                if (!first) out += ", ";
+                out += ball_to_string(el);
+                first = false;
+            }
+            out += "]";
+            return out;
+        }
+        // Map: Dart-style {key: value, ...}
+        if (_val.type() == typeid(BallMap)) {
+            auto& m = std::any_cast<const BallMap&>(_val);
+            std::string out = "{";
+            bool first = true;
+            for (const auto& [k, v] : m) {
+                if (k.find("__") == 0 || k == "type_args") continue;
+                if (!first) out += ", ";
+                out += k + ": " + ball_to_string(v);
+                first = false;
+            }
+            out += "}";
+            return out;
+        }
         return "<dynamic>";
     }
 
@@ -122,7 +149,7 @@ public:
         return BallDyn();
     }
 
-    // Index access for vectors
+    // Index access for vectors and strings
     BallDyn operator[](int64_t idx) const {
         if (_val.type() == typeid(BallList)) {
             auto& v = std::any_cast<const BallList&>(_val);
@@ -133,6 +160,12 @@ public:
             auto& v = std::any_cast<const std::vector<std::string>&>(_val);
             if (idx >= 0 && static_cast<size_t>(idx) < v.size())
                 return BallDyn(std::any(v[idx]));
+        }
+        // String character access (Dart: str[i] returns single-char string)
+        if (_val.type() == typeid(std::string)) {
+            auto& s = std::any_cast<const std::string&>(_val);
+            if (idx >= 0 && static_cast<size_t>(idx) < s.size())
+                return BallDyn(std::string(1, s[idx]));
         }
         return BallDyn();
     }

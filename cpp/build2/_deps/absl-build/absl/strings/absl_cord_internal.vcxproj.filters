@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_internal.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_rep_btree.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_rep_btree_navigator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_rep_btree_reader.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_rep_crc.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_rep_consume.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_data_edge.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_internal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_rep_btree.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_rep_btree_navigator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_rep_btree_reader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_rep_crc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_rep_consume.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\internal\cord_rep_flat.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\strings\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{4B3478F8-FB0B-3CA5-9FD0-4C686B4C66A3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{3E637BAC-A1ED-377B-BDFA-E801B0448ED6}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-subbuild\CMakeFiles\05ff3e6f8d5c1ef835e0e741198f9135\absl-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-subbuild\CMakeFiles\05ff3e6f8d5c1ef835e0e741198f9135\absl-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-subbuild\CMakeFiles\05ff3e6f8d5c1ef835e0e741198f9135\absl-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-subbuild\CMakeFiles\05ff3e6f8d5c1ef835e0e741198f9135\absl-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-subbuild\CMakeFiles\05ff3e6f8d5c1ef835e0e741198f9135\absl-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-subbuild\CMakeFiles\05ff3e6f8d5c1ef835e0e741198f9135\absl-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-subbuild\CMakeFiles\05ff3e6f8d5c1ef835e0e741198f9135\absl-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-subbuild\CMakeFiles\05ff3e6f8d5c1ef835e0e741198f9135\absl-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-subbuild\CMakeFiles\bdd455955b3d73b36fbecdbc84e58fed\absl-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-subbuild\CMakeFiles\a6d2b124a77e38aac808b4e47e2d96da\absl-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\packages\ball\cpp\build2\_deps\absl-subbuild\CMakeFiles\absl-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{CDB2BAE6-2F17-3ADF-922F-C32F8B18E7ED}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

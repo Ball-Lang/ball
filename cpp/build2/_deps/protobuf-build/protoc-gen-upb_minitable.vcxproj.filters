@@ -1,0 +1,113 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\code_generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\code_generator_lite.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\plugin.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\plugin.pb.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\retention.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\common.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\common\names.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\file_layout.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\minitable\generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\minitable\main.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\minitable\names.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\minitable\names_internal.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\plugin.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\cmake\google\protobuf\compiler\plugin.upb_minitable.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\code_generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\code_generator_lite.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\plugin.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\plugin.pb.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\retention.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\scc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\common\names.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\file_layout.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\minitable\generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\minitable\names.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\minitable\names_internal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\plugin.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\plugin_bootstrap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\cmake\google\protobuf\compiler\plugin.upb.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\cmake\google\protobuf\compiler\plugin.upb_minitable.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-build\version.rc">
+      <Filter>Source Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{4B3478F8-FB0B-3CA5-9FD0-4C686B4C66A3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{3E637BAC-A1ED-377B-BDFA-E801B0448ED6}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

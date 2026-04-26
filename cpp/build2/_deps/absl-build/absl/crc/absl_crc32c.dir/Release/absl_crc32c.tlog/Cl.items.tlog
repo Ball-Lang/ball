@@ -1,0 +1,4 @@
+D:\packages\ball\cpp\build2\_deps\absl-src\absl\crc\crc32c.cc;D:\packages\ball\cpp\build2\_deps\absl-build\absl\crc\absl_crc32c.dir\Release\crc32c.obj
+D:\packages\ball\cpp\build2\_deps\absl-src\absl\crc\internal\crc_memcpy_fallback.cc;D:\packages\ball\cpp\build2\_deps\absl-build\absl\crc\absl_crc32c.dir\Release\crc_memcpy_fallback.obj
+D:\packages\ball\cpp\build2\_deps\absl-src\absl\crc\internal\crc_memcpy_x86_arm_combined.cc;D:\packages\ball\cpp\build2\_deps\absl-build\absl\crc\absl_crc32c.dir\Release\crc_memcpy_x86_arm_combined.obj
+D:\packages\ball\cpp\build2\_deps\absl-src\absl\crc\internal\crc_non_temporal_memcpy.cc;D:\packages\ball\cpp\build2\_deps\absl-build\absl\crc\absl_crc32c.dir\Release\crc_non_temporal_memcpy.obj

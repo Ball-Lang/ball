@@ -1,0 +1,33 @@
+# CMake generation dependency list for this directory.
+C:/Program Files/CMake/share/cmake-4.3/Modules/CMakeCheckCompilerFlagCommonPatterns.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/CMakeDependentOption.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/CheckCSourceCompiles.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/CheckIncludeFile.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/CheckLibraryExists.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/CheckLinkerFlag.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/ExternalProject/shared_internal_commands.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/FetchContent.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/FetchContent/CMakeLists.cmake.in
+C:/Program Files/CMake/share/cmake-4.3/Modules/FindGit.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/FindPackageHandleStandardArgs.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/FindPackageMessage.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/FindThreads.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/FindZLIB.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/Internal/CheckFlagCommonConfig.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/Internal/CheckLinkerFlag.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/Internal/CheckSourceCompiles.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/SelectLibraryConfigurations.cmake
+D:/packages/ball/cpp/build2/_deps/protobuf-src/CMakeLists.txt
+D:/packages/ball/cpp/build2/_deps/protobuf-src/cmake/abseil-cpp.cmake
+D:/packages/ball/cpp/build2/_deps/protobuf-src/cmake/dependencies.cmake
+D:/packages/ball/cpp/build2/_deps/protobuf-src/cmake/libprotobuf-lite.cmake
+D:/packages/ball/cpp/build2/_deps/protobuf-src/cmake/libprotobuf.cmake
+D:/packages/ball/cpp/build2/_deps/protobuf-src/cmake/libprotoc.cmake
+D:/packages/ball/cpp/build2/_deps/protobuf-src/cmake/libupb.cmake
+D:/packages/ball/cpp/build2/_deps/protobuf-src/cmake/protobuf-configure-target.cmake
+D:/packages/ball/cpp/build2/_deps/protobuf-src/cmake/protobuf-options.cmake
+D:/packages/ball/cpp/build2/_deps/protobuf-src/cmake/protoc.cmake
+D:/packages/ball/cpp/build2/_deps/protobuf-src/cmake/upb_generators.cmake
+D:/packages/ball/cpp/build2/_deps/protobuf-src/cmake/utf8_range.cmake
+D:/packages/ball/cpp/build2/_deps/protobuf-src/cmake/version.rc.in
+D:/packages/ball/cpp/build2/_deps/protobuf-src/src/file_lists.cmake

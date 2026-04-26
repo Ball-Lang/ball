@@ -1,0 +1,12 @@
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\barrier.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\synchronization\absl_synchronization.dir\Release\barrier.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\blocking_counter.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\synchronization\absl_synchronization.dir\Release\blocking_counter.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\create_thread_identity.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\synchronization\absl_synchronization.dir\Release\create_thread_identity.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\futex_waiter.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\synchronization\absl_synchronization.dir\Release\futex_waiter.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\per_thread_sem.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\synchronization\absl_synchronization.dir\Release\per_thread_sem.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\pthread_waiter.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\synchronization\absl_synchronization.dir\Release\pthread_waiter.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\sem_waiter.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\synchronization\absl_synchronization.dir\Release\sem_waiter.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\stdcpp_waiter.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\synchronization\absl_synchronization.dir\Release\stdcpp_waiter.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\waiter_base.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\synchronization\absl_synchronization.dir\Release\waiter_base.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\win32_waiter.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\synchronization\absl_synchronization.dir\Release\win32_waiter.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\notification.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\synchronization\absl_synchronization.dir\Release\notification.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\mutex.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\synchronization\absl_synchronization.dir\Release\mutex.obj

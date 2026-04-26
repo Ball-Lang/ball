@@ -1,0 +1,5 @@
+D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\cycleclock.cc;D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_base.dir\Release\cycleclock.obj
+D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\spinlock.cc;D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_base.dir\Release\spinlock.obj
+D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\sysinfo.cc;D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_base.dir\Release\sysinfo.obj
+D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\thread_identity.cc;D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_base.dir\Release\thread_identity.obj
+D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\unscaledcycleclock.cc;D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_base.dir\Release\unscaledcycleclock.obj

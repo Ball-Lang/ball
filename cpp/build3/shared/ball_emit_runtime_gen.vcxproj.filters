@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\CMakeFiles\aa0a083e52a2812668bf53d2bbe3bcda\ball_dyn_embed.h.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\CMakeFiles\aa0a083e52a2812668bf53d2bbe3bcda\ball_emit_runtime_embed.h.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\CMakeFiles\f95ba41cf91f770b437e3a99363fa1b2\ball_emit_runtime_gen.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\shared\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\packages\ball\cpp\build3\shared\CMakeFiles\ball_emit_runtime_gen" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{1622EE8D-5060-3F0F-BF00-5468D86BF0EC}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

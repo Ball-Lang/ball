@@ -1,0 +1,14 @@
+# Target labels
+ json-populate
+# Source files and their labels
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/json-populate
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/cdec3b57a741b45f576a59ae5ee06d1e/json-populate.rule
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/2fb18577a51da1f23da5bd2289877993/json-populate-complete.rule
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/b007caaa85cb27fbdc5a056a12588403/json-populate-build.rule
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/b007caaa85cb27fbdc5a056a12588403/json-populate-configure.rule
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/b007caaa85cb27fbdc5a056a12588403/json-populate-download.rule
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/b007caaa85cb27fbdc5a056a12588403/json-populate-install.rule
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/b007caaa85cb27fbdc5a056a12588403/json-populate-mkdir.rule
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/b007caaa85cb27fbdc5a056a12588403/json-populate-patch.rule
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/b007caaa85cb27fbdc5a056a12588403/json-populate-test.rule
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/b007caaa85cb27fbdc5a056a12588403/json-populate-update.rule

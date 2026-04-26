@@ -1,0 +1,10 @@
+^D:\PACKAGES\BALL\CPP\BUILD2\_DEPS\ABSL-SUBBUILD\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp/build2/_deps/absl-subbuild -BD:/packages/ball/cpp/build2/_deps/absl-subbuild --check-stamp-file D:/packages/ball/cpp/build2/_deps/absl-subbuild/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

@@ -1,0 +1,3 @@
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/absl-populate.dir
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/ALL_BUILD.dir
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/ZERO_CHECK.dir

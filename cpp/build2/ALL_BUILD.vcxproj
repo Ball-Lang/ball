@@ -1,0 +1,639 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ResolveNugetPackages>false</ResolveNugetPackages>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|x64">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{F4A4E63A-FD00-3CB3-ADCE-FCDDD5177EAC}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <Platform>x64</Platform>
+    <ProjectName>ALL_BUILD</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Midl>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Midl>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
+    <Midl>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
+    <Midl>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule D:/packages/ball/cpp/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build2 --check-stamp-file D:/packages/ball/cpp/build2/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCCompiler.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCCompilerABI.c;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXCompiler.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXCompilerABI.cpp;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCompilerIdDetection.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCXXCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompilerABI.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompilerId.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompilerSupport.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineRCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineSystem.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeFindBinUtils.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeParseImplicitIncludeInfo.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeParseImplicitLinkInfo.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeParseLibraryArchitecture.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeRCCompiler.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystem.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestCXXCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestCompilerCommon.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestRCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\ADSP-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\ARMCC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\ARMClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\AppleClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Borland-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Bruce-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Clang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Clang-DetermineCompilerInternal.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Compaq-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Compaq-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Cray-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\CrayClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Diab-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Embarcadero-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Fujitsu-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\FujitsuClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\GHS-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\GNU-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\GNU-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\HP-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\HP-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IAR-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMCPP-C-DetermineVersionInternal.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMCPP-CXX-DetermineVersionInternal.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMClang-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMClang-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Intel-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IntelLLVM-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\LCC-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\LCC-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\NVHPC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\NVIDIA-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\OpenWatcom-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\OrangeC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\PGI-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\PathScale-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Renesas-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SCO-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SDCC-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SunPro-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SunPro-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\TI-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\TIClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Tasking-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\TinyCC-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\VisualAge-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\VisualAge-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Watcom-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XL-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XL-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XLClang-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XLClang-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\zOS-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\zOS-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CompilerId\VS-10.vcxproj.in;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeDetermineLinkerId.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeInspectCLinker.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeInspectCXXLinker.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\FeatureTesting.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-Determine-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\WindowsPaths.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeCCompiler.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeCXXCompiler.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeRCCompiler.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeSystem.cmake;D:\packages\ball\cpp\cmake\BufGenerate.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\packages\ball\cpp\build2\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule D:/packages/ball/cpp/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build2 --check-stamp-file D:/packages/ball/cpp/build2/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCCompiler.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCCompilerABI.c;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXCompiler.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXCompilerABI.cpp;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCompilerIdDetection.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCXXCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompilerABI.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompilerId.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompilerSupport.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineRCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineSystem.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeFindBinUtils.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeParseImplicitIncludeInfo.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeParseImplicitLinkInfo.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeParseLibraryArchitecture.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeRCCompiler.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystem.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestCXXCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestCompilerCommon.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestRCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\ADSP-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\ARMCC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\ARMClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\AppleClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Borland-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Bruce-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Clang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Clang-DetermineCompilerInternal.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Compaq-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Compaq-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Cray-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\CrayClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Diab-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Embarcadero-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Fujitsu-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\FujitsuClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\GHS-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\GNU-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\GNU-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\HP-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\HP-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IAR-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMCPP-C-DetermineVersionInternal.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMCPP-CXX-DetermineVersionInternal.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMClang-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMClang-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Intel-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IntelLLVM-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\LCC-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\LCC-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\NVHPC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\NVIDIA-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\OpenWatcom-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\OrangeC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\PGI-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\PathScale-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Renesas-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SCO-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SDCC-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SunPro-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SunPro-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\TI-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\TIClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Tasking-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\TinyCC-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\VisualAge-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\VisualAge-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Watcom-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XL-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XL-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XLClang-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XLClang-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\zOS-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\zOS-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CompilerId\VS-10.vcxproj.in;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeDetermineLinkerId.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeInspectCLinker.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeInspectCXXLinker.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\FeatureTesting.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-Determine-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\WindowsPaths.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeCCompiler.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeCXXCompiler.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeRCCompiler.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeSystem.cmake;D:\packages\ball\cpp\cmake\BufGenerate.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\packages\ball\cpp\build2\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Building Custom Rule D:/packages/ball/cpp/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build2 --check-stamp-file D:/packages/ball/cpp/build2/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCCompiler.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCCompilerABI.c;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXCompiler.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXCompilerABI.cpp;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCompilerIdDetection.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCXXCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompilerABI.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompilerId.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompilerSupport.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineRCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineSystem.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeFindBinUtils.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeParseImplicitIncludeInfo.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeParseImplicitLinkInfo.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeParseLibraryArchitecture.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeRCCompiler.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystem.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestCXXCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestCompilerCommon.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestRCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\ADSP-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\ARMCC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\ARMClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\AppleClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Borland-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Bruce-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Clang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Clang-DetermineCompilerInternal.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Compaq-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Compaq-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Cray-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\CrayClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Diab-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Embarcadero-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Fujitsu-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\FujitsuClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\GHS-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\GNU-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\GNU-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\HP-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\HP-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IAR-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMCPP-C-DetermineVersionInternal.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMCPP-CXX-DetermineVersionInternal.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMClang-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMClang-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Intel-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IntelLLVM-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\LCC-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\LCC-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\NVHPC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\NVIDIA-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\OpenWatcom-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\OrangeC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\PGI-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\PathScale-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Renesas-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SCO-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SDCC-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SunPro-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SunPro-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\TI-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\TIClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Tasking-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\TinyCC-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\VisualAge-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\VisualAge-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Watcom-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XL-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XL-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XLClang-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XLClang-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\zOS-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\zOS-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CompilerId\VS-10.vcxproj.in;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeDetermineLinkerId.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeInspectCLinker.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeInspectCXXLinker.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\FeatureTesting.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-Determine-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\WindowsPaths.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeCCompiler.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeCXXCompiler.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeRCCompiler.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeSystem.cmake;D:\packages\ball\cpp\cmake\BufGenerate.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\packages\ball\cpp\build2\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Building Custom Rule D:/packages/ball/cpp/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build2 --check-stamp-file D:/packages/ball/cpp/build2/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCCompiler.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCCompilerABI.c;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXCompiler.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXCompilerABI.cpp;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCompilerIdDetection.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCXXCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompilerABI.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompilerId.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineCompilerSupport.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineRCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDetermineSystem.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeFindBinUtils.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeParseImplicitIncludeInfo.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeParseImplicitLinkInfo.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeParseLibraryArchitecture.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeRCCompiler.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystem.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestCXXCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestCompilerCommon.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeTestRCCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\ADSP-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\ARMCC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\ARMClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\AppleClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Borland-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Bruce-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Clang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Clang-DetermineCompilerInternal.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Compaq-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Compaq-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Cray-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\CrayClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Diab-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Embarcadero-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Fujitsu-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\FujitsuClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\GHS-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\GNU-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\GNU-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\HP-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\HP-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IAR-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMCPP-C-DetermineVersionInternal.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMCPP-CXX-DetermineVersionInternal.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMClang-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IBMClang-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Intel-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\IntelLLVM-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\LCC-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\LCC-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\NVHPC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\NVIDIA-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\OpenWatcom-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\OrangeC-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\PGI-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\PathScale-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Renesas-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SCO-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SDCC-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SunPro-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\SunPro-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\TI-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\TIClang-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Tasking-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\TinyCC-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\VisualAge-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\VisualAge-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\Watcom-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XL-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XL-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XLClang-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\XLClang-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\zOS-C-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\zOS-CXX-DetermineCompiler.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CompilerId\VS-10.vcxproj.in;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeDetermineLinkerId.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeInspectCLinker.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeInspectCXXLinker.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\FeatureTesting.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-Determine-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\WindowsPaths.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeCCompiler.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeCXXCompiler.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeRCCompiler.cmake;D:\packages\ball\cpp\build2\CMakeFiles\4.3.1\CMakeSystem.cmake;D:\packages\ball\cpp\cmake\BufGenerate.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\packages\ball\cpp\build2\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\ZERO_CHECK.vcxproj">
+      <Project>{2D535A61-BBDE-3F31-A5A4-18C9E1F9B646}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_base.vcxproj">
+      <Project>{F709FFF0-4930-3EBA-9767-0B868C2D7E11}</Project>
+      <Name>absl_base</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\hash\absl_city.vcxproj">
+      <Project>{08EDCC58-469C-361B-9B20-8A1DB527499A}</Project>
+      <Name>absl_city</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\time\absl_civil_time.vcxproj">
+      <Project>{A3E71A23-DB96-3258-BE47-570487DC0006}</Project>
+      <Name>absl_civil_time</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_cord.vcxproj">
+      <Project>{8E9C5BDD-78FE-3097-9BF0-F1A9A264A08B}</Project>
+      <Name>absl_cord</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_cord_internal.vcxproj">
+      <Project>{69E718D2-57AF-3D66-A5D5-E42DB2A97F9D}</Project>
+      <Name>absl_cord_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_cordz_functions.vcxproj">
+      <Project>{56286FA3-2D5E-3954-BF3C-4FB90A98A5DC}</Project>
+      <Name>absl_cordz_functions</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_cordz_handle.vcxproj">
+      <Project>{96AFB706-8853-31F7-8AE6-EC00AB0D6855}</Project>
+      <Name>absl_cordz_handle</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_cordz_info.vcxproj">
+      <Project>{242E290A-022A-31DA-97FC-860B1E819E23}</Project>
+      <Name>absl_cordz_info</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_cordz_sample_token.vcxproj">
+      <Project>{ED4610FC-3C79-3C36-84EA-D1CD0F56239E}</Project>
+      <Name>absl_cordz_sample_token</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\crc\absl_crc32c.vcxproj">
+      <Project>{D4AAA098-B554-35ED-9285-B7E0B3C70590}</Project>
+      <Name>absl_crc32c</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\crc\absl_crc_cord_state.vcxproj">
+      <Project>{A2A7529C-04A4-3E7C-8BFA-BF3FC88D5874}</Project>
+      <Name>absl_crc_cord_state</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\crc\absl_crc_cpu_detect.vcxproj">
+      <Project>{4320F932-E02F-3DBD-96B4-395AC2A1EE00}</Project>
+      <Name>absl_crc_cpu_detect</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\crc\absl_crc_internal.vcxproj">
+      <Project>{5857A6B2-C650-3D08-8BA1-32B40BFFC07E}</Project>
+      <Name>absl_crc_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_debugging_internal.vcxproj">
+      <Project>{423A68C6-0EE2-3104-A784-CD0684B3BBA8}</Project>
+      <Name>absl_debugging_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_decode_rust_punycode.vcxproj">
+      <Project>{F4192EB9-34BB-3E7E-A9C1-298FBA973E33}</Project>
+      <Name>absl_decode_rust_punycode</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_demangle_internal.vcxproj">
+      <Project>{087ADB2A-6F09-3C34-ADEB-2A5FD506A90B}</Project>
+      <Name>absl_demangle_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_demangle_rust.vcxproj">
+      <Project>{AAC8B274-1BED-38DE-B9F6-7153DA11D0FF}</Project>
+      <Name>absl_demangle_rust</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_die_if_null.vcxproj">
+      <Project>{6107896E-28C3-304B-99A0-EE8420444A5F}</Project>
+      <Name>absl_die_if_null</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_examine_stack.vcxproj">
+      <Project>{C36602CA-7FA7-314E-B2D5-2CF90D087FCC}</Project>
+      <Name>absl_examine_stack</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\profiling\absl_exponential_biased.vcxproj">
+      <Project>{65CDB74F-D930-3861-B254-D6D0A0B23BB1}</Project>
+      <Name>absl_exponential_biased</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_failure_signal_handler.vcxproj">
+      <Project>{DB106F9B-9667-3E86-BDE5-4BD23B4F9D39}</Project>
+      <Name>absl_failure_signal_handler</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\flags\absl_flags_commandlineflag.vcxproj">
+      <Project>{34FFDAFE-B6D3-30BB-A80E-BF43561BAADA}</Project>
+      <Name>absl_flags_commandlineflag</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\flags\absl_flags_commandlineflag_internal.vcxproj">
+      <Project>{6402B840-13CE-3275-9E7C-C11BD89C8A50}</Project>
+      <Name>absl_flags_commandlineflag_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\flags\absl_flags_config.vcxproj">
+      <Project>{8360C704-31C3-3A07-811A-8C26E34397B8}</Project>
+      <Name>absl_flags_config</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\flags\absl_flags_internal.vcxproj">
+      <Project>{CAFDF013-C6C8-3483-9881-1E0BB679F6BF}</Project>
+      <Name>absl_flags_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\flags\absl_flags_marshalling.vcxproj">
+      <Project>{7E34547E-E2D0-395A-847B-68A1673F6D8A}</Project>
+      <Name>absl_flags_marshalling</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\flags\absl_flags_parse.vcxproj">
+      <Project>{37F220F1-D1DC-30EC-AA5E-D571BF481905}</Project>
+      <Name>absl_flags_parse</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\flags\absl_flags_private_handle_accessor.vcxproj">
+      <Project>{F9BBE75F-3484-385F-ADC5-C0C57DD2C41B}</Project>
+      <Name>absl_flags_private_handle_accessor</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\flags\absl_flags_program_name.vcxproj">
+      <Project>{1C404D6C-A096-3D20-9FAF-FA7AEC31FA41}</Project>
+      <Name>absl_flags_program_name</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\flags\absl_flags_reflection.vcxproj">
+      <Project>{3E333869-F0E1-33EA-ADBC-A47133C44967}</Project>
+      <Name>absl_flags_reflection</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\flags\absl_flags_usage.vcxproj">
+      <Project>{07D4CFC4-E4A4-3F40-8CA4-A538D21A729A}</Project>
+      <Name>absl_flags_usage</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\flags\absl_flags_usage_internal.vcxproj">
+      <Project>{1F49C5D6-A935-3073-9647-103B82FB5414}</Project>
+      <Name>absl_flags_usage_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\synchronization\absl_graphcycles_internal.vcxproj">
+      <Project>{1A36DF94-F5A8-350A-B4DA-C97E351E4751}</Project>
+      <Name>absl_graphcycles_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\hash\absl_hash.vcxproj">
+      <Project>{A30AEBC0-EC29-3233-8836-8DB436CEA756}</Project>
+      <Name>absl_hash</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\container\absl_hashtablez_sampler.vcxproj">
+      <Project>{73EE338F-2C1A-31AE-BDF1-FA6C2CF59B77}</Project>
+      <Name>absl_hashtablez_sampler</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\numeric\absl_int128.vcxproj">
+      <Project>{DB44666C-0140-3621-BC9F-81701BBE5D07}</Project>
+      <Name>absl_int128</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\synchronization\absl_kernel_timeout_internal.vcxproj">
+      <Project>{E9FE82DD-CB45-345D-A972-CA95A1CC5EDF}</Project>
+      <Name>absl_kernel_timeout_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_leak_check.vcxproj">
+      <Project>{489E30A0-7228-3C78-9CA2-947C0E7110CA}</Project>
+      <Name>absl_leak_check</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_flags.vcxproj">
+      <Project>{4E9FAED6-8EF2-31CC-B647-1D97E979DCA1}</Project>
+      <Name>absl_log_flags</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_globals.vcxproj">
+      <Project>{BDE7E423-3D89-3E3A-A2C7-27D882BB49F1}</Project>
+      <Name>absl_log_globals</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_initialize.vcxproj">
+      <Project>{E75C7DED-EEAD-36E5-AF95-9DDD132F8E87}</Project>
+      <Name>absl_log_initialize</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_internal_check_op.vcxproj">
+      <Project>{098E933B-3851-3FB0-BC3A-BD713739E31E}</Project>
+      <Name>absl_log_internal_check_op</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_internal_conditions.vcxproj">
+      <Project>{5BBC0DF8-E29E-3CE5-AFA9-2FAD89E446D0}</Project>
+      <Name>absl_log_internal_conditions</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_internal_fnmatch.vcxproj">
+      <Project>{700CAEBA-5BDA-3653-8494-0FE5CCD94886}</Project>
+      <Name>absl_log_internal_fnmatch</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_internal_format.vcxproj">
+      <Project>{F785C9C0-B210-3ADF-B4DB-F4AE4BB0539B}</Project>
+      <Name>absl_log_internal_format</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_internal_globals.vcxproj">
+      <Project>{B730CD7B-50DE-3D58-A17C-0145292EB8B8}</Project>
+      <Name>absl_log_internal_globals</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_internal_log_sink_set.vcxproj">
+      <Project>{0CB157DE-7E1C-3E73-85AF-7D9B76777C1B}</Project>
+      <Name>absl_log_internal_log_sink_set</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_internal_message.vcxproj">
+      <Project>{1FB29615-D5C0-3F90-ABA9-6EC790C04581}</Project>
+      <Name>absl_log_internal_message</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_internal_nullguard.vcxproj">
+      <Project>{5A02EF41-F7D8-391C-9CFE-2E95D4ED2DD4}</Project>
+      <Name>absl_log_internal_nullguard</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_internal_proto.vcxproj">
+      <Project>{ADBF94B2-E980-358C-AE23-AB0B21F8826F}</Project>
+      <Name>absl_log_internal_proto</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_internal_structured_proto.vcxproj">
+      <Project>{76958E61-664C-3DA5-971B-6A672B381E41}</Project>
+      <Name>absl_log_internal_structured_proto</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_log_severity.vcxproj">
+      <Project>{B2584C98-AE2D-3AA4-9943-A23A98A78AA6}</Project>
+      <Name>absl_log_severity</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_log_sink.vcxproj">
+      <Project>{9321D911-5814-3D8C-86BD-159D60745293}</Project>
+      <Name>absl_log_sink</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\hash\absl_low_level_hash.vcxproj">
+      <Project>{FE0EB874-F3E5-36D5-83C6-A5441BB9E29E}</Project>
+      <Name>absl_low_level_hash</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_malloc_internal.vcxproj">
+      <Project>{AB250212-A9B1-3ADF-A7E5-A04BEA4EBCB7}</Project>
+      <Name>absl_malloc_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\profiling\absl_periodic_sampler.vcxproj">
+      <Project>{84F254B8-B20F-3546-9A1F-4E585896A010}</Project>
+      <Name>absl_periodic_sampler</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_poison.vcxproj">
+      <Project>{78A6EDD5-9E6D-3F0F-A0F5-86BA30A5E509}</Project>
+      <Name>absl_poison</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\random\absl_random_distributions.vcxproj">
+      <Project>{FC350C1F-2991-38D1-B35B-887269F50E50}</Project>
+      <Name>absl_random_distributions</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\random\absl_random_internal_distribution_test_util.vcxproj">
+      <Project>{18161304-E345-34BB-9DC8-EBBCA37DE6AE}</Project>
+      <Name>absl_random_internal_distribution_test_util</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\random\absl_random_internal_entropy_pool.vcxproj">
+      <Project>{E4597B67-562A-30BE-AAFB-7ECDE35F9A96}</Project>
+      <Name>absl_random_internal_entropy_pool</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\random\absl_random_internal_platform.vcxproj">
+      <Project>{9FC9CAE7-480F-30FC-AE0B-A221A35E6A72}</Project>
+      <Name>absl_random_internal_platform</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\random\absl_random_internal_randen.vcxproj">
+      <Project>{5D7B5CA5-A94A-3F8D-8021-F60E84A34ACD}</Project>
+      <Name>absl_random_internal_randen</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\random\absl_random_internal_randen_hwaes.vcxproj">
+      <Project>{4EC20994-86E0-33BF-82E9-1747692ECE5B}</Project>
+      <Name>absl_random_internal_randen_hwaes</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\random\absl_random_internal_randen_hwaes_impl.vcxproj">
+      <Project>{541EBAC8-406D-3941-BCA5-2335936867EE}</Project>
+      <Name>absl_random_internal_randen_hwaes_impl</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\random\absl_random_internal_randen_slow.vcxproj">
+      <Project>{7012DCFD-C727-3A79-9562-E224D8A8EAE5}</Project>
+      <Name>absl_random_internal_randen_slow</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\random\absl_random_internal_seed_material.vcxproj">
+      <Project>{04089068-5A3C-3B2F-8ED1-7C43CCB8E4BC}</Project>
+      <Name>absl_random_internal_seed_material</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\random\absl_random_seed_gen_exception.vcxproj">
+      <Project>{15F4B183-3DD0-33F7-B3F3-269C63110A75}</Project>
+      <Name>absl_random_seed_gen_exception</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\random\absl_random_seed_sequences.vcxproj">
+      <Project>{9DAA36E7-CAC5-39B6-8F30-68F72BDEFEC8}</Project>
+      <Name>absl_random_seed_sequences</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\container\absl_raw_hash_set.vcxproj">
+      <Project>{93B8F241-A7B1-3D91-8DDE-AB23B91EC354}</Project>
+      <Name>absl_raw_hash_set</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_raw_logging_internal.vcxproj">
+      <Project>{CDB14DDF-5A39-346B-8051-281D1146FEA3}</Project>
+      <Name>absl_raw_logging_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_scoped_set_env.vcxproj">
+      <Project>{06D83BC6-7BCA-36FE-9567-4FFCB64264A5}</Project>
+      <Name>absl_scoped_set_env</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_spinlock_wait.vcxproj">
+      <Project>{77989FDB-9691-36B9-B66F-5DCBFFEF4DB6}</Project>
+      <Name>absl_spinlock_wait</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_stacktrace.vcxproj">
+      <Project>{576B3904-A181-3B26-9547-96BA6DA3A1AB}</Project>
+      <Name>absl_stacktrace</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\status\absl_status.vcxproj">
+      <Project>{A728F671-C666-3430-B3BD-1FA2D80DF1B2}</Project>
+      <Name>absl_status</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\status\absl_statusor.vcxproj">
+      <Project>{8BC6467E-92C8-39EE-AF5B-865B9EF134C9}</Project>
+      <Name>absl_statusor</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_str_format_internal.vcxproj">
+      <Project>{30BDFF0F-3182-3544-9B1B-5E059960E210}</Project>
+      <Name>absl_str_format_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_strerror.vcxproj">
+      <Project>{DF9CA9C4-5C45-3C5B-A3C2-6BA6EA06F907}</Project>
+      <Name>absl_strerror</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_string_view.vcxproj">
+      <Project>{B1545FF9-78EE-373C-8E1F-D962A55F95BD}</Project>
+      <Name>absl_string_view</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_strings.vcxproj">
+      <Project>{1297355A-D9C8-372E-9200-A72DBABA95C4}</Project>
+      <Name>absl_strings</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_strings_internal.vcxproj">
+      <Project>{61FB9658-CFCE-3889-AA24-B45871143D3A}</Project>
+      <Name>absl_strings_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_symbolize.vcxproj">
+      <Project>{94E4C69A-028B-37C5-BB97-E41586D5097E}</Project>
+      <Name>absl_symbolize</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\synchronization\absl_synchronization.vcxproj">
+      <Project>{A83D8D84-9FA5-3008-9D0A-457BE4461D17}</Project>
+      <Name>absl_synchronization</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_throw_delegate.vcxproj">
+      <Project>{F8E17BEF-2F54-3CF1-927E-83D80791637D}</Project>
+      <Name>absl_throw_delegate</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\time\absl_time.vcxproj">
+      <Project>{B5374569-49EF-3B94-AF1D-2AB77C034B90}</Project>
+      <Name>absl_time</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\time\absl_time_zone.vcxproj">
+      <Project>{8C08A2CD-DEAA-3F19-B080-3D31C68AB72E}</Project>
+      <Name>absl_time_zone</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_tracing_internal.vcxproj">
+      <Project>{DB678FE1-D4BD-3E55-9E7D-25306B644792}</Project>
+      <Name>absl_tracing_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_utf8_for_code_point.vcxproj">
+      <Project>{B1FCC15D-42B0-3F05-B92A-F6A2AB6341D3}</Project>
+      <Name>absl_utf8_for_code_point</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\log\absl_vlog_config_internal.vcxproj">
+      <Project>{F8007FAB-1164-3DB4-91B3-0B8A6D66F4FD}</Project>
+      <Name>absl_vlog_config_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\compiler\ball_cpp_compile.vcxproj">
+      <Project>{EAEDE4A2-A80F-3840-964F-00D11A00245F}</Project>
+      <Name>ball_cpp_compile</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\compiler\ball_cpp_compiler_lib.vcxproj">
+      <Project>{71BEF2A3-8FC0-3DBC-9473-FBB570BA5FB4}</Project>
+      <Name>ball_cpp_compiler_lib</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\encoder\ball_cpp_encode.vcxproj">
+      <Project>{0ECAD384-4221-3198-BD3D-47FF02A090EF}</Project>
+      <Name>ball_cpp_encode</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\encoder\ball_cpp_encoder_lib.vcxproj">
+      <Project>{B26A66EC-C985-3488-86ED-3DD7D0C80042}</Project>
+      <Name>ball_cpp_encoder_lib</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\engine\ball_cpp_engine.vcxproj">
+      <Project>{79994A1C-B777-361C-9AFA-DF7B54FC079F}</Project>
+      <Name>ball_cpp_engine</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\engine\ball_cpp_runner.vcxproj">
+      <Project>{7D7509BA-446F-340D-B30C-E83700C40B4F}</Project>
+      <Name>ball_cpp_runner</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\shared\ball_shared.vcxproj">
+      <Project>{94E23D85-3B51-3172-B5E4-D4394F4A794A}</Project>
+      <Name>ball_shared</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\protobuf-build\libprotobuf.vcxproj">
+      <Project>{6F123AA1-2921-3072-ABE5-7F35DFCD3E3D}</Project>
+      <Name>libprotobuf</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\protobuf-build\libprotobuf-lite.vcxproj">
+      <Project>{306F5EB6-AC09-3AEA-9834-6691BD65A530}</Project>
+      <Name>libprotobuf-lite</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\protobuf-build\libprotoc.vcxproj">
+      <Project>{8E0B4F2F-6E09-35E3-8004-9654A8177992}</Project>
+      <Name>libprotoc</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\protobuf-build\libupb.vcxproj">
+      <Project>{0EB1AC5B-7EFB-3650-BB49-D9BF80FAA582}</Project>
+      <Name>libupb</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\protobuf-build\protoc.vcxproj">
+      <Project>{728DEFAB-C82F-3DF5-B4EF-2F6B2C5CF870}</Project>
+      <Name>protoc</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\protobuf-build\protoc-gen-upb.vcxproj">
+      <Project>{A82A3804-488F-3A64-AA62-D721422E2DA5}</Project>
+      <Name>protoc-gen-upb</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\protobuf-build\protoc-gen-upb_minitable.vcxproj">
+      <Project>{843E6576-DADC-3454-AC98-20E57C6B41EF}</Project>
+      <Name>protoc-gen-upb_minitable</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\protobuf-build\protoc-gen-upbdefs.vcxproj">
+      <Project>{98A3C06E-D7A7-31ED-8525-F16C98C90F74}</Project>
+      <Name>protoc-gen-upbdefs</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\test\test_compiler.vcxproj">
+      <Project>{0E6C0797-DB25-3C47-83B6-BC90A09D7995}</Project>
+      <Name>test_compiler</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\test\test_conformance.vcxproj">
+      <Project>{34019E78-7225-3FA4-8EA9-73B18A1EB080}</Project>
+      <Name>test_conformance</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\test\test_e2e.vcxproj">
+      <Project>{78FB0760-A71B-3FC7-BF57-C022BD02BB34}</Project>
+      <Name>test_e2e</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\test\test_encoder.vcxproj">
+      <Project>{2526F83F-BD5C-39B4-929D-B51839BC1FFC}</Project>
+      <Name>test_encoder</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\test\test_engine.vcxproj">
+      <Project>{21C6F4BF-2C33-3DFA-90AD-76DC6958D86E}</Project>
+      <Name>test_engine</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\test\test_perf.vcxproj">
+      <Project>{F6423122-7DBC-3CE4-9798-68169A2A8635}</Project>
+      <Name>test_perf</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\test\test_selfhost_compile.vcxproj">
+      <Project>{9802872B-3AFF-3879-9747-1B19D6782256}</Project>
+      <Name>test_selfhost_compile</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\test\test_selfhost_conformance.vcxproj">
+      <Project>{00141F3D-A24A-364A-BC0E-99956E8D132E}</Project>
+      <Name>test_selfhost_conformance</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\test\test_snapshot.vcxproj">
+      <Project>{AF9FC1D8-2ED2-3CD7-B82A-4505843A3783}</Project>
+      <Name>test_snapshot</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\protobuf-build\third_party\utf8_range\utf8_range.vcxproj">
+      <Project>{F4D55C96-0C5A-3F08-8D36-B055706BC6D9}</Project>
+      <Name>utf8_range</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\protobuf-build\third_party\utf8_range\utf8_validity.vcxproj">
+      <Project>{42789F3D-9B9A-3198-9E9D-D8C745498B87}</Project>
+      <Name>utf8_validity</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="D:\packages\ball\cpp\shared\src\ball_shared.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\shared\gen\ball\v1\ball.pb.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="D:\packages\ball\cpp\build2\shared\gen\ball_emit_runtime_embed.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\shared\gen\ball_dyn_embed.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\CMakeFiles\aa9f6b15f5454d19531b503ba2381b0c\ball.pb.cc.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\shared\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{4FE4C6E8-163A-3389-A5AC-FE5826282C15}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{4B3478F8-FB0B-3CA5-9FD0-4C686B4C66A3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{3E637BAC-A1ED-377B-BDFA-E801B0448ED6}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,10 @@
+^D:\PACKAGES\BALL\CPP\BUILD2\_DEPS\PROTOBUF-SUBBUILD\CMAKEFILES\8CC4F2EF4080F722F6A75CE59CAEE0B1\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp/build2/_deps/protobuf-subbuild -BD:/packages/ball/cpp/build2/_deps/protobuf-subbuild --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/protobuf-populate.slnx
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

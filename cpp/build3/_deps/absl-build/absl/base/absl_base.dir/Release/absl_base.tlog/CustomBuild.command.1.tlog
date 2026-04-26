@@ -1,0 +1,10 @@
+^D:\PACKAGES\BALL\CPP\BUILD3\_DEPS\ABSL-SRC\ABSL\BASE\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build3 --check-stamp-file D:/packages/ball/cpp/build3/_deps/absl-build/absl/base/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

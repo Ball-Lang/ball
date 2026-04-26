@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/absl-subbuild/CMakeFiles/absl-populate"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/absl-subbuild/CMakeFiles/a6d2b124a77e38aac808b4e47e2d96da/absl-populate.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/absl-subbuild/CMakeFiles/bdd455955b3d73b36fbecdbc84e58fed/absl-populate-complete.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/absl-subbuild/CMakeFiles/05ff3e6f8d5c1ef835e0e741198f9135/absl-populate-build.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/absl-subbuild/CMakeFiles/05ff3e6f8d5c1ef835e0e741198f9135/absl-populate-configure.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/absl-subbuild/CMakeFiles/05ff3e6f8d5c1ef835e0e741198f9135/absl-populate-download.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/absl-subbuild/CMakeFiles/05ff3e6f8d5c1ef835e0e741198f9135/absl-populate-install.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/absl-subbuild/CMakeFiles/05ff3e6f8d5c1ef835e0e741198f9135/absl-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/absl-subbuild/CMakeFiles/05ff3e6f8d5c1ef835e0e741198f9135/absl-populate-patch.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/absl-subbuild/CMakeFiles/05ff3e6f8d5c1ef835e0e741198f9135/absl-populate-test.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build2/_deps/absl-subbuild/CMakeFiles/05ff3e6f8d5c1ef835e0e741198f9135/absl-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"absl-populate"
+		],
+		"name" : "absl-populate"
+	}
+}

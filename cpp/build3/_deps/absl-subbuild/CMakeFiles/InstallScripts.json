@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"D:/packages/ball/cpp/build3/_deps/absl-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

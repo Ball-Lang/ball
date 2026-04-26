@@ -155,9 +155,10 @@ set_target_properties(test_selfhost_conformance PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
 )
-# Bump stack to 32 MB — the self-hosted engine has deep recursion
+# Stack: 32 MB reserve, 4 MB commit for main thread.
+# Worker threads inherit the reserve size but only commit on demand.
 if(MSVC)
-    target_link_options(test_selfhost_conformance PRIVATE /STACK:33554432)
+    target_link_options(test_selfhost_conformance PRIVATE /STACK:33554432,4194304)
 elseif(APPLE)
     target_link_options(test_selfhost_conformance PRIVATE -Wl,-stack_size,0x2000000)
 else()

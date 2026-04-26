@@ -1,0 +1,38 @@
+^D:\PACKAGES\BALL\CPP\BUILD3\CMAKEFILES\AA0A083E52A2812668BF53D2BBE3BCDA\BALL_DYN_EMBED.H.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -DIN=D:/packages/ball/cpp/shared/include/ball_dyn.h -DOUT=D:/packages/ball/cpp/build3/shared/gen/ball_dyn_embed.h -DVAR_NAME=BALL_DYN_SOURCE -P D:/packages/ball/cpp/shared/cmake/EmbedRuntimeHeader.cmake
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD3\CMAKEFILES\AA0A083E52A2812668BF53D2BBE3BCDA\BALL_EMIT_RUNTIME_EMBED.H.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -DIN=D:/packages/ball/cpp/shared/include/ball_emit_runtime.h -DOUT=D:/packages/ball/cpp/build3/shared/gen/ball_emit_runtime_embed.h -P D:/packages/ball/cpp/shared/cmake/EmbedRuntimeHeader.cmake
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD3\CMAKEFILES\F95BA41CF91F770B437E3A99363FA1B2\BALL_EMIT_RUNTIME_GEN.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\SHARED\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build3 --check-stamp-file D:/packages/ball/cpp/build3/shared/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

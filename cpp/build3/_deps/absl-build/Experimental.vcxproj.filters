@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\CMakeFiles\a5c6e895edd2b13eb5336a9005fc36fb\Experimental.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\absl-src\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\packages\ball\cpp\build3\_deps\absl-build\CMakeFiles\Experimental" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{1622EE8D-5060-3F0F-BF00-5468D86BF0EC}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

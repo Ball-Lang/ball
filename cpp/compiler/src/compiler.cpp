@@ -1419,10 +1419,43 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     //    rather than std_collections (encoder variation) ──
     if (fn == "set_create") return "std::vector<std::any>{}";
     if (fn == "map_create") {
-        // map_create can carry `entries` in input
+        // map_create can carry `entries` in input.
+        // The Ball IR encodes map literals as:
+        //   map_create({type_args: "K, V", entry: {key: k1, value: v1}, entry: {key: k2, value: v2}})
+        // Note: multiple "entry" fields share the same name — we must expand them
+        // into their key/value pairs rather than using the field name "entry" as a map key.
         if (call.has_input() &&
             call.input().expr_case() == ball::v1::Expression::kMessageCreation &&
             call.input().message_creation().fields_size() > 0) {
+            // Check if this uses the "entry" pattern (multiple fields named "entry")
+            bool has_entry = false;
+            for (const auto& f : call.input().message_creation().fields()) {
+                if (f.name() == "entry") { has_entry = true; break; }
+            }
+            if (has_entry) {
+                // Build map by expanding entry fields: each entry has key+value subfields
+                std::string result = "[&]() { std::map<std::string,std::any> __m; ";
+                for (const auto& f : call.input().message_creation().fields()) {
+                    if (f.name() == "type_args") continue;
+                    if (f.name() == "entry" && f.has_value() &&
+                        f.value().expr_case() == ball::v1::Expression::kMessageCreation) {
+                        std::string key_expr, val_expr;
+                        for (const auto& ef : f.value().message_creation().fields()) {
+                            if (ef.name() == "key") key_expr = compile_expr(ef.value());
+                            else if (ef.name() == "value") val_expr = compile_expr(ef.value());
+                        }
+                        if (!key_expr.empty() && !val_expr.empty()) {
+                            result += "__m[ball_to_string(" + key_expr + ")] = std::any(" + val_expr + "); ";
+                        }
+                    } else {
+                        // Non-entry field: use field name as key
+                        result += "__m[\"" + f.name() + "\"] = std::any(" + compile_expr(f.value()) + "); ";
+                    }
+                }
+                result += "return __m; }()";
+                return result;
+            }
+            // No entry fields: use direct field names as keys
             std::string result = "std::map<std::string,std::any>{";
             bool first = true;
             for (const auto& f : call.input().message_creation().fields()) {

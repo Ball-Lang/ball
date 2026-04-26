@@ -1,0 +1,3 @@
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/protobuf-populate.dir
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/ALL_BUILD.dir
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/ZERO_CHECK.dir

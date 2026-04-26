@@ -1,0 +1,14 @@
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\ascii.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\ascii.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\charconv.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\charconv.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\escaping.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\escaping.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\internal\charconv_bigint.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\charconv_bigint.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\internal\charconv_parse.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\charconv_parse.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\internal\damerau_levenshtein_distance.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\damerau_levenshtein_distance.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\internal\memutil.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\memutil.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\internal\stringify_sink.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\stringify_sink.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\match.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\match.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\numbers.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\numbers.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\str_cat.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\str_cat.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\str_replace.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\str_replace.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\str_split.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\str_split.obj
+D:\packages\ball\cpp\build3\_deps\absl-src\absl\strings\substitute.cc;D:\packages\ball\cpp\build3\_deps\absl-build\absl\strings\absl_strings.dir\Release\substitute.obj

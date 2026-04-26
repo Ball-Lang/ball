@@ -1,0 +1,854 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\code_generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\code_generator_lite.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\command_line_interface.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\enum.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\extension.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\field_chunk.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\field_generators\cord_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\field_generators\enum_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\field_generators\map_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\field_generators\message_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\field_generators\primitive_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\field_generators\string_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\field_generators\string_view_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\file.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\helpers.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\ifndef_guard.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\message.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\message_layout_helper.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\namespace_printer.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\parse_function_generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\service.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\tracker.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_doc_comment.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_enum.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_enum_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_field_base.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_helpers.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_map_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_message.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_message_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_primitive_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_reflection_class.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_repeated_enum_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_repeated_message_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_repeated_primitive_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_source_generator_base.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_wrapper_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\names.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\context.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\doc_comment.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\field_common.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\file.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\enum.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\enum_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\extension.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\generator_factory.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\make_field_gens.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\map_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\message.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\message_builder.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\message_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\primitive_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\service.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\string_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\helpers.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\internal_helpers.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\java_features.pb.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\enum.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\enum_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\extension.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\generator_factory.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\make_field_gens.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\map_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\message.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\message_builder.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\message_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\primitive_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\string_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\message_serialization.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\name_resolver.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\names.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\shared_code_generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\kotlin\field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\kotlin\file.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\kotlin\generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\kotlin\message.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\enum.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\enum_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\extension.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\file.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\helpers.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\import_writer.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\line_consumer.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\map_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\message.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\message_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\names.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\oneof.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\primitive_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\tf_decode_data.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\php\names.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\php\php_generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\plugin.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\plugin.pb.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\python\generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\python\helpers.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\python\pyi_generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\retention.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\ruby\rbs_generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\ruby\ruby_generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\accessor_case.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\accessors.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\default_value.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\map.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\repeated_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\singular_cord.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\singular_message.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\singular_scalar.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\singular_string.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\unsupported_field.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\with_presence.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\context.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\crate_mapping.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\enum.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\generator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\message.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\naming.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\oneof.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\relative_path.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\rust_field_type.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\rust_keywords.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\upb_helpers.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\subprocess.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\versions.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\zip_writer.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\common.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\common\names.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\file_layout.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\minitable\names.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\minitable\names_internal.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\plugin.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\code_generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\code_generator_lite.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\command_line_interface.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\enum.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\extension.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\field_chunk.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\field_generators\generators.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\file.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\helpers.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\ifndef_guard.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\message.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\message_layout_helper.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\names.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\namespace_printer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\options.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\padding_optimizer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\parse_function_generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\service.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\cpp\tracker.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_doc_comment.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_enum.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_enum_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_field_base.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_helpers.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_map_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_message.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_message_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_options.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_primitive_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_reflection_class.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_repeated_enum_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_repeated_message_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_repeated_primitive_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_source_generator_base.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\csharp_wrapper_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\csharp\names.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\context.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\doc_comment.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\field_common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\file.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\enum.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\enum_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\extension.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\field_generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\generator_factory.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\make_field_gens.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\map_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\message.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\message_builder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\message_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\primitive_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\service.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\full\string_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\generator_common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\generator_factory.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\helpers.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\internal_helpers.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\java_features.pb.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\enum.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\enum_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\extension.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\field_generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\generator_factory.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\make_field_gens.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\map_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\message.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\message_builder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\message_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\primitive_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\lite\string_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\message_serialization.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\name_resolver.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\names.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\names_internal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\options.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\java\shared_code_generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\kotlin\field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\kotlin\file.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\kotlin\generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\kotlin\message.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\notices.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\enum.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\enum_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\extension.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\file.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\helpers.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\import_writer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\line_consumer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\map_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\message.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\message_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\names.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\nsobject_methods.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\oneof.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\options.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\primitive_field.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\objectivec\tf_decode_data.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\php\names.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\php\php_generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\plugin.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\plugin.pb.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\python\generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\python\helpers.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\python\pyi_generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\retention.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\ruby\rbs_generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\ruby\ruby_generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\accessor_case.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\accessors.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\default_value.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\accessors\with_presence.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\context.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\crate_mapping.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\enum.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\message.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\naming.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\oneof.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\relative_path.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\rust_field_type.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\rust_keywords.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\rust\upb_helpers.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\scc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\subprocess.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\versions.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\src\google\protobuf\compiler\zip_writer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\common\names.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\file_layout.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\minitable\names.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\minitable\names_internal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\plugin.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\upb_generator\plugin_bootstrap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\protobuf-src\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="D:\packages\ball\cpp\build2\_deps\protobuf-build\version.rc">
+      <Filter>Source Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{4B3478F8-FB0B-3CA5-9FD0-4C686B4C66A3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{3E637BAC-A1ED-377B-BDFA-E801B0448ED6}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

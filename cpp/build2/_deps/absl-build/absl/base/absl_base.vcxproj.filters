@@ -1,0 +1,69 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\cycleclock.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\spinlock.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\sysinfo.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\thread_identity.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\unscaledcycleclock.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\call_once.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\casts.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\cycleclock.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\cycleclock_config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\low_level_scheduling.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\per_thread_tls.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\spinlock.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\sysinfo.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\thread_identity.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\tsan_mutex_interface.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\unscaledcycleclock.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\internal\unscaledcycleclock_config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\base\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{4B3478F8-FB0B-3CA5-9FD0-4C686B4C66A3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{3E637BAC-A1ED-377B-BDFA-E801B0448ED6}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

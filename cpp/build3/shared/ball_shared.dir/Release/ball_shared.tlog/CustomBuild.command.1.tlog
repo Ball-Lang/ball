@@ -1,0 +1,24 @@
+^D:\PACKAGES\BALL\CPP\BUILD3\CMAKEFILES\2B57113AE9C2672DA9681078F3CB0EE7\BALL.PB.CC.RULE
+setlocal
+cd D:\packages\ball\cpp\build3\shared\gen
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+C:\Users\ahmed\scoop\shims\buf.exe generate --template D:/packages/ball/cpp/shared/../buf.gen.cpp.yaml D:/packages/ball/cpp/shared/../../proto
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\SHARED\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build3 --check-stamp-file D:/packages/ball/cpp/build3/shared/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

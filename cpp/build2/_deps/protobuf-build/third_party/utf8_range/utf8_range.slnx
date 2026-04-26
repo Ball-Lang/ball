@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Solution>
+	<Configurations>
+		<BuildType Name="Debug"/>
+		<BuildType Name="Release"/>
+		<BuildType Name="MinSizeRel"/>
+		<BuildType Name="RelWithDebInfo"/>
+		<Platform Name="x64"/>
+	</Configurations>
+	<Project Path="ALL_BUILD.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="f4a4e63a-fd00-3cb3-adce-fcddd5177eac" DefaultStartup="true">
+		<BuildDependency Project="../../../../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="utf8_range.vcxproj"/>
+		<BuildDependency Project="utf8_validity.vcxproj"/>
+		<Build Solution="Debug|*" Project="false"/>
+		<Build Solution="Release|*" Project="false"/>
+		<Build Solution="MinSizeRel|*" Project="false"/>
+		<Build Solution="RelWithDebInfo|*" Project="false"/>
+	</Project>
+	<Project Path="RUN_TESTS.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="b4d273f6-e70f-3c02-94c8-9a9e680ef150">
+		<BuildDependency Project="../../../../ZERO_CHECK.vcxproj"/>
+		<Build Solution="Debug|*" Project="false"/>
+		<Build Solution="Release|*" Project="false"/>
+		<Build Solution="MinSizeRel|*" Project="false"/>
+		<Build Solution="RelWithDebInfo|*" Project="false"/>
+	</Project>
+	<Project Path="../../../../ZERO_CHECK.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="2d535a61-bbde-3f31-a5a4-18c9e1f9b646"/>
+	<Project Path="../../../absl-build/absl/base/absl_base.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="f709fff0-4930-3eba-9767-0b868c2d7e11">
+		<BuildDependency Project="../../../../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_log_severity.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_raw_logging_internal.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_spinlock_wait.vcxproj"/>
+	</Project>
+	<Project Path="../../../absl-build/absl/numeric/absl_int128.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="db44666c-0140-3621-bc9f-81701bbe5d07">
+		<BuildDependency Project="../../../../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_base.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_log_severity.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_raw_logging_internal.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_spinlock_wait.vcxproj"/>
+	</Project>
+	<Project Path="../../../absl-build/absl/base/absl_log_severity.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="b2584c98-ae2d-3aa4-9943-a23a98a78aa6">
+		<BuildDependency Project="../../../../ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="../../../absl-build/absl/base/absl_raw_logging_internal.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="cdb14ddf-5a39-346b-8051-281d1146fea3">
+		<BuildDependency Project="../../../../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_log_severity.vcxproj"/>
+	</Project>
+	<Project Path="../../../absl-build/absl/base/absl_spinlock_wait.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="77989fdb-9691-36b9-b66f-5dcbffef4db6">
+		<BuildDependency Project="../../../../ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="../../../absl-build/absl/strings/absl_string_view.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="b1545ff9-78ee-373c-8e1f-d962a55f95bd">
+		<BuildDependency Project="../../../../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_base.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_log_severity.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_raw_logging_internal.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_spinlock_wait.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_throw_delegate.vcxproj"/>
+	</Project>
+	<Project Path="../../../absl-build/absl/strings/absl_strings.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="1297355a-d9c8-372e-9200-a72dbaba95c4">
+		<BuildDependency Project="../../../../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_base.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/numeric/absl_int128.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_log_severity.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_raw_logging_internal.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_spinlock_wait.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/strings/absl_string_view.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/strings/absl_strings_internal.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_throw_delegate.vcxproj"/>
+	</Project>
+	<Project Path="../../../absl-build/absl/strings/absl_strings_internal.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="61fb9658-cfce-3889-aa24-b45871143d3a">
+		<BuildDependency Project="../../../../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_base.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_log_severity.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_raw_logging_internal.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_spinlock_wait.vcxproj"/>
+	</Project>
+	<Project Path="../../../absl-build/absl/base/absl_throw_delegate.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="f8e17bef-2f54-3cf1-927e-83d80791637d">
+		<BuildDependency Project="../../../../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_log_severity.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_raw_logging_internal.vcxproj"/>
+	</Project>
+	<Project Path="utf8_range.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="f4d55c96-0c5a-3f08-8d36-b055706bc6d9">
+		<BuildDependency Project="../../../../ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="utf8_validity.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="42789f3d-9b9a-3198-9e9d-d8c745498b87">
+		<BuildDependency Project="../../../../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_base.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/numeric/absl_int128.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_log_severity.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_raw_logging_internal.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_spinlock_wait.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/strings/absl_string_view.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/strings/absl_strings.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/strings/absl_strings_internal.vcxproj"/>
+		<BuildDependency Project="../../../absl-build/absl/base/absl_throw_delegate.vcxproj"/>
+	</Project>
+</Solution>

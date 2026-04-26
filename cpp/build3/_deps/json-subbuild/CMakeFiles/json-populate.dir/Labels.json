@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/packages/ball/cpp/build3/_deps/json-subbuild/CMakeFiles/json-populate"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build3/_deps/json-subbuild/CMakeFiles/4e785e80b35dcf226a7da2a2f5110ea6/json-populate.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build3/_deps/json-subbuild/CMakeFiles/a0e78eef750a3d3292598dae091dc57a/json-populate-complete.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build3/_deps/json-subbuild/CMakeFiles/8354e52f0c4cc114e80bea4e5e11c4c8/json-populate-build.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build3/_deps/json-subbuild/CMakeFiles/8354e52f0c4cc114e80bea4e5e11c4c8/json-populate-configure.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build3/_deps/json-subbuild/CMakeFiles/8354e52f0c4cc114e80bea4e5e11c4c8/json-populate-download.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build3/_deps/json-subbuild/CMakeFiles/8354e52f0c4cc114e80bea4e5e11c4c8/json-populate-install.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build3/_deps/json-subbuild/CMakeFiles/8354e52f0c4cc114e80bea4e5e11c4c8/json-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build3/_deps/json-subbuild/CMakeFiles/8354e52f0c4cc114e80bea4e5e11c4c8/json-populate-patch.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build3/_deps/json-subbuild/CMakeFiles/8354e52f0c4cc114e80bea4e5e11c4c8/json-populate-test.rule"
+		},
+		{
+			"file" : "D:/packages/ball/cpp/build3/_deps/json-subbuild/CMakeFiles/8354e52f0c4cc114e80bea4e5e11c4c8/json-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"json-populate"
+		],
+		"name" : "json-populate"
+	}
+}

@@ -1,0 +1,573 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|x64">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{E224BFBF-56ED-31A0-A52B-838DADDA2C38}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <Platform>x64</Platform>
+    <ProjectName>libupb</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\packages\ball\cpp\build3\_deps\protobuf-build\Debug\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">libupb.dir\Debug\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">libupbd</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\packages\ball\cpp\build3\_deps\protobuf-build\Release\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">libupb.dir\Release\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">libupb</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\packages\ball\cpp\build3\_deps\protobuf-build\MinSizeRel\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">libupb.dir\MinSizeRel\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">libupb</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\packages\ball\cpp\build3\_deps\protobuf-build\RelWithDebInfo\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">libupb.dir\RelWithDebInfo\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">libupb</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">.lib</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build3\_deps\protobuf-build;D:\packages\ball\cpp\build3\_deps\protobuf-src;D:\packages\ball\cpp\build3\_deps\protobuf-build\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\third_party\utf8_range;D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /utf-8 /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4065;4146;4244;4251;4267;4305;4307;4309;4334;4355;4506;4800;4996</DisableSpecificWarnings>
+      <ExceptionHandling>
+      </ExceptionHandling>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>Disabled</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <UseStandardPreprocessor>true</UseStandardPreprocessor>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;GOOGLE_PROTOBUF_CMAKE_BUILD;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;GOOGLE_PROTOBUF_CMAKE_BUILD;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build3\_deps\protobuf-build;D:\packages\ball\cpp\build3\_deps\protobuf-src;D:\packages\ball\cpp\build3\_deps\protobuf-build\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\third_party\utf8_range;D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -l0x409</AdditionalOptions>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build3\_deps\protobuf-build;D:\packages\ball\cpp\build3\_deps\protobuf-src;D:\packages\ball\cpp\build3\_deps\protobuf-build\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\third_party\utf8_range;D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64 /ignore:4221</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build3\_deps\protobuf-build;D:\packages\ball\cpp\build3\_deps\protobuf-src;D:\packages\ball\cpp\build3\_deps\protobuf-build\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\third_party\utf8_range;D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /utf-8 /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <DisableSpecificWarnings>4065;4146;4244;4251;4267;4305;4307;4309;4334;4355;4506;4800;4996</DisableSpecificWarnings>
+      <ExceptionHandling>
+      </ExceptionHandling>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <UseStandardPreprocessor>true</UseStandardPreprocessor>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;GOOGLE_PROTOBUF_CMAKE_BUILD;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;GOOGLE_PROTOBUF_CMAKE_BUILD;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build3\_deps\protobuf-build;D:\packages\ball\cpp\build3\_deps\protobuf-src;D:\packages\ball\cpp\build3\_deps\protobuf-build\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\third_party\utf8_range;D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -l0x409</AdditionalOptions>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build3\_deps\protobuf-build;D:\packages\ball\cpp\build3\_deps\protobuf-src;D:\packages\ball\cpp\build3\_deps\protobuf-build\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\third_party\utf8_range;D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64 /ignore:4221</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build3\_deps\protobuf-build;D:\packages\ball\cpp\build3\_deps\protobuf-src;D:\packages\ball\cpp\build3\_deps\protobuf-build\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\third_party\utf8_range;D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /utf-8 /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <DisableSpecificWarnings>4065;4146;4244;4251;4267;4305;4307;4309;4334;4355;4506;4800;4996</DisableSpecificWarnings>
+      <ExceptionHandling>
+      </ExceptionHandling>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>MinSpace</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <UseStandardPreprocessor>true</UseStandardPreprocessor>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;GOOGLE_PROTOBUF_CMAKE_BUILD;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;GOOGLE_PROTOBUF_CMAKE_BUILD;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build3\_deps\protobuf-build;D:\packages\ball\cpp\build3\_deps\protobuf-src;D:\packages\ball\cpp\build3\_deps\protobuf-build\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\third_party\utf8_range;D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -l0x409</AdditionalOptions>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build3\_deps\protobuf-build;D:\packages\ball\cpp\build3\_deps\protobuf-src;D:\packages\ball\cpp\build3\_deps\protobuf-build\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\third_party\utf8_range;D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64 /ignore:4221</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build3\_deps\protobuf-build;D:\packages\ball\cpp\build3\_deps\protobuf-src;D:\packages\ball\cpp\build3\_deps\protobuf-build\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\third_party\utf8_range;D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /utf-8 /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4065;4146;4244;4251;4267;4305;4307;4309;4334;4355;4506;4800;4996</DisableSpecificWarnings>
+      <ExceptionHandling>
+      </ExceptionHandling>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <UseStandardPreprocessor>true</UseStandardPreprocessor>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;GOOGLE_PROTOBUF_CMAKE_BUILD;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;GOOGLE_PROTOBUF_CMAKE_BUILD;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build3\_deps\protobuf-build;D:\packages\ball\cpp\build3\_deps\protobuf-src;D:\packages\ball\cpp\build3\_deps\protobuf-build\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\third_party\utf8_range;D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -l0x409</AdditionalOptions>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build3\_deps\protobuf-build;D:\packages\ball\cpp\build3\_deps\protobuf-src;D:\packages\ball\cpp\build3\_deps\protobuf-build\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\src;D:\packages\ball\cpp\build3\_deps\protobuf-src\third_party\utf8_range;D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64 /ignore:4221</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule D:/packages/ball/cpp/build3/_deps/protobuf-src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build3 --check-stamp-file D:/packages/ball/cpp/build3/_deps/protobuf-build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCheckCompilerFlagCommonPatterns.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckCSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckIncludeFile.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckLinkerFlag.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\ExternalProject\shared_internal_commands.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent\CMakeLists.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\FindGit.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindZLIB.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CheckFlagCommonConfig.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CheckLinkerFlag.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\SelectLibraryConfigurations.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\abseil-cpp.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\dependencies.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libprotobuf-lite.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libprotobuf.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libprotoc.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libupb.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\protobuf-configure-target.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\protobuf-options.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\protoc.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\upb_generators.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\utf8_range.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\version.rc.in;D:\packages\ball\cpp\build3\_deps\protobuf-src\src\file_lists.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\packages\ball\cpp\build3\_deps\protobuf-build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule D:/packages/ball/cpp/build3/_deps/protobuf-src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build3 --check-stamp-file D:/packages/ball/cpp/build3/_deps/protobuf-build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCheckCompilerFlagCommonPatterns.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckCSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckIncludeFile.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckLinkerFlag.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\ExternalProject\shared_internal_commands.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent\CMakeLists.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\FindGit.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindZLIB.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CheckFlagCommonConfig.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CheckLinkerFlag.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\SelectLibraryConfigurations.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\abseil-cpp.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\dependencies.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libprotobuf-lite.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libprotobuf.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libprotoc.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libupb.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\protobuf-configure-target.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\protobuf-options.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\protoc.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\upb_generators.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\utf8_range.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\version.rc.in;D:\packages\ball\cpp\build3\_deps\protobuf-src\src\file_lists.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\packages\ball\cpp\build3\_deps\protobuf-build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Building Custom Rule D:/packages/ball/cpp/build3/_deps/protobuf-src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build3 --check-stamp-file D:/packages/ball/cpp/build3/_deps/protobuf-build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCheckCompilerFlagCommonPatterns.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckCSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckIncludeFile.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckLinkerFlag.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\ExternalProject\shared_internal_commands.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent\CMakeLists.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\FindGit.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindZLIB.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CheckFlagCommonConfig.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CheckLinkerFlag.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\SelectLibraryConfigurations.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\abseil-cpp.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\dependencies.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libprotobuf-lite.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libprotobuf.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libprotoc.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libupb.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\protobuf-configure-target.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\protobuf-options.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\protoc.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\upb_generators.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\utf8_range.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\version.rc.in;D:\packages\ball\cpp\build3\_deps\protobuf-src\src\file_lists.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\packages\ball\cpp\build3\_deps\protobuf-build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Building Custom Rule D:/packages/ball/cpp/build3/_deps/protobuf-src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build3 --check-stamp-file D:/packages/ball/cpp/build3/_deps/protobuf-build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCheckCompilerFlagCommonPatterns.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckCSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckIncludeFile.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CheckLinkerFlag.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\ExternalProject\shared_internal_commands.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent\CMakeLists.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\FindGit.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindZLIB.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CheckFlagCommonConfig.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CheckLinkerFlag.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\SelectLibraryConfigurations.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\abseil-cpp.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\dependencies.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libprotobuf-lite.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libprotobuf.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libprotoc.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\libupb.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\protobuf-configure-target.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\protobuf-options.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\protoc.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\upb_generators.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\utf8_range.cmake;D:\packages\ball\cpp\build3\_deps\protobuf-src\cmake\version.rc.in;D:\packages\ball\cpp\build3\_deps\protobuf-src\src\file_lists.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\packages\ball\cpp\build3\_deps\protobuf-build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\base\status.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\hash\common.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\json\decode.c">
+      <ObjectFileName>$(IntDir)upb/json/decode.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\json\encode.c">
+      <ObjectFileName>$(IntDir)upb/json/encode.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\lex\atoi.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\lex\round_trip.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\lex\strtod.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\lex\unicode.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mem\alloc.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mem\arena.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\accessors.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\array.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\compare.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\compat.c">
+      <ObjectFileName>$(IntDir)upb/message/compat.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\copy.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\compare_unknown.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\extension.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\iterator.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\message.c">
+      <ObjectFileName>$(IntDir)upb/message/internal/message.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\map.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\map_sorter.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\merge.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\message.c">
+      <ObjectFileName>$(IntDir)upb/message/message.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\build_enum.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\decode.c">
+      <ObjectFileName>$(IntDir)upb/mini_descriptor/decode.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\internal\base92.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\internal\encode.c">
+      <ObjectFileName>$(IntDir)upb/mini_descriptor/internal/encode.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\link.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\compat.c">
+      <ObjectFileName>$(IntDir)upb/mini_table/compat.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\debug_string.c">
+      <ObjectFileName>$(IntDir)upb/mini_table/debug_string.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\extension_registry.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\generated_registry.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\internal\message.c">
+      <ObjectFileName>$(IntDir)upb/mini_table/internal/message.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\message.c">
+      <ObjectFileName>$(IntDir)upb/mini_table/message.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\def_pool.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\def_type.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\desc_state.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\enum_def.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\enum_reserved_range.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\enum_value_def.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\extension_range.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\field_def.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\file_def.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\def_builder.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\strdup2.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\message.c">
+      <ObjectFileName>$(IntDir)upb/reflection/message.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\message_def.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\message_reserved_range.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\method_def.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\oneof_def.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\service_def.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\text\debug_string.c">
+      <ObjectFileName>$(IntDir)upb/text/debug_string.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\text\encode.c">
+      <ObjectFileName>$(IntDir)upb/text/encode.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\text\internal\encode.c">
+      <ObjectFileName>$(IntDir)upb/text/internal/encode.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\util\def_to_proto.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\util\required_fields.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\byte_size.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\decode.c">
+      <ObjectFileName>$(IntDir)upb/wire/decode.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\decode_fast\select.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\encode.c">
+      <ObjectFileName>$(IntDir)upb/wire/encode.c.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\eps_copy_input_stream.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\internal\decoder.c" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\reader.c" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\base\descriptor_constants.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\base\error_handler.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\base\internal\endian.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\base\internal\log2.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\base\status.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\base\status.hpp" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\base\string_view.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\base\upcast.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\generated_code_support.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\hash\common.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\hash\int_table.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\hash\str_table.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\json\decode.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\json\encode.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\lex\atoi.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\lex\round_trip.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\lex\strtod.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\lex\unicode.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mem\alloc.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mem\arena.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mem\arena.hpp" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mem\internal\arena.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\accessors.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\array.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\compare.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\compat.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\copy.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\accessors.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\array.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\compare_unknown.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\extension.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\iterator.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\map.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\map_entry.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\map_sorter.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\message.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\internal\types.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\map.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\map_gencode_util.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\merge.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\message.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\message\value.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\build_enum.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\decode.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\internal\base92.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\internal\decoder.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\internal\encode.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\internal\encode.hpp" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\internal\modifiers.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\internal\wire_constants.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_descriptor\link.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\compat.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\debug_string.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\enum.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\extension.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\extension_registry.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\field.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\file.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\generated_registry.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\internal\enum.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\internal\extension.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\internal\field.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\internal\file.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\internal\generated_registry.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\internal\message.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\internal\size_log2.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\internal\sub.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\message.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\mini_table\sub.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\port\atomic.h" />
+    <None Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\port\def.inc">
+    </None>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\port\sanitizers.h" />
+    <None Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\port\undef.inc">
+    </None>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\port\vsnprintf_compat.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\common.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\def.hpp" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\def_pool.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\def_type.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\descriptor_bootstrap.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\enum_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\enum_reserved_range.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\enum_value_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\extension_range.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\field_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\file_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\def_pool.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\desc_state.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\enum_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\enum_reserved_range.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\enum_value_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\extension_range.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\field_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\file_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\message_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\message_reserved_range.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\method_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\oneof_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\service_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\internal\upb_edition_defaults.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\message.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\message.hpp" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\message_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\message_reserved_range.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\method_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\oneof_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\service_def.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\text\debug_string.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\text\encode.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\text\internal\encode.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\text\options.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\util\def_to_proto.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\util\required_fields.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\byte_size.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\decode.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\decode_fast\combinations.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\decode_fast\data.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\decode_fast\select.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\encode.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\eps_copy_input_stream.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\internal\decoder.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\internal\eps_copy_input_stream.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\internal\reader.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\reader.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\types.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\wire\writer.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake\google\protobuf\descriptor.upb.h" />
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake\google\protobuf\descriptor.upb_minitable.h" />
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-src\upb\reflection\cmake\google\protobuf\descriptor.upb_minitable.c" />
+    <ResourceCompile Include="D:\packages\ball\cpp\build3\_deps\protobuf-build\version.rc" />
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <ProjectReference Include="D:\packages\ball\cpp\build3\ZERO_CHECK.vcxproj">
+      <Project>{55F7FB0E-1FBF-3525-9455-686C5C033A7F}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build3\_deps\protobuf-build\third_party\utf8_range\utf8_range.vcxproj">
+      <Project>{8C4856E8-5C2D-319B-88A3-095116DD190C}</Project>
+      <Name>utf8_range</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\protobuf-subbuild\CMakeFiles\8cc4f2ef4080f722f6a75ce59caee0b1\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{A7A4D99A-7D73-3E9C-A2EB-9DE919EF2E8C}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

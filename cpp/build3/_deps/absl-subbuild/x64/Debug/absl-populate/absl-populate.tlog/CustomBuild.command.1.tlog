@@ -1,0 +1,150 @@
+^D:\PACKAGES\BALL\CPP\BUILD3\_DEPS\ABSL-SUBBUILD\CMAKEFILES\BC17F7D37C3FCDA084F0FA21F75DD446\ABSL-POPULATE-MKDIR.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -Dcfgdir=/Debug -P D:/packages/ball/cpp/build3/_deps/absl-subbuild/absl-populate-prefix/tmp/absl-populate-mkdirs.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build3/_deps/absl-subbuild/absl-populate-prefix/src/absl-populate-stamp/Debug/absl-populate-mkdir
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD3\_DEPS\ABSL-SUBBUILD\CMAKEFILES\BC17F7D37C3FCDA084F0FA21F75DD446\ABSL-POPULATE-DOWNLOAD.RULE
+setlocal
+cd D:\packages\ball\cpp\build3\_deps
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P D:/packages/ball/cpp/build3/_deps/absl-subbuild/absl-populate-prefix/tmp/absl-populate-gitclone.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build3/_deps/absl-subbuild/absl-populate-prefix/src/absl-populate-stamp/Debug/absl-populate-download
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD3\_DEPS\ABSL-SUBBUILD\CMAKEFILES\BC17F7D37C3FCDA084F0FA21F75DD446\ABSL-POPULATE-UPDATE.RULE
+setlocal
+cd D:\packages\ball\cpp\build3\_deps\absl-src
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -Dcan_fetch=YES -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P D:/packages/ball/cpp/build3/_deps/absl-subbuild/absl-populate-prefix/tmp/absl-populate-gitupdate.cmake
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD3\_DEPS\ABSL-SUBBUILD\CMAKEFILES\BC17F7D37C3FCDA084F0FA21F75DD446\ABSL-POPULATE-PATCH.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build3/_deps/absl-subbuild/absl-populate-prefix/src/absl-populate-stamp/Debug/absl-populate-patch
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD3\_DEPS\ABSL-SUBBUILD\CMAKEFILES\BC17F7D37C3FCDA084F0FA21F75DD446\ABSL-POPULATE-CONFIGURE.RULE
+setlocal
+cd D:\packages\ball\cpp\build3\_deps\absl-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build3/_deps/absl-subbuild/absl-populate-prefix/src/absl-populate-stamp/Debug/absl-populate-configure
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD3\_DEPS\ABSL-SUBBUILD\CMAKEFILES\BC17F7D37C3FCDA084F0FA21F75DD446\ABSL-POPULATE-BUILD.RULE
+setlocal
+cd D:\packages\ball\cpp\build3\_deps\absl-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build3/_deps/absl-subbuild/absl-populate-prefix/src/absl-populate-stamp/Debug/absl-populate-build
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD3\_DEPS\ABSL-SUBBUILD\CMAKEFILES\BC17F7D37C3FCDA084F0FA21F75DD446\ABSL-POPULATE-INSTALL.RULE
+setlocal
+cd D:\packages\ball\cpp\build3\_deps\absl-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build3/_deps/absl-subbuild/absl-populate-prefix/src/absl-populate-stamp/Debug/absl-populate-install
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD3\_DEPS\ABSL-SUBBUILD\CMAKEFILES\BC17F7D37C3FCDA084F0FA21F75DD446\ABSL-POPULATE-TEST.RULE
+setlocal
+cd D:\packages\ball\cpp\build3\_deps\absl-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build3/_deps/absl-subbuild/absl-populate-prefix/src/absl-populate-stamp/Debug/absl-populate-test
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD3\_DEPS\ABSL-SUBBUILD\CMAKEFILES\02F89069C49A4BF8CB120C89F96CBFC3\ABSL-POPULATE-COMPLETE.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E make_directory D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/Debug
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/Debug/absl-populate-complete
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build3/_deps/absl-subbuild/absl-populate-prefix/src/absl-populate-stamp/Debug/absl-populate-done
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD3\_DEPS\ABSL-SUBBUILD\CMAKEFILES\CED5CDF05B4F99CDDD8BFDB55AEFDA1B\ABSL-POPULATE.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD3\_DEPS\ABSL-SUBBUILD\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp/build3/_deps/absl-subbuild -BD:/packages/ball/cpp/build3/_deps/absl-subbuild --check-stamp-file D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

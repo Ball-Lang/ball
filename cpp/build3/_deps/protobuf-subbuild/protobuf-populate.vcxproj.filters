@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\protobuf-subbuild\CMakeFiles\2177c66c6eebd3f73ed997f971e281c9\protobuf-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\protobuf-subbuild\CMakeFiles\2177c66c6eebd3f73ed997f971e281c9\protobuf-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\protobuf-subbuild\CMakeFiles\2177c66c6eebd3f73ed997f971e281c9\protobuf-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\protobuf-subbuild\CMakeFiles\2177c66c6eebd3f73ed997f971e281c9\protobuf-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\protobuf-subbuild\CMakeFiles\2177c66c6eebd3f73ed997f971e281c9\protobuf-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\protobuf-subbuild\CMakeFiles\2177c66c6eebd3f73ed997f971e281c9\protobuf-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\protobuf-subbuild\CMakeFiles\2177c66c6eebd3f73ed997f971e281c9\protobuf-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\protobuf-subbuild\CMakeFiles\2177c66c6eebd3f73ed997f971e281c9\protobuf-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\protobuf-subbuild\CMakeFiles\15d5a65e56abaa5f2c973fbf1d98c28c\protobuf-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\protobuf-subbuild\CMakeFiles\7d8950213a51a7df8df959a7077c75aa\protobuf-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\protobuf-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\packages\ball\cpp\build3\_deps\protobuf-subbuild\CMakeFiles\protobuf-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{D059A380-E3A7-351E-9BDF-1FD4B77BD6BD}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

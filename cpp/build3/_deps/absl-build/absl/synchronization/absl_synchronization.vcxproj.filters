@@ -1,0 +1,96 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\barrier.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\blocking_counter.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\create_thread_identity.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\futex_waiter.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\per_thread_sem.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\pthread_waiter.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\sem_waiter.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\stdcpp_waiter.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\waiter_base.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\win32_waiter.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\notification.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\mutex.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\barrier.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\blocking_counter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\create_thread_identity.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\futex.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\futex_waiter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\per_thread_sem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\pthread_waiter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\sem_waiter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\stdcpp_waiter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\waiter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\waiter_base.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\internal\win32_waiter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\mutex.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\notification.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build3\_deps\absl-src\absl\synchronization\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{4E7BB53B-34B3-389C-9768-8D83121C3C55}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{C89BB12B-8E92-38EA-B110-95AC0AF63CBF}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

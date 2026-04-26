@@ -69,6 +69,12 @@ template<typename T> inline std::string ball_to_string(const std::vector<T>& v);
 
 template<typename T> inline std::string ball_to_string(T v) { return std::to_string(v); }
 
+// Type aliases needed by ball_to_string(const std::any&) below.
+using BallValue_RT = std::any;
+using BallMap_RT = std::map<std::string, std::any>;
+using BallList_RT = std::vector<std::any>;
+using BallFunc_RT = std::function<std::any(std::any)>;
+
 // std::any — attempt known types, fallback to type name.
 inline std::string ball_to_string(const std::any& v) {
     if (!v.has_value()) return "null";
@@ -78,6 +84,20 @@ inline std::string ball_to_string(const std::any& v) {
     if (v.type() == typeid(bool)) return ball_to_string(std::any_cast<bool>(v));
     if (v.type() == typeid(std::string)) return std::any_cast<std::string>(v);
     if (v.type() == typeid(const char*)) return std::any_cast<const char*>(v);
+    if (v.type() == typeid(BallList_RT)) return ball_to_string(std::any_cast<const BallList_RT&>(v));
+    if (v.type() == typeid(BallMap_RT)) {
+        auto& m = std::any_cast<const BallMap_RT&>(v);
+        std::string out = "{";
+        bool first = true;
+        for (auto it = m.begin(); it != m.end(); ++it) {
+            if (it->first.find("__") == 0 || it->first == "type_args") continue;
+            if (!first) out += ", ";
+            out += it->first + ": " + ball_to_string(it->second);
+            first = false;
+        }
+        out += "}";
+        return out;
+    }
     return "<any>";
 }
 
@@ -104,11 +124,6 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 // These free functions mirror ball::is_map, ball::is_list, etc. from
 // ball_shared.h but live in the global namespace so compiled programs
 // (which embed this header, not ball_shared.h) can use them.
-
-using BallValue_RT = std::any;
-using BallMap_RT = std::map<std::string, std::any>;
-using BallList_RT = std::vector<std::any>;
-using BallFunc_RT = std::function<std::any(std::any)>;
 
 inline bool ball_is_int(const std::any& v) { return v.has_value() && v.type() == typeid(int64_t); }
 inline bool ball_is_double(const std::any& v) { return v.has_value() && v.type() == typeid(double); }

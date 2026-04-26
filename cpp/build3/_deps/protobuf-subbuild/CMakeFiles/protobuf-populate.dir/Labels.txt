@@ -1,0 +1,14 @@
+# Target labels
+ protobuf-populate
+# Source files and their labels
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/protobuf-populate
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/7d8950213a51a7df8df959a7077c75aa/protobuf-populate.rule
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/15d5a65e56abaa5f2c973fbf1d98c28c/protobuf-populate-complete.rule
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/2177c66c6eebd3f73ed997f971e281c9/protobuf-populate-build.rule
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/2177c66c6eebd3f73ed997f971e281c9/protobuf-populate-configure.rule
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/2177c66c6eebd3f73ed997f971e281c9/protobuf-populate-download.rule
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/2177c66c6eebd3f73ed997f971e281c9/protobuf-populate-install.rule
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/2177c66c6eebd3f73ed997f971e281c9/protobuf-populate-mkdir.rule
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/2177c66c6eebd3f73ed997f971e281c9/protobuf-populate-patch.rule
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/2177c66c6eebd3f73ed997f971e281c9/protobuf-populate-test.rule
+D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/CMakeFiles/2177c66c6eebd3f73ed997f971e281c9/protobuf-populate-update.rule

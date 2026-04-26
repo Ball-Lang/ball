@@ -1,0 +1,3 @@
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/json-populate.dir
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/ALL_BUILD.dir
+D:/packages/ball/cpp/build2/_deps/json-subbuild/CMakeFiles/ZERO_CHECK.dir

@@ -1,0 +1,10 @@
+^D:\PACKAGES\BALL\CPP\BUILD3\CMAKEFILES\41970BE7FCE021EA24F4A21A08B314C4\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build3 --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file D:/packages/ball/cpp/build3/ball_cpp.slnx
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

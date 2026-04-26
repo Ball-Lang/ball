@@ -1,0 +1,14 @@
+# Target labels
+ absl-populate
+# Source files and their labels
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/absl-populate
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/ced5cdf05b4f99cddd8bfdb55aefda1b/absl-populate.rule
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/02f89069c49a4bf8cb120c89f96cbfc3/absl-populate-complete.rule
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/bc17f7d37c3fcda084f0fa21f75dd446/absl-populate-build.rule
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/bc17f7d37c3fcda084f0fa21f75dd446/absl-populate-configure.rule
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/bc17f7d37c3fcda084f0fa21f75dd446/absl-populate-download.rule
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/bc17f7d37c3fcda084f0fa21f75dd446/absl-populate-install.rule
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/bc17f7d37c3fcda084f0fa21f75dd446/absl-populate-mkdir.rule
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/bc17f7d37c3fcda084f0fa21f75dd446/absl-populate-patch.rule
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/bc17f7d37c3fcda084f0fa21f75dd446/absl-populate-test.rule
+D:/packages/ball/cpp/build3/_deps/absl-subbuild/CMakeFiles/bc17f7d37c3fcda084f0fa21f75dd446/absl-populate-update.rule

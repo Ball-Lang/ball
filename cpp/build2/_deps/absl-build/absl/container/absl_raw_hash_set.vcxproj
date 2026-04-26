@@ -1,0 +1,494 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|x64">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{93B8F241-A7B1-3D91-8DDE-AB23B91EC354}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <Platform>x64</Platform>
+    <ProjectName>absl_raw_hash_set</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\packages\ball\cpp\build2\_deps\absl-build\absl\container\Debug\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">absl_raw_hash_set.dir\Debug\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">absl_raw_hash_set</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\packages\ball\cpp\build2\_deps\absl-build\absl\container\Release\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">absl_raw_hash_set.dir\Release\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">absl_raw_hash_set</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\packages\ball\cpp\build2\_deps\absl-build\absl\container\MinSizeRel\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">absl_raw_hash_set.dir\MinSizeRel\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">absl_raw_hash_set</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\packages\ball\cpp\build2\_deps\absl-build\absl\container\RelWithDebInfo\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">absl_raw_hash_set.dir\RelWithDebInfo\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">absl_raw_hash_set</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">.lib</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build2\_deps\protobuf-build;D:\packages\ball\cpp\build2\_deps\protobuf-src;D:\packages\ball\cpp\build2\_deps\protobuf-build\src;D:\packages\ball\cpp\build2\_deps\protobuf-src\src;D:\packages\ball\cpp\build2\_deps\absl-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4005;4068;4180;4503;4800</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>Disabled</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build2\_deps\protobuf-build;D:\packages\ball\cpp\build2\_deps\protobuf-src;D:\packages\ball\cpp\build2\_deps\protobuf-build\src;D:\packages\ball\cpp\build2\_deps\protobuf-src\src;D:\packages\ball\cpp\build2\_deps\absl-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -l0x409</AdditionalOptions>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build2\_deps\protobuf-build;D:\packages\ball\cpp\build2\_deps\protobuf-src;D:\packages\ball\cpp\build2\_deps\protobuf-build\src;D:\packages\ball\cpp\build2\_deps\protobuf-src\src;D:\packages\ball\cpp\build2\_deps\absl-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64 /ignore:4221</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build2\_deps\protobuf-build;D:\packages\ball\cpp\build2\_deps\protobuf-src;D:\packages\ball\cpp\build2\_deps\protobuf-build\src;D:\packages\ball\cpp\build2\_deps\protobuf-src\src;D:\packages\ball\cpp\build2\_deps\absl-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <DisableSpecificWarnings>4005;4068;4180;4503;4800</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build2\_deps\protobuf-build;D:\packages\ball\cpp\build2\_deps\protobuf-src;D:\packages\ball\cpp\build2\_deps\protobuf-build\src;D:\packages\ball\cpp\build2\_deps\protobuf-src\src;D:\packages\ball\cpp\build2\_deps\absl-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -l0x409</AdditionalOptions>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build2\_deps\protobuf-build;D:\packages\ball\cpp\build2\_deps\protobuf-src;D:\packages\ball\cpp\build2\_deps\protobuf-build\src;D:\packages\ball\cpp\build2\_deps\protobuf-src\src;D:\packages\ball\cpp\build2\_deps\absl-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64 /ignore:4221</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build2\_deps\protobuf-build;D:\packages\ball\cpp\build2\_deps\protobuf-src;D:\packages\ball\cpp\build2\_deps\protobuf-build\src;D:\packages\ball\cpp\build2\_deps\protobuf-src\src;D:\packages\ball\cpp\build2\_deps\absl-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <DisableSpecificWarnings>4005;4068;4180;4503;4800</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>MinSpace</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build2\_deps\protobuf-build;D:\packages\ball\cpp\build2\_deps\protobuf-src;D:\packages\ball\cpp\build2\_deps\protobuf-build\src;D:\packages\ball\cpp\build2\_deps\protobuf-src\src;D:\packages\ball\cpp\build2\_deps\absl-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -l0x409</AdditionalOptions>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build2\_deps\protobuf-build;D:\packages\ball\cpp\build2\_deps\protobuf-src;D:\packages\ball\cpp\build2\_deps\protobuf-build\src;D:\packages\ball\cpp\build2\_deps\protobuf-src\src;D:\packages\ball\cpp\build2\_deps\absl-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64 /ignore:4221</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build2\_deps\protobuf-build;D:\packages\ball\cpp\build2\_deps\protobuf-src;D:\packages\ball\cpp\build2\_deps\protobuf-build\src;D:\packages\ball\cpp\build2\_deps\protobuf-src\src;D:\packages\ball\cpp\build2\_deps\absl-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4005;4068;4180;4503;4800</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build2\_deps\protobuf-build;D:\packages\ball\cpp\build2\_deps\protobuf-src;D:\packages\ball\cpp\build2\_deps\protobuf-build\src;D:\packages\ball\cpp\build2\_deps\protobuf-src\src;D:\packages\ball\cpp\build2\_deps\absl-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -l0x409</AdditionalOptions>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\packages\ball\cpp\build2\_deps\protobuf-build;D:\packages\ball\cpp\build2\_deps\protobuf-src;D:\packages\ball\cpp\build2\_deps\protobuf-build\src;D:\packages\ball\cpp\build2\_deps\protobuf-src\src;D:\packages\ball\cpp\build2\_deps\absl-src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64 /ignore:4221</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\container\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule D:/packages/ball/cpp/build2/_deps/absl-src/absl/container/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build2 --check-stamp-file D:/packages/ball/cpp/build2/_deps/absl-build/absl/container/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\packages\ball\cpp\build2\_deps\absl-build\absl\container\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule D:/packages/ball/cpp/build2/_deps/absl-src/absl/container/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build2 --check-stamp-file D:/packages/ball/cpp/build2/_deps/absl-build/absl/container/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\packages\ball\cpp\build2\_deps\absl-build\absl\container\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Building Custom Rule D:/packages/ball/cpp/build2/_deps/absl-src/absl/container/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build2 --check-stamp-file D:/packages/ball/cpp/build2/_deps/absl-build/absl/container/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\packages\ball\cpp\build2\_deps\absl-build\absl\container\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Building Custom Rule D:/packages/ball/cpp/build2/_deps/absl-src/absl/container/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp -BD:/packages/ball/cpp/build2 --check-stamp-file D:/packages/ball/cpp/build2/_deps/absl-build/absl/container/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\packages\ball\cpp\build2\_deps\absl-build\absl\container\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\container\internal\raw_hash_set.cc" />
+    <ClInclude Include="D:\packages\ball\cpp\build2\_deps\absl-src\absl\container\internal\raw_hash_set.h" />
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\ZERO_CHECK.vcxproj">
+      <Project>{2D535A61-BBDE-3F31-A5A4-18C9E1F9B646}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_base.vcxproj">
+      <Project>{F709FFF0-4930-3EBA-9767-0B868C2D7E11}</Project>
+      <Name>absl_base</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\hash\absl_city.vcxproj">
+      <Project>{08EDCC58-469C-361B-9B20-8A1DB527499A}</Project>
+      <Name>absl_city</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\time\absl_civil_time.vcxproj">
+      <Project>{A3E71A23-DB96-3258-BE47-570487DC0006}</Project>
+      <Name>absl_civil_time</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_cord.vcxproj">
+      <Project>{8E9C5BDD-78FE-3097-9BF0-F1A9A264A08B}</Project>
+      <Name>absl_cord</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_cord_internal.vcxproj">
+      <Project>{69E718D2-57AF-3D66-A5D5-E42DB2A97F9D}</Project>
+      <Name>absl_cord_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_cordz_functions.vcxproj">
+      <Project>{56286FA3-2D5E-3954-BF3C-4FB90A98A5DC}</Project>
+      <Name>absl_cordz_functions</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_cordz_handle.vcxproj">
+      <Project>{96AFB706-8853-31F7-8AE6-EC00AB0D6855}</Project>
+      <Name>absl_cordz_handle</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_cordz_info.vcxproj">
+      <Project>{242E290A-022A-31DA-97FC-860B1E819E23}</Project>
+      <Name>absl_cordz_info</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\crc\absl_crc32c.vcxproj">
+      <Project>{D4AAA098-B554-35ED-9285-B7E0B3C70590}</Project>
+      <Name>absl_crc32c</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\crc\absl_crc_cord_state.vcxproj">
+      <Project>{A2A7529C-04A4-3E7C-8BFA-BF3FC88D5874}</Project>
+      <Name>absl_crc_cord_state</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\crc\absl_crc_cpu_detect.vcxproj">
+      <Project>{4320F932-E02F-3DBD-96B4-395AC2A1EE00}</Project>
+      <Name>absl_crc_cpu_detect</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\crc\absl_crc_internal.vcxproj">
+      <Project>{5857A6B2-C650-3D08-8BA1-32B40BFFC07E}</Project>
+      <Name>absl_crc_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_debugging_internal.vcxproj">
+      <Project>{423A68C6-0EE2-3104-A784-CD0684B3BBA8}</Project>
+      <Name>absl_debugging_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_decode_rust_punycode.vcxproj">
+      <Project>{F4192EB9-34BB-3E7E-A9C1-298FBA973E33}</Project>
+      <Name>absl_decode_rust_punycode</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_demangle_internal.vcxproj">
+      <Project>{087ADB2A-6F09-3C34-ADEB-2A5FD506A90B}</Project>
+      <Name>absl_demangle_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_demangle_rust.vcxproj">
+      <Project>{AAC8B274-1BED-38DE-B9F6-7153DA11D0FF}</Project>
+      <Name>absl_demangle_rust</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\profiling\absl_exponential_biased.vcxproj">
+      <Project>{65CDB74F-D930-3861-B254-D6D0A0B23BB1}</Project>
+      <Name>absl_exponential_biased</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\synchronization\absl_graphcycles_internal.vcxproj">
+      <Project>{1A36DF94-F5A8-350A-B4DA-C97E351E4751}</Project>
+      <Name>absl_graphcycles_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\hash\absl_hash.vcxproj">
+      <Project>{A30AEBC0-EC29-3233-8836-8DB436CEA756}</Project>
+      <Name>absl_hash</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\container\absl_hashtablez_sampler.vcxproj">
+      <Project>{73EE338F-2C1A-31AE-BDF1-FA6C2CF59B77}</Project>
+      <Name>absl_hashtablez_sampler</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\numeric\absl_int128.vcxproj">
+      <Project>{DB44666C-0140-3621-BC9F-81701BBE5D07}</Project>
+      <Name>absl_int128</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\synchronization\absl_kernel_timeout_internal.vcxproj">
+      <Project>{E9FE82DD-CB45-345D-A972-CA95A1CC5EDF}</Project>
+      <Name>absl_kernel_timeout_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_log_severity.vcxproj">
+      <Project>{B2584C98-AE2D-3AA4-9943-A23A98A78AA6}</Project>
+      <Name>absl_log_severity</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\hash\absl_low_level_hash.vcxproj">
+      <Project>{FE0EB874-F3E5-36D5-83C6-A5441BB9E29E}</Project>
+      <Name>absl_low_level_hash</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_malloc_internal.vcxproj">
+      <Project>{AB250212-A9B1-3ADF-A7E5-A04BEA4EBCB7}</Project>
+      <Name>absl_malloc_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_raw_logging_internal.vcxproj">
+      <Project>{CDB14DDF-5A39-346B-8051-281D1146FEA3}</Project>
+      <Name>absl_raw_logging_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_spinlock_wait.vcxproj">
+      <Project>{77989FDB-9691-36B9-B66F-5DCBFFEF4DB6}</Project>
+      <Name>absl_spinlock_wait</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_stacktrace.vcxproj">
+      <Project>{576B3904-A181-3B26-9547-96BA6DA3A1AB}</Project>
+      <Name>absl_stacktrace</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_str_format_internal.vcxproj">
+      <Project>{30BDFF0F-3182-3544-9B1B-5E059960E210}</Project>
+      <Name>absl_str_format_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_string_view.vcxproj">
+      <Project>{B1545FF9-78EE-373C-8E1F-D962A55F95BD}</Project>
+      <Name>absl_string_view</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_strings.vcxproj">
+      <Project>{1297355A-D9C8-372E-9200-A72DBABA95C4}</Project>
+      <Name>absl_strings</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\strings\absl_strings_internal.vcxproj">
+      <Project>{61FB9658-CFCE-3889-AA24-B45871143D3A}</Project>
+      <Name>absl_strings_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_symbolize.vcxproj">
+      <Project>{94E4C69A-028B-37C5-BB97-E41586D5097E}</Project>
+      <Name>absl_symbolize</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\synchronization\absl_synchronization.vcxproj">
+      <Project>{A83D8D84-9FA5-3008-9D0A-457BE4461D17}</Project>
+      <Name>absl_synchronization</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_throw_delegate.vcxproj">
+      <Project>{F8E17BEF-2F54-3CF1-927E-83D80791637D}</Project>
+      <Name>absl_throw_delegate</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\time\absl_time.vcxproj">
+      <Project>{B5374569-49EF-3B94-AF1D-2AB77C034B90}</Project>
+      <Name>absl_time</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\time\absl_time_zone.vcxproj">
+      <Project>{8C08A2CD-DEAA-3F19-B080-3D31C68AB72E}</Project>
+      <Name>absl_time_zone</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\base\absl_tracing_internal.vcxproj">
+      <Project>{DB678FE1-D4BD-3E55-9E7D-25306B644792}</Project>
+      <Name>absl_tracing_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\packages\ball\cpp\build2\_deps\absl-build\absl\debugging\absl_utf8_for_code_point.vcxproj">
+      <Project>{B1FCC15D-42B0-3F05-B92A-F6A2AB6341D3}</Project>
+      <Name>absl_utf8_for_code_point</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

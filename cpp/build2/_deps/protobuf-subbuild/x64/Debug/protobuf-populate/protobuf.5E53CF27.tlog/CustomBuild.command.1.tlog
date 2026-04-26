@@ -1,0 +1,150 @@
+^D:\PACKAGES\BALL\CPP\BUILD2\_DEPS\PROTOBUF-SUBBUILD\CMAKEFILES\BA540D2403B6C142BB00BA3711C7BE48\PROTOBUF-POPULATE-MKDIR.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -Dcfgdir=/Debug -P D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/protobuf-populate-prefix/tmp/protobuf-populate-mkdirs.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/protobuf-populate-prefix/src/protobuf-populate-stamp/Debug/protobuf-populate-mkdir
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD2\_DEPS\PROTOBUF-SUBBUILD\CMAKEFILES\BA540D2403B6C142BB00BA3711C7BE48\PROTOBUF-POPULATE-DOWNLOAD.RULE
+setlocal
+cd D:\packages\ball\cpp\build2\_deps
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/protobuf-populate-prefix/tmp/protobuf-populate-gitclone.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/protobuf-populate-prefix/src/protobuf-populate-stamp/Debug/protobuf-populate-download
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD2\_DEPS\PROTOBUF-SUBBUILD\CMAKEFILES\BA540D2403B6C142BB00BA3711C7BE48\PROTOBUF-POPULATE-UPDATE.RULE
+setlocal
+cd D:\packages\ball\cpp\build2\_deps\protobuf-src
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -Dcan_fetch=YES -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/protobuf-populate-prefix/tmp/protobuf-populate-gitupdate.cmake
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD2\_DEPS\PROTOBUF-SUBBUILD\CMAKEFILES\BA540D2403B6C142BB00BA3711C7BE48\PROTOBUF-POPULATE-PATCH.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/protobuf-populate-prefix/src/protobuf-populate-stamp/Debug/protobuf-populate-patch
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD2\_DEPS\PROTOBUF-SUBBUILD\CMAKEFILES\BA540D2403B6C142BB00BA3711C7BE48\PROTOBUF-POPULATE-CONFIGURE.RULE
+setlocal
+cd D:\packages\ball\cpp\build2\_deps\protobuf-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/protobuf-populate-prefix/src/protobuf-populate-stamp/Debug/protobuf-populate-configure
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD2\_DEPS\PROTOBUF-SUBBUILD\CMAKEFILES\BA540D2403B6C142BB00BA3711C7BE48\PROTOBUF-POPULATE-BUILD.RULE
+setlocal
+cd D:\packages\ball\cpp\build2\_deps\protobuf-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/protobuf-populate-prefix/src/protobuf-populate-stamp/Debug/protobuf-populate-build
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD2\_DEPS\PROTOBUF-SUBBUILD\CMAKEFILES\BA540D2403B6C142BB00BA3711C7BE48\PROTOBUF-POPULATE-INSTALL.RULE
+setlocal
+cd D:\packages\ball\cpp\build2\_deps\protobuf-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/protobuf-populate-prefix/src/protobuf-populate-stamp/Debug/protobuf-populate-install
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD2\_DEPS\PROTOBUF-SUBBUILD\CMAKEFILES\BA540D2403B6C142BB00BA3711C7BE48\PROTOBUF-POPULATE-TEST.RULE
+setlocal
+cd D:\packages\ball\cpp\build2\_deps\protobuf-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/protobuf-populate-prefix/src/protobuf-populate-stamp/Debug/protobuf-populate-test
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD2\_DEPS\PROTOBUF-SUBBUILD\CMAKEFILES\13BA558D62F740AC4419B7C0127801EA\PROTOBUF-POPULATE-COMPLETE.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E make_directory D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/Debug
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/Debug/protobuf-populate-complete
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/protobuf-populate-prefix/src/protobuf-populate-stamp/Debug/protobuf-populate-done
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD2\_DEPS\PROTOBUF-SUBBUILD\CMAKEFILES\8CC4F2EF4080F722F6A75CE59CAEE0B1\PROTOBUF-POPULATE.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PACKAGES\BALL\CPP\BUILD2\_DEPS\PROTOBUF-SUBBUILD\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/packages/ball/cpp/build2/_deps/protobuf-subbuild -BD:/packages/ball/cpp/build2/_deps/protobuf-subbuild --check-stamp-file D:/packages/ball/cpp/build2/_deps/protobuf-subbuild/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

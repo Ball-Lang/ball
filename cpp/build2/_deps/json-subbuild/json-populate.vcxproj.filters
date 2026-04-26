@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\json-subbuild\CMakeFiles\b007caaa85cb27fbdc5a056a12588403\json-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\json-subbuild\CMakeFiles\b007caaa85cb27fbdc5a056a12588403\json-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\json-subbuild\CMakeFiles\b007caaa85cb27fbdc5a056a12588403\json-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\json-subbuild\CMakeFiles\b007caaa85cb27fbdc5a056a12588403\json-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\json-subbuild\CMakeFiles\b007caaa85cb27fbdc5a056a12588403\json-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\json-subbuild\CMakeFiles\b007caaa85cb27fbdc5a056a12588403\json-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\json-subbuild\CMakeFiles\b007caaa85cb27fbdc5a056a12588403\json-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\json-subbuild\CMakeFiles\b007caaa85cb27fbdc5a056a12588403\json-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\json-subbuild\CMakeFiles\2fb18577a51da1f23da5bd2289877993\json-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\json-subbuild\CMakeFiles\cdec3b57a741b45f576a59ae5ee06d1e\json-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\packages\ball\cpp\build2\_deps\json-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\packages\ball\cpp\build2\_deps\json-subbuild\CMakeFiles\json-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{43CC5D9E-6D1E-386E-A0D4-9092C794695B}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

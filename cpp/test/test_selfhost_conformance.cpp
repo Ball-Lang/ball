@@ -383,68 +383,9 @@ int main() {
     // map-based memoization or modulo operations that prevent proper
     // loop termination.
     static const std::vector<std::string> skip_list = {
-        "80_bubble_sort",        // timeout: O(n^2) list swap operations
-        "81_binary_search",      // timeout: list index operations
-        "83_matrix_multiply",    // timeout: nested list operations
-        "88_selection_sort",     // timeout: O(n^2) list operations
-        "94_prime_sieve",        // timeout: heavy list operations
-        "95_fibonacci_memo",     // infinite loop: map key lookup with BallDyn keys
-        "96_roman_numerals",     // timeout: heavy map operations
-        "97_stack_operations",   // timeout: list operations
-        "98_string_tokenizer",   // timeout: heavy string/list operations
-        // 100+ range: OOP, sorting, and algorithmic tests
-        "101_simple_class",      // OOP not fully supported
-        "102_inheritance",
-        "103_abstract_class",
-        "104_getter_setter",
-        "105_static_methods",
-        "106_factory_constructor",
-        "107_method_override_super",
-        "108_class_tostring",
-        "109_enum_values",
-        "110_mixin",
-        "111_cascade_operator",
-        "112_named_constructors",
-        "113_operator_overloading",
-        "114_class_hierarchy",
-        "115_generic_class",
-        "116_map_iteration",
-        "117_list_generate",
-        "118_set_operations",
-        "119_nested_maps",
-        "120_list_of_maps",
-        "121_map_from_entries",
-        "122_list_sort_comparator",
-        "123_queue_simulation",
-        "124_frequency_counter",
-        "125_group_by",
-        "127_zip_lists",
-        "128_matrix_transpose",
-        "130_running_average",
-        "131_insertion_sort",
-        "132_merge_sort",
-        "133_quick_sort",
-        "134_counting_sort",
-        "135_linear_search_sentinel",
-        "136_string_pattern_match",
-        "137_pascals_triangle",
-        "138_matrix_addition",
-        "139_decimal_to_binary", // hangs: step counter not preventing infinite loop
-        "140_caesar_cipher",
-        "141_palindrome_number", // hangs
-        "142_armstrong_number",  // hangs
-        "143_perfect_number",
-        "144_lcm_computation",  // hangs
-        "145_josephus",         // hangs
-        "146_nested_try_catch_types",
-        "147_complex_switch",
-        "148_labeled_loops",
-        "150_state_machine",
-        "151_recursive_descent_parser",
-        "152_coroutine_simulation",
-        "153_memoized_recursive",
-        "154_currying",
-        "155_pipeline_compose",
+        // Only skip programs that genuinely hang (step counter caught by try/catch)
+        "95_fibonacci_memo",     // infinite loop: map key lookup swallows StepLimitExceeded
+        "136_string_pattern_match", // >30s regex operations
     };
 
     for (auto& tc : cases) {

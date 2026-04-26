@@ -94,6 +94,9 @@ class DartEncoder {
   /// Set of std_collections base function names discovered during encoding.
   final Set<String> _usedCollectionsFunctions = {};
 
+  /// Set of ball_proto base function names discovered during encoding.
+  final Set<String> _usedProtoFunctions = {};
+
   /// Ball module name for the file currently being encoded.
   /// All user-defined type names are prefixed with `"$_moduleName:"`.
   String _moduleName = 'main';
@@ -136,6 +139,7 @@ class DartEncoder {
     _importedModules.clear();
     _usedBaseFunctions.clear();
     _usedCollectionsFunctions.clear();
+    _usedProtoFunctions.clear();
     _importDetails.clear();
     _exportDetails.clear();
     _partDetails.clear();
@@ -217,8 +221,8 @@ class DartEncoder {
   ///
   /// Use after a sequence of [encodeModule] calls to obtain the shared base
   /// modules for a whole package.
-  ({Module stdModule, Module? dartStdModule, Module? collectionsModule}) buildStdModules() =>
-      (stdModule: _buildStdModule(), dartStdModule: _buildDartStdModule(), collectionsModule: _buildCollectionsModule());
+  ({Module stdModule, Module? dartStdModule, Module? collectionsModule, Module? protoModule}) buildStdModules() =>
+      (stdModule: _buildStdModule(), dartStdModule: _buildDartStdModule(), collectionsModule: _buildCollectionsModule(), protoModule: _buildProtoModule());
 
   /// Clear the accumulated set of used base functions.
   ///
@@ -227,6 +231,7 @@ class DartEncoder {
   void clearStdAccumulator() {
     _usedBaseFunctions.clear();
     _usedCollectionsFunctions.clear();
+    _usedProtoFunctions.clear();
   }
 
   // ============================================================
@@ -386,13 +391,14 @@ class DartEncoder {
     final stdModule = _buildStdModule();
     final dartStdModule = _buildDartStdModule();
     final collectionsModule = _buildCollectionsModule();
+    final protoModule = _buildProtoModule();
 
     return Program()
       ..name = name
       ..version = version
       ..entryModule = 'main'
       ..entryFunction = 'main'
-      ..modules.addAll([stdModule, ?dartStdModule, ?collectionsModule, ...importStubs, module]);
+      ..modules.addAll([stdModule, ?dartStdModule, ?collectionsModule, ?protoModule, ...importStubs, module]);
   }
 
   /// Builds a single ball [Module] from a parsed compilation unit.
@@ -665,6 +671,24 @@ class DartEncoder {
     return Module()
       ..name = 'std_collections'
       ..description = 'Collections standard library base module'
+      ..functions.addAll(functions);
+  }
+
+  Module? _buildProtoModule() {
+    if (_usedProtoFunctions.isEmpty) return null;
+
+    final functions = <FunctionDefinition>[];
+    for (final name in _usedProtoFunctions.toList()..sort()) {
+      functions.add(
+        FunctionDefinition()
+          ..name = name
+          ..isBase = true,
+      );
+    }
+
+    return Module()
+      ..name = 'ball_proto'
+      ..description = 'Protobuf compatibility layer for cross-language support'
       ..functions.addAll(functions);
   }
 
@@ -2827,10 +2851,55 @@ class DartEncoder {
       }
     }
 
-    // .length -> std.length  (only for actual property access, not method calls;
-    // MethodInvocation with .length() is a real call – e.g. File.length())
-    // This case is unreachable for MethodInvocation; length getters arrive
-    // via PropertyAccess / PrefixedIdentifier handling, not here.
+    // ── Protobuf API → ball_proto module routing ──
+    // Methods like whichExpr(), hasBody(), whichKind() route to ball_proto
+    // so every target language gets deterministic protobuf access patterns.
+    if (realTarget != null && args.isEmpty && !isNullAware) {
+      const protoRoutes = <String, String>{
+        'whichExpr': 'whichExpr',
+        'whichValue': 'whichValue',
+        'whichStmt': 'whichStmt',
+        'whichKind': 'whichKind',
+        'whichSource': 'whichSource',
+        'hasBody': 'hasBody',
+        'hasMetadata': 'hasMetadata',
+        'hasInput': 'hasInput',
+        'hasDescriptor': 'hasDescriptor',
+        'hasResult': 'hasResult',
+        'hasCall': 'hasCall',
+        'hasLiteral': 'hasLiteral',
+        'hasReference': 'hasReference',
+        'hasFieldAccess': 'hasFieldAccess',
+        'hasMessageCreation': 'hasMessageCreation',
+        'hasBlock': 'hasBlock',
+        'hasLambda': 'hasLambda',
+        'hasStringValue': 'hasStringValue',
+        'hasBoolValue': 'hasBoolValue',
+        'hasNumberValue': 'hasNumberValue',
+        'hasListValue': 'hasListValue',
+        'hasStructValue': 'hasStructValue',
+        'hasNullValue': 'hasNullValue',
+        'hasIntValue': 'hasIntValue',
+        'hasDoubleValue': 'hasDoubleValue',
+        'hasBytesValue': 'hasBytesValue',
+        'hasName': 'hasName',
+        'hasModule': 'hasModule',
+        'hasFunction': 'hasFunction',
+      };
+      if (protoRoutes.containsKey(methodName)) {
+        final protoFn = protoRoutes[methodName]!;
+        _usedProtoFunctions.add(protoFn);
+        return Expression()
+          ..call = (FunctionCall()
+            ..module = 'ball_proto'
+            ..function = protoFn
+            ..input = (Expression()
+              ..messageCreation = (MessageCreation()
+                ..fields.add(FieldValuePair()
+                  ..name = 'obj'
+                  ..value = _encodeExpr(realTarget)))));
+      }
+    }
 
     // Null-aware method call: target?.method(args)
     if (isNullAware && realTarget != null) {

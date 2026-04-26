@@ -183,7 +183,7 @@ class PackageEncoder {
       }
     }
 
-    final (:stdModule, :dartStdModule, :collectionsModule) = encoder.buildStdModules();
+    final (:stdModule, :dartStdModule, :collectionsModule, :protoModule) = encoder.buildStdModules();
 
     // Sort user modules so the entry module is last (conventional positioning).
     userModules.sort((a, b) {
@@ -205,6 +205,7 @@ class PackageEncoder {
         stdModule,
         ?dartStdModule,
         ?collectionsModule,
+        ?protoModule,
         ...externalStubs.values,
         ...userModules,
         ?resourceModule,

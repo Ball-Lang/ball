@@ -25,6 +25,9 @@
 
 #include <filesystem>
 #include <chrono>
+#include <thread>
+#include <atomic>
+#include <future>
 
 #ifndef BALL_CONFORMANCE_DIR
 #error "BALL_CONFORMANCE_DIR must be defined by the build system"
@@ -252,9 +255,8 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
     // Convert protobuf -> BallDyn map tree
     auto programAny = proto_msg_to_any(program);
 
-    // Capture stdout by redirecting cout
-    std::ostringstream captured;
-    auto oldBuf = std::cout.rdbuf(captured.rdbuf());
+    // Capture stdout via a shared string buffer (thread-safe, no cout redirect)
+    auto captured = std::make_shared<std::string>();
 
     try {
         // Construct BallEngine with the program map
@@ -270,9 +272,9 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
         engine._constructors = BallDyn(BallMap{});
         engine._callCounts = BallDyn(BallMap{});
         engine._nextMutexId = 0;
-        // Set stdout_ to a function that prints to std::cout
-        engine.stdout_ = BallDyn(BallFunc([](std::any arg) -> std::any {
-            std::cout << ball_to_string(arg) << "\n";
+        // Set stdout_ to a function that captures output to a string buffer
+        engine.stdout_ = BallDyn(BallFunc([captured](std::any arg) -> std::any {
+            *captured += ball_to_string(arg) + "\n";
             return std::any{};
         }));
 
@@ -286,7 +288,6 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
         auto key = entryMod + "." + entryFn;
         auto entryFunc = BallDyn(engine._functions)[key];
         if (!entryFunc.has_value()) {
-            std::cout.rdbuf(oldBuf);
             failure_msg = "entry function not found: '" + key + "' (functions map has " + std::to_string(engine._functions.size()) + " entries)";
             return false;
         }
@@ -301,36 +302,29 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
                     keys += k + "(" + (v.has_value() ? "set" : "null") + ") ";
                 }
             }
-            std::cout.rdbuf(oldBuf);
             failure_msg = "body expr whichExpr=notSet, type=" + std::string(bodyExpr._val.type().name()) + ", keys=[" + keys + "]";
             return false;
         }
         // Run the program
         engine.run();
     } catch (const BallException& be) {
-        std::cout.rdbuf(oldBuf);
-        if (captured.str().empty()) {
+        if (captured->empty()) {
             failure_msg = std::string("BallException: ") + be.what() + " type=" + be.type_name;
             return false;
         }
-        std::cout.rdbuf(captured.rdbuf());
+        // Some output was produced before the exception — check it
     } catch (const std::bad_any_cast& bac) {
-        std::cout.rdbuf(oldBuf);
         failure_msg = std::string("bad_any_cast: ") + bac.what();
         return false;
     } catch (const std::exception& e) {
-        std::cout.rdbuf(oldBuf);
         failure_msg = std::string("engine threw: ") + e.what();
         return false;
     } catch (...) {
-        std::cout.rdbuf(oldBuf);
         failure_msg = "engine threw unknown exception";
         return false;
     }
 
-    std::cout.rdbuf(oldBuf);
-
-    std::string actual = normalize(captured.str());
+    std::string actual = normalize(*captured);
     std::string expected = normalize(read_file_str(expected_path));
 
     if (actual != expected) {
@@ -370,39 +364,69 @@ int main() {
     std::sort(cases.begin(), cases.end(),
               [](auto& a, auto& b) { return a.name < b.name; });
 
+    // Per-test timeout in seconds. Tests that exceed this are killed and
+    // reported as TIMEOUT. This replaces the old whitelist approach.
+    constexpr int TIMEOUT_SECONDS = 5;
+
+    // Skip list: programs known to hang in the self-hosted engine.
+    // These cause infinite loops due to BallDyn wrapping issues in
+    // map-based memoization or modulo operations that prevent proper
+    // loop termination.
+    static const std::vector<std::string> skip_list = {
+        "95_fibonacci_memo",     // infinite loop: map key lookup with BallDyn keys
+        "143_perfect_number",    // infinite loop: modulo on BallDyn values
+        "153_memoized_recursive", // infinite loop: same memoization issue as 95
+    };
+
     for (auto& tc : cases) {
-        // Skip tests known to cause infinite loops due to for/while/recursion
-        // These hang because /* is check */ true was used as while condition
-        // Skip ALL tests that might contain loops, recursion, try/catch chains,
-        // or OOP features. Only run simple expression-based tests.
-        static const std::vector<std::string> whitelist = {
-            "30_", "31_", "32_", "33_", "34_",
-            "36_", "37_", "39_", "40_",
-            "50_", "51_", "52_", "54_", "55_",
-            "62_", "64_", "69_",
-        };
-        bool in_whitelist = false;
-        for (auto& prefix : whitelist) {
-            if (tc.name.find(prefix) == 0) { in_whitelist = true; break; }
-        }
-        if (!in_whitelist) { tests_skipped_val++; continue; }
-        // dummy skip list
-        static const std::vector<std::string> skip_list = {};
         bool skip = false;
         for (auto& prefix : skip_list) {
             if (tc.name.find(prefix) == 0) { skip = true; break; }
         }
-        if (skip) { tests_skipped_val++; continue; }
+        if (skip) {
+            tests_skipped_val++;
+            std::cout << "  SKIP: " << tc.name << "\n";
+            continue;
+        }
         tests_run++;
 
         std::string failure_msg;
         auto start = std::chrono::high_resolution_clock::now();
 
+        // Run the test in a separate thread with a timeout to catch infinite loops.
+        // On Windows we can't kill threads, so we use a promise/future pattern
+        // with a detached thread. If it times out, the thread leaks but we move on.
         bool passed = false;
-        try {
-            passed = run_one(tc.program, tc.expected, failure_msg);
-        } catch (...) {
-            failure_msg = "unexpected crash";
+        bool timed_out = false;
+        {
+            auto promise = std::make_shared<std::promise<bool>>();
+            auto fut = promise->get_future();
+            // Shared copies for the lambda to capture
+            auto fm_ptr = std::make_shared<std::string>();
+            auto prog = tc.program;
+            auto exp = tc.expected;
+
+            std::thread worker([promise, fm_ptr, prog, exp]() {
+                try {
+                    std::string fm;
+                    bool ok = run_one(prog, exp, fm);
+                    *fm_ptr = fm;
+                    promise->set_value(ok);
+                } catch (...) {
+                    *fm_ptr = "unexpected crash";
+                    promise->set_value(false);
+                }
+            });
+            worker.detach();
+
+            auto status = fut.wait_for(std::chrono::seconds(TIMEOUT_SECONDS));
+            if (status == std::future_status::timeout) {
+                timed_out = true;
+                failure_msg = "TIMEOUT after " + std::to_string(TIMEOUT_SECONDS) + "s (likely infinite loop)";
+            } else {
+                passed = fut.get();
+                failure_msg = *fm_ptr;
+            }
         }
 
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -411,6 +435,10 @@ int main() {
         if (passed) {
             tests_passed++;
             std::cout << "  PASS: " << tc.name << " (" << elapsed.count() << "ms)\n";
+        } else if (timed_out) {
+            tests_failed++;
+            failures.push_back(tc.name + ": " + failure_msg);
+            std::cout << "  TIMEOUT: " << tc.name << " (" << elapsed.count() << "ms)\n";
         } else {
             tests_failed++;
             failures.push_back(tc.name + ": " + failure_msg);
@@ -421,8 +449,9 @@ int main() {
 
     std::cout << "\n==========================================\n"
               << "Results: " << tests_passed << " passed, "
-              << tests_failed << " failed out of "
-              << tests_run << " total\n";
+              << tests_failed << " failed, "
+              << tests_skipped_val << " skipped out of "
+              << (tests_run + tests_skipped_val) << " total\n";
 
     if (!failures.empty()) {
         std::cout << "\nFailed tests:\n";
@@ -431,5 +460,5 @@ int main() {
         }
     }
 
-    return 0;  // Don't fail the build — this is a new test suite
+    return 0;  // Don't fail the build — this is a progress-tracking test suite
 }

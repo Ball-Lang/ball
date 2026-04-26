@@ -1,0 +1,698 @@
+{
+  "name": "ball_proto",
+  "functions": [
+    {
+      "name": "whichExpr",
+      "inputType": "Map",
+      "outputType": "String",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns which oneof field is set on a Expression. Checks: call, literal, reference, fieldAccess, messageCreation, block, lambda. Returns \"notSet\" if none.",
+        "variants": [
+          "call",
+          "literal",
+          "reference",
+          "fieldAccess",
+          "messageCreation",
+          "block",
+          "lambda"
+        ],
+        "messageType": "Expression"
+      }
+    },
+    {
+      "name": "whichValue",
+      "inputType": "Map",
+      "outputType": "String",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns which oneof field is set on a Literal. Checks: intValue, doubleValue, stringValue, boolValue, bytesValue, listValue. Returns \"notSet\" if none.",
+        "variants": [
+          "intValue",
+          "doubleValue",
+          "stringValue",
+          "boolValue",
+          "bytesValue",
+          "listValue"
+        ],
+        "messageType": "Literal"
+      }
+    },
+    {
+      "name": "whichStmt",
+      "inputType": "Map",
+      "outputType": "String",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns which oneof field is set on a Statement. Checks: let, expression. Returns \"notSet\" if none.",
+        "variants": [
+          "let",
+          "expression"
+        ],
+        "messageType": "Statement"
+      }
+    },
+    {
+      "name": "whichKind",
+      "inputType": "Map",
+      "outputType": "String",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns which oneof field is set on a google.protobuf.Value. Checks: nullValue, numberValue, stringValue, boolValue, structValue, listValue. Returns \"notSet\" if none.",
+        "variants": [
+          "nullValue",
+          "numberValue",
+          "stringValue",
+          "boolValue",
+          "structValue",
+          "listValue"
+        ],
+        "messageType": "google.protobuf.Value"
+      }
+    },
+    {
+      "name": "whichSource",
+      "inputType": "Map",
+      "outputType": "String",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns which oneof field is set on a ModuleImport. Checks: http, file, git, registry, inline. Returns \"notSet\" if none.",
+        "variants": [
+          "http",
+          "file",
+          "git",
+          "registry",
+          "inline"
+        ],
+        "messageType": "ModuleImport"
+      }
+    },
+    {
+      "name": "hasBody",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"body\" field is present and non-default.",
+        "field": "body"
+      }
+    },
+    {
+      "name": "hasMetadata",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"metadata\" field is present and non-default.",
+        "field": "metadata"
+      }
+    },
+    {
+      "name": "hasInput",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"input\" field is present and non-default.",
+        "field": "input"
+      }
+    },
+    {
+      "name": "hasDescriptor",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"descriptor\" field is present and non-default.",
+        "field": "descriptor"
+      }
+    },
+    {
+      "name": "hasResult",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"result\" field is present and non-default.",
+        "field": "result"
+      }
+    },
+    {
+      "name": "hasCall",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"call\" field is present and non-default.",
+        "field": "call"
+      }
+    },
+    {
+      "name": "hasLiteral",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"literal\" field is present and non-default.",
+        "field": "literal"
+      }
+    },
+    {
+      "name": "hasReference",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"reference\" field is present and non-default.",
+        "field": "reference"
+      }
+    },
+    {
+      "name": "hasFieldAccess",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"fieldAccess\" field is present and non-default.",
+        "field": "fieldAccess"
+      }
+    },
+    {
+      "name": "hasMessageCreation",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"messageCreation\" field is present and non-default.",
+        "field": "messageCreation"
+      }
+    },
+    {
+      "name": "hasBlock",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"block\" field is present and non-default.",
+        "field": "block"
+      }
+    },
+    {
+      "name": "hasLambda",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"lambda\" field is present and non-default.",
+        "field": "lambda"
+      }
+    },
+    {
+      "name": "hasStringValue",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"stringValue\" field is present and non-default.",
+        "field": "stringValue"
+      }
+    },
+    {
+      "name": "hasBoolValue",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"boolValue\" field is present and non-default.",
+        "field": "boolValue"
+      }
+    },
+    {
+      "name": "hasNumberValue",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"numberValue\" field is present and non-default.",
+        "field": "numberValue"
+      }
+    },
+    {
+      "name": "hasListValue",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"listValue\" field is present and non-default.",
+        "field": "listValue"
+      }
+    },
+    {
+      "name": "hasStructValue",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"structValue\" field is present and non-default.",
+        "field": "structValue"
+      }
+    },
+    {
+      "name": "hasNullValue",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"nullValue\" field is present and non-default.",
+        "field": "nullValue"
+      }
+    },
+    {
+      "name": "hasIntValue",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"intValue\" field is present and non-default.",
+        "field": "intValue"
+      }
+    },
+    {
+      "name": "hasDoubleValue",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"doubleValue\" field is present and non-default.",
+        "field": "doubleValue"
+      }
+    },
+    {
+      "name": "hasBytesValue",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"bytesValue\" field is present and non-default.",
+        "field": "bytesValue"
+      }
+    },
+    {
+      "name": "hasName",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"name\" field is present and non-default.",
+        "field": "name"
+      }
+    },
+    {
+      "name": "hasModule",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"module\" field is present and non-default.",
+        "field": "module"
+      }
+    },
+    {
+      "name": "hasFunction",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"function\" field is present and non-default.",
+        "field": "function"
+      }
+    },
+    {
+      "name": "getStructField",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "struct"
+          },
+          {
+            "name": "key"
+          }
+        ],
+        "doc": "Get a field from a protobuf Struct. Returns Value-like map."
+      }
+    },
+    {
+      "name": "getStringField",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "struct"
+          },
+          {
+            "name": "key"
+          }
+        ],
+        "doc": "Get string value from Struct field. Returns \"\" if missing."
+      }
+    },
+    {
+      "name": "getBoolField",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "struct"
+          },
+          {
+            "name": "key"
+          }
+        ],
+        "doc": "Get bool value from Struct field. Returns false if missing."
+      }
+    },
+    {
+      "name": "getListField",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "struct"
+          },
+          {
+            "name": "key"
+          }
+        ],
+        "doc": "Get list value from Struct field. Returns [] if missing."
+      }
+    },
+    {
+      "name": "getNumberField",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "struct"
+          },
+          {
+            "name": "key"
+          }
+        ],
+        "doc": "Get number from Struct field. Returns 0 if missing."
+      }
+    },
+    {
+      "name": "getStructFieldKeys",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "struct"
+          }
+        ],
+        "doc": "Get all keys from a Struct/metadata map."
+      }
+    },
+    {
+      "name": "ensureDefaults",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          },
+          {
+            "name": "messageType"
+          }
+        ],
+        "doc": "Fill proto3 default values for the given message type."
+      }
+    },
+    {
+      "name": "defaultString",
+      "isBase": true,
+      "metadata": {
+        "params": [],
+        "doc": "Returns \"\" (proto3 default for string fields)."
+      }
+    },
+    {
+      "name": "defaultList",
+      "isBase": true,
+      "metadata": {
+        "params": [],
+        "doc": "Returns [] (proto3 default for repeated fields)."
+      }
+    },
+    {
+      "name": "defaultBool",
+      "isBase": true,
+      "metadata": {
+        "params": [],
+        "doc": "Returns false (proto3 default for bool fields)."
+      }
+    },
+    {
+      "name": "defaultInt",
+      "isBase": true,
+      "metadata": {
+        "params": [],
+        "doc": "Returns 0 (proto3 default for int fields)."
+      }
+    },
+    {
+      "name": "getField",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          },
+          {
+            "name": "name"
+          }
+        ],
+        "doc": "Get field from map. Returns null if missing."
+      }
+    },
+    {
+      "name": "getFieldOr",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          },
+          {
+            "name": "name"
+          },
+          {
+            "name": "defaultValue"
+          }
+        ],
+        "doc": "Get field from map. Returns default if missing."
+      }
+    },
+    {
+      "name": "setField",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          },
+          {
+            "name": "name"
+          },
+          {
+            "name": "value"
+          }
+        ],
+        "doc": "Set field on map. Returns the modified map."
+      }
+    },
+    {
+      "name": "exprCase",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "name"
+          }
+        ],
+        "doc": "Validate an Expression oneof case name."
+      }
+    },
+    {
+      "name": "literalCase",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "name"
+          }
+        ],
+        "doc": "Validate a Literal value case name."
+      }
+    },
+    {
+      "name": "stmtCase",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "name"
+          }
+        ],
+        "doc": "Validate a Statement oneof case name."
+      }
+    }
+  ],
+  "description": "Protobuf compatibility layer. Provides type-safe access patterns over proto3 JSON maps, ensuring identical behavior across all target languages. Base functions are implemented per-platform."
+}

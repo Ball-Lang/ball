@@ -1127,5 +1127,308 @@ void main() {
       expect(requiresUtf8Validation(editionDefaults('proto3')), true);
       expect(requiresUtf8Validation(editionDefaults('proto2')), false);
     });
+
+    test('edition 2024 defaults include message_encoding and json_format', () {
+      final features = editionDefaults('2024');
+      expect(features['field_presence'], 'EXPLICIT');
+      expect(features['enum_type'], 'OPEN');
+      expect(features['repeated_field_encoding'], 'PACKED');
+      expect(features['utf8_validation'], 'VERIFY');
+      expect(features['message_encoding'], 'LENGTH_PREFIXED');
+      expect(features['json_format'], 'ALLOW');
+    });
+  });
+
+  // =========================================================================
+  // 12. Bug fix regression tests
+  // =========================================================================
+  group('bug fix regressions', () {
+    test('negative int32 encoding produces 10-byte varint', () {
+      // Protobuf encodes negative int32 as sign-extended 64-bit, which
+      // requires 10 bytes in varint encoding.
+      final buf = encodeVarint([], -1);
+      expect(buf.length, 10);
+      // All continuation bytes should have bit 7 set except the last.
+      for (int i = 0; i < 9; i++) {
+        expect(buf[i] & 0x80, 0x80, reason: 'byte $i should have continuation bit');
+      }
+      expect(buf[9] & 0x80, 0, reason: 'last byte should not have continuation bit');
+      // Round-trip: decode should give back the original negative value.
+      final result = decodeVarint(buf, 0);
+      expect(result['value'], -1);
+      expect(result['bytesRead'], 10);
+    });
+
+    test('negative zero float encoding (not skipped)', () {
+      // Negative zero (-0.0) is NOT the proto3 default (positive 0.0),
+      // so it must be serialized. The `identical` check distinguishes them.
+      final buf = encodeFloatField([], 1, -0.0);
+      expect(buf, isNotEmpty, reason: '-0.0 must not be elided as default');
+      // Verify the tag is present (field 1, wire type 5 = I32 -> tag byte 13).
+      expect(buf[0], 13);
+    });
+
+    test('negative zero double encoding (not skipped)', () {
+      final buf = encodeDoubleField([], 1, -0.0);
+      expect(buf, isNotEmpty, reason: '-0.0 must not be elided as default');
+      expect(buf[0], 9); // field 1, wire type 1 = I64
+    });
+
+    test('positive zero float encoding IS skipped', () {
+      final buf = encodeFloatField([], 1, 0.0);
+      expect(buf, isEmpty, reason: 'positive 0.0 is proto3 default');
+    });
+
+    test('positive zero double encoding IS skipped', () {
+      final buf = encodeDoubleField([], 1, 0.0);
+      expect(buf, isEmpty, reason: 'positive 0.0 is proto3 default');
+    });
+
+    test('map field marshal/unmarshal round-trip', () {
+      final marshalDesc = <Map<String, Object?>>[
+        {
+          'name': 'labels',
+          'number': 1,
+          'type': 'TYPE_MESSAGE',
+          'label': 'LABEL_REPEATED',
+          'mapEntry': true,
+          'keyType': 'TYPE_STRING',
+          'valueType': 'TYPE_STRING',
+        },
+      ];
+      final message = <String, Object?>{
+        'labels': <String, Object?>{'env': 'prod', 'team': 'infra'},
+      };
+      final bytes = marshal(message, marshalDesc);
+      expect(bytes, isNotEmpty);
+
+      // Unmarshal with the same descriptor format (TYPE_ prefix).
+      final unmarshalDesc = <Map<String, Object?>>[
+        {
+          'name': 'labels',
+          'number': 1,
+          'type': 'TYPE_MESSAGE',
+          'mapEntry': true,
+          'keyType': 'TYPE_STRING',
+          'valueType': 'TYPE_STRING',
+        },
+      ];
+      final decoded = unmarshal(bytes, unmarshalDesc);
+      final labels = decoded['labels'] as Map;
+      expect(labels['env'], 'prod');
+      expect(labels['team'], 'infra');
+    });
+
+    test('map field unmarshal with bare type names', () {
+      final marshalDesc = <Map<String, Object?>>[
+        {
+          'name': 'labels',
+          'number': 1,
+          'type': 'TYPE_MESSAGE',
+          'label': 'LABEL_REPEATED',
+          'mapEntry': true,
+          'keyType': 'TYPE_STRING',
+          'valueType': 'TYPE_STRING',
+        },
+      ];
+      final message = <String, Object?>{
+        'labels': <String, Object?>{'a': 'b'},
+      };
+      final bytes = marshal(message, marshalDesc);
+
+      // Unmarshal with bare type names (the old format).
+      final unmarshalDesc = <Map<String, Object?>>[
+        {
+          'name': 'labels',
+          'number': 1,
+          'type': 'message',
+          'mapEntry': true,
+          'keyType': 'string',
+          'valueType': 'string',
+        },
+      ];
+      final decoded = unmarshal(bytes, unmarshalDesc);
+      final labels = decoded['labels'] as Map;
+      expect(labels['a'], 'b');
+    });
+
+    test('float/double NaN JSON round-trip', () {
+      final descriptor = <Map<String, Object?>>[
+        {
+          'name': 'f',
+          'number': 1,
+          'type': 'TYPE_FLOAT',
+          'label': 'LABEL_OPTIONAL',
+        },
+        {
+          'name': 'd',
+          'number': 2,
+          'type': 'TYPE_DOUBLE',
+          'label': 'LABEL_OPTIONAL',
+        },
+      ];
+      final message = <String, Object?>{'f': double.nan, 'd': double.nan};
+      final jsonStr = marshalJson(message, descriptor);
+      expect(jsonStr, contains('"NaN"'));
+      final decoded = unmarshalJson(jsonStr, descriptor);
+      expect((decoded['f'] as double).isNaN, true);
+      expect((decoded['d'] as double).isNaN, true);
+    });
+
+    test('float/double Infinity JSON round-trip', () {
+      final descriptor = <Map<String, Object?>>[
+        {
+          'name': 'f',
+          'number': 1,
+          'type': 'TYPE_FLOAT',
+          'label': 'LABEL_OPTIONAL',
+        },
+        {
+          'name': 'd',
+          'number': 2,
+          'type': 'TYPE_DOUBLE',
+          'label': 'LABEL_OPTIONAL',
+        },
+      ];
+      final message = <String, Object?>{
+        'f': double.infinity,
+        'd': double.negativeInfinity,
+      };
+      final jsonStr = marshalJson(message, descriptor);
+      expect(jsonStr, contains('"Infinity"'));
+      expect(jsonStr, contains('"-Infinity"'));
+      final decoded = unmarshalJson(jsonStr, descriptor);
+      expect(decoded['f'], double.infinity);
+      expect(decoded['d'], double.negativeInfinity);
+    });
+
+    test('bytes base64 unmarshal from JSON', () {
+      final descriptor = <Map<String, Object?>>[
+        {
+          'name': 'data',
+          'number': 1,
+          'type': 'TYPE_BYTES',
+          'label': 'LABEL_OPTIONAL',
+        },
+      ];
+      // base64 of [1, 2, 3] = "AQID"
+      final decoded = unmarshalJson('{"data":"AQID"}', descriptor);
+      expect(decoded['data'], [1, 2, 3]);
+    });
+
+    test('unmarshal accepts TYPE_ prefix in descriptor type field', () {
+      // Marshal with TYPE_ prefix format.
+      final marshalDesc = <Map<String, Object?>>[
+        {
+          'name': 'id',
+          'number': 1,
+          'type': 'TYPE_INT32',
+          'label': 'LABEL_OPTIONAL',
+        },
+        {
+          'name': 'name',
+          'number': 2,
+          'type': 'TYPE_STRING',
+          'label': 'LABEL_OPTIONAL',
+        },
+      ];
+      final bytes = marshal({'id': 42, 'name': 'hello'}, marshalDesc);
+
+      // Unmarshal with the SAME TYPE_ prefix descriptors.
+      final decoded = unmarshal(bytes, marshalDesc);
+      expect(decoded['id'], 42);
+      expect(decoded['name'], 'hello');
+    });
+
+    test('wire_bytes decodeBytes bounds check', () {
+      // Create a buffer where the length prefix claims more bytes than exist.
+      final buf = <int>[];
+      encodeVarint(buf, 100); // claims 100 bytes follow
+      buf.add(0x01); // but only 1 byte follows
+      expect(
+        () => decodeBytes(buf, 0),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('toCamelCase preserves leading underscores', () {
+      expect(toCamelCase('_private_field'), '_privateField');
+      expect(toCamelCase('__double_under'), '__doubleUnder');
+      expect(toCamelCase('___triple'), '___triple');
+      expect(toCamelCase('_'), '_');
+      expect(toCamelCase('__'), '__');
+    });
+
+    test('marshal TYPE_MESSAGE auto-marshals Map with descriptor', () {
+      final innerDesc = <Map<String, Object?>>[
+        {
+          'name': 'value',
+          'number': 1,
+          'type': 'TYPE_INT32',
+          'label': 'LABEL_OPTIONAL',
+        },
+      ];
+      final outerDesc = <Map<String, Object?>>[
+        {
+          'name': 'inner',
+          'number': 1,
+          'type': 'TYPE_MESSAGE',
+          'label': 'LABEL_OPTIONAL',
+          'messageDescriptor': innerDesc,
+        },
+      ];
+      // Pass a Map instead of pre-encoded bytes for the inner message.
+      final bytes = marshal({
+        'inner': <String, Object?>{'value': 42},
+      }, outerDesc);
+      expect(bytes, isNotEmpty);
+
+      // Verify by unmarshalling.
+      final unmarshalDesc = <Map<String, Object?>>[
+        {
+          'name': 'inner',
+          'number': 1,
+          'type': 'message',
+          'messageDescriptor': <Map<String, Object?>>[
+            {'name': 'value', 'number': 1, 'type': 'int32'},
+          ],
+        },
+      ];
+      final decoded = unmarshal(bytes, unmarshalDesc);
+      expect((decoded['inner'] as Map)['value'], 42);
+    });
+
+    test('decodeAsInt64 identity', () {
+      expect(decodeAsInt64(0), 0);
+      expect(decodeAsInt64(42), 42);
+      expect(decodeAsInt64(-1), -1);
+    });
+
+    test('decodeAsUint64 identity', () {
+      expect(decodeAsUint64(0), 0);
+      expect(decodeAsUint64(42), 42);
+      expect(decodeAsUint64(0x7FFFFFFFFFFFFFFF), 0x7FFFFFFFFFFFFFFF);
+    });
+
+    test('negative zero marshal.dart float/double not skipped', () {
+      // Verify that marshal.dart also handles -0.0 correctly via marshalField.
+      final desc = <Map<String, Object?>>[
+        {
+          'name': 'f',
+          'number': 1,
+          'type': 'TYPE_FLOAT',
+          'label': 'LABEL_OPTIONAL',
+        },
+        {
+          'name': 'd',
+          'number': 2,
+          'type': 'TYPE_DOUBLE',
+          'label': 'LABEL_OPTIONAL',
+        },
+      ];
+      final bytes = marshal({'f': -0.0, 'd': -0.0}, desc);
+      expect(bytes, isNotEmpty,
+          reason: '-0.0 fields must not be skipped by marshal');
+    });
   });
 }

@@ -102,6 +102,11 @@ Map<String, Object?> unmarshalFieldValue(
   int wireType,
   String fieldType,
 ) {
+  // Normalize type: accept both 'TYPE_INT32' and 'int32' formats.
+  final normalizedType = fieldType.startsWith('TYPE_')
+      ? fieldType.substring(5).toLowerCase()
+      : fieldType;
+  fieldType = normalizedType;
   switch (wireType) {
     case 0:
       // VARINT
@@ -212,6 +217,10 @@ Map<String, Object?> unmarshalRepeated(
   int wireType,
   String fieldType,
 ) {
+  // Normalize type: accept both 'TYPE_INT32' and 'int32' formats.
+  fieldType = fieldType.startsWith('TYPE_')
+      ? fieldType.substring(5).toLowerCase()
+      : fieldType;
   // Check if this is packed encoding: wire type 2 for scalar types.
   if (wireType == 2 && _isPackableType(fieldType)) {
     // Packed: length-delimited blob of concatenated values.
@@ -252,6 +261,13 @@ Map<String, Object?> unmarshalMapField(
   String keyType,
   String valueType,
 ) {
+  // Normalize types: accept both 'TYPE_INT32' and 'int32' formats.
+  keyType = keyType.startsWith('TYPE_')
+      ? keyType.substring(5).toLowerCase()
+      : keyType;
+  valueType = valueType.startsWith('TYPE_')
+      ? valueType.substring(5).toLowerCase()
+      : valueType;
   Object? key;
   Object? value;
   int offset = 0;
@@ -326,15 +342,25 @@ Map<String, Object?> unmarshal(
     }
 
     final fieldName = fieldDesc['name'] as String;
-    final fieldType = fieldDesc['type'] as String;
+    final rawFieldType = fieldDesc['type'] as String;
+    // Accept both 'TYPE_INT32' (marshal format) and 'int32' (bare format).
+    final fieldType = rawFieldType.startsWith('TYPE_')
+        ? rawFieldType.substring(5).toLowerCase()
+        : rawFieldType;
     final isRepeated = fieldDesc['repeated'] == true;
     final isMapEntry = fieldDesc['mapEntry'] == true;
 
     // 3. Decode the value.
     if (isMapEntry) {
       // Map field: encoded as repeated message entries.
-      final keyType = fieldDesc['keyType'] as String;
-      final valueType = fieldDesc['valueType'] as String;
+      final rawKeyType = fieldDesc['keyType'] as String;
+      final keyType = rawKeyType.startsWith('TYPE_')
+          ? rawKeyType.substring(5).toLowerCase()
+          : rawKeyType;
+      final rawValueType = fieldDesc['valueType'] as String;
+      final valueType = rawValueType.startsWith('TYPE_')
+          ? rawValueType.substring(5).toLowerCase()
+          : rawValueType;
       final valueDescriptor =
           fieldDesc['messageDescriptor'] as List<Map<String, Object?>>?;
 

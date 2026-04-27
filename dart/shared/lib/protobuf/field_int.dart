@@ -167,6 +167,24 @@ int decodeAsSint64(int rawVarint) {
   return decodeZigZag(rawVarint);
 }
 
+/// Interprets [rawVarint] as a signed 64-bit integer.
+///
+/// This is an identity function — Dart ints are already 64-bit two's-complement
+/// — but it exists for symmetry with [decodeAsInt32] and for documentation
+/// purposes at call sites.
+int decodeAsInt64(int rawVarint) {
+  return rawVarint;
+}
+
+/// Interprets [rawVarint] as an unsigned 64-bit integer.
+///
+/// This is an identity function — the varint decoder already produces the
+/// unsigned representation — but it exists for symmetry with [decodeAsUint32]
+/// and for documentation purposes at call sites.
+int decodeAsUint64(int rawVarint) {
+  return rawVarint;
+}
+
 /// Interprets [rawVarint] as a boolean.
 ///
 /// Returns `true` if [rawVarint] is non-zero, `false` otherwise.

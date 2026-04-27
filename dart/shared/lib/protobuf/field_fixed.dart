@@ -138,7 +138,7 @@ List<int> _encodeDoubleBytes(double value) {
 ///
 /// Returns the same [buffer] list, possibly with bytes appended.
 List<int> encodeFloatField(List<int> buffer, int fieldNumber, double value) {
-  if (value == 0.0) return buffer;
+  if (identical(value, 0.0)) return buffer;
   encodeTag(buffer, fieldNumber, 5);
   buffer.addAll(_encodeFloatBytes(value));
   return buffer;
@@ -152,7 +152,7 @@ List<int> encodeFloatField(List<int> buffer, int fieldNumber, double value) {
 ///
 /// Returns the same [buffer] list, possibly with bytes appended.
 List<int> encodeDoubleField(List<int> buffer, int fieldNumber, double value) {
-  if (value == 0.0) return buffer;
+  if (identical(value, 0.0)) return buffer;
   encodeTag(buffer, fieldNumber, 1);
   buffer.addAll(_encodeDoubleBytes(value));
   return buffer;

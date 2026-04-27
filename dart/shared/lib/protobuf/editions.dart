@@ -64,6 +64,24 @@ const String _keyRepeatedFieldEncoding = 'repeated_field_encoding';
 /// Feature key for UTF-8 validation on string fields.
 const String _keyUtf8Validation = 'utf8_validation';
 
+/// Feature key for message encoding format (Edition 2024+).
+const String _keyMessageEncoding = 'message_encoding';
+
+/// Feature key for JSON format behavior (Edition 2024+).
+const String _keyJsonFormat = 'json_format';
+
+/// Message encoding: length-prefixed (default for all editions).
+const String messageEncodingLengthPrefixed = 'LENGTH_PREFIXED';
+
+/// Message encoding: delimited (group-style encoding).
+const String messageEncodingDelimited = 'DELIMITED';
+
+/// JSON format: allow — standard Proto3 JSON.
+const String jsonFormatAllow = 'ALLOW';
+
+/// JSON format: legacy best effort — relaxed parsing for compatibility.
+const String jsonFormatLegacyBestEffort = 'LEGACY_BEST_EFFORT';
+
 // ---------------------------------------------------------------------------
 // Edition defaults
 // ---------------------------------------------------------------------------
@@ -101,12 +119,26 @@ final Map<String, String> _edition2023Defaults = {
   _keyUtf8Validation: utf8ValidationVerify,
 };
 
+/// Default feature set for Edition 2024.
+///
+/// Edition 2024 inherits Edition 2023 defaults and adds `message_encoding`
+/// and `json_format` features.
+final Map<String, String> _edition2024Defaults = {
+  _keyFieldPresence: fieldPresenceExplicit,
+  _keyEnumType: enumTypeOpen,
+  _keyRepeatedFieldEncoding: repeatedFieldEncodingPacked,
+  _keyUtf8Validation: utf8ValidationVerify,
+  _keyMessageEncoding: messageEncodingLengthPrefixed,
+  _keyJsonFormat: jsonFormatAllow,
+};
+
 /// Returns the default feature map for [edition].
 ///
 /// Recognized edition strings:
 ///   - `"proto2"` — proto2 syntax defaults
 ///   - `"proto3"` — proto3 syntax defaults
 ///   - `"2023"`   — Edition 2023 defaults
+///   - `"2024"`   — Edition 2024 defaults (adds message_encoding, json_format)
 ///
 /// Throws [ArgumentError] for unrecognized editions.
 Map<String, String> editionDefaults(String edition) {
@@ -117,6 +149,8 @@ Map<String, String> editionDefaults(String edition) {
       return Map.of(_proto3Defaults);
     case '2023':
       return Map.of(_edition2023Defaults);
+    case '2024':
+      return Map.of(_edition2024Defaults);
     default:
       throw ArgumentError('Unrecognized protobuf edition: "$edition"');
   }

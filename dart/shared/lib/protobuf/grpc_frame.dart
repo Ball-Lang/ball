@@ -54,10 +54,10 @@ Map<String, Object?> grpcDecodeFrame(List<int> buffer, int offset) {
     throw RangeError('Incomplete gRPC frame header at offset $offset');
   }
   var compressed = buffer[offset] != 0;
-  var length = (buffer[offset + 1] << 24) |
+  var length = ((buffer[offset + 1] << 24) |
       (buffer[offset + 2] << 16) |
       (buffer[offset + 3] << 8) |
-      buffer[offset + 4];
+      buffer[offset + 4]) & 0xFFFFFFFF;
   if (offset + _headerSize + length > buffer.length) {
     throw RangeError(
       'Incomplete gRPC frame payload at offset $offset: '

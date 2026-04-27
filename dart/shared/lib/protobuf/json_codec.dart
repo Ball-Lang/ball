@@ -57,8 +57,18 @@ import 'dart:convert';
 ///   ""            -> ""
 String toCamelCase(String snakeCase) {
   if (snakeCase.isEmpty) return snakeCase;
-  final parts = snakeCase.split('_');
-  final buffer = StringBuffer(parts[0]);
+  // Preserve leading underscores.
+  int leadingUnderscores = 0;
+  while (leadingUnderscores < snakeCase.length &&
+      snakeCase[leadingUnderscores] == '_') {
+    leadingUnderscores++;
+  }
+  final prefix = snakeCase.substring(0, leadingUnderscores);
+  final rest = snakeCase.substring(leadingUnderscores);
+  if (rest.isEmpty) return snakeCase;
+  final parts = rest.split('_');
+  final buffer = StringBuffer(prefix);
+  buffer.write(parts[0]);
   for (int i = 1; i < parts.length; i++) {
     final part = parts[i];
     if (part.isEmpty) continue;

@@ -1,36 +1,6 @@
 import 'dart:convert';
 
-/// Append a varint-encoded integer to [buffer].
-///
-/// Uses the standard protobuf variable-length encoding: each byte stores
-/// 7 payload bits in the low position and a continuation flag in bit 7.
-List<int> _appendVarint(List<int> buffer, int value) {
-  while (value > 0x7F) {
-    buffer.add((value & 0x7F) | 0x80);
-    value = value >>> 7;
-  }
-  buffer.add(value & 0x7F);
-  return buffer;
-}
-
-/// Decode a varint from [buffer] starting at [offset].
-///
-/// Returns `{value: int, bytesRead: int}`.
-Map<String, Object> _decodeVarint(List<int> buffer, int offset) {
-  var result = 0;
-  var shift = 0;
-  var bytesRead = 0;
-  while (true) {
-    var byte = buffer[offset + bytesRead];
-    result = result | ((byte & 0x7F) << shift);
-    bytesRead = bytesRead + 1;
-    if ((byte & 0x80) == 0) {
-      break;
-    }
-    shift = shift + 7;
-  }
-  return {'value': result, 'bytesRead': bytesRead};
-}
+import 'wire_varint.dart';
 
 /// Create an empty byte buffer.
 List<int> makeBuffer() => [];
@@ -40,7 +10,7 @@ List<int> makeBuffer() => [];
 /// Format: varint(length) + raw bytes.
 /// Reference: https://protobuf.dev/programming-guides/encoding/#length-types
 List<int> encodeBytes(List<int> buffer, List<int> data) {
-  _appendVarint(buffer, data.length);
+  encodeVarint(buffer, data.length);
   buffer.addAll(data);
   return buffer;
 }
@@ -49,10 +19,16 @@ List<int> encodeBytes(List<int> buffer, List<int> data) {
 ///
 /// Returns `{data: List<int>, bytesRead: int}`.
 Map<String, Object> decodeBytes(List<int> buffer, int offset) {
-  var varintResult = _decodeVarint(buffer, offset);
-  var length = varintResult['value'] as int;
-  var varintSize = varintResult['bytesRead'] as int;
+  var varintResult = decodeVarint(buffer, offset);
+  var length = varintResult['value']!;
+  var varintSize = varintResult['bytesRead']!;
   var start = offset + varintSize;
+  if (start + length > buffer.length) {
+    throw FormatException(
+      'Length-delimited field overflows buffer at offset $offset: '
+      'need $length bytes, have ${buffer.length - start}',
+    );
+  }
   var data = buffer.sublist(start, start + length);
   return {'data': data, 'bytesRead': varintSize + length};
 }

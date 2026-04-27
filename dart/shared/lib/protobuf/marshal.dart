@@ -167,7 +167,10 @@ List<int> marshal(
     }
 
     // Singular field.
-    marshalField(buffer, fieldNumber, type, value);
+    final msgDescriptor =
+        field['messageDescriptor'] as List<Map<String, Object?>>?;
+    marshalField(buffer, fieldNumber, type, value,
+        messageDescriptor: msgDescriptor);
   }
 
   return buffer;
@@ -189,6 +192,7 @@ List<int> marshalField(
   String type,
   Object? value, {
   bool repeated = false,
+  List<Map<String, Object?>>? messageDescriptor,
 }) {
   if (value == null) return buffer;
 
@@ -243,11 +247,11 @@ List<int> marshalField(
       encodeSfixed64Field(buffer, fieldNumber, v);
     case 'TYPE_FLOAT':
       final v = _toDouble(value);
-      if (!repeated && v == 0.0) return buffer;
+      if (!repeated && identical(v, 0.0)) return buffer;
       encodeFloatField(buffer, fieldNumber, v);
     case 'TYPE_DOUBLE':
       final v = _toDouble(value);
-      if (!repeated && v == 0.0) return buffer;
+      if (!repeated && identical(v, 0.0)) return buffer;
       encodeDoubleField(buffer, fieldNumber, v);
     case 'TYPE_STRING':
       final v = value as String;
@@ -258,8 +262,24 @@ List<int> marshalField(
       if (!repeated && v.isEmpty) return buffer;
       encodeBytesField(buffer, fieldNumber, v);
     case 'TYPE_MESSAGE':
-      // Value is pre-encoded bytes (List<int>).
-      final v = value as List<int>;
+      // Value is either pre-encoded bytes (List<int>) or a map that needs
+      // marshaling via a messageDescriptor.
+      final List<int> v;
+      if (value is List<int>) {
+        v = value;
+      } else if (value is Map<String, Object?> && messageDescriptor != null) {
+        v = marshal(value, messageDescriptor);
+      } else if (value is Map<String, Object?>) {
+        throw ArgumentError(
+          'TYPE_MESSAGE field $fieldNumber received a Map but no '
+          'messageDescriptor was provided for auto-marshaling',
+        );
+      } else {
+        throw ArgumentError(
+          'TYPE_MESSAGE field $fieldNumber expected List<int> or '
+          'Map<String, Object?>, got ${value.runtimeType}',
+        );
+      }
       if (v.isEmpty) return buffer;
       encodeMessageField(buffer, fieldNumber, v);
     default:

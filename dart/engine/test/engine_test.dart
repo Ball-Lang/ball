@@ -7334,7 +7334,7 @@ class _Math2Handler extends BallModuleHandler {
   bool handles(String module) => module == 'math2';
 
   @override
-  BallValue call(String function, BallValue input, BallCallable engine) {
+  Object? call(String function, Object? input, BallCallable engine) {
     final n = (input is int ? input : (input as Map)['value']) as num;
     return switch (function) {
       'double_val' => n * 2,
@@ -7359,7 +7359,7 @@ class _CountingHandler extends BallModuleHandler {
   void init(BallEngine engine) => _delegate.init(engine);
 
   @override
-  FutureOr<BallValue> call(String function, BallValue input, BallCallable engine) {
+  FutureOr<Object?> call(String function, Object? input, BallCallable engine) {
     _onCall();
     return _delegate.call(function, input, engine);
   }
@@ -7371,7 +7371,7 @@ class _ComposingHandler extends BallModuleHandler {
   bool handles(String module) => module == 'mymath';
 
   @override
-  FutureOr<BallValue> call(String function, BallValue input, BallCallable engine) async {
+  FutureOr<Object?> call(String function, Object? input, BallCallable engine) async {
     if (function == 'abs_diff') {
       final m = input as Map<String, Object?>;
       final diff = await engine('std', 'subtract', {'left': m['a'], 'right': m['b']});
@@ -7387,7 +7387,7 @@ class _UserFnDelegateHandler extends BallModuleHandler {
   bool handles(String module) => module == 'ops';
 
   @override
-  FutureOr<BallValue> call(String function, BallValue input, BallCallable engine) async {
+  FutureOr<Object?> call(String function, Object? input, BallCallable engine) async {
     if (function == 'quadruple') {
       final once = await engine('main', 'double_it', input);
       return engine('main', 'double_it', once);

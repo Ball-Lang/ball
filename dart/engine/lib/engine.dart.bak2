@@ -7,8 +7,6 @@
 /// Supports all 73 std base functions.
 library;
 
-export 'ball_value.dart';
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' as io;
@@ -20,25 +18,30 @@ import 'package:ball_resolver/ball_resolver.dart';
 import 'package:protobuf/well_known_types/google/protobuf/struct.pb.dart'
     as structpb;
 
+part 'ball_value.dart';
+
 /// Callable signature for invoking a ball function by module + name.
 ///
 /// Exposed as [BallEngine.callFunction] and passed to
 /// [BallModuleHandler.call] so handlers can compose other modules
 /// without holding a direct [BallEngine] reference.
 typedef BallCallable =
-    FutureOr<Object?> Function(String module, String function, Object? input);
+    FutureOr<BallValue> Function(String module, String function, BallValue input);
 
 /// Sentinel for break/continue/return flow control.
-class _FlowSignal {
+///
+/// Extends [BallValue] so it can propagate through the eval chain without
+/// special-casing return types.
+class _FlowSignal extends BallValue {
   final String kind; // 'break', 'continue', 'return'
   final String? label;
-  final Object? value; // only for 'return'
-  _FlowSignal(this.kind, {this.label, this.value});
+  final BallValue value; // only for 'return'
+  _FlowSignal(this.kind, {this.label, this.value = const BallNull()});
 }
 
 /// A scope contains variable bindings. Scopes are chained for lexical nesting.
 class _Scope {
-  final Map<String, Object?> _bindings = {};
+  final Map<String, BallValue> _bindings = {};
   final _Scope? _parent;
 
   /// Registered scope-exit cleanups added by `cpp_std.cpp_scope_exit`.
@@ -48,13 +51,13 @@ class _Scope {
 
   _Scope([this._parent]);
 
-  Object? lookup(String name) {
-    if (_bindings.containsKey(name)) return _bindings[name];
+  BallValue lookup(String name) {
+    if (_bindings.containsKey(name)) return _bindings[name]!;
     if (_parent != null) return _parent.lookup(name);
     throw BallRuntimeError('Undefined variable: "$name"');
   }
 
-  void bind(String name, Object? value) {
+  void bind(String name, BallValue value) {
     _bindings[name] = value;
   }
 
@@ -63,7 +66,7 @@ class _Scope {
     return _parent?.has(name) ?? false;
   }
 
-  void set(String name, Object? value) {
+  void set(String name, BallValue value) {
     if (_bindings.containsKey(name)) {
       _bindings[name] = value;
       return;
@@ -98,9 +101,9 @@ class BallRuntimeError implements Exception {
 /// synchronous, `async` functions wrap their return values in a
 /// [BallFuture] and `await` unwraps them. This faithfully simulates
 /// the async/await protocol without real concurrency.
-class BallFuture {
+class BallFuture extends BallValue {
   /// The resolved value (always completed in a synchronous interpreter).
-  final Object? value;
+  final BallValue value;
 
   /// Whether this future has completed (always `true` in sync mode).
   final bool completed;
@@ -115,18 +118,18 @@ class BallFuture {
 ///
 /// `sync*` functions collect yielded values into a [BallGenerator],
 /// which is returned as a list of values.
-class BallGenerator {
+class BallGenerator extends BallValue {
   /// The yielded values.
-  final List<Object?> values = [];
+  final List<BallValue> values = [];
 
   /// Whether this generator has completed.
   bool completed = false;
 
   /// Add a yielded value.
-  void yield_(Object? value) => values.add(value);
+  void yield_(BallValue value) => values.add(value);
 
   /// Add all values from an iterable (yield*).
-  void yieldAll(Iterable<Object?> items) => values.addAll(items);
+  void yieldAll(Iterable<BallValue> items) => values.addAll(items);
 
   @override
   String toString() => 'BallGenerator(${values.length} values)';
@@ -167,7 +170,7 @@ class _ExitSignal implements Exception {
 /// ```dart
 /// class DbHandler extends BallModuleHandler {
 ///   @override bool handles(String module) => module == 'db';
-///   @override Object? call(String fn, Object? input, BallCallable engine) {
+///   @override BallValue call(String fn, BallValue input, BallCallable engine) {
 ///     return switch (fn) {
 ///       'query' => _runQuery(input),
 ///       _ => throw BallRuntimeError('Unknown db function: "$fn"'),
@@ -196,7 +199,7 @@ class _ExitSignal implements Exception {
 /// ```dart
 /// class MathFacade extends BallModuleHandler {
 ///   @override bool handles(String m) => m == 'myfacade';
-///   @override Object? call(String fn, Object? input, BallCallable engine) {
+///   @override BallValue call(String fn, BallValue input, BallCallable engine) {
 ///     if (fn == 'taxed_total')
 ///       return engine('myfacade', 'subtotal', input)
 ///              + engine('tax', 'compute', input);
@@ -220,7 +223,7 @@ abstract class BallModuleHandler {
   /// ```
   ///
   /// Throws [BallRuntimeError] when [function] is not supported.
-  FutureOr<Object?> call(String function, Object? input, BallCallable engine);
+  FutureOr<BallValue> call(String function, BallValue input, BallCallable engine);
 
   /// Called once by [BallEngine] during construction, before any program
   /// statements are evaluated. Override to capture engine state (e.g.
@@ -251,11 +254,11 @@ class StdModuleHandler extends BallModuleHandler {
   /// Live dispatch table: function name → handler closure.
   /// Populated during [init]; can be extended/trimmed via [register] /
   /// [unregister] either before or after engine construction.
-  final Map<String, FutureOr<Object?> Function(Object?)> _dispatch = {};
+  final Map<String, FutureOr<BallValue> Function(BallValue)> _dispatch = {};
 
   /// Composition-aware dispatch table for closures that need [BallCallable].
   /// Checked before [_dispatch] so [registerComposer] can override built-ins.
-  final Map<String, FutureOr<Object?> Function(Object?, BallCallable)>
+  final Map<String, FutureOr<BallValue> Function(BallValue, BallCallable)>
   _composedDispatch = {};
 
   /// Optional allow-list for [StdModuleHandler.subset]; `null` = all.
@@ -312,7 +315,7 @@ class StdModuleHandler extends BallModuleHandler {
   ///
   /// Safe to call before or after engine construction. Pre-construction calls
   /// take precedence over built-in defaults; [init] will not overwrite them.
-  void register(String function, FutureOr<Object?> Function(Object?) handler) {
+  void register(String function, FutureOr<BallValue> Function(BallValue) handler) {
     _tombstones.remove(function);
     _composedDispatch.remove(function);
     _dispatch[function] = handler;
@@ -334,7 +337,7 @@ class StdModuleHandler extends BallModuleHandler {
   /// ```
   void registerComposer(
     String function,
-    FutureOr<Object?> Function(Object?, BallCallable) handler,
+    FutureOr<BallValue> Function(BallValue, BallCallable) handler,
   ) {
     _tombstones.remove(function);
     _dispatch.remove(function);
@@ -356,7 +359,7 @@ class StdModuleHandler extends BallModuleHandler {
       Set.unmodifiable({..._dispatch.keys, ..._composedDispatch.keys});
 
   @override
-  FutureOr<Object?> call(String function, Object? input, BallCallable engine) {
+  FutureOr<BallValue> call(String function, BallValue input, BallCallable engine) {
     final composed = _composedDispatch[function];
     if (composed != null) return composed(input, engine);
     final handler = _dispatch[function];
@@ -517,14 +520,14 @@ class BallEngine {
   /// ```dart
   /// class MathFacade extends BallModuleHandler {
   ///   @override bool handles(String m) => m == 'mymath';
-  ///   @override Object? call(String fn, Object? input, BallCallable engine) {
+  ///   @override BallValue call(String fn, BallValue input, BallCallable engine) {
   ///     // Delegate abs() to std.math_abs
   ///     if (fn == 'abs') return engine('std', 'math_abs', input);
   ///     throw BallRuntimeError('unknown: $fn');
   ///   }
   /// }
   /// ```
-  Future<Object?> callFunction(String module, String function, Object? input) =>
+  Future<BallValue> callFunction(String module, String function, BallValue input) =>
       _resolveAndCallFunction(module, function, input);
 
   void _buildLookupTables() {
@@ -641,7 +644,7 @@ class BallEngine {
   ///
   /// All expression evaluation is truly async — `await` suspends execution
   /// and Dart's runtime optimises synchronous Future completions.
-  Future<Object?> run() async {
+  Future<BallValue> run() async {
     await _initialized;
     final key = '${program.entryModule}.${program.entryFunction}';
     final entryFunc = _functions[key];
@@ -659,10 +662,10 @@ class BallEngine {
   // Function Invocation
   // ============================================================
 
-  Future<Object?> _callFunction(
+  Future<BallValue> _callFunction(
     String moduleName,
     FunctionDefinition func,
-    Object? input,
+    BallValue input,
   ) async {
     if (func.isBase) {
       return _callBaseFunction(moduleName, func.name, input);
@@ -750,7 +753,7 @@ class BallEngine {
     final result = await _evalExpression(func.body, scope);
     _currentModule = prevModule;
 
-    Object? finalResult;
+    BallValue finalResult;
     if (result is _FlowSignal && result.kind == 'return') {
       finalResult = result.value;
     } else {
@@ -785,10 +788,10 @@ class BallEngine {
   /// Build a class instance from a constructor with no body.
   /// Maps positional args (arg0, arg1, ...) to `is_this` parameter names,
   /// and populates __type__, __super__, and __methods__.
-  Future<Object?> _buildConstructorInstance(
+  Future<BallValue> _buildConstructorInstance(
     String moduleName,
     FunctionDefinition func,
-    Object? input,
+    BallValue input,
   ) async {
     final params = func.hasMetadata() ? _extractParams(func.metadata) : const <String>[];
     final paramsMeta = _extractParamsMeta(func.metadata);
@@ -808,7 +811,7 @@ class BallEngine {
       for (var i = 0; i < params.length; i++) {
         final p = params[i];
         final isThis = i < paramsMeta.length && paramsMeta[i]['is_this'] == true;
-        Object? val;
+        BallValue val;
         if (input.containsKey(p)) {
           val = input[p];
         } else if (input.containsKey('arg$i')) {
@@ -911,7 +914,7 @@ class BallEngine {
   }
 
   /// Invoke the super constructor for a child class.
-  Future<Object?> _invokeSuperConstructor(
+  Future<BallValue> _invokeSuperConstructor(
     FunctionDefinition childCtor,
     String superclass,
     Map<String, Object?> resolvedParams,
@@ -1052,10 +1055,10 @@ class BallEngine {
         .toList();
   }
 
-  Future<Object?> _resolveAndCallFunction(
+  Future<BallValue> _resolveAndCallFunction(
     String module,
     String function,
-    Object? input,
+    BallValue input,
   ) async {
     final moduleName = module.isEmpty ? _currentModule : module;
     final key = '$moduleName.$function';
@@ -1154,7 +1157,7 @@ class BallEngine {
   // Expression Evaluation
   // ============================================================
 
-  Future<Object?> _evalExpression(Expression expr, _Scope scope) async {
+  Future<BallValue> _evalExpression(Expression expr, _Scope scope) async {
     return switch (expr.whichExpr()) {
       Expression_Expr.call => await _evalCall(expr.call, scope),
       Expression_Expr.literal => await _evalLiteral(expr.literal, scope),
@@ -1172,7 +1175,7 @@ class BallEngine {
 
   // ---- Function Calls ----
 
-  Future<Object?> _evalCall(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalCall(FunctionCall call, _Scope scope) async {
     final moduleName = call.module.isEmpty ? _currentModule : call.module;
 
     // Lazy-evaluated std/dart_std functions (control flow)
@@ -1372,7 +1375,7 @@ class BallEngine {
 
   // ---- Literals ----
 
-  Future<Object?> _evalLiteral(Literal lit, _Scope scope) async {
+  Future<BallValue> _evalLiteral(Literal lit, _Scope scope) async {
     return switch (lit.whichValue()) {
       Literal_Value.intValue => lit.intValue.toInt(),
       Literal_Value.doubleValue => lit.doubleValue,
@@ -1475,7 +1478,7 @@ class BallEngine {
 
   // ---- References ----
 
-  Future<Object?> _evalReference(Reference ref, _Scope scope) async {
+  Future<BallValue> _evalReference(Reference ref, _Scope scope) async {
     final name = ref.name;
 
     // Handle 'super' keyword: resolve to the __super__ of self.
@@ -1498,7 +1501,7 @@ class BallEngine {
     // to callable closures that invoke the constructor function.
     final ctorEntry = _constructors[name];
     if (ctorEntry != null) {
-      return (Object? input) async {
+      return (BallValue input) async {
         return _callFunction(ctorEntry.module, ctorEntry.func, input);
       };
     }
@@ -1509,7 +1512,7 @@ class BallEngine {
       final bare = name.substring(colonIdx + 1);
       final bareEntry = _constructors[bare];
       if (bareEntry != null) {
-        return (Object? input) async {
+        return (BallValue input) async {
           return _callFunction(bareEntry.module, bareEntry.func, input);
         };
       }
@@ -1583,7 +1586,7 @@ class BallEngine {
             }
             if (kind == 'function') {
               final modName = m.name;
-              return (Object? input) async {
+              return (BallValue input) async {
                 return _callFunction(modName, f, input);
               };
             }
@@ -1618,7 +1621,7 @@ class BallEngine {
 
   // ---- Field Access ----
 
-  Future<Object?> _evalFieldAccess(FieldAccess access, _Scope scope) async {
+  Future<BallValue> _evalFieldAccess(FieldAccess access, _Scope scope) async {
     final object = await _evalExpression(access.object, scope);
     final fieldName = access.field_2;
 
@@ -1626,7 +1629,7 @@ class BallEngine {
     if (object is Map<String, Object?> && object['__type__'] == '__builtin_class__') {
       final className = object['__class_ref__'] as String;
       // Return a closure that dispatches via the built-in class method handler.
-      return (Object? input) async {
+      return (BallValue input) async {
         final args = input is Map<String, Object?> ? input : <String, Object?>{'arg0': input};
         final result = await _dispatchBuiltinClassMethod(className, fieldName, args);
         if (result != _sentinel) return result;
@@ -1643,7 +1646,7 @@ class BallEngine {
       final namedCtor = _constructors['$qualifiedName.$fieldName'] ??
           _constructors['$className.$fieldName'];
       if (namedCtor != null) {
-        return (Object? input) async {
+        return (BallValue input) async {
           return _callFunction(namedCtor.module, namedCtor.func, input);
         };
       }
@@ -1654,7 +1657,7 @@ class BallEngine {
       final staticKey = '$modPart.$qualifiedName.$fieldName';
       final staticFunc = _functions[staticKey];
       if (staticFunc != null) {
-        return (Object? input) async {
+        return (BallValue input) async {
           return _callFunction(modPart, staticFunc, input);
         };
       }
@@ -1780,7 +1783,7 @@ class BallEngine {
 
   /// Try to dispatch a getter function for [fieldName] on [object].
   /// Returns [_sentinel] if no getter was found, otherwise the getter result.
-  Future<Object?> _tryGetterDispatch(
+  Future<BallValue> _tryGetterDispatch(
     Map<String, Object?> object,
     String fieldName,
   ) async {
@@ -1849,10 +1852,10 @@ class BallEngine {
 
   /// Try to dispatch a setter function for [fieldName] on [object].
   /// Returns [_sentinel] if no setter was found, otherwise the setter result.
-  Future<Object?> _trySetterDispatch(
+  Future<BallValue> _trySetterDispatch(
     Map<String, Object?> object,
     String fieldName,
-    Object? value,
+    BallValue value,
   ) async {
     final typeName = object['__type__'] as String?;
     if (typeName == null) return _sentinel;
@@ -1904,7 +1907,7 @@ class BallEngine {
 
   /// When inside a method, sync a field assignment back to the self object.
   /// Mirrors the TS engine's syncFieldToSelf.
-  void _syncFieldToSelf(_Scope scope, String fieldName, Object? val) {
+  void _syncFieldToSelf(_Scope scope, String fieldName, BallValue val) {
     if (!scope.has('self')) return;
     try {
       final self = scope.lookup('self');
@@ -1928,7 +1931,7 @@ class BallEngine {
 
   // ---- Message Creation ----
 
-  Future<Object?> _evalMessageCreation(MessageCreation msg, _Scope scope) async {
+  Future<BallValue> _evalMessageCreation(MessageCreation msg, _Scope scope) async {
     final fields = <String, Object?>{};
     // Track which field names appear multiple times (e.g., repeated 'entry'
     // in map_create). When a duplicate is found, convert to a list.
@@ -2190,7 +2193,7 @@ class BallEngine {
               className.hasStringValue() &&
               className.stringValue == typeName &&
               func.hasBody()) {
-            methods[func.name] = (Object? input) async {
+            methods[func.name] = (BallValue input) async {
               return _callFunction(module.name, func, input);
             };
             continue;
@@ -2209,7 +2212,7 @@ class BallEngine {
           final kindField2 = func.hasMetadata() ? func.metadata.fields['kind'] : null;
           if (kindField2?.stringValue == 'constructor') continue;
           if (prefix == typeName && func.hasBody() && !func.isBase) {
-            methods[func.name] = (Object? input) async {
+            methods[func.name] = (BallValue input) async {
               return _callFunction(module.name, func, input);
             };
           }
@@ -2254,9 +2257,9 @@ class BallEngine {
 
   // ---- Block ----
 
-  Future<Object?> _evalBlock(Block block, _Scope scope) async {
+  Future<BallValue> _evalBlock(Block block, _Scope scope) async {
     final blockScope = scope.child();
-    Object? flowResult;
+    BallValue flowResult;
     for (final stmt in block.statements) {
       final result = await _evalStatement(stmt, blockScope);
       if (result is _FlowSignal) {
@@ -2287,7 +2290,7 @@ class BallEngine {
     }
   }
 
-  Future<Object?> _evalStatement(Statement stmt, _Scope scope) async {
+  Future<BallValue> _evalStatement(Statement stmt, _Scope scope) async {
     switch (stmt.whichStmt()) {
       case Statement_Stmt.let:
         var value = await _evalExpression(stmt.let.value, scope);
@@ -2313,9 +2316,9 @@ class BallEngine {
 
   // ---- Lambda ----
 
-  Object? _evalLambda(FunctionDefinition func, _Scope scope) {
+  BallValue _evalLambda(FunctionDefinition func, _Scope scope) {
     // Capture the scope for closures.
-    return (Object? input) async {
+    return (BallValue input) async {
       final lambdaScope = scope.child();
       // Always bind `input` so body code referencing the Ball convention
       // name resolves.
@@ -2380,7 +2383,7 @@ class BallEngine {
     return result;
   }
 
-  Future<Object?> _evalLazyIf(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalLazyIf(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final condition = fields['condition'];
     final thenBranch = fields['then'];
@@ -2397,7 +2400,7 @@ class BallEngine {
     return null;
   }
 
-  Future<Object?> _evalLazyFor(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalLazyFor(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final initExpr = fields['init'];
     final condition = fields['condition'];
@@ -2548,7 +2551,7 @@ class BallEngine {
     return rawVal;
   }
 
-  Future<Object?> _evalLazyForIn(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalLazyForIn(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final variable = _stringFieldVal(fields, 'variable') ?? 'item';
     final iterable = fields['iterable'];
@@ -2572,7 +2575,7 @@ class BallEngine {
     return null;
   }
 
-  Future<Object?> _evalLazyWhile(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalLazyWhile(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final condition = fields['condition'];
     final body = fields['body'];
@@ -2595,7 +2598,7 @@ class BallEngine {
     return null;
   }
 
-  Future<Object?> _evalLazyDoWhile(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalLazyDoWhile(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final body = fields['body'];
     final condition = fields['condition'];
@@ -2620,7 +2623,7 @@ class BallEngine {
     return null;
   }
 
-  Future<Object?> _evalLazySwitch(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalLazySwitch(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final subject = fields['subject'];
     final cases = fields['cases'];
@@ -2711,12 +2714,14 @@ class BallEngine {
   }
 
   /// Compare two Ball values for equality, handling int/double coercion.
-  bool _ballEquals(Object? a, Object? b) {
+  bool _ballEquals(BallValue a, BallValue b) {
     if (a == b) return true;
     // Compare numbers with int/double coercion.
-    if (a is num && b is num) return a == b;
+    final aNum = a.numOrNull;
+    final bNum = b.numOrNull;
+    if (aNum != null && bNum != null) return aNum == bNum;
     // String representation equality as fallback.
-    if (a != null && b != null) return a.toString() == b.toString();
+    if (a is! BallNull && b is! BallNull) return a.toString() == b.toString();
     return false;
   }
 
@@ -2724,7 +2729,7 @@ class BallEngine {
   ///
   /// Handles patterns like "Color.red" for enum matching, simple type
   /// patterns like "int x", and constant patterns.
-  bool _matchSwitchPattern(Object? subject, String pattern) {
+  bool _matchSwitchPattern(BallValue subject, String pattern) {
     // Enum pattern: "EnumType.value" (e.g., "Color.red").
     final dotIdx = pattern.indexOf('.');
     if (dotIdx >= 0) {
@@ -2776,13 +2781,13 @@ class BallEngine {
     return pattern == subject?.toString();
   }
 
-  Future<Object?> _evalLazyTry(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalLazyTry(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final body = fields['body'];
     final catches = fields['catches'];
     final finallyBlock = fields['finally'];
 
-    Object? result;
+    BallValue result;
     try {
       result = body != null ? await _evalExpression(body, scope) : null;
     } catch (e, stackTrace) {
@@ -2860,7 +2865,7 @@ class BallEngine {
     return result;
   }
 
-  Future<Object?> _evalShortCircuitAnd(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalShortCircuitAnd(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final left = fields['left'];
     final right = fields['right'];
@@ -2870,7 +2875,7 @@ class BallEngine {
     return _toBool(await _evalExpression(right, scope));
   }
 
-  Future<Object?> _evalShortCircuitOr(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalShortCircuitOr(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final left = fields['left'];
     final right = fields['right'];
@@ -2880,26 +2885,26 @@ class BallEngine {
     return _toBool(await _evalExpression(right, scope));
   }
 
-  Future<Object?> _evalReturn(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalReturn(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final value = fields['value'];
     final val = value != null ? await _evalExpression(value, scope) : null;
     return _FlowSignal('return', value: val);
   }
 
-  Future<Object?> _evalBreak(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalBreak(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'label');
     return _FlowSignal('break', label: label);
   }
 
-  Future<Object?> _evalContinue(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalContinue(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'label');
     return _FlowSignal('continue', label: label);
   }
 
-  Future<Object?> _evalAssign(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalAssign(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final target = fields['target'];
     final value = fields['value'];
@@ -3025,7 +3030,7 @@ class BallEngine {
 
   /// Handle `??=` with short-circuit semantics: evaluate the RHS only when
   /// the current value of the target is `null`.
-  Future<Object?> _evalNullAwareAssign(
+  Future<BallValue> _evalNullAwareAssign(
     Expression target,
     Expression value,
     _Scope scope,
@@ -3085,7 +3090,7 @@ class BallEngine {
   }
 
   /// Handle ++/-- as lazy scope-mutating operations.
-  Future<Object?> _evalIncDec(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalIncDec(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final valueExpr = fields['value'];
     if (valueExpr == null) return null;
@@ -3153,33 +3158,35 @@ class BallEngine {
     return isInc ? val + 1 : val - 1;
   }
 
-  Object? _applyCompoundOp(String op, Object? current, Object? val) {
+  BallValue _applyCompoundOp(String op, BallValue current, BallValue val) {
     return switch (op) {
-      '+=' => (current is String || val is String)
-          ? '${current ?? ''}${val ?? ''}'
-          : _numOp(current, val, (a, b) => a + b),
-      '-=' => _numOp(current, val, (a, b) => a - b),
-      '*=' => _numOp(current, val, (a, b) => a * b),
-      '~/=' => _intOp(current, val, (a, b) => a ~/ b),
-      '%=' => _intOp(current, val, (a, b) => a % b),
-      '&=' => _intOp(current, val, (a, b) => a & b),
-      '|=' => _intOp(current, val, (a, b) => a | b),
-      '^=' => _intOp(current, val, (a, b) => a ^ b),
-      '<<=' => _intOp(current, val, (a, b) => a << b),
-      '>>=' => _intOp(current, val, (a, b) => a >> b),
-      '>>>=' => _intOp(current, val, (a, b) => a >>> b),
-      '??=' => current ?? val,
+      '+=' => (current is BallString || val is BallString)
+          ? BallString('${current is BallNull ? '' : current}${val is BallNull ? '' : val}')
+          : _numOpW(current, val, (a, b) => a + b),
+      '-=' => _numOpW(current, val, (a, b) => a - b),
+      '*=' => _numOpW(current, val, (a, b) => a * b),
+      '~/=' => _intOpW(current, val, (a, b) => a ~/ b),
+      '%=' => _intOpW(current, val, (a, b) => a % b),
+      '&=' => _intOpW(current, val, (a, b) => a & b),
+      '|=' => _intOpW(current, val, (a, b) => a | b),
+      '^=' => _intOpW(current, val, (a, b) => a ^ b),
+      '<<=' => _intOpW(current, val, (a, b) => a << b),
+      '>>=' => _intOpW(current, val, (a, b) => a >> b),
+      '>>>=' => _intOpW(current, val, (a, b) => a >>> b),
+      '??=' => current is BallNull ? val : current,
       _ => val,
     };
   }
 
-  num _numOp(Object? a, Object? b, num Function(num, num) op) =>
-      op(_toNum(a), _toNum(b));
+  BallValue _numOpW(BallValue a, BallValue b, num Function(num, num) op) {
+    final result = op(_toNum(a), _toNum(b));
+    return result is int ? BallInt(result) : BallDouble(result.toDouble());
+  }
 
-  int _intOp(Object? a, Object? b, int Function(int, int) op) =>
-      op(_toInt(a), _toInt(b));
+  BallValue _intOpW(BallValue a, BallValue b, int Function(int, int) op) =>
+      BallInt(op(_toInt(a), _toInt(b)));
 
-  Future<Object?> _evalLabeled(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalLabeled(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'label');
     final body = fields['body'];
@@ -3236,7 +3243,7 @@ class BallEngine {
   }
 
   /// Evaluate a for/while loop with a label, handling labeled break/continue.
-  Future<Object?> _evalLabeledLoop(FunctionCall loopCall, String label, _Scope scope) async {
+  Future<BallValue> _evalLabeledLoop(FunctionCall loopCall, String label, _Scope scope) async {
     return switch (loopCall.function) {
       'for' => _evalLabeledFor(loopCall, label, scope),
       'for_in' => _evalLabeledForIn(loopCall, label, scope),
@@ -3246,7 +3253,7 @@ class BallEngine {
     };
   }
 
-  Future<Object?> _evalLabeledFor(FunctionCall call, String label, _Scope scope) async {
+  Future<BallValue> _evalLabeledFor(FunctionCall call, String label, _Scope scope) async {
     final fields = _lazyFields(call);
     final initExpr = fields['init'];
     final condition = fields['condition'];
@@ -3312,7 +3319,7 @@ class BallEngine {
     return null;
   }
 
-  Future<Object?> _evalLabeledForIn(FunctionCall call, String label, _Scope scope) async {
+  Future<BallValue> _evalLabeledForIn(FunctionCall call, String label, _Scope scope) async {
     final fields = _lazyFields(call);
     final variable = _stringFieldVal(fields, 'variable') ?? 'item';
     final iterable = fields['iterable'];
@@ -3338,7 +3345,7 @@ class BallEngine {
     return null;
   }
 
-  Future<Object?> _evalLabeledWhile(FunctionCall call, String label, _Scope scope) async {
+  Future<BallValue> _evalLabeledWhile(FunctionCall call, String label, _Scope scope) async {
     final fields = _lazyFields(call);
     final condition = fields['condition'];
     final body = fields['body'];
@@ -3363,7 +3370,7 @@ class BallEngine {
     return null;
   }
 
-  Future<Object?> _evalLabeledDoWhile(FunctionCall call, String label, _Scope scope) async {
+  Future<BallValue> _evalLabeledDoWhile(FunctionCall call, String label, _Scope scope) async {
     final fields = _lazyFields(call);
     final body = fields['body'];
     final condition = fields['condition'];
@@ -3397,13 +3404,13 @@ class BallEngine {
     return null;
   }
 
-  Future<Object?> _evalGoto(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalGoto(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'label');
     throw _FlowSignal('goto', label: label);
   }
 
-  Future<Object?> _evalLabel(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalLabel(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'name');
     final body = fields['body'];
@@ -3411,7 +3418,7 @@ class BallEngine {
     // Execute the body; if a goto signal targeting THIS label arrives,
     // re-execute the body (backward goto). For forward gotos, the signal
     // propagates up until the matching label handler catches it.
-    Object? result;
+    BallValue result;
     do {
       result = await _evalExpression(body, scope);
       if (result is _FlowSignal &&
@@ -3429,7 +3436,7 @@ class BallEngine {
   /// Lazy cascade evaluation: evaluate `target`, bind it as `__cascade_self__`
   /// in scope, then evaluate `sections` (list of calls on the target), and
   /// return the target. For `null_aware_cascade`, return null if target is null.
-  Future<Object?> _evalLazyCascade(FunctionCall call, _Scope scope) async {
+  Future<BallValue> _evalLazyCascade(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final targetExpr = fields['target'];
     if (targetExpr == null) return null;
@@ -3459,15 +3466,15 @@ class BallEngine {
     return target;
   }
 
-  Future<Object?> _evalAwaitFor(FunctionCall call, _Scope scope) {
+  Future<BallValue> _evalAwaitFor(FunctionCall call, _Scope scope) {
     // Reuse for_in logic.
     return _evalLazyForIn(call, scope);
   }
 
   /// Dispatch a method call on a built-in instance type (List, String, num).
   /// Returns [_sentinel] if the method is not recognized.
-  Future<Object?> _dispatchBuiltinInstanceMethod(
-    Object? self, String method, Object? input,
+  Future<BallValue> _dispatchBuiltinInstanceMethod(
+    BallValue self, String method, BallValue input,
   ) async {
     final args = input is Map<String, Object?> ? input : <String, Object?>{};
     final arg0 = args['arg0'] ?? args['value'];
@@ -3766,7 +3773,7 @@ class BallEngine {
   /// The cleanup expression is stored *unevaluated* alongside the current
   /// scope so that it can close over variables in its lexical context, even
   /// if those variables change before the scope exits.
-  Object? _evalCppScopeExit(FunctionCall call, _Scope scope) {
+  BallValue _evalCppScopeExit(FunctionCall call, _Scope scope) {
     if (!call.hasInput()) return null;
     final input = call.input;
     if (input.whichExpr() != Expression_Expr.messageCreation) return null;
@@ -3807,16 +3814,16 @@ class BallEngine {
 
   /// Try to dispatch a std operator call to a user-defined operator override.
   /// Returns `null` if no override is found.
-  Future<Object?> _tryOperatorOverride(
+  Future<BallValue?> _tryOperatorOverride(
     String function,
-    Object? input,
+    BallValue input,
   ) async {
     final op = _stdFunctionToOperator[function];
     if (op == null || input is! Map<String, Object?>) return null;
 
     // For 'index', operands are in 'target'/'index'; for others, 'left'/'right'.
-    final Object? left;
-    final Object? right;
+    final BallValue left;
+    final BallValue right;
     if (function == 'index') {
       left = input['target'];
       right = input['index'];
@@ -3868,7 +3875,7 @@ class BallEngine {
 
   /// Dispatch a static method call on a built-in class (List, Map, Set).
   /// Returns [_sentinel] if not handled.
-  Future<Object?> _dispatchBuiltinClassMethod(
+  Future<BallValue> _dispatchBuiltinClassMethod(
     String className, String method, Map<String, Object?> args,
   ) async {
     switch ('$className.$method') {
@@ -3903,7 +3910,7 @@ class BallEngine {
     }
   }
 
-  Future<Object?> _callBaseFunction(String module, String function, Object? input) async {
+  Future<BallValue> _callBaseFunction(String module, String function, BallValue input) async {
     // Check for operator overrides on class instances before std dispatch.
     if (_stdFunctionToOperator.containsKey(function)) {
       final override = await _tryOperatorOverride(function, input);
@@ -3926,7 +3933,7 @@ class BallEngine {
   // Lives here so the closures can close over engine instance methods
   // (same Dart library → library-private access is fine).
   // Inspired by V8 Ignition's kInterpreterDispatchTableRegister.
-  Map<String, FutureOr<Object?> Function(Object?)> _buildStdDispatch() {
+  Map<String, FutureOr<BallValue> Function(BallValue)> _buildStdDispatch() {
     return {
       // I/O
       'print': _stdPrint,
@@ -4893,41 +4900,46 @@ class BallEngine {
   /// For typed objects with a user-defined `toString` method, invokes that
   /// method. For StringBuffer objects, returns the buffer contents.
   /// Falls back to Dart's native `toString()`.
-  String _ballToString(Object? v) {
-    if (v == null) return 'null';
-    if (v is String) return v;
-    if (v is bool) return v.toString();
-    if (v is int) return v.toString();
-    if (v is double) return v.toString();
-    if (v is List) return '[${v.map(_ballToString).join(', ')}]';
-    if (v is Map<String, Object?>) {
-      // StringBuffer: return the buffer contents.
-      final typeName = v['__type__'] as String?;
-      if (typeName != null && (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
-        return (v['__buffer__'] as String?) ?? '';
-      }
-      // Typed object: try to invoke the user's toString method.
-      if (typeName != null) {
-        final resolved = _resolveMethod(typeName, 'toString');
-        if (resolved != null) {
-          try {
-            final future = _callFunction(resolved.module, resolved.func, <String, Object?>{'self': v});
-            // _callFunction returns Future<Object?>. Most calls complete
-            // synchronously (Dart optimises already-completed Futures).
-            // Use .then to grab the value if already resolved.
-            Object? syncResult;
-            var done = false;
-            future.then((r) { syncResult = r; done = true; });
-            if (done) return syncResult?.toString() ?? 'null';
-            // If truly async, fall back to default representation.
-            return v.toString();
-          } catch (_) {
-            // If toString throws, fall back.
+  String _ballToString(BallValue v) {
+    switch (v) {
+      case BallNull(): return 'null';
+      case BallString(:var value): return value;
+      case BallBool(:var value): return value.toString();
+      case BallInt(:var value): return value.toString();
+      case BallDouble(:var value):
+        if (value == value.truncateToDouble() && !value.isNaN && !value.isInfinite) {
+          return '${value.truncate()}.0';
+        }
+        return value.toString();
+      case BallList(:var items): return '[${items.map(_ballToString).join(', ')}]';
+      case BallMap(:var entries):
+        // StringBuffer: return the buffer contents.
+        final typeVal = entries['__type__'];
+        final typeName = typeVal is BallString ? typeVal.value : null;
+        if (typeName != null && (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
+          final buf = entries['__buffer__'];
+          return buf is BallString ? buf.value : '';
+        }
+        // Typed object: try to invoke the user's toString method.
+        if (typeName != null) {
+          final resolved = _resolveMethod(typeName, 'toString');
+          if (resolved != null) {
+            try {
+              final future = _callFunction(resolved.module, resolved.func,
+                  BallMap({'self': v} as Map<String, BallValue>));
+              BallValue syncResult = kNull;
+              var done = false;
+              future.then((r) { syncResult = r; done = true; });
+              if (done) return syncResult is BallNull ? 'null' : syncResult.toString();
+              return v.toString();
+            } catch (_) {
+              // If toString throws, fall back.
+            }
           }
         }
-      }
+        return '{${entries.entries.where((e) => !e.key.startsWith('__')).map((e) => '${e.key}: ${_ballToString(e.value)}').join(', ')}}';
+      default: return v.toString();
     }
-    return v.toString();
   }
 
   /// Resolve a method by name walking the class hierarchy.
@@ -4989,7 +5001,7 @@ class BallEngine {
     return const [];
   }
 
-  FutureOr<Object?> _stdPrint(Object? input) async {
+  FutureOr<BallValue> _stdPrint(BallValue input) async {
     if (input is Map<String, Object?>) {
       final message = input['message'];
       if (message != null) {
@@ -5002,7 +5014,7 @@ class BallEngine {
   }
 
   /// Async version of [_ballToString] that can await method calls.
-  Future<String> _ballToStringAsync(Object? v) async {
+  Future<String> _ballToStringAsync(BallValue v) async {
     if (v == null) return 'null';
     if (v is String) return v;
     if (v is bool) return v.toString();
@@ -5035,7 +5047,7 @@ class BallEngine {
     return v.toString();
   }
 
-  Object? _stdIf(Object? input) {
+  BallValue _stdIf(BallValue input) {
     if (input is! Map<String, Object?>) {
       throw BallRuntimeError('std.if input must be a message');
     }
@@ -5044,7 +5056,7 @@ class BallEngine {
     return input['else'];
   }
 
-  Object? _stdIndex(Object? input) {
+  BallValue _stdIndex(BallValue input) {
     if (input is! Map<String, Object?>) {
       throw BallRuntimeError('std.index: expected message');
     }
@@ -5056,19 +5068,19 @@ class BallEngine {
     throw BallRuntimeError('std.index: unsupported types');
   }
 
-  Object? _stdCascade(Object? input) {
+  BallValue _stdCascade(BallValue input) {
     if (input is! Map<String, Object?>) return input;
     return input['target'];
   }
 
-  Object? _stdNullAwareCascade(Object? input) {
+  BallValue _stdNullAwareCascade(BallValue input) {
     if (input is! Map<String, Object?>) return input;
     final target = input['target'];
     if (target == null) return null;
     return target;
   }
 
-  FutureOr<Object?> _stdInvoke(Object? input) async {
+  FutureOr<BallValue> _stdInvoke(BallValue input) async {
     if (input is! Map<String, Object?>) {
       throw BallRuntimeError('std.invoke: expected message');
     }
@@ -5094,7 +5106,7 @@ class BallEngine {
     return result;
   }
 
-  Object? _stdNullAwareAccess(Object? input) {
+  BallValue _stdNullAwareAccess(BallValue input) {
     if (input is! Map<String, Object?>) return null;
     final target = input['target'];
     final field = input['field'] as String?;
@@ -5105,7 +5117,7 @@ class BallEngine {
     return null;
   }
 
-  Object? _stdNullAwareCall(Object? input) {
+  BallValue _stdNullAwareCall(BallValue input) {
     if (input is! Map<String, Object?>) return null;
     final target = input['target'];
     if (target == null) return null;
@@ -5113,7 +5125,7 @@ class BallEngine {
     return null;
   }
 
-  Object? _stdTypeCheck(Object? input) {
+  BallValue _stdTypeCheck(BallValue input) {
     if (input is! Map<String, Object?>) return false;
     final value = input['value'];
     final type = input['type'] as String?;
@@ -5228,7 +5240,7 @@ class BallEngine {
     return args;
   }
 
-  Object? _stdMapCreate(Object? input) {
+  BallValue _stdMapCreate(BallValue input) {
     if (input is! Map<String, Object?>) return <String, Object?>{};
     // Support both 'entries' (list of {name, value}) and 'entry' (single or
     // list of {key, value}) formats.
@@ -5251,19 +5263,19 @@ class BallEngine {
     return <String, Object?>{};
   }
 
-  Object? _stdSetCreate(Object? input) {
+  BallValue _stdSetCreate(BallValue input) {
     if (input is! Map<String, Object?>) return <Object?>{};
     final elements = input['elements'];
     if (elements is List) return elements.toSet();
     return <Object?>{};
   }
 
-  Object? _stdRecord(Object? input) {
+  BallValue _stdRecord(BallValue input) {
     if (input is! Map<String, Object?>) return input;
     return input['fields'] ?? input;
   }
 
-  FutureOr<Object?> _stdSwitchExpr(Object? input) async {
+  FutureOr<BallValue> _stdSwitchExpr(BallValue input) async {
     if (input is! Map<String, Object?>) return null;
     final subject = input['subject'];
     final cases = input['cases'];
@@ -5305,7 +5317,7 @@ class BallEngine {
   /// Returns `true` if [value] matches [pattern], and populates [bindings]
   /// with any destructured variable names.
   bool _matchPattern(
-    Object? value,
+    BallValue value,
     Object? pattern,
     Map<String, Object?> bindings,
   ) {
@@ -5320,7 +5332,7 @@ class BallEngine {
 
   /// Match a string pattern like 'int x', 'String s', '> 5', etc.
   bool _matchStringPattern(
-    Object? value,
+    BallValue value,
     String pattern,
     Map<String, Object?> bindings,
   ) {
@@ -5374,7 +5386,7 @@ class BallEngine {
 
   /// Match structured pattern maps (e.g., ObjectPattern, ListPattern).
   bool _matchStructuredPattern(
-    Object? value,
+    BallValue value,
     Map<String, Object?> pattern,
     Map<String, Object?> bindings,
   ) {
@@ -5473,22 +5485,22 @@ class BallEngine {
 
   /// Returns true if [value] matches the type-name pattern string.
   /// Enables switch expressions with type arms like `case int: ...`.
-  bool _matchesTypePattern(Object? value, String pattern) {
+  bool _matchesTypePattern(BallValue value, String pattern) {
     return switch (pattern) {
-      'int' => value is int,
-      'double' => value is double,
-      'num' => value is num,
-      'String' => value is String,
-      'bool' => value is bool,
-      'List' => value is List,
-      'Map' => value is Map,
-      'Set' => value is Set,
-      'Null' || 'null' => value == null,
+      'int' => value is BallInt,
+      'double' => value is BallDouble,
+      'num' => value is BallInt || value is BallDouble,
+      'String' => value is BallString,
+      'bool' => value is BallBool,
+      'List' => value is BallList,
+      'Map' => value is BallMap,
+      'Set' => false, // Ball has no BallSet
+      'Null' || 'null' => value is BallNull,
       _ => false,
     };
   }
 
-  Object? _stdAssert(Object? input) {
+  BallValue _stdAssert(BallValue input) {
     if (input is! Map<String, Object?>) return null;
     final condition = input['condition'];
     final message = input['message'];
@@ -5503,95 +5515,116 @@ class BallEngine {
   // ---- Arithmetic helpers ----
 
   /// `std.add` — numeric addition or string concatenation.
-  Object? _stdAdd(Object? input) {
+  BallValue _stdAdd(BallValue input) {
     final (left, right) = _extractBinaryArgs(input);
-    if (left is String || right is String) {
-      return '${left ?? ''}${right ?? ''}';
+    if (left is BallString || right is BallString) {
+      return BallString('${left is BallNull ? '' : left}${right is BallNull ? '' : right}');
     }
-    return _toNum(left) + _toNum(right);
+    final result = _toNum(left) + _toNum(right);
+    return result is int ? BallInt(result) : BallDouble(result.toDouble());
   }
 
-  Object? _stdBinary(Object? input, num Function(num, num) op) {
+  BallValue _stdBinary(BallValue input, num Function(num, num) op) {
     final (left, right) = _extractBinaryArgs(input);
-    return op(_toNum(left), _toNum(right));
+    final result = op(_toNum(left), _toNum(right));
+    return result is int ? BallInt(result) : BallDouble(result.toDouble());
   }
 
-  Object? _stdBinaryInt(Object? input, int Function(int, int) op) {
+  BallValue _stdBinaryInt(BallValue input, int Function(int, int) op) {
     final (left, right) = _extractBinaryArgs(input);
-    return op(_toInt(left), _toInt(right));
+    return BallInt(op(_toInt(left), _toInt(right)));
   }
 
-  Object? _stdBinaryDouble(
-    Object? input,
+  BallValue _stdBinaryDouble(
+    BallValue input,
     double Function(double, double) op,
   ) {
     final (left, right) = _extractBinaryArgs(input);
-    return op(_toDouble(left), _toDouble(right));
+    return BallDouble(op(_toDouble(left), _toDouble(right)));
   }
 
-  Object? _stdBinaryComp(Object? input, bool Function(num, num) op) {
+  BallValue _stdBinaryComp(BallValue input, bool Function(num, num) op) {
     final (left, right) = _extractBinaryArgs(input);
-    return op(_toNum(left), _toNum(right));
+    return BallBool(op(_toNum(left), _toNum(right)));
   }
 
-  Object? _stdBinaryBool(Object? input, bool Function(bool, bool) op) {
+  BallValue _stdBinaryBool(BallValue input, bool Function(bool, bool) op) {
     final (left, right) = _extractBinaryArgs(input);
-    return op(_toBool(left), _toBool(right));
+    return BallBool(op(_toBool(left), _toBool(right)));
   }
 
-  Object? _stdBinaryAny(
-    Object? input,
+  BallValue _stdBinaryAny(
+    BallValue input,
     Object? Function(Object?, Object?) op,
   ) {
     final (left, right) = _extractBinaryArgs(input);
-    return op(left, right);
+    return wrap(op(unwrap(left), unwrap(right)));
   }
 
-  Object? _stdUnaryNum(Object? input, num Function(num) op) {
+  BallValue _stdUnaryNum(BallValue input, num Function(num) op) {
     final value = _extractUnaryArg(input);
-    return op(_toNum(value));
+    final result = op(_toNum(value));
+    return result is int ? BallInt(result) : BallDouble(result.toDouble());
   }
 
-  Object? _stdNot(Object? input) {
+  BallValue _stdNot(BallValue input) {
     final value = _extractUnaryArg(input);
-    return !_toBool(value);
+    return BallBool(!_toBool(value));
   }
 
-  Object? _stdConcat(Object? input) {
+  BallValue _stdConcat(BallValue input) {
     final (left, right) = _extractBinaryArgs(input);
-    return '$left$right';
+    return BallString('$left$right');
   }
 
-  Object? _stdLength(Object? input) {
+  BallValue _stdLength(BallValue input) {
     final value = _extractUnaryArg(input);
-    if (value is String) return value.length;
-    if (value is List) return value.length;
-    throw BallRuntimeError('std.length: unsupported type ${value.runtimeType}');
+    return switch (value) {
+      BallString(:var value) => BallInt(value.length),
+      BallList(:var items) => BallInt(items.length),
+      _ => throw BallRuntimeError('std.length: unsupported type $value'),
+    };
   }
 
-  Object? _stdConvert(Object? input, Object? Function(Object?) converter) {
+  BallValue _stdConvert(BallValue input, Object? Function(Object?) converter) {
     final value = _extractUnaryArg(input);
-    return converter(value);
+    return wrap(converter(unwrap(value)));
   }
 
   // ---- Value extraction helpers ----
 
-  (Object?, Object?) _extractBinaryArgs(Object? input) {
-    if (input is Map<String, Object?>) {
-      return (input['left'], input['right']);
+  (BallValue, BallValue) _extractBinaryArgs(BallValue input) {
+    if (input is BallMap) {
+      return (input['left'] ?? kNull, input['right'] ?? kNull);
     }
     throw BallRuntimeError('Expected message with left/right fields');
   }
 
-  Object? _extractUnaryArg(Object? input) {
-    if (input is Map<String, Object?>) return input['value'];
+  BallValue _extractUnaryArg(BallValue input) {
+    if (input is BallMap) return input['value'] ?? kNull;
     return input;
   }
 
-  Object? _extractField(Object? input, String name) {
-    if (input is Map<String, Object?>) return input[name];
-    return null;
+  BallValue _extractField(BallValue input, String name) {
+    if (input is BallMap) return input[name] ?? kNull;
+    return kNull;
   }
+
+  /// Cast a BallValue to BallMap, throwing if not a map.
+  BallMap _asMap(BallValue v) {
+    if (v is BallMap) return v;
+    throw BallRuntimeError('Expected map, got $v');
+  }
+
+  /// Get a raw Dart string from a BallValue map field.
+  String _mapStr(BallMap m, String key) {
+    final v = m[key];
+    if (v is BallString) return v.value;
+    return v?.toString() ?? '';
+  }
+
+  /// Get a BallValue field from a map, defaulting to kNull.
+  BallValue _mapGet(BallMap m, String key) => m[key] ?? kNull;
 
   String? _stringFieldVal(Map<String, Expression> fields, String name) {
     final expr = fields[name];
@@ -5603,170 +5636,155 @@ class BallEngine {
     return null;
   }
 
-  int _toInt(Object? v) {
-    if (v is int) return v;
-    if (v is double) return v.toInt();
-    if (v is String) return int.tryParse(v) ?? 0;
-    if (v is bool) return v ? 1 : 0;
-    return 0;
-  }
+  int _toInt(BallValue v) => switch (v) {
+    BallInt(:var value) => value,
+    BallDouble(:var value) => value.toInt(),
+    BallString(:var value) => int.tryParse(value) ?? 0,
+    BallBool(:var value) => value ? 1 : 0,
+    _ => 0,
+  };
 
-  double _toDouble(Object? v) {
-    if (v is double) return v;
-    if (v is int) return v.toDouble();
-    if (v is String) return double.parse(v);
-    throw BallRuntimeError('Cannot convert ${v.runtimeType} to double');
-  }
+  double _toDouble(BallValue v) => switch (v) {
+    BallDouble(:var value) => value,
+    BallInt(:var value) => value.toDouble(),
+    BallString(:var value) => double.parse(value),
+    _ => throw BallRuntimeError('Cannot convert $v to double'),
+  };
 
-  num _toNum(Object? v) {
-    if (v is num) return v;
-    if (v is String) return num.tryParse(v) ?? 0;
-    if (v is bool) return v ? 1 : 0;
-    if (v == null) return 0;
-    throw BallRuntimeError('Cannot convert ${v.runtimeType} to num');
-  }
+  num _toNum(BallValue v) => switch (v) {
+    BallInt(:var value) => value,
+    BallDouble(:var value) => value,
+    BallString(:var value) => num.tryParse(value) ?? 0,
+    BallBool(:var value) => value ? 1 : 0,
+    BallNull() => 0,
+    _ => throw BallRuntimeError('Cannot convert $v to num'),
+  };
 
   /// Convert a runtime value to an iterable list for for_in loops.
-  /// Handles List, Set, Map (iterates entries as {key, value} maps), and String.
-  List<Object?> _toIterable(Object? v) {
-    if (v is List) return v;
-    if (v is Set) return v.toList();
-    if (v is Map) {
-      return v.entries
-          .map((e) => <String, Object?>{'key': e.key, 'value': e.value})
-          .toList();
-    }
-    if (v is String) return v.split('');
-    throw BallRuntimeError('for_in: value is not iterable (${v.runtimeType})');
-  }
+  /// Handles BallList, BallMap (iterates entries as {key, value} maps),
+  /// and BallString (iterates characters).
+  List<BallValue> _toIterable(BallValue v) => switch (v) {
+    BallList(:var items) => items,
+    BallMap(:var entries) => entries.entries
+        .map((e) => wrapMap({'key': e.key, 'value': unwrap(e.value)}))
+        .toList().cast<BallValue>(),
+    BallString(:var value) => value.split('').map((c) => BallString(c) as BallValue).toList(),
+    _ => throw BallRuntimeError('for_in: value is not iterable ($v)'),
+  };
 
-  bool _toBool(Object? v) {
-    if (v is bool) return v;
-    throw BallRuntimeError('Cannot convert ${v.runtimeType} to bool');
-  }
+  bool _toBool(BallValue v) => switch (v) {
+    BallBool(:var value) => value,
+    _ => throw BallRuntimeError('Cannot convert $v to bool'),
+  };
 
   // ---- String helpers ----
 
-  Object? _stdStringSubstring(Object? input) {
-    if (input is! Map<String, Object?>) {
-      throw BallRuntimeError('Expected message');
-    }
-    final value = input['value'] as String;
-    final start = _toInt(input['start']);
-    final end = input['end'];
-    return end != null
+  BallValue _stdStringSubstring(BallValue input) {
+    final m = _asMap(input);
+    final value = _mapStr(m, 'value');
+    final start = _toInt(_mapGet(m, 'start'));
+    final end = m['end'];
+    return BallString(end != null && end is! BallNull
         ? value.substring(start, _toInt(end))
-        : value.substring(start);
+        : value.substring(start));
   }
 
-  Object? _stdStringCharAt(Object? input) {
-    if (input is! Map<String, Object?>) {
-      throw BallRuntimeError('Expected message');
-    }
-    final target = input['target'] as String;
-    final index = _toInt(input['index']);
-    return target[index];
+  BallValue _stdStringCharAt(BallValue input) {
+    final m = _asMap(input);
+    final target = _mapStr(m, 'target');
+    final index = _toInt(_mapGet(m, 'index'));
+    return BallString(target[index]);
   }
 
-  Object? _stdStringCharCodeAt(Object? input) {
-    if (input is! Map<String, Object?>) {
-      throw BallRuntimeError('Expected message');
-    }
-    final target = (input['target'] ?? input['value'] ?? input['string']) as String;
-    final index = _toInt(input['index']);
-    return target.codeUnitAt(index);
+  BallValue _stdStringCharCodeAt(BallValue input) {
+    final m = _asMap(input);
+    final target = _mapStr(m, 'target').isEmpty
+        ? (_mapStr(m, 'value').isEmpty ? _mapStr(m, 'string') : _mapStr(m, 'value'))
+        : _mapStr(m, 'target');
+    final index = _toInt(_mapGet(m, 'index'));
+    return BallInt(target.codeUnitAt(index));
   }
 
-  Object? _stdStringReplace(Object? input, bool all) {
-    if (input is! Map<String, Object?>) {
-      throw BallRuntimeError('Expected message');
-    }
-    final value = input['value'] as String;
-    final from = input['from'] as String;
-    final to = input['to'] as String;
-    return all ? value.replaceAll(from, to) : value.replaceFirst(from, to);
+  BallValue _stdStringReplace(BallValue input, bool all) {
+    final m = _asMap(input);
+    final value = _mapStr(m, 'value');
+    final from = _mapStr(m, 'from');
+    final to = _mapStr(m, 'to');
+    return BallString(all ? value.replaceAll(from, to) : value.replaceFirst(from, to));
   }
 
-  Object? _stdRegexReplace(Object? input, bool all) {
-    if (input is! Map<String, Object?>) {
-      throw BallRuntimeError('Expected message');
-    }
-    final value = input['value'] as String;
-    final from = input['from'] as String;
-    final to = input['to'] as String;
+  BallValue _stdRegexReplace(BallValue input, bool all) {
+    final m = _asMap(input);
+    final value = _mapStr(m, 'value');
+    final from = _mapStr(m, 'from');
+    final to = _mapStr(m, 'to');
     final pattern = RegExp(from);
-    return all
+    return BallString(all
         ? value.replaceAll(pattern, to)
-        : value.replaceFirst(pattern, to);
+        : value.replaceFirst(pattern, to));
   }
 
-  Object? _stdStringRepeat(Object? input) {
-    if (input is! Map<String, Object?>) {
-      throw BallRuntimeError('Expected message');
-    }
-    final value = input['value'] as String;
-    final count = _toInt(input['count']);
-    return value * count;
+  BallValue _stdStringRepeat(BallValue input) {
+    final m = _asMap(input);
+    final value = _mapStr(m, 'value');
+    final count = _toInt(_mapGet(m, 'count'));
+    return BallString(value * count);
   }
 
-  Object? _stdStringPad(Object? input, bool left) {
-    if (input is! Map<String, Object?>) {
-      throw BallRuntimeError('Expected message');
-    }
-    final value = input['value'] as String;
-    final width = _toInt(input['width']);
-    final padding = (input['padding'] as String?) ?? ' ';
-    return left
+  BallValue _stdStringPad(BallValue input, bool left) {
+    final m = _asMap(input);
+    final value = _mapStr(m, 'value');
+    final width = _toInt(_mapGet(m, 'width'));
+    final paddingVal = m['padding'];
+    final padding = paddingVal is BallString ? paddingVal.value : ' ';
+    return BallString(left
         ? value.padLeft(width, padding)
-        : value.padRight(width, padding);
+        : value.padRight(width, padding));
   }
 
   // ---- Math helpers (using dart:math would need import, so inline) ----
 
-  Object? _stdMathUnary(Object? input, double Function(double) op) {
+  BallValue _stdMathUnary(BallValue input, double Function(double) op) {
     final value = _extractUnaryArg(input);
-    return op(_toDouble(value));
+    return BallDouble(op(_toDouble(value)));
   }
 
-  Object? _stdMathBinary(
-    Object? input,
+  BallValue _stdMathBinary(
+    BallValue input,
     double Function(double, double) op,
   ) {
     final (left, right) = _extractBinaryArgs(input);
-    return op(_toDouble(left), _toDouble(right));
+    return BallDouble(op(_toDouble(left), _toDouble(right)));
   }
 
-  Object? _stdMathClamp(Object? input) {
-    if (input is! Map<String, Object?>) {
-      throw BallRuntimeError('Expected message');
-    }
-    // Handle static method style: math_clamp({value: classRef, min: val, max: lo, arg2: hi})
-    // where value is a class reference object, not a number.
-    final rawValue = input['value'];
+  BallValue _stdMathClamp(BallValue input) {
+    final m = _asMap(input);
+    final rawValue = _mapGet(m, 'value');
     num value;
     num min;
     num max;
-    if (rawValue is Map<String, Object?>) {
+    if (rawValue is BallMap) {
       // Static method dispatch: shift args.
-      value = _toNum(input['min']);
-      min = _toNum(input['max']);
-      max = _toNum(input['arg2']);
+      value = _toNum(_mapGet(m, 'min'));
+      min = _toNum(_mapGet(m, 'max'));
+      max = _toNum(_mapGet(m, 'arg2'));
     } else {
       value = _toNum(rawValue);
-      min = _toNum(input['min']);
-      max = _toNum(input['max']);
+      min = _toNum(_mapGet(m, 'min'));
+      max = _toNum(_mapGet(m, 'max'));
     }
-    return value.clamp(min, max);
+    final result = value.clamp(min, max);
+    return result is int ? BallInt(result) : BallDouble(result.toDouble());
   }
 
   // ---- std_convert helpers ----
 
-  String _jsonEncode(Object? value) {
-    return const JsonEncoder().convert(_toJsonSafe(value));
+  String _jsonEncode(BallValue value) {
+    return const JsonEncoder().convert(_toJsonSafe(unwrap(value)));
   }
 
-  Object? _jsonDecode(String text) {
-    return const JsonDecoder().convert(text);
+  BallValue _jsonDecode(String text) {
+    return wrap(const JsonDecoder().convert(text));
   }
 
   /// Recursively prepare a value for JSON encoding, stripping internal keys.
@@ -5791,75 +5809,78 @@ class BallEngine {
 
   // ---- std_fs helpers ----
 
-  Object? _stdFileRead(Object? input) {
-    final path = input is Map<String, Object?>
-        ? input['path'] as String? ?? ''
+  BallValue _stdFileRead(BallValue input) {
+    final path = input is BallMap
+        ? _mapStr(input, 'path')
         : '$input';
-    return io.File(path).readAsStringSync();
+    return BallString(io.File(path).readAsStringSync());
   }
 
-  Object? _stdFileReadBytes(Object? input) {
-    final path = input is Map<String, Object?>
-        ? input['path'] as String? ?? ''
+  BallValue _stdFileReadBytes(BallValue input) {
+    final path = input is BallMap
+        ? _mapStr(input, 'path')
         : '$input';
-    return io.File(path).readAsBytesSync().toList();
+    return BallList(io.File(path).readAsBytesSync().map((b) => BallInt(b) as BallValue).toList());
   }
 
-  Object? _stdFileWrite(Object? input) {
-    final m = input as Map<String, Object?>;
-    io.File(m['path'] as String).writeAsStringSync(m['content'] as String);
-    return null;
+  BallValue _stdFileWrite(BallValue input) {
+    final m = _asMap(input);
+    io.File(_mapStr(m, 'path')).writeAsStringSync(_mapStr(m, 'content'));
+    return kNull;
   }
 
-  Object? _stdFileWriteBytes(Object? input) {
-    final m = input as Map<String, Object?>;
-    io.File(m['path'] as String).writeAsBytesSync(m['content'] as List<int>);
-    return null;
+  BallValue _stdFileWriteBytes(BallValue input) {
+    final m = _asMap(input);
+    final content = m['content'];
+    final bytes = content is BallList
+        ? content.items.map((v) => v is BallInt ? v.value : 0).toList()
+        : <int>[];
+    io.File(_mapStr(m, 'path')).writeAsBytesSync(bytes);
+    return kNull;
   }
 
-  Object? _stdFileAppend(Object? input) {
-    final m = input as Map<String, Object?>;
-    io.File(
-      m['path'] as String,
-    ).writeAsStringSync(m['content'] as String, mode: io.FileMode.append);
-    return null;
+  BallValue _stdFileAppend(BallValue input) {
+    final m = _asMap(input);
+    io.File(_mapStr(m, 'path'))
+        .writeAsStringSync(_mapStr(m, 'content'), mode: io.FileMode.append);
+    return kNull;
   }
 
-  Object? _stdFileExists(Object? input) {
-    final path = input is Map<String, Object?>
-        ? input['path'] as String? ?? ''
+  BallValue _stdFileExists(BallValue input) {
+    final path = input is BallMap
+        ? _mapStr(input, 'path')
         : '$input';
-    return io.File(path).existsSync();
+    return BallBool(io.File(path).existsSync());
   }
 
-  Object? _stdFileDelete(Object? input) {
-    final path = input is Map<String, Object?>
-        ? input['path'] as String? ?? ''
+  BallValue _stdFileDelete(BallValue input) {
+    final path = input is BallMap
+        ? _mapStr(input, 'path')
         : '$input';
     io.File(path).deleteSync();
-    return null;
+    return kNull;
   }
 
-  Object? _stdDirList(Object? input) {
-    final path = input is Map<String, Object?>
-        ? input['path'] as String? ?? ''
+  BallValue _stdDirList(BallValue input) {
+    final path = input is BallMap
+        ? _mapStr(input, 'path')
         : '$input';
-    return io.Directory(path).listSync().map((e) => e.path).toList();
+    return BallList(io.Directory(path).listSync().map((e) => BallString(e.path) as BallValue).toList());
   }
 
-  Object? _stdDirCreate(Object? input) {
-    final path = input is Map<String, Object?>
-        ? input['path'] as String? ?? ''
+  BallValue _stdDirCreate(BallValue input) {
+    final path = input is BallMap
+        ? _mapStr(input, 'path')
         : '$input';
     io.Directory(path).createSync(recursive: true);
-    return null;
+    return kNull;
   }
 
-  Object? _stdDirExists(Object? input) {
-    final path = input is Map<String, Object?>
-        ? input['path'] as String? ?? ''
+  BallValue _stdDirExists(BallValue input) {
+    final path = input is BallMap
+        ? _mapStr(input, 'path')
         : '$input';
-    return io.Directory(path).existsSync();
+    return BallBool(io.Directory(path).existsSync());
   }
 }
 

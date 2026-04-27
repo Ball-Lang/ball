@@ -7,6 +7,8 @@
 /// Supports all 73 std base functions.
 library;
 
+export 'ball_value.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' as io;

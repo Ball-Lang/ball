@@ -32,8 +32,9 @@ public:
     // Constructors
     BallDyn() : _val() {}
     BallDyn(std::any v) : _val(std::move(v)) {
-        // Auto-unwrap BallDyn-in-std::any to prevent double-wrapping
-        if (_val.type() == typeid(BallDyn)) {
+        // Recursively unwrap nested BallDyn to prevent double-wrapping.
+        // e.g. std::any(BallDyn(std::any(BallDyn(x)))) -> x
+        while (_val.type() == typeid(BallDyn)) {
             _val = std::any_cast<const BallDyn&>(_val)._val;
         }
     }

@@ -155,6 +155,39 @@ if (!(Set.prototype as any).remove) (Set.prototype as any).remove = Set.prototyp
 Object.defineProperty(Set.prototype, 'isEmpty', { configurable: true, get() { return this.size === 0; } });
 Object.defineProperty(Set.prototype, 'isNotEmpty', { configurable: true, get() { return this.size !== 0; } });
 
+// Patch: scope _bindings must use null-prototype objects to avoid
+// Object.prototype getters (entries, keys, values, length) polluting
+// the "in" operator used by scope.lookup/has/set.
+const _origScopeInit = { patched: false };
+function _patchScopeBindings(scope: any) {
+  if (!scope || _origScopeInit.patched) return;
+  const ScopeClass = scope.constructor;
+  if (!ScopeClass) return;
+  const origCtor = ScopeClass;
+  const origBind = ScopeClass.prototype.bind;
+  // Override bind to lazily convert _bindings to null-proto object
+  ScopeClass.prototype.bind = function(name: any, value: any) {
+    if (Object.getPrototypeOf(this._bindings) !== null) {
+      const entries = Object.entries(this._bindings);
+      this._bindings = Object.create(null);
+      for (const [k, v] of entries) this._bindings[k] = v;
+    }
+    return (this._bindings[name] = value);
+  };
+  // Also patch child() to create null-proto bindings
+  const origChild = ScopeClass.prototype.child;
+  if (origChild) {
+    ScopeClass.prototype.child = function() {
+      const c = origChild.call(this);
+      if (Object.getPrototypeOf(c._bindings) !== null) {
+        c._bindings = Object.create(null);
+      }
+      return c;
+    };
+  }
+  _origScopeInit.patched = true;
+}
+
 // Proto has* functions as global helpers (encoder routes method calls through ball_proto)
 // Generic has* helper — returns true if obj[field] is present and non-null
 function _has(obj: any, field: string): boolean { return obj?.[field] !== undefined && obj?.[field] !== null; }

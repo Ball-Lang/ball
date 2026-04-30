@@ -725,6 +725,37 @@ export class BallEngine {
       null,    // resolver
     );
 
+    // Patch scope bindings to use null-prototype objects (avoids
+    // Object.prototype.values/entries/keys getters polluting `in` checks)
+    if (typeof (globalThis as any)._patchScopeBindings === 'function') {
+      (globalThis as any)._patchScopeBindings(this._compiledEngine._globalScope);
+    } else {
+      // Inline patch
+      const sp = Object.getPrototypeOf(this._compiledEngine._globalScope);
+      if (sp && !sp.__bindings_patched) {
+        const origBind = sp.bind;
+        sp.bind = function(name: any, value: any) {
+          if (Object.getPrototypeOf(this._bindings) !== null) {
+            const e = Object.entries(this._bindings);
+            this._bindings = Object.create(null);
+            for (const [k, v] of e) this._bindings[k] = v;
+          }
+          return (this._bindings[name] = value);
+        };
+        const origChild = sp.child;
+        if (origChild) {
+          sp.child = function() {
+            const c = origChild.call(this);
+            if (c._bindings && Object.getPrototypeOf(c._bindings) !== null) {
+              c._bindings = Object.create(null);
+            }
+            return c;
+          };
+        }
+        sp.__bindings_patched = true;
+      }
+    }
+
     registerExtraStdFunctions(stdHandler);
     seedGlobalScope(this._compiledEngine);
 

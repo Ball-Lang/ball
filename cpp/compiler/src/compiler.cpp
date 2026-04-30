@@ -512,15 +512,15 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
 std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreation& msg) {
     // Emit as an aggregate initializer or a map
     if (msg.type_name().empty() || msg.type_name().find("Msg") == 0) {
-        // Anonymous message → std::unordered_map
-        std::string result = "std::unordered_map<std::string, std::any>{";
+        // Anonymous message → BallMap (dynamic map)
+        std::string result = "BallDyn(BallMap{";
         bool first = true;
         for (const auto& f : msg.fields()) {
             if (!first) result += ", ";
-            result += "{\"" + f.name() + "\", std::any(" + compile_expr(f.value()) + ")}";
+            result += "{\"" + f.name() + "\"s, std::any(" + compile_expr(f.value()) + ")}";
             first = false;
         }
-        result += "}";
+        result += "})";
         return result;
     }
 
@@ -2582,6 +2582,48 @@ const std::vector<std::string> _builtinTypeNames = {
   "Iterable", "Iterator", "Type", "Symbol", "Never"
 };
 
+// concat helper (BallDyn-safe, handles both lists and maps)
+inline BallDyn ball_concat(const BallDyn& a, const BallDyn& b) {
+  auto aa = static_cast<std::any>(a);
+  auto ba = static_cast<std::any>(b);
+  // Map concat: merge maps
+  if (aa.type() == typeid(BallMap) || ba.type() == typeid(BallMap)) {
+    BallMap result;
+    try { auto ma = std::any_cast<BallMap>(aa); for (auto& p : ma) result[p.first] = p.second; } catch(...) {}
+    try { auto mb = std::any_cast<BallMap>(ba); for (auto& p : mb) result[p.first] = p.second; } catch(...) {}
+    return BallDyn(result);
+  }
+  // List concat
+  BallList result;
+  try { auto la = std::any_cast<BallList>(aa); result.insert(result.end(), la.begin(), la.end()); } catch(...) {}
+  try { auto lb = std::any_cast<BallList>(ba); result.insert(result.end(), lb.begin(), lb.end()); } catch(...) {}
+  return BallDyn(result);
+}
+
+// std::map overload for ball_concat (when methods is a map)
+inline std::map<std::string,std::any> ball_concat(const std::map<std::string,std::any>& a, const std::map<std::string,std::any>& b) {
+  auto r = a;
+  for (auto& p : b) r[p.first] = p.second;
+  return r;
+}
+
+// Allow ball_concat(map, BallDyn) and ball_concat(BallDyn, map)
+inline std::map<std::string,std::any> ball_concat(const std::map<std::string,std::any>& a, const BallDyn& b) {
+  auto r = a;
+  try { auto mb = std::any_cast<BallMap>(static_cast<std::any>(b)); for (auto& p : mb) r[p.first] = p.second; } catch(...) {}
+  return r;
+}
+
+// cast helper (Dart as operator — no-op in dynamic C++)
+inline BallDyn cast(const BallDyn& v, const std::string&) { return v; }
+
+// BallDyn from vector<string> conversion
+inline BallDyn ball_wrap_list(const std::vector<std::string>& v) {
+  BallList result;
+  for (const auto& s : v) result.push_back(std::any(s));
+  return BallDyn(result);
+}
+
 // elementAt helper (Iterable.elementAt)
 inline BallDyn elementAt(const BallDyn& list, int64_t index) {
   return list[index];
@@ -3372,14 +3414,20 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "list_map") {
         auto list = get_message_field(call, "list");
-        auto callback = get_message_field(call, "callback");
-        return "[](const auto& v, auto fn){std::decay_t<decltype(v)> r;for(const auto& e:v)r.push_back(fn(e));return r;}("
+        auto* cb_e = get_message_field_expr(call, "callback");
+        if (!cb_e) cb_e = get_message_field_expr(call, "function");
+        if (!cb_e) cb_e = get_message_field_expr(call, "value");
+        auto callback = cb_e ? compile_expr(*cb_e) : "BallDyn()";
+        return "[](const BallDyn& v, auto fn) -> BallDyn {BallList r;for(size_t i=0;i<v.size();i++)r.push_back(std::any(fn(v[static_cast<int64_t>(i)])));return BallDyn(r);}("
                + list + "," + callback + ")";
     }
     if (fn == "list_filter") {
         auto list = get_message_field(call, "list");
-        auto callback = get_message_field(call, "callback");
-        return "[](const auto& v, auto fn){std::decay_t<decltype(v)> r;for(const auto& e:v)if(std::any_cast<bool>(fn(e)))r.push_back(e);return r;}("
+        auto* cb_e = get_message_field_expr(call, "callback");
+        if (!cb_e) cb_e = get_message_field_expr(call, "function");
+        if (!cb_e) cb_e = get_message_field_expr(call, "value");
+        auto callback = cb_e ? compile_expr(*cb_e) : "BallDyn()";
+        return "[](const BallDyn& v, auto fn) -> BallDyn {BallList r;for(size_t i=0;i<v.size();i++){auto e=v[static_cast<int64_t>(i)];if(std::any_cast<bool>(std::any(fn(e))))r.push_back(std::any(e));}return BallDyn(r);}("
                + list + "," + callback + ")";
     }
     if (fn == "list_reduce") {
@@ -3434,10 +3482,13 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
                + list + "," + callback + ")";
     }
     if (fn == "list_concat") {
-        auto left = get_message_field(call, "left");
-        auto right = get_message_field(call, "right");
-        return "[](auto a,const auto& b){a.insert(a.end(),b.begin(),b.end());return a;}("
-               + left + "," + right + ")";
+        auto* left_e = get_message_field_expr(call, "left");
+        if (!left_e) left_e = get_message_field_expr(call, "list");
+        auto* right_e = get_message_field_expr(call, "right");
+        if (!right_e) right_e = get_message_field_expr(call, "value");
+        auto left = left_e ? compile_expr(*left_e) : "BallDyn()";
+        auto right = right_e ? compile_expr(*right_e) : "BallDyn()";
+        return "ball_concat(" + left + "," + right + ")";
     }
     if (fn == "list_slice") {
         auto list = get_message_field(call, "list");

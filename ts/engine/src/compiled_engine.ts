@@ -152,6 +152,8 @@ const _nativeSet = Set;
 if (!(Set.prototype as any).contains) (Set.prototype as any).contains = Set.prototype.has;
 if (!(Set.prototype as any).includes) (Set.prototype as any).includes = Set.prototype.has;
 if (!(Set.prototype as any).remove) (Set.prototype as any).remove = Set.prototype.delete;
+Object.defineProperty(Set.prototype, 'isEmpty', { configurable: true, get() { return this.size === 0; } });
+Object.defineProperty(Set.prototype, 'isNotEmpty', { configurable: true, get() { return this.size !== 0; } });
 
 // Proto has* functions as global helpers (encoder routes method calls through ball_proto)
 // Generic has* helper — returns true if obj[field] is present and non-null
@@ -260,6 +262,7 @@ function __ball_cascade(target: any, ops: any[]): any {
   if (!ap.removeLast) ap.removeLast = function () { return this.pop(); };
   if (!ap.removeAt) ap.removeAt = function (i: any) { return this.splice(i, 1)[0]; };
   if (!ap.insert) ap.insert = function (i: any, v: any) { this.splice(i, 0, v); };
+  if (!ap.setAll) ap.setAll = function (idx: number, values: any[]) { for (let i = 0; i < values.length; i++) this[idx + i] = values[i]; };
   if (!ap.where) ap.where = Array.prototype.filter;
   if (!ap.toList) ap.toList = function () { return this.slice(); };
   if (!ap.toSet) ap.toSet = function () { return new Set(this); };
@@ -4241,9 +4244,11 @@ export class BallEngine {
             self.setAll(0, sorted);
             return null;
           }
-          self = [...self].sort(((a, b) => {
+          let defaultSorted = ([...self]);
+          defaultSorted = [...defaultSorted].sort(((a, b) => {
             return (a < b ? -1 : a > b ? 1 : 0);
           }));
+          self.setAll(0, defaultSorted);
           return null;
         }
         else if ((__sw === 'map')) {

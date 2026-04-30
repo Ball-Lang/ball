@@ -1232,7 +1232,9 @@ extension BallEngineControlFlow on BallEngine {
             self.setAll(0, sorted);
             return null;
           }
-          self.sort((a, b) => (a as Comparable).compareTo(b));
+          final defaultSorted = List<Object?>.of(self);
+          defaultSorted.sort((a, b) => (a as Comparable).compareTo(b));
+          self.setAll(0, defaultSorted);
           return null;
         case 'map':
           if (arg0 is Function) {

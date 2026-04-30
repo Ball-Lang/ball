@@ -563,8 +563,8 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
   _r('string_pad_right', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').padEnd(Number(m['width'] ?? m['length'] ?? 0), String(m['padding'] ?? m['pad'] ?? ' ')); });
   _r('string_char_at', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').charAt(Number(m['index'] ?? m['arg0'] ?? 0)); });
   _r('string_to_int', (i: any) => { const m = _m(i); const n = parseInt(String(m['value'] ?? m['string'] ?? i ?? '').trim(), 10); return isNaN(n) ? 0 : n; });
-  _r('writeCharCode', (i: any) => { const m = _m(i); const self = m['self']; if (typeof self === 'object' && self !== null) { if (!self['__buffer__']) self['__buffer__'] = []; self['__buffer__'].push(String.fromCharCode(Number(m['arg0'] ?? m['value'] ?? 0))); } return null; });
-  _r('write', (i: any) => { const m = _m(i); const self = m['self']; if (typeof self === 'object' && self !== null) { if (!self['__buffer__']) self['__buffer__'] = []; self['__buffer__'].push(String(m['arg0'] ?? m['value'] ?? '')); } return null; });
+  _r('writeCharCode', (i: any) => { const m = _m(i); const self = m['self']; if (typeof self === 'object' && self !== null) { self['__buffer__'] = (self['__buffer__'] ?? '') + String.fromCharCode(Number(m['arg0'] ?? m['value'] ?? 0)); } return null; });
+  _r('write', (i: any) => { const m = _m(i); const self = m['self']; if (typeof self === 'object' && self !== null) { self['__buffer__'] = (self['__buffer__'] ?? '') + String(m['arg0'] ?? m['value'] ?? ''); } return null; });
 
   // ── Conversion ─────────────────────────────────────────────────────
   const _toDouble = (i: any) => {

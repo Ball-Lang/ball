@@ -2013,7 +2013,21 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                     };
                     init = dart_to_cpp_init(raw);
                 } else {
-                    init = get_message_field(call, "init");
+                    // If init is a block with a single let statement,
+                    // extract the declaration for the for-init clause
+                    // (avoids IIFE scoping issues).
+                    auto* init_e = get_message_field_expr(call, "init");
+                    if (init_e &&
+                        init_e->expr_case() == ball::v1::Expression::kBlock &&
+                        init_e->block().statements_size() == 1 &&
+                        init_e->block().statements(0).stmt_case() == ball::v1::Statement::kLet) {
+                        const auto& let_stmt = init_e->block().statements(0).let();
+                        auto var_name = let_stmt.name();
+                        auto val = compile_expr(let_stmt.value());
+                        init = "auto " + var_name + " = " + val;
+                    } else {
+                        init = get_message_field(call, "init");
+                    }
                 }
                 auto cond = get_message_field(call, "condition");
                 auto update = get_message_field(call, "update");
@@ -2423,6 +2437,63 @@ void CppCompiler::emit_includes() {
 
     // Splice the BallDyn dynamic value type for dynamic typing support.
     out_ << BALL_DYN_SOURCE;
+    emit_newline();
+
+    // Proto-compat helper functions (ball_proto module routes method calls
+    // as standalone functions: hasMetadata(obj), whichExpr(obj), etc.)
+    out_ << R"(
+// Proto-compat helpers for ball_proto method dispatch
+using namespace std::string_literals;
+inline bool _bd_has(const BallDyn& obj, const std::string& f) { return !obj[f].is_null(); }
+inline bool hasMetadata(const BallDyn& o) { return _bd_has(o,"metadata"); }
+inline bool hasBody(const BallDyn& o) { return _bd_has(o,"body"); }
+inline bool hasInput(const BallDyn& o) { return _bd_has(o,"input"); }
+inline bool hasDescriptor(const BallDyn& o) { return _bd_has(o,"descriptor"); }
+inline bool hasResult(const BallDyn& o) { return _bd_has(o,"result"); }
+inline bool hasStringValue(const BallDyn& o) { return _bd_has(o,"stringValue"); }
+inline bool hasBoolValue(const BallDyn& o) { return _bd_has(o,"boolValue"); }
+inline bool hasNumberValue(const BallDyn& o) { return _bd_has(o,"numberValue"); }
+inline bool hasListValue(const BallDyn& o) { return _bd_has(o,"listValue"); }
+inline bool hasCall(const BallDyn& o) { return _bd_has(o,"call"); }
+inline bool hasNullValue(const BallDyn&) { return false; }
+inline bool hasStructValue(const BallDyn& o) { return _bd_has(o,"structValue"); }
+inline bool hasMatch(const BallDyn&) { return false; }
+inline bool hasXxx(const BallDyn&) { return false; }
+inline std::string whichExpr(const BallDyn& o) {
+  if (_bd_has(o,"call")) return "call";
+  if (_bd_has(o,"literal")) return "literal";
+  if (_bd_has(o,"reference")) return "reference";
+  if (_bd_has(o,"fieldAccess")) return "fieldAccess";
+  if (_bd_has(o,"messageCreation")) return "messageCreation";
+  if (_bd_has(o,"block")) return "block";
+  if (_bd_has(o,"lambda")) return "lambda";
+  return "notSet";
+}
+inline std::string whichValue(const BallDyn& o) {
+  if (_bd_has(o,"intValue")) return "intValue";
+  if (_bd_has(o,"doubleValue")) return "doubleValue";
+  if (_bd_has(o,"stringValue")) return "stringValue";
+  if (_bd_has(o,"boolValue")) return "boolValue";
+  if (_bd_has(o,"listValue")) return "listValue";
+  return "notSet";
+}
+inline std::string whichStmt(const BallDyn& o) {
+  if (_bd_has(o,"let")) return "let";
+  if (_bd_has(o,"expression")) return "expression";
+  return "notSet";
+}
+inline std::string whichKind(const BallDyn& o) {
+  if (_bd_has(o,"nullValue")) return "nullValue";
+  if (_bd_has(o,"numberValue")) return "numberValue";
+  if (_bd_has(o,"stringValue")) return "stringValue";
+  if (_bd_has(o,"boolValue")) return "boolValue";
+  if (_bd_has(o,"structValue")) return "structValue";
+  if (_bd_has(o,"listValue")) return "listValue";
+  return "notSet";
+}
+inline std::string whichSource(const BallDyn&) { return "notSet"; }
+inline std::string whichXxx(const BallDyn&) { return "notSet"; }
+)";
     emit_newline();
 }
 

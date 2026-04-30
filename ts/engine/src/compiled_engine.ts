@@ -1135,7 +1135,7 @@ export class BallEngine {
                   } else {
                     if ((num.tryParse(valStr) != null)) {
                       let numVal = num.parse(valStr);
-                      instance[name] = (valStr.includes('.') ? (+(numVal)) : Math.trunc(numVal));
+                      instance[name] = (valStr.includes('.') ? new BallDouble((+(numVal))) : Math.trunc(numVal));
                     } else {
                       instance[name] = (resolvedParams[valStr] ?? valStr);
                     }
@@ -2326,6 +2326,10 @@ export class BallEngine {
         superObj = superMap['__super__'];
         superMap = this._asMap(superObj);
       }
+      let getterResult = await this._tryGetterDispatch(objectMap, fieldName);
+      if ((getterResult !== _sentinel)) {
+        return getterResult;
+      }
       {
         const __sw = fieldName;
         if ((__sw === 'keys')) {
@@ -2349,10 +2353,6 @@ export class BallEngine {
             return { 'key': e.key, 'value': e.value };
           }))];
         }
-      }
-      let getterResult = await this._tryGetterDispatch(objectMap, fieldName);
-      if ((getterResult !== _sentinel)) {
-        return getterResult;
       }
       throw new BallRuntimeError(((('Field "' + __ball_to_string(fieldName)) + '" not found. ') + ('Available: ' + __ball_to_string([...objectMap.keys]))));
     }

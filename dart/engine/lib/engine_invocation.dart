@@ -211,7 +211,7 @@ extension BallEngineInvocation on BallEngine {
                 instance[name] = false;
               } else if (num.tryParse(valStr) != null) {
                 final numVal = num.parse(valStr);
-                instance[name] = valStr.contains('.') ? numVal.toDouble() : numVal.toInt();
+                instance[name] = valStr.contains('.') ? BallDouble(numVal.toDouble()) : numVal.toInt();
               } else {
                 // Try as a param/variable reference.
                 instance[name] = resolvedParams[valStr] ?? valStr;

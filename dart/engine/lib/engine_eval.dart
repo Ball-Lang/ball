@@ -575,7 +575,12 @@ extension BallEngineEval on BallEngine {
         superMap = _asMap(superObj);
       }
 
-      // Virtual fields on maps / message instances.
+      // Getter dispatch FIRST: user-defined getters take priority over
+      // virtual map properties (keys, values, length, isEmpty, etc.).
+      final getterResult = await _tryGetterDispatch(objectMap, fieldName);
+      if (getterResult != _sentinel) return getterResult;
+
+      // Virtual fields on maps / message instances (fallback for plain maps).
       switch (fieldName) {
         case 'keys':
           return objectMap.keys.toList();
@@ -592,11 +597,6 @@ extension BallEngineEval on BallEngine {
               .map((e) => <String, Object?>{'key': e.key, 'value': e.value})
               .toList();
       }
-
-      // Getter dispatch: if the field isn't a data field, check for a getter
-      // function on the object's type (metadata has is_getter: true).
-      final getterResult = await _tryGetterDispatch(objectMap, fieldName);
-      if (getterResult != _sentinel) return getterResult;
 
       throw BallRuntimeError(
         'Field "$fieldName" not found. '

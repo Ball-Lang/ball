@@ -2594,7 +2594,9 @@ export class BallEngine {
       if ((pair.name in fields)) {
         let existing = fields[pair.name];
         if (Array.isArray(existing)) {
-          existing = [...existing, val];
+          let merged = ([...existing]);
+          merged = [...merged, val];
+          fields[pair.name] = merged;
         } else {
           fields[pair.name] = [existing, val];
         }

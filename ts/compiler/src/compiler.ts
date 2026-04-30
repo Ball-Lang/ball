@@ -3015,6 +3015,12 @@ $1async _resolveAndCallFunction(`,
       const arg = dataFields.length > 0 ? this.expr(dataFields[0].value) : "{}";
       return `({...${arg}})`;
     }
+    // List / List.of / List.from → spread-copy as array
+    if (shortTn === "List.of" || shortTn === "List.from") {
+      const dataFields = fields.filter(f => f.name !== "__type_args__" && f.name !== "__const__");
+      const arg = dataFields.length > 0 ? this.expr(dataFields[0].value) : "[]";
+      return `([...${arg}])`;
+    }
 
     if (builtinCtors.has(shortTn)) {
       const args = this.extractPositionalAndNamed(fields);

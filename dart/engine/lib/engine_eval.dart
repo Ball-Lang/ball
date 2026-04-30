@@ -827,7 +827,9 @@ extension BallEngineEval on BallEngine {
       if (fields.containsKey(pair.name)) {
         final existing = fields[pair.name];
         if (existing is List) {
-          existing.add(val);
+          final merged = List<Object?>.of(existing);
+          merged.add(val);
+          fields[pair.name] = merged;
         } else {
           fields[pair.name] = [existing, val];
         }

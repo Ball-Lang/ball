@@ -22,6 +22,7 @@ class BallDouble {
     return this.value;
   }
 }
+(globalThis as any).BallDouble = BallDouble;
 
 function __ball_to_string(v: any): string {
   if (v === null || v === undefined) return 'null';
@@ -6219,7 +6220,7 @@ export class BallEngine {
       return __ball_to_string(v);
     }
     if ((typeof v === 'number' || v instanceof BallDouble)) {
-      return __ball_to_string(v.value);
+      return __ball_to_string(v);
     }
     if (false /* BallList is List in TS */) {
       return (('[' + __ball_to_string(v.items.map(this._ballToString.bind(this)).join(', '))) + ']');
@@ -6349,7 +6350,7 @@ export class BallEngine {
       return __ball_to_string(v);
     }
     if ((typeof v === 'number' || v instanceof BallDouble)) {
-      return __ball_to_string(v.value);
+      return __ball_to_string(v);
     }
     if (false /* BallList is List in TS */) {
       let parts = [];

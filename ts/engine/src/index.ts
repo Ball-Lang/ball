@@ -24,16 +24,10 @@ import {
 // in the compiled engine's preamble.
 
 function _makeBallDouble(v: number): any {
-  const wrapper: any = Object.create(Number.prototype);
-  wrapper.value = v;
-  wrapper.valueOf = () => v;
-  wrapper[Symbol.toPrimitive] = (hint: string) => hint === 'string' ? wrapper.toString() : v;
-  wrapper.toString = () => {
-    if (!isFinite(v)) return v.toString();
-    if (Number.isInteger(v)) return v.toFixed(1);
-    return v.toString();
-  };
-  return wrapper;
+  // Use the compiled engine's BallDouble class (exposed on globalThis by preamble)
+  const BD = (globalThis as any).BallDouble;
+  if (BD) return new BD(v);
+  return v;
 }
 
 // ── Public types ───────────────────────────────────────────────────────────
@@ -588,6 +582,14 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
     const m = _m(i); const l = m['left'] ?? m['value'] ?? m['self'] ?? m['a'] ?? 0; const r = m['right'] ?? m['other'] ?? m['arg0'] ?? m['b'] ?? 0;
     if (typeof l === 'string' && typeof r === 'string') return l < r ? -1 : l > r ? 1 : 0;
     return Number(l) < Number(r) ? -1 : Number(l) > Number(r) ? 1 : 0;
+  });
+
+  // Dart / always returns double — wrap result in BallDouble
+  _r('divide_double', (i: any) => {
+    const m = _m(i);
+    const l = Number(m['left'] ?? m['value'] ?? m['arg0'] ?? 0);
+    const r = Number(m['right'] ?? m['other'] ?? m['arg1'] ?? 1);
+    return _makeBallDouble(l / r);
   });
 
   // ── Math ───────────────────────────────────────────────────────────

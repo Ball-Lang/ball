@@ -35,6 +35,7 @@ class BallDouble {
     return this.value;
   }
 }
+(globalThis as any).BallDouble = BallDouble;
 
 function __ball_to_string(v: any): string {
   if (v === null || v === undefined) return 'null';

@@ -1203,7 +1203,7 @@ extension BallEngineStd on BallEngine {
     if (v is int) return v.toString();
     if (v is BallInt) return v.value.toString();
     if (v is double) return v.toString();
-    if (v is BallDouble) return v.value.toString();
+    if (v is BallDouble) return v.toString();
     if (v is BallList) return '[${v.items.map(_ballToString).join(', ')}]';
     if (v is List) return '[${v.map(_ballToString).join(', ')}]';
     final map = _stdAsMap(v);
@@ -1319,7 +1319,7 @@ extension BallEngineStd on BallEngine {
     if (v is int) return v.toString();
     if (v is BallInt) return v.value.toString();
     if (v is double) return v.toString();
-    if (v is BallDouble) return v.value.toString();
+    if (v is BallDouble) return v.toString();
     if (v is BallList) {
       final parts = <String>[];
       for (final item in v.items) {

@@ -2909,6 +2909,14 @@ BallValue Engine::eval_lazy_try(const ball::v1::FunctionCall& call, std::shared_
             if (bit != cf.end()) {
                 auto cs = std::make_shared<Scope>(scope);
                 cs->bind(var, exception_value);
+                // Bind stack trace variable if present.
+                auto stit = cf.find("stack_trace");
+                if (stit != cf.end() && stit->second->expr_case() == ball::v1::Expression::kLiteral) {
+                    auto stack_var = stit->second->literal().string_value();
+                    if (!stack_var.empty()) {
+                        cs->bind(stack_var, std::string("<stack trace>"));
+                    }
+                }
                 // Save/restore the active exception so `rethrow` can
                 // re-raise the original exception, and nested tries
                 // restore the outer active exception on exit.

@@ -138,6 +138,47 @@ int main() {
         }
     }
 
+    // ── Encoder-generated conformance ────────────────────────────────
+    // Same tests Dart and TS run from tests/fixtures/dart/_generated/.
+#ifdef BALL_FIXTURES_DIR
+    fs::path gen_dir(BALL_FIXTURES_DIR);
+    gen_dir /= "dart/_generated";
+#else
+    fs::path gen_dir(BALL_CONFORMANCE_DIR);
+    gen_dir = gen_dir.parent_path() / "fixtures" / "dart" / "_generated";
+#endif
+    if (fs::exists(gen_dir)) {
+        std::cout << "\nEncoder-generated conformance\n"
+                  << "-----------------------------\n";
+        std::vector<fs::path> gen_programs;
+        for (auto& entry : fs::directory_iterator(gen_dir)) {
+            if (!entry.is_regular_file()) continue;
+            auto p = entry.path();
+            auto s = p.filename().string();
+            if (s.size() >= 10 && s.compare(s.size() - 10, 10, ".ball.json") == 0) {
+                gen_programs.push_back(p);
+            }
+        }
+        std::sort(gen_programs.begin(), gen_programs.end());
+        for (const auto& program_path : gen_programs) {
+            auto name = program_path.filename().string();
+            name = name.substr(0, name.size() - 10);
+            auto expected_path = program_path.parent_path() /
+                                 (name + ".expected_output.txt");
+            if (!fs::exists(expected_path)) continue;
+            tests_run++;
+            std::cout << "  " << name << "... " << std::flush;
+            std::string failure_msg;
+            if (run_one(program_path, expected_path, failure_msg)) {
+                std::cout << "PASS\n";
+                tests_passed++;
+            } else {
+                std::cout << "FAIL\n" << failure_msg << "\n";
+                tests_failed++;
+            }
+        }
+    }
+
     std::cout << "\n==========================\n"
               << "Results: " << tests_passed << " passed, "
               << tests_failed << " failed, "

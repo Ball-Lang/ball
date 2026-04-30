@@ -3515,7 +3515,14 @@ export class BallEngine {
               let eBare = ((eColonIdx >= 0) ? eType.substring((eColonIdx + 1)) : eType);
               matches = ((eType === catchType) || (eBare === catchType));
             } else {
-              matches = (__ball_to_string(e['runtimeType']) === catchType);
+              if (((typeof e === 'object' && e !== null && !Array.isArray(e)) && (e['__type__'] != null))) {
+                let eType = __ball_to_string(e['__type__']);
+                let eColonIdx = eType.indexOf(':');
+                let eBare = ((eColonIdx >= 0) ? eType.substring((eColonIdx + 1)) : eType);
+                matches = ((eType === catchType) || (eBare === catchType));
+              } else {
+                matches = (__ball_to_string(e['runtimeType']) === catchType);
+              }
             }
             if (!matches) {
               continue;

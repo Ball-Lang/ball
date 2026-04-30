@@ -467,6 +467,11 @@ extension BallEngineControlFlow on BallEngine {
               final eColonIdx = eType.indexOf(':');
               final eBare = eColonIdx >= 0 ? eType.substring(eColonIdx + 1) : eType;
               matches = eType == catchType || eBare == catchType;
+            } else if (e is Map && e['__type__'] != null) {
+              final eType = e['__type__'].toString();
+              final eColonIdx = eType.indexOf(':');
+              final eBare = eColonIdx >= 0 ? eType.substring(eColonIdx + 1) : eType;
+              matches = eType == catchType || eBare == catchType;
             } else {
               matches = e.runtimeType.toString() == catchType;
             }

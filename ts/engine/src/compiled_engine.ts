@@ -4599,7 +4599,7 @@ export class BallEngine {
           return (self < this._toNum(arg0) ? -1 : self > this._toNum(arg0) ? 1 : 0);
         }
         else if ((__sw === 'clamp')) {
-          return /* std.math_clamp */ math_clamp(self, this._toNum(arg0), this._toNum((args['arg1'] ?? self)));
+          return Math.min(Math.max(self, this._toNum(arg0)), this._toNum((args['arg1'] ?? self)));
         }
         else if ((__sw === 'truncate')) {
           return Math.trunc(self);
@@ -7236,7 +7236,7 @@ export class BallEngine {
       min = this._toNum(m['min']);
       max = this._toNum(m['max']);
     }
-    return /* std.math_clamp */ math_clamp(value, min, max);
+    return Math.min(Math.max(value, min), max);
   }
 
   _jsonEncode(value: any): any {

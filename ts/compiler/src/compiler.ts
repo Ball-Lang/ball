@@ -3821,6 +3821,28 @@ $1async _resolveAndCallFunction(`,
             const d = this.expr(fg("digits", "arg1", "right")!);
             return `(+(${v})).toFixed(${d})`;
           }
+          case "math_clamp": {
+            const v = this.expr(fg("value", "arg0")!);
+            const lo = this.expr(fg("min", "arg1")!);
+            const hi = this.expr(fg("max", "arg2")!);
+            return `Math.min(Math.max(${v}, ${lo}), ${hi})`;
+          }
+          case "string_code_unit_at": {
+            const s = this.expr(fg("value", "string", "arg0")!);
+            const i = this.expr(fg("index", "arg1")!);
+            return `${s}.charCodeAt(${i})`;
+          }
+          case "string_char_at": {
+            const s = this.expr(fg("value", "string", "arg0")!);
+            const i = this.expr(fg("index", "arg1")!);
+            return `${s}.charAt(${i})`;
+          }
+          case "string_replace": {
+            const s = this.expr(fg("value", "string", "arg0")!);
+            const from = this.expr(fg("from", "pattern", "arg1")!);
+            const to = this.expr(fg("to", "replacement", "arg2")!);
+            return `${s}.split(${from}).join(${to})`;
+          }
           case "collection_if": {
             const cond = this.expr(f.get("condition")!);
             const then_ = f.get("then");

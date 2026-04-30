@@ -118,16 +118,37 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     if (ball_type == "String") return "std::string";
     if (ball_type == "String?") return "BallDyn";
     if (ball_type == "bool" || ball_type == "bool?") return "bool";
-    if (ball_type == "List" || ball_type.find("List<") == 0) return "std::vector<std::any>";
-    if (ball_type == "Map" || ball_type.find("Map<") == 0)
-        return "BallDyn";
-    if (ball_type == "Set" || ball_type.find("Set<") == 0) return "std::vector<std::any>";
+    if (ball_type == "List" || ball_type.find("List<") == 0) return "BallDyn";
+    if (ball_type == "Map" || ball_type.find("Map<") == 0) return "BallDyn";
+    if (ball_type == "Set" || ball_type.find("Set<") == 0) return "BallDyn";
     if (ball_type == "dynamic" || ball_type == "Object" || ball_type == "Object?"
         || ball_type == "dynamic?" || ball_type == "Never")
         return "BallDyn";
 
     // Dart "BallValue" is a typedef for Object?/dynamic
     if (ball_type == "BallValue") return "BallDyn";
+
+    // Protobuf / Ball IR types used in self-hosted engine
+    if (ball_type == "Expression" || ball_type == "FunctionCall" ||
+        ball_type == "FunctionDefinition" || ball_type == "Module" ||
+        ball_type == "Program" || ball_type == "Block" ||
+        ball_type == "Statement" || ball_type == "Literal" ||
+        ball_type == "Reference" || ball_type == "FieldAccess" ||
+        ball_type == "MessageCreation" || ball_type == "FieldValuePair" ||
+        ball_type == "LetBinding" || ball_type == "TypeDefinition")
+        return "BallDyn";
+
+    // Engine internal types
+    if (ball_type == "_Scope" || ball_type == "Scope" ||
+        ball_type == "_FlowSignal" || ball_type == "BallFuture" ||
+        ball_type == "BallGenerator" || ball_type == "BallException" ||
+        ball_type == "BallRuntimeError" || ball_type == "BallCallable")
+        return "BallDyn";
+
+    // FutureOr<T> → BallDyn
+    if (ball_type.find("FutureOr") == 0) return "BallDyn";
+    if (ball_type.find("Future") == 0) return "BallDyn";
+
 
     // Nullable type: strip trailing '?' and map the base type
     if (!ball_type.empty() && ball_type.back() == '?') {
@@ -819,7 +840,7 @@ const ball::v1::Expression* CppCompiler::get_message_field_expr(
 std::string CppCompiler::get_message_field(const ball::v1::FunctionCall& call,
                                             const std::string& field_name) {
     auto* expr = get_message_field_expr(call, field_name);
-    return expr ? compile_expr(*expr) : "";
+    return expr ? compile_expr(*expr) : "BallDyn()";
 }
 
 std::string CppCompiler::get_string_field(const ball::v1::FunctionCall& call,
@@ -2546,6 +2567,54 @@ inline std::string whichSource(const BallDyn&) { return "notSet"; }
 inline std::string whichXxx(const BallDyn&) { return "notSet"; }
 
 // List/Map copy helpers for List.of / Map.from
+// Std function to operator mapping (used by _tryOperatorOverride)
+const std::map<std::string, std::string> _stdFunctionToOperator = {
+  {"equals","=="}, {"not_equals","!="}, {"add","+"}, {"subtract","-"},
+  {"multiply","*"}, {"divide","~/"}, {"divide_double","/"}, {"modulo","%"},
+  {"less_than","<"}, {"greater_than",">"}, {"lte","<="}, {"gte",">="},
+  {"index","[]"}
+};
+
+// Built-in type names (used by _evalReference to skip class lookups)
+const std::vector<std::string> _builtinTypeNames = {
+  "int", "double", "num", "String", "bool", "List", "Map", "Set",
+  "Null", "void", "Object", "dynamic", "Function", "Future", "Stream",
+  "Iterable", "Iterator", "Type", "Symbol", "Never"
+};
+
+// elementAt helper (Iterable.elementAt)
+inline BallDyn elementAt(const BallDyn& list, int64_t index) {
+  return list[index];
+}
+
+// num/int/double parse helpers
+inline BallDyn parse(const std::string& type, const BallDyn& val) {
+  auto s = ball_to_string(val);
+  try {
+    if (type == "num" || type == "double") return BallDyn(std::stod(s));
+    return BallDyn(static_cast<int64_t>(std::stoll(s)));
+  } catch (...) { return BallDyn(); }
+}
+
+// Scope method helpers (ball_proto routes scope.has/lookup as standalone)
+inline bool has(const BallDyn& scope, const BallDyn& name) {
+  auto bindings = scope["_bindings"s];
+  if (bindings.has_value()) {
+    return BallDyn(bindings)[ball_to_string(name)].has_value();
+  }
+  return false;
+}
+inline BallDyn lookup(const BallDyn& scope, const BallDyn& name) {
+  auto bindings = scope["_bindings"s];
+  if (bindings.has_value()) {
+    auto val = BallDyn(bindings)[ball_to_string(name)];
+    if (val.has_value()) return val;
+  }
+  auto parent = scope["_parent"s];
+  if (parent.has_value()) return lookup(parent, name);
+  return BallDyn();
+}
+
 // indexOf helper: works on both strings and vectors
 inline int64_t ball_index_of(const BallDyn& container, const BallDyn& element) {
   auto c = static_cast<std::any>(container);
@@ -3304,13 +3373,13 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "list_map") {
         auto list = get_message_field(call, "list");
         auto callback = get_message_field(call, "callback");
-        return "[](const auto& v, auto fn){decltype(v) r;for(const auto& e:v)r.push_back(fn(e));return r;}("
+        return "[](const auto& v, auto fn){std::decay_t<decltype(v)> r;for(const auto& e:v)r.push_back(fn(e));return r;}("
                + list + "," + callback + ")";
     }
     if (fn == "list_filter") {
         auto list = get_message_field(call, "list");
         auto callback = get_message_field(call, "callback");
-        return "[](const auto& v, auto fn){decltype(v) r;for(const auto& e:v)if(std::any_cast<bool>(fn(e)))r.push_back(e);return r;}("
+        return "[](const auto& v, auto fn){std::decay_t<decltype(v)> r;for(const auto& e:v)if(std::any_cast<bool>(fn(e)))r.push_back(e);return r;}("
                + list + "," + callback + ")";
     }
     if (fn == "list_reduce") {
@@ -3400,10 +3469,14 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         return "[](const auto& v, int64_t n){return decltype(v)(v.begin()+std::min(n,static_cast<int64_t>(v.size())),v.end());}("
                + list + "," + count + ")";
     }
+    if (fn == "list_to_list") {
+        auto list = get_message_field(call, "list");
+        return list; // list_to_list just copies — in C++ the value is already copied
+    }
     if (fn == "list_flat_map") {
         auto list = get_message_field(call, "list");
         auto callback = get_message_field(call, "callback");
-        return "[](const auto& v, auto fn){decltype(v) r;"
+        return "[](const auto& v, auto fn){std::decay_t<decltype(v)> r;"
                "for(const auto& e:v){auto sub=std::any_cast<decltype(v)>(fn(e));"
                "r.insert(r.end(),sub.begin(),sub.end());}return r;}("
                + list + "," + callback + ")";

@@ -314,8 +314,13 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
         }
         // Run the program
         engine.run();
-    } catch (const BallEngine::StepLimitExceeded&) {
-        failure_msg = "STEP_LIMIT: exceeded " + std::to_string(200000) + " steps";
+    } catch (const std::runtime_error& sle) {
+        std::string msg = sle.what();
+        if (msg.find("step") != std::string::npos || msg.find("Step") != std::string::npos) {
+            failure_msg = "STEP_LIMIT: exceeded step limit";
+        } else {
+            failure_msg = std::string("engine threw: ") + sle.what();
+        }
         return false;
     } catch (const BallException& be) {
         if (captured->empty()) {

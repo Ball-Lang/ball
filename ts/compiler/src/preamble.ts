@@ -166,6 +166,55 @@ if (!(Set.prototype as any).contains) (Set.prototype as any).contains = Set.prot
 if (!(Set.prototype as any).includes) (Set.prototype as any).includes = Set.prototype.has;
 if (!(Set.prototype as any).remove) (Set.prototype as any).remove = Set.prototype.delete;
 
+// Proto has* functions as global helpers (encoder routes method calls through ball_proto)
+// Generic has* helper — returns true if obj[field] is present and non-null
+function _has(obj: any, field: string): boolean { return obj?.[field] !== undefined && obj?.[field] !== null; }
+function hasMetadata(obj: any): boolean { return _has(obj, 'metadata'); }
+function hasBody(obj: any): boolean { return _has(obj, 'body'); }
+function hasInput(obj: any): boolean { return _has(obj, 'input'); }
+function hasDescriptor(obj: any): boolean { return _has(obj, 'descriptor'); }
+function hasStringValue(obj: any): boolean { return _has(obj, 'stringValue'); }
+function hasBoolValue(obj: any): boolean { return _has(obj, 'boolValue'); }
+function hasNumberValue(obj: any): boolean { return _has(obj, 'numberValue'); }
+function hasResult(obj: any): boolean { return _has(obj, 'result'); }
+function hasCall(obj: any): boolean { return _has(obj, 'call'); }
+function hasListValue(obj: any): boolean { return _has(obj, 'listValue'); }
+function hasNullValue(obj: any): boolean { return _has(obj, 'nullValue'); }
+function hasStructValue(obj: any): boolean { return _has(obj, 'structValue'); }
+function hasMatch(obj: any): boolean { return _has(obj, 'match'); }
+function hasXxx(obj: any): boolean { return false; }
+function whichXxx(obj: any): string { return 'notSet'; }
+function whichExpr(obj: any): string {
+  if (!obj) return 'notSet';
+  if (obj.call) return 'call'; if (obj.literal) return 'literal';
+  if (obj.reference) return 'reference'; if (obj.fieldAccess) return 'fieldAccess';
+  if (obj.messageCreation) return 'messageCreation'; if (obj.block) return 'block';
+  if (obj.lambda) return 'lambda'; return 'notSet';
+}
+function whichValue(obj: any): string {
+  if (!obj) return 'notSet';
+  if (obj.intValue !== undefined) return 'intValue'; if (obj.doubleValue !== undefined) return 'doubleValue';
+  if (obj.stringValue !== undefined) return 'stringValue'; if (obj.boolValue !== undefined) return 'boolValue';
+  if (obj.listValue) return 'listValue'; if (obj.bytesValue !== undefined) return 'bytesValue';
+  return 'notSet';
+}
+function whichStmt(obj: any): string {
+  if (!obj) return 'notSet';
+  if (obj.let) return 'let'; if (obj.expression) return 'expression'; return 'notSet';
+}
+function whichKind(obj: any): string {
+  if (!obj) return 'notSet';
+  if (obj.nullValue !== undefined) return 'nullValue'; if (obj.numberValue !== undefined) return 'numberValue';
+  if (obj.stringValue !== undefined) return 'stringValue'; if (obj.boolValue !== undefined) return 'boolValue';
+  if (obj.structValue) return 'structValue'; if (obj.listValue) return 'listValue';
+  return 'notSet';
+}
+function whichSource(obj: any): string {
+  if (!obj) return 'notSet';
+  if (obj.path) return 'path'; if (obj.url) return 'url'; if (obj.inline) return 'inline';
+  return 'notSet';
+}
+
 // Identical function (Dart identical())
 function identical(a: any, b: any): boolean { return a === b; }
 

@@ -3737,8 +3737,80 @@ $1async _resolveAndCallFunction(`,
         return v ? this.expr(v) : "null";
       }
       default: {
-        const args = Array.from(f.values()).map((e) => this.expr(e)).join(", ");
-        return `/* std.${fn} */ ${sanitize(fn)}(${args})`;
+        // Emit as inline JS for known collection/utility operations.
+        // Otherwise fall back to calling through the engine's base function dispatch.
+        const mapArg = f.get("map") ?? f.get("list") ?? f.get("value");
+        const keyArg = f.get("key") ?? f.get("index");
+        const valArg = f.get("value");
+        switch (fn) {
+          case "map_put_if_absent": {
+            const m = this.expr(f.get("map")!);
+            const k = this.expr(f.get("key")!);
+            const supplier = f.get("value") ?? f.get("supplier") ?? f.get("arg2");
+            return `(${m}[${k}] ??= ${supplier ? `(${this.expr(supplier)})()` : 'null'})`;
+          }
+          case "map_get": return `${this.expr(f.get("map")!)}[${this.expr(f.get("key")!)}]`;
+          case "map_set": return `(${this.expr(f.get("map")!)}[${this.expr(f.get("key")!)}] = ${this.expr(f.get("value")!)})`;
+          case "map_delete": return `(delete ${this.expr(f.get("map")!)}[${this.expr(f.get("key")!)}], ${this.expr(f.get("map")!)})`;
+          case "map_keys": return `Object.keys(${this.expr(f.get("map")!)})`;
+          case "map_values": return `Object.values(${this.expr(f.get("map")!)})`;
+          case "map_entries": return `Object.entries(${this.expr(f.get("map")!)}).map(([k,v]) => ({key:k, value:v}))`;
+          case "map_length": return `Object.keys(${this.expr(f.get("map")!)}).length`;
+          case "map_contains_key": return `(${this.expr(f.get("key")!)} in ${this.expr(f.get("map")!)})`;
+          case "map_contains_value": return `Object.values(${this.expr(f.get("map")!)}).includes(${this.expr(f.get("value")!)})`;
+          case "list_push": return `(${this.expr(f.get("list")!)}.push(${this.expr(f.get("value")!)}), ${this.expr(f.get("list")!)})`;
+          case "list_pop": return `${this.expr(f.get("list")!)}.pop()`;
+          case "list_insert": return `(${this.expr(f.get("list")!)}.splice(${this.expr(f.get("index")!)}, 0, ${this.expr(f.get("value")!)}), ${this.expr(f.get("list")!)})`;
+          case "list_remove_at": return `${this.expr(f.get("list")!)}.splice(${this.expr(f.get("index")!)}, 1)[0]`;
+          case "list_clear": return `(${this.expr(f.get("list")!)}.length = 0, ${this.expr(f.get("list")!)})`;
+          case "list_length": return `${this.expr(f.get("list")!)}.length`;
+          case "list_filter": return `${this.expr(f.get("list")!)}.filter(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
+          case "list_map": return `${this.expr(f.get("list")!)}.map(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
+          case "list_sort": {
+            const l = this.expr(f.get("list")!);
+            const cmp = f.get("comparator") ?? f.get("function") ?? f.get("value");
+            return cmp ? `[...${l}].sort(${this.expr(cmp)})` : `[...${l}].sort()`;
+          }
+          case "list_join": {
+            const l = this.expr(f.get("list")!);
+            const sep = f.get("separator") ?? f.get("value");
+            return sep ? `${l}.join(${this.expr(sep)})` : `${l}.join('')`;
+          }
+          case "list_slice": return `${this.expr(f.get("list")!)}.slice(${this.expr(f.get("start") ?? f.get("index")!)}, ${f.get("end") ? this.expr(f.get("end")!) : ''})`;
+          case "list_contains": return `${this.expr(f.get("list")!)}.includes(${this.expr(f.get("value")!)})`;
+          case "list_index_of": return `${this.expr(f.get("list")!)}.indexOf(${this.expr(f.get("value")!)})`;
+          case "list_any": return `${this.expr(f.get("list")!)}.some(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
+          case "list_all": return `${this.expr(f.get("list")!)}.every(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
+          case "list_to_list": return `[...${this.expr(f.get("list")!)}]`;
+          case "list_concat": return `[...${this.expr(f.get("left")!)}, ...${this.expr(f.get("right")!)}]`;
+          case "list_reversed": return `[...${this.expr(f.get("list")!)}].reverse()`;
+          case "compare_to": {
+            const v = this.expr(fg("value", "left", "arg0")!);
+            const o = this.expr(fg("other", "right", "arg1")!);
+            return `(${v} < ${o} ? -1 : ${v} > ${o} ? 1 : 0)`;
+          }
+          case "to_string_as_fixed": {
+            const v = this.expr(fg("value", "arg0")!);
+            const d = this.expr(fg("digits", "arg1", "right")!);
+            return `(+(${v})).toFixed(${d})`;
+          }
+          case "collection_if": {
+            const cond = this.expr(f.get("condition")!);
+            const then_ = f.get("then");
+            const else_ = f.get("else");
+            return else_ ? `(${cond} ? ${this.expr(then_!)} : ${this.expr(else_)})` : `(${cond} ? ${this.expr(then_!)} : undefined)`;
+          }
+          case "collection_for": {
+            const variable = f.get("variable")?.literal?.stringValue ?? "item";
+            const iterable = this.expr(f.get("iterable")!);
+            const body = this.expr(f.get("body")!);
+            return `${iterable}.map((${variable}: any) => ${body})`;
+          }
+          default: {
+            const args = Array.from(f.values()).map((e) => this.expr(e)).join(", ");
+            return `/* std.${fn} */ ${sanitize(fn)}(${args})`;
+          }
+        }
       }
     }
   }
@@ -3758,6 +3830,15 @@ $1async _resolveAndCallFunction(`,
       case "Set": return `(${value} instanceof Set)`;
       case "Null": return `(${value} == null)`;
       case "Function": return `(typeof ${value} === 'function')`;
+      case "BallMap": return `false /* BallMap is Map in TS */`;
+      case "BallList": return `false /* BallList is List in TS */`;
+      case "BallValue": return `(${value} != null)`;
+      case "BallInt": return `(typeof ${value} === 'number' && Number.isInteger(${value}))`;
+      case "BallDouble": return `(typeof ${value} === 'number' || ${value} instanceof BallDouble)`;
+      case "BallString": return `(typeof ${value} === 'string')`;
+      case "BallBool": return `(typeof ${value} === 'boolean')`;
+      case "BallNull": return `(${value} == null)`;
+      case "BallFunction": return `(typeof ${value} === 'function')`;
       default:
         if (this.typeIsUserDefinedClass(`main:${t}`) || this.typeIsUserDefinedClass(t)) {
           return `(${value} instanceof ${classTsName(t)})`;

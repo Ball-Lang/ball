@@ -207,7 +207,7 @@ class MethodDispatchHandler {
         case 'removeLast': return self.pop();
         case 'removeAt': return self.splice(typeof arg0 === 'number' ? arg0 : 0, 1)[0];
         case 'insert': self.splice(typeof arg0 === 'number' ? arg0 : 0, 0, arg1); return null;
-        case 'clear': self.length = 0; return null;
+        case 'clear': if (Array.isArray(self)) { self.length = 0; } else { for (const k of Object.keys(self)) if (!k.startsWith('__')) delete self[k]; } return null;
         case 'contains': return self.includes(arg0);
         case 'indexOf': return self.indexOf(arg0);
         case 'join': return self.join(arg0 ?? ',');

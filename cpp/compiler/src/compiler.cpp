@@ -568,6 +568,57 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
         }
     }
 
+    // BallValue wrapper types — transparent in C++ (just pass through the arg)
+    {
+        auto colon = msg.type_name().find(':');
+        auto bare = colon != std::string::npos ? msg.type_name().substr(colon + 1) : msg.type_name();
+        // BallMap/BallList/BallInt/BallString/BallBool/BallNull/BallFunction — transparent
+        static const std::set<std::string> transparent = {
+            "BallMap", "BallList", "BallInt", "BallString",
+            "BallBool", "BallNull", "BallFunction", "BallValue",
+        };
+        if (transparent.count(bare)) {
+            if (msg.fields().empty()) return "BallDyn{}";
+            // Pass through the first non-metadata arg
+            for (const auto& f : msg.fields()) {
+                if (f.name() != "__type_args__" && f.name() != "__const__") {
+                    return compile_expr(f.value());
+                }
+            }
+            return "BallDyn{}";
+        }
+        // List.of / List.from → copy
+        if (bare == "List.of" || bare == "List.from") {
+            if (msg.fields().empty()) return "BallList{}";
+            for (const auto& f : msg.fields()) {
+                if (f.name() != "__type_args__" && f.name() != "__const__") {
+                    return "ball_list_copy(" + compile_expr(f.value()) + ")";
+                }
+            }
+            return "BallList{}";
+        }
+        // Map.from / Map.of → copy
+        if (bare == "Map.from" || bare == "Map.of") {
+            if (msg.fields().empty()) return "BallMap{}";
+            for (const auto& f : msg.fields()) {
+                if (f.name() != "__type_args__" && f.name() != "__const__") {
+                    return "ball_map_copy(" + compile_expr(f.value()) + ")";
+                }
+            }
+            return "BallMap{}";
+        }
+        // BallDouble — wrap in BallDyn with double
+        if (bare == "BallDouble") {
+            if (msg.fields().empty()) return "BallDyn(0.0)";
+            for (const auto& f : msg.fields()) {
+                if (f.name() != "__type_args__" && f.name() != "__const__") {
+                    return "BallDyn(static_cast<double>(" + compile_expr(f.value()) + "))";
+                }
+            }
+            return "BallDyn(0.0)";
+        }
+    }
+
     // Named type → aggregate/constructor
     // Try map_type first to map Dart types (RegExp, Duration, etc.) to C++ equivalents.
     // If map_type returns a stdlib type (contains ::), use it; otherwise sanitize.
@@ -2444,7 +2495,7 @@ void CppCompiler::emit_includes() {
     out_ << R"(
 // Proto-compat helpers for ball_proto method dispatch
 using namespace std::string_literals;
-inline bool _bd_has(const BallDyn& obj, const std::string& f) { return !obj[f].is_null(); }
+inline bool _bd_has(const BallDyn& obj, const std::string& f) { return obj[f].has_value(); }
 inline bool hasMetadata(const BallDyn& o) { return _bd_has(o,"metadata"); }
 inline bool hasBody(const BallDyn& o) { return _bd_has(o,"body"); }
 inline bool hasInput(const BallDyn& o) { return _bd_has(o,"input"); }
@@ -2493,6 +2544,14 @@ inline std::string whichKind(const BallDyn& o) {
 }
 inline std::string whichSource(const BallDyn&) { return "notSet"; }
 inline std::string whichXxx(const BallDyn&) { return "notSet"; }
+
+// List/Map copy helpers for List.of / Map.from
+inline BallDyn ball_list_copy(const BallDyn& v) {
+  try { auto a = static_cast<std::any>(v); return BallDyn(BallList(std::any_cast<BallList>(a))); } catch(...) { return v; }
+}
+inline BallDyn ball_map_copy(const BallDyn& v) {
+  try { auto a = static_cast<std::any>(v); return BallDyn(BallMap(std::any_cast<BallMap>(a))); } catch(...) { return v; }
+}
 )";
     emit_newline();
 }

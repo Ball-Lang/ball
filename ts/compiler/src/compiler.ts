@@ -3003,10 +3003,19 @@ $1async _resolveAndCallFunction(`,
     // including the module prefix (e.g., 'main:RegExp'). Strip the
     // prefix and emit as native constructors.
     const builtinCtors = new Set([
-      "RegExp", "Map", "Set", "Error", "TypeError", "RangeError",
+      "RegExp", "Set", "Error", "TypeError", "RangeError",
       "DateTime", "Duration", "Uri", "BigInt", "Int64",
+      "BallDouble",
     ]);
     const shortTn = classTsName(tn);
+
+    // Map / Map.from / Map.of → spread-copy as plain object (not JS Map)
+    if (shortTn === "Map" || shortTn === "Map.from" || shortTn === "Map.of") {
+      const dataFields = fields.filter(f => f.name !== "__type_args__" && f.name !== "__const__");
+      const arg = dataFields.length > 0 ? this.expr(dataFields[0].value) : "{}";
+      return `({...${arg}})`;
+    }
+
     if (builtinCtors.has(shortTn)) {
       const args = this.extractPositionalAndNamed(fields);
       return `new ${shortTn}(${args})`;
@@ -3015,7 +3024,7 @@ $1async _resolveAndCallFunction(`,
     // BallValue wrapper types — transparent in TS (no wrapper needed).
     // BallMap(map) → just the map; BallList(list) → just the list; etc.
     const ballValueTransparent = new Set([
-      "BallMap", "BallList", "BallInt", "BallDouble", "BallString",
+      "BallMap", "BallList", "BallInt", "BallString",
       "BallBool", "BallNull", "BallFunction", "BallValue",
     ]);
     if (ballValueTransparent.has(shortTn)) {

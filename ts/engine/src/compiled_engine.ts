@@ -1894,7 +1894,7 @@ export class BallEngine {
       if ((selfMap != null)) {
         if ((selfMap['__type__'] === '__builtin_class__')) {
           let className = selfMap['__class_ref__'];
-          let argInput = ((__cascade_self__) => { __cascade_self__.remove('self'); return __cascade_self__; })({ '__type': 'main:Map.from', '__type_args__': '<String, Object?>', 'arg0': inputMap });
+          let argInput = ((__cascade_self__) => { __cascade_self__.remove('self'); return __cascade_self__; })(({ ...inputMap }));
           let builtinResult = await this._dispatchBuiltinClassMethod(className, call.function, argInput);
           if ((builtinResult !== _sentinel)) {
             return builtinResult;
@@ -1908,7 +1908,7 @@ export class BallEngine {
           let staticKey = ((((__ball_to_string(modPart2) + '.') + __ball_to_string(qualifiedName)) + '.') + __ball_to_string(call.function));
           let staticFunc = this._functions[staticKey];
           if ((staticFunc != null)) {
-            let staticInput = ((__cascade_self__) => { __cascade_self__.remove('self'); return __cascade_self__; })({ '__type': 'main:Map.from', '__type_args__': '<String, Object?>', 'arg0': inputMap });
+            let staticInput = ((__cascade_self__) => { __cascade_self__.remove('self'); return __cascade_self__; })(({ ...inputMap }));
             return this._callFunction(modPart2, staticFunc, staticInput);
           }
         }
@@ -2025,7 +2025,7 @@ export class BallEngine {
   }
 
   async _evalLiteral(lit: any, scope: any): Promise<any> {
-    return ((whichValue(lit) === (Literal_Value.intValue)) ? (Math.trunc(lit.intValue)) : ((whichValue(lit) === (Literal_Value.doubleValue)) ? (lit.doubleValue) : ((whichValue(lit) === (Literal_Value.stringValue)) ? (lit.stringValue) : ((whichValue(lit) === (Literal_Value.boolValue)) ? (lit.boolValue) : ((whichValue(lit) === (Literal_Value.bytesValue)) ? ([...lit.bytesValue]) : ((whichValue(lit) === (Literal_Value.listValue)) ? (await this._evalListLiteral(lit.listValue, scope)) : ((whichValue(lit) === (Literal_Value.notSet)) ? (null) : undefined)))))));
+    return ((whichValue(lit) === (Literal_Value.intValue)) ? (Math.trunc(lit.intValue)) : ((whichValue(lit) === (Literal_Value.doubleValue)) ? (new BallDouble(lit.doubleValue)) : ((whichValue(lit) === (Literal_Value.stringValue)) ? (lit.stringValue) : ((whichValue(lit) === (Literal_Value.boolValue)) ? (lit.boolValue) : ((whichValue(lit) === (Literal_Value.bytesValue)) ? ([...lit.bytesValue]) : ((whichValue(lit) === (Literal_Value.listValue)) ? (await this._evalListLiteral(lit.listValue, scope)) : ((whichValue(lit) === (Literal_Value.notSet)) ? (null) : undefined)))))));
   }
 
   async _evalListLiteral(listVal: any, scope: any): Promise<any> {
@@ -6416,7 +6416,7 @@ export class BallEngine {
     if (!((typeof callee === 'function'))) {
       throw new BallRuntimeError('std.invoke: callee is not callable');
     }
-    let args = ((__cascade_self__) => { __cascade_self__.remove('callee'); __cascade_self__.remove('__type__'); return __cascade_self__; })({ '__type': 'main:Map.from', '__type_args__': '<String, Object?>', 'arg0': m });
+    let args = ((__cascade_self__) => { __cascade_self__.remove('callee'); __cascade_self__.remove('__type__'); return __cascade_self__; })(({ ...m }));
     let result = __no_init__;
     if ((args.length === 1)) {
       result = Function.apply(callee, [args.values.first]);

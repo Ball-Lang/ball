@@ -243,7 +243,7 @@ extension BallEngineEval on BallEngine {
   Future<Object?> _evalLiteral(Literal lit, _Scope scope) async {
     return switch (lit.whichValue()) {
       Literal_Value.intValue => lit.intValue.toInt(),
-      Literal_Value.doubleValue => lit.doubleValue,
+      Literal_Value.doubleValue => BallDouble(lit.doubleValue),
       Literal_Value.stringValue => lit.stringValue,
       Literal_Value.boolValue => lit.boolValue,
       Literal_Value.bytesValue => lit.bytesValue.toList(),

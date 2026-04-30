@@ -485,6 +485,7 @@ function __ball_cascade(target: any, ops: any[]): any {
   });
   defDartGetter('length', function (this: any) {
     if (this instanceof Map) return this.size;
+    if (this instanceof Set) return this.size;
     if (typeof this === 'string' || Array.isArray(this)) return this.length;
     if (this == null || typeof this !== 'object') return 0;
     return Object.keys(this).filter((k: string) => !k.startsWith('__')).length;

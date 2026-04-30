@@ -175,7 +175,10 @@ function __bts(v: any): string {
   }
   if (v instanceof Set) return '{' + [...v].map(__bts).join(', ') + '}';
   if (typeof v === 'object') {
+    if (typeof v['__buffer__'] === 'string') return v['__buffer__'];
     if (v['__buffer__'] && Array.isArray(v['__buffer__'])) return v['__buffer__'].join('');
+    const tn = v['__type__'];
+    if (typeof tn === 'string' && (tn.endsWith(':StringBuffer') || tn === 'StringBuffer')) return v['__buffer__'] ?? '';
     if (v.toString !== Object.prototype.toString && typeof v.toString === 'function') return v.toString();
     const keys = Object.keys(v).filter((k: string) => !k.startsWith('__'));
     if (keys.length > 0) return '{' + keys.map((k: string) => __bts(k) + ': ' + __bts(v[k])).join(', ') + '}';
@@ -646,7 +649,7 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
   _r('map_values', (i: any) => { const m = _m(i); const map = m['map'] ?? m['value'] ?? i; if (typeof map !== 'object' || map === null) return []; return Object.entries(map).filter(([k]: any) => !k.startsWith('__')).map(([, v]: any) => v); });
   _r('map_entries', (i: any) => { const m = _m(i); const map = m['map'] ?? m['value'] ?? i; if (typeof map !== 'object' || map === null) return []; return Object.entries(map).filter(([k]: any) => !k.startsWith('__')).map(([k, v]: any) => ({key: k, value: v})); });
   _r('map_length', (i: any) => { const m = _m(i); const map = m['map'] ?? m['value'] ?? i; if (typeof map !== 'object' || map === null) return 0; return Object.keys(map).filter((k: string) => !k.startsWith('__')).length; });
-  _r('map_from_entries', (i: any) => { const m = _m(i); const list = m['list'] ?? m['entries'] ?? m['value'] ?? []; if (!Array.isArray(list)) return {}; const r: any = {}; for (const e of list) { if (typeof e === 'object' && e !== null) { r[e.key ?? e.name ?? e[0]] = e.value ?? e[1]; } } return r; });
+  _r('map_from_entries', (i: any) => { const m = _m(i); const list = m['list'] ?? m['entries'] ?? m['value'] ?? []; if (!Array.isArray(list)) return {}; const r: any = {}; for (const e of list) { if (typeof e === 'object' && e !== null) { r[e.key ?? e.name ?? e.arg0 ?? e[0]] = e.value ?? e.arg1 ?? e[1]; } } return r; });
 
   // Override set operations
   _r('set_create', (i: any) => { const m = _m(i); const elements = m['elements']; if (Array.isArray(elements)) return new Set(elements); return new Set(); });

@@ -308,7 +308,7 @@ std::string CppCompiler::compile_expr(const ball::v1::Expression& expr) {
         case ball::v1::Expression::kLambda:
             return compile_lambda(expr.lambda());
         default:
-            return "/* unknown expr */";
+            return "BallDyn()";
     }
 }
 
@@ -2546,6 +2546,28 @@ inline std::string whichSource(const BallDyn&) { return "notSet"; }
 inline std::string whichXxx(const BallDyn&) { return "notSet"; }
 
 // List/Map copy helpers for List.of / Map.from
+// indexOf helper: works on both strings and vectors
+inline int64_t ball_index_of(const BallDyn& container, const BallDyn& element) {
+  auto c = static_cast<std::any>(container);
+  if (c.type() == typeid(std::string)) {
+    auto s = std::any_cast<std::string>(c);
+    auto e = static_cast<std::any>(element);
+    std::string needle;
+    if (e.type() == typeid(std::string)) needle = std::any_cast<std::string>(e);
+    else needle = ball_to_string(element);
+    auto pos = s.find(needle);
+    return pos != std::string::npos ? static_cast<int64_t>(pos) : -1LL;
+  }
+  if (c.type() == typeid(BallList)) {
+    auto& list = std::any_cast<const BallList&>(c);
+    for (size_t i = 0; i < list.size(); i++) {
+      if (ball_to_string(BallDyn(list[i])) == ball_to_string(element)) return static_cast<int64_t>(i);
+    }
+    return -1LL;
+  }
+  return -1LL;
+}
+
 inline BallDyn ball_list_copy(const BallDyn& v) {
   try { auto a = static_cast<std::any>(v); return BallDyn(BallList(std::any_cast<BallList>(a))); } catch(...) { return v; }
 }
@@ -3257,9 +3279,8 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "list_index_of") {
         auto list = get_message_field(call, "list");
         auto val = get_message_field(call, "value");
-        return "[](const auto& v, const auto& e){auto it=std::find(v.begin(),v.end(),e);"
-               "return it!=v.end()?static_cast<int64_t>(it-v.begin()):static_cast<int64_t>(-1);"
-               "}(" + list + "," + val + ")";
+        // Use ball_index_of helper that handles both strings and vectors
+        return "ball_index_of(" + list + ", " + val + ")";
     }
     if (fn == "list_reverse") {
         auto list = get_message_field(call, "list");

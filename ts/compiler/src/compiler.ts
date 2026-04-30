@@ -3012,6 +3012,18 @@ $1async _resolveAndCallFunction(`,
       return `new ${shortTn}(${args})`;
     }
 
+    // BallValue wrapper types — transparent in TS (no wrapper needed).
+    // BallMap(map) → just the map; BallList(list) → just the list; etc.
+    const ballValueTransparent = new Set([
+      "BallMap", "BallList", "BallInt", "BallDouble", "BallString",
+      "BallBool", "BallNull", "BallFunction", "BallValue",
+    ]);
+    if (ballValueTransparent.has(shortTn)) {
+      if (fields.length === 0) return "null";
+      if (fields.length === 1) return this.expr(fields[0].value);
+      return this.expr(fields[0].value);
+    }
+
     // Fallback: tagged object literal.
     const entries = [
       `'__type': '${tn}'`,

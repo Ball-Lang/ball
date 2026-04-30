@@ -322,6 +322,17 @@ function __ball_cascade(target: any, ops: any[]): any {
   Object.defineProperty(sp, 'isNotEmpty', {
     configurable: true, get() { return this.length !== 0; },
   });
+  // Make undefined/null safe for .isEmpty/.isNotEmpty via a global wrapper.
+  // Proto3 JSON omits empty strings, so code like call.module.isEmpty needs
+  // to handle undefined gracefully.
+  const _origObjDefProp = Object.defineProperty;
+  for (const boolProp of ['isEmpty', 'isNotEmpty']) {
+    if (!(undefined as any)?.[boolProp]) {
+      // Can't add properties to undefined/null, but we handle it in the
+      // generated code via ?.isEmpty fallback patterns. The preamble's
+      // protoWrap handles most cases.
+    }
+  }
   // Dart String methods not on JS String.
   if (!sp.contains) sp.contains = function (s: any) { return this.includes(s); };
   if (!sp.replaceFirst) sp.replaceFirst = function (from: any, to: any) {

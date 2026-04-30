@@ -227,6 +227,42 @@ try {
   }
 }
 
+// ── Encoder-generated conformance ──────────────────────────────────────────
+// Same tests the Dart engine runs from tests/fixtures/dart/_generated/.
+// These are Dart source files encoded to Ball IR by the Dart encoder.
+
+console.log('\nEncoder-generated conformance:');
+
+const encoderGenDir = join(import.meta.dirname ?? '.', '../../../tests/fixtures/dart/_generated');
+try {
+  const genFiles = readdirSync(encoderGenDir).filter(f => f.endsWith('.ball.json'));
+  for (const file of genFiles) {
+    const name = file.replace('.ball.json', '');
+    const expectedFile = join(encoderGenDir, `${name}.expected_output.txt`);
+
+    await test(`encoder-generated: ${name}`, async () => {
+      const programJson = readFileSync(join(encoderGenDir, file), 'utf-8');
+      const expectedOutput = readFileSync(expectedFile, 'utf-8').replace(/\r\n/g, '\n').trim();
+
+      const engine = new BallEngine(programJson);
+      await engine.run();
+      const actual = engine.getOutput().join('\n').trim();
+
+      if (actual !== expectedOutput) {
+        throw new Error(
+          `Output mismatch.\nExpected: ${expectedOutput.substring(0, 100)}\nActual:   ${actual.substring(0, 100)}`,
+        );
+      }
+    });
+  }
+} catch (e: any) {
+  if (e.code === 'ENOENT') {
+    console.log('  (encoder-generated dir not found, skipping)');
+  } else {
+    throw e;
+  }
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 
 console.log(`\n===========================`);

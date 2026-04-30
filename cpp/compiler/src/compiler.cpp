@@ -145,7 +145,8 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
         ball_type == "BallRuntimeError" || ball_type == "BallCallable")
         return "BallDyn";
 
-    // FutureOr<T> → BallDyn
+    // FutureOr<T> / Future<T> → BallDyn (or void for Future<void>)
+    if (ball_type == "Future<void>" || ball_type == "FutureOr<void>") return "void";
     if (ball_type.find("FutureOr") == 0) return "BallDyn";
     if (ball_type.find("Future") == 0) return "BallDyn";
 
@@ -756,13 +757,19 @@ std::string CppCompiler::compile_block(const ball::v1::Block& block) {
     // Blocks as immediately-invoked lambdas in expression context
     std::string result = "[&]() {\n";
     indent_++;
-    for (const auto& stmt : block.statements()) {
-        const auto& s = stmt;
+    int stmt_count = block.statements_size();
+    for (int si = 0; si < stmt_count; si++) {
+        const auto& s = block.statements(si);
+        bool is_last = (si == stmt_count - 1) && !block.has_result();
         if (s.has_let()) {
             result += indent_str() + "auto " + sanitize_name(s.let().name()) +
                       " = " + compile_expr(s.let().value()) + ";\n";
         } else if (s.has_expression()) {
-            result += indent_str() + compile_expr(s.expression()) + ";\n";
+            if (is_last) {
+                result += indent_str() + "return " + compile_expr(s.expression()) + ";\n";
+            } else {
+                result += indent_str() + compile_expr(s.expression()) + ";\n";
+            }
         }
     }
     if (block.has_result()) {
@@ -1065,7 +1072,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             if (target_expr->expr_case() == ball::v1::Expression::kFieldAccess) {
                 auto obj = compile_expr(target_expr->field_access().object());
                 auto field = target_expr->field_access().field();
-                return "ball_set(" + obj + ", \"" + field + "\"s, " + val + ")";
+                return "(ball_set(" + obj + ", std::string(\"" + field + "\"), std::any(" + val + ")), " + val + ")";
             }
             // Index expression: std.index(target, index) in the target
             if (target_expr->expr_case() == ball::v1::Expression::kCall &&
@@ -1074,7 +1081,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 target_expr->call().function() == "index") {
                 auto tgt = get_message_field(target_expr->call(), "target");
                 auto idx = get_message_field(target_expr->call(), "index");
-                return "ball_set(" + tgt + ", " + idx + ", " + val + ")";
+                return "(ball_set(" + tgt + ", std::string(ball_to_string(BallDyn(" + idx + "))), std::any(" + val + ")), " + val + ")";
             }
         }
         return "(" + target + " " + op + " " + val + ")";
@@ -1145,14 +1152,17 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     }
     if (fn == "string_split") {
         auto str = get_message_field(call, "value");
-        auto delim = get_message_field(call, "separator");
-        return "[](const std::string& s,const std::string& d){"
-               "if(d.empty()){std::vector<std::string> r;"
-               "for(char c:s)r.push_back(std::string(1,c));return r;}"
-               "std::vector<std::string> r;size_t p=0,f;"
+        auto* delim_e = get_message_field_expr(call, "separator");
+        if (!delim_e) delim_e = get_message_field_expr(call, "arg1");
+        auto delim = delim_e ? compile_expr(*delim_e) : "\",\"s";
+        return "[](const BallDyn& sv,const BallDyn& dv) -> BallDyn {"
+               "auto s=ball_to_string(sv);auto d=ball_to_string(dv);"
+               "BallList r;"
+               "if(d.empty()){for(char c:s)r.push_back(std::any(std::string(1,c)));return BallDyn(r);}"
+               "size_t p=0,f;"
                "while((f=s.find(d,p))!=std::string::npos){"
-               "r.push_back(s.substr(p,f-p));p=f+d.size();}"
-               "r.push_back(s.substr(p));return r;"
+               "r.push_back(std::any(s.substr(p,f-p)));p=f+d.size();}"
+               "r.push_back(std::any(s.substr(p)));return BallDyn(r);"
                "}(" + str + "," + delim + ")";
     }
     if (fn == "string_replace") {
@@ -2614,6 +2624,11 @@ inline std::map<std::string,std::any> ball_concat(const std::map<std::string,std
   return r;
 }
 
+// ball_set with BallDyn keys: handled by wrapping key in ball_to_string() at call site
+
+// ball_set is used with comma operator for expression context:
+// (ball_set(obj, key, val), val)  — sets and returns the value
+
 // cast helper (Dart as operator — no-op in dynamic C++)
 inline BallDyn cast(const BallDyn& v, const std::string&) { return v; }
 
@@ -3138,6 +3153,12 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
 }
 
 void CppCompiler::emit_top_level_var(const ball::v1::FunctionDefinition& func) {
+    // Skip constants already defined in the preamble
+    auto bare_name = sanitize_name(func.name());
+    if (bare_name == "_builtinTypeNames" || bare_name == "_stdFunctionToOperator" ||
+        bare_name == "_sentinel") {
+        return;
+    }
     auto meta = read_meta(func);
     std::string modifier = "auto";
     if (meta.count("is_const") && meta["is_const"] == "true") modifier = "const auto";
@@ -3385,7 +3406,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "list_contains") {
         auto list = get_message_field(call, "list");
         auto val = get_message_field(call, "value");
-        return "(std::find(" + list + ".begin()," + list + ".end()," + val + ")!=" + list + ".end())";
+        return "(ball_index_of(" + list + "," + val + ") >= 0)";
     }
     if (fn == "list_index_of") {
         auto list = get_message_field(call, "list");

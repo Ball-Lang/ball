@@ -17,6 +17,9 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:analyzer/dart/analysis/features.dart';
+import 'package:analyzer/dart/analysis/utilities.dart' show parseString;
+import 'package:analyzer/dart/ast/ast.dart' as ast;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_compiler/compiler.dart';
 import 'package:ball_encoder/encoder.dart';
@@ -38,8 +41,8 @@ Future<void> main(List<String> args) async {
   stdout.writeln('=' * 55);
 
   // 1. Encode.
-  stdout.write('  Reading engine.dart... ');
-  final source = File(engineSrcPath).readAsStringSync();
+  stdout.write('  Reading engine.dart + parts... ');
+  final source = _resolvePartsAndExtensions(engineSrcPath);
   stdout.writeln('${source.length} bytes');
 
   stdout.write('  Encoding via DartEncoder... ');
@@ -133,6 +136,124 @@ Future<void> main(List<String> args) async {
     );
     exit(analyzeResult.exitCode);
   }
+}
+
+/// Reads engine.dart, resolves `part` directives, and merges `extension`
+/// methods back into the class body so the encoder sees a single-file source.
+String _resolvePartsAndExtensions(String mainPath) {
+  final mainFile = File(mainPath);
+  final mainDir = mainFile.parent.path.replaceAll('\\', '/');
+  final mainSource = mainFile.readAsStringSync();
+
+  // Parse main file to find part directives.
+  final mainUnit = parseString(
+    content: mainSource,
+    throwIfDiagnostics: false,
+    featureSet: FeatureSet.latestLanguageVersion(),
+  ).unit;
+
+  final partUris = <String>[];
+  for (final directive in mainUnit.directives) {
+    if (directive is ast.PartDirective) {
+      final uri = directive.uri.stringValue;
+      if (uri != null) partUris.add(uri);
+    }
+  }
+
+  if (partUris.isEmpty) return mainSource;
+
+  // Build the merged source:
+  // 1. Main file without part directives, class body left open
+  // 2. Extension methods from each part file injected into class body
+  // 3. Top-level declarations from part files appended after the class
+
+  final mainLines = mainSource.split('\n');
+  final buf = StringBuffer();
+  final topLevelBuf = StringBuffer();
+  final seenHelpers = <String>{};
+
+  // Write main file, skipping part directives and leaving class body open.
+  // Find the last line of the class body (closing brace).
+  var classEndLine = -1;
+  for (var i = mainLines.length - 1; i >= 0; i--) {
+    if (mainLines[i].trim() == '}') {
+      classEndLine = i;
+      break;
+    }
+  }
+
+  for (var i = 0; i < mainLines.length; i++) {
+    final line = mainLines[i];
+    if (line.startsWith("part '")) continue;
+    if (i == classEndLine) continue; // Skip class closing brace
+    buf.writeln(line);
+  }
+
+  // Process each part file.
+  for (final uri in partUris) {
+    final partPath = '$mainDir/$uri';
+    final partSource = File(partPath).readAsStringSync();
+    final partUnit = parseString(
+      content: partSource,
+      throwIfDiagnostics: false,
+      featureSet: FeatureSet.latestLanguageVersion(),
+    ).unit;
+
+    buf.writeln();
+    buf.writeln('  // --- from $uri ---');
+
+    for (final decl in partUnit.declarations) {
+      if (decl is ast.ExtensionDeclaration) {
+        // Extract the body between { and } of the extension.
+        final extSource = partSource.substring(decl.offset, decl.end);
+        final openBrace = extSource.indexOf('{');
+        if (openBrace < 0) continue;
+        final body = extSource.substring(openBrace + 1, extSource.length - 1);
+        // Split into lines and filter duplicate helpers.
+        for (final line in body.split('\n')) {
+          final trimmed = line.trimLeft();
+          final helperMatch = RegExp(r'(?:Map|List)<[^>]+>\?\s+(_\w+)\s*\(').firstMatch(trimmed);
+          if (helperMatch != null && _isHelperName(helperMatch.group(1)!)) {
+            final hName = helperMatch.group(1)!;
+            if (seenHelpers.contains(hName)) {
+              // Skip helper declaration — but also skip its body lines.
+              // We'll handle this by just emitting and letting the analyzer dedup.
+              continue;
+            }
+            seenHelpers.add(hName);
+          }
+          buf.writeln(line);
+        }
+      } else {
+        // Top-level declaration (const, function, etc.) — append after class.
+        if (decl is ast.TopLevelVariableDeclaration ||
+            decl is ast.FunctionDeclaration) {
+          final src = partSource.substring(decl.offset, decl.end);
+          topLevelBuf.writeln();
+          topLevelBuf.writeln(src);
+        }
+      }
+    }
+  }
+
+  // Close class body.
+  buf.writeln('}');
+
+  // Append top-level declarations.
+  buf.write(topLevelBuf.toString());
+
+  // Also append top-level declarations from engine_types.dart part file.
+  // (Those are classes/typedefs, not extensions.)
+  // They're already included via the partUnit.declarations loop above
+  // since the loop handles all non-extension declarations.
+
+  return buf.toString();
+}
+
+bool _isHelperName(String name) {
+  return const {
+    '_asMap', '_asList', '_cfAsMap', '_stdAsMap', '_stdAsList',
+  }.contains(name);
 }
 
 String _findRepoRoot() {

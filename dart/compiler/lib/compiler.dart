@@ -2798,37 +2798,51 @@ class DartCompiler {
 
   String _compileCollectionsCall(FunctionCall call) {
     final f = _extractFields(call);
+    Expression _cb() => f['callback'] ?? f['function'] ?? f['value']!;
+    Expression _val() => f['value'] ?? f['arg0']!;
+    Expression _left() => f['left'] ?? f['list']!;
+    Expression _right() => f['right'] ?? f['value']!;
+    Expression _start() => f['start'] ?? f['index'] ?? f['value']!;
     return switch (call.function) {
       // List operations
-      'list_push' => '${_e(f['list']!)}..add(${_e(f['value']!)})',
+      'list_push' => '${_e(f['list']!)}..add(${_e(_val())})',
       'list_pop' => '${_e(f['list']!)}..removeLast()',
       'list_insert' =>
-        '${_e(f['list']!)}..insert(${_e(f['index']!)}, ${_e(f['value']!)})',
-      'list_remove_at' => '${_e(f['list']!)}..removeAt(${_e(f['index']!)})',
-      'list_get' => '${_e(f['list']!)}[${_e(f['index']!)}]',
+        '${_e(f['list']!)}..insert(${_e(f['index'] ?? f['value']!)}, ${_e(f['value'] ?? f['arg1']!)})',
+      'list_remove_at' => '${_e(f['list']!)}..removeAt(${_e(f['index'] ?? f['value']!)})',
+      'list_get' => '${_e(f['list']!)}[${_e(f['index'] ?? f['value']!)}]',
       'list_set' =>
         '(${_e(f['list']!)}[${_e(f['index']!)}] = ${_e(f['value']!)})',
       'list_length' => '${_e(f['list']!)}.length',
       'list_is_empty' => '${_e(f['list']!)}.isEmpty',
       'list_first' => '${_e(f['list']!)}.first',
       'list_last' => '${_e(f['list']!)}.last',
-      'list_contains' => '${_e(f['list']!)}.contains(${_e(f['value']!)})',
-      'list_index_of' => '${_e(f['list']!)}.indexOf(${_e(f['value']!)})',
-      'list_map' => '${_e(f['list']!)}.map(${_e(f['callback']!)}).toList()',
+      'list_contains' => '${_e(f['list']!)}.contains(${_e(_val())})',
+      'list_index_of' => '${_e(f['list']!)}.indexOf(${_e(_val())})',
+      'list_map' => '${_e(f['list']!)}.map(${_e(_cb())}).toList()',
       'list_filter' =>
-        '${_e(f['list']!)}.where(${_e(f['callback']!)}).toList()',
-      'list_reduce' => '${_e(f['list']!)}.reduce(${_e(f['callback']!)})',
-      'list_any' => '${_e(f['list']!)}.any(${_e(f['callback']!)})',
+        '${_e(f['list']!)}.where(${_e(_cb())}).toList()',
+      'list_reduce' => '${_e(f['list']!)}.reduce(${_e(_cb())})',
+      'list_any' => '${_e(f['list']!)}.any(${_e(_cb())})',
       'list_all' ||
-      'list_every' => '${_e(f['list']!)}.every(${_e(f['callback']!)})',
-      'list_sort' => '(${_e(f['list']!)}..sort())',
+      'list_every' => '${_e(f['list']!)}.every(${_e(_cb())})',
+      'list_sort' => f.containsKey('value') || f.containsKey('comparator')
+          ? '(${_e(f['list']!)}..sort(${_e(_cb())}))'
+          : '(${_e(f['list']!)}..sort())',
       'list_reverse' => '${_e(f['list']!)}.reversed.toList()',
-      'list_slice' =>
-        '${_e(f['list']!)}.sublist(${_e(f['start']!)}${f.containsKey('end') ? ', ${_e(f['end']!)}' : ''})',
-      'list_concat' => '[...${_e(f['left']!)}, ...${_e(f['right']!)}]',
+      'list_slice' => () {
+        final args = f.entries.where((e) => e.key != 'list').toList();
+        if (args.length >= 2) {
+          return '${_e(f['list']!)}.sublist(${_e(args[0].value)}, ${_e(args[1].value)})';
+        }
+        return '${_e(f['list']!)}.sublist(${_e(args.isNotEmpty ? args[0].value : _start())})';
+      }(),
+      'list_concat' => '[...${_e(_left())}, ...${_e(_right())}]',
       'list_flat_map' =>
-        '${_e(f['list']!)}.expand(${_e(f['callback']!)}).toList()',
-      'string_join' => '${_e(f['list']!)}.join(${_e(f['separator']!)})',
+        '${_e(f['list']!)}.expand(${_e(_cb())}).toList()',
+      'string_join' => f.containsKey('separator')
+          ? '${_e(f['list']!)}.join(${_e(f['separator']!)})'
+          : '${_e(f['list']!)}.join()',
       // Map operations
       'map_get' => '${_e(f['map']!)}[${_e(f['key']!)}]',
       'map_set' => '(${_e(f['map']!)}[${_e(f['key']!)}] = ${_e(f['value']!)})',

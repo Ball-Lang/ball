@@ -1,11 +1,16 @@
-/// Sealed value type for the Ball runtime.
+/// Value type hierarchy for the Ball runtime.
 ///
 /// When compiled to C++, maps to std::variant instead of std::any.
-/// This provides type-safe runtime values with exhaustive pattern matching.
+/// Abstract (not sealed) so the engine library can add internal subtypes
+/// (FlowSignal, BallFuture, etc.) that participate in the same type system.
 library;
 
-/// The root sealed class for all Ball runtime values.
-sealed class BallValue {
+/// The root class for all Ball runtime values.
+///
+/// Every value in the Ball interpreter is a [BallValue]. This explicit type
+/// hierarchy enables target-language compilers to emit typed variants
+/// (e.g., std::variant in C++, union types in TS) instead of dynamic any.
+abstract class BallValue {
   const BallValue();
 }
 
@@ -82,8 +87,8 @@ class BallBool extends BallValue {
 
 /// A Ball list value (ordered collection).
 class BallList extends BallValue {
-  final List<BallValue> items;
-  BallList([List<BallValue>? items]) : items = items ?? [];
+  final List<Object?> items;
+  BallList([List<Object?>? items]) : items = items ?? [];
 
   @override
   String toString() => '[${items.join(', ')}]';
@@ -91,11 +96,11 @@ class BallList extends BallValue {
 
 /// A Ball map value (string-keyed ordered map).
 class BallMap extends BallValue {
-  final Map<String, BallValue> entries;
-  BallMap([Map<String, BallValue>? entries]) : entries = entries ?? {};
+  final Map<String, Object?> entries;
+  BallMap([Map<String, Object?>? entries]) : entries = entries ?? {};
 
-  BallValue? operator [](String key) => entries[key];
-  void operator []=(String key, BallValue value) => entries[key] = value;
+  Object? operator [](String key) => entries[key];
+  void operator []=(String key, Object? value) => entries[key] = value;
 
   @override
   String toString() =>
@@ -104,9 +109,9 @@ class BallMap extends BallValue {
 
 /// A Ball function value (first-class callable).
 class BallFunction extends BallValue {
-  final BallValue Function(BallValue) value;
+  final Object? Function(Object?) value;
   const BallFunction(this.value);
-  BallValue call(BallValue arg) => value(arg);
+  Object? call(Object? arg) => value(arg);
 }
 
 /// A Ball null value.
@@ -123,7 +128,7 @@ class BallNull extends BallValue {
   int get hashCode => 0;
 }
 
-/// Wrap a raw Dart [Object?] into the sealed [BallValue] hierarchy.
+/// Wrap a raw Dart [Object?] into the [BallValue] hierarchy.
 BallValue wrap(Object? raw) {
   if (raw == null) return const BallNull();
   if (raw is BallValue) return raw;
@@ -131,12 +136,10 @@ BallValue wrap(Object? raw) {
   if (raw is double) return BallDouble(raw);
   if (raw is bool) return BallBool(raw);
   if (raw is String) return BallString(raw);
-  if (raw is List) return BallList(raw.map(wrap).toList());
-  if (raw is Map<String, dynamic>) {
-    return BallMap(raw.map((k, v) => MapEntry(k, wrap(v))));
-  }
+  if (raw is List) return BallList(raw);
+  if (raw is Map<String, dynamic>) return BallMap(raw);
   if (raw is Function) {
-    return BallFunction((arg) => wrap((raw as dynamic)(unwrap(arg))));
+    return BallFunction((arg) => (raw as dynamic)(arg));
   }
   return BallNull();
 }
@@ -148,9 +151,10 @@ Object? unwrap(BallValue val) {
     BallDouble(:var value) => value,
     BallString(:var value) => value,
     BallBool(:var value) => value,
-    BallList(:var items) => items.map(unwrap).toList(),
-    BallMap(:var entries) => entries.map((k, v) => MapEntry(k, unwrap(v))),
-    BallFunction() => val.value,
+    BallList(:var items) => items,
+    BallMap(:var entries) => entries,
+    BallFunction(:var value) => value,
     BallNull() => null,
+    _ => val,
   };
 }

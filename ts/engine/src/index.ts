@@ -630,6 +630,42 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
     return result;
   });
   _r('filled', (i: any) => { const m = _m(i); return Array(Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0)).fill(m['value'] ?? m['fill'] ?? m['arg1'] ?? null); });
+
+  // Override length — compiled engine's _stdLength misses map length
+  _r('length', (i: any) => {
+    const m = _m(i); const v = m['value'] ?? i;
+    if (typeof v === 'string') return v.length;
+    if (Array.isArray(v)) return v.length;
+    if (v instanceof Set) return v.size;
+    if (typeof v === 'object' && v !== null) return Object.keys(v).filter((k: string) => !k.startsWith('__')).length;
+    return 0;
+  });
+
+  // Override map_keys/map_values/map_entries — compiled version uses .entries getter which may not work
+  _r('map_keys', (i: any) => { const m = _m(i); const map = m['map'] ?? m['value'] ?? i; if (typeof map !== 'object' || map === null) return []; return Object.keys(map).filter((k: string) => !k.startsWith('__')); });
+  _r('map_values', (i: any) => { const m = _m(i); const map = m['map'] ?? m['value'] ?? i; if (typeof map !== 'object' || map === null) return []; return Object.entries(map).filter(([k]: any) => !k.startsWith('__')).map(([, v]: any) => v); });
+  _r('map_entries', (i: any) => { const m = _m(i); const map = m['map'] ?? m['value'] ?? i; if (typeof map !== 'object' || map === null) return []; return Object.entries(map).filter(([k]: any) => !k.startsWith('__')).map(([k, v]: any) => ({key: k, value: v})); });
+  _r('map_length', (i: any) => { const m = _m(i); const map = m['map'] ?? m['value'] ?? i; if (typeof map !== 'object' || map === null) return 0; return Object.keys(map).filter((k: string) => !k.startsWith('__')).length; });
+  _r('map_from_entries', (i: any) => { const m = _m(i); const list = m['list'] ?? m['entries'] ?? m['value'] ?? []; if (!Array.isArray(list)) return {}; const r: any = {}; for (const e of list) { if (typeof e === 'object' && e !== null) { r[e.key ?? e.name ?? e[0]] = e.value ?? e[1]; } } return r; });
+
+  // Override set operations
+  _r('set_create', (i: any) => { const m = _m(i); const elements = m['elements']; if (Array.isArray(elements)) return new Set(elements); return new Set(); });
+
+  // Override dart_list_generate (compiled version's lambda calling may fail)
+  _r('dart_list_generate', async (i: any) => {
+    const m = _m(i);
+    const count = Number(m['count'] ?? m['arg0'] ?? 0);
+    const gen = m['generator'] ?? m['arg1'];
+    if (typeof gen !== 'function') return [];
+    const result: any[] = [];
+    for (let idx = 0; idx < count; idx++) {
+      let v = gen(idx);
+      if (v?.then) v = await v;
+      result.push(v);
+    }
+    return result;
+  });
+  _r('dart_list_filled', (i: any) => { const m = _m(i); return Array(Number(m['count'] ?? m['arg0'] ?? 0)).fill(m['value'] ?? m['arg1'] ?? null); });
 }
 
 // ── Seed global scope ──────────────────────────────────────────────────────
@@ -688,6 +724,10 @@ export class BallEngine {
 
     registerExtraStdFunctions(stdHandler);
     seedGlobalScope(this._compiledEngine);
+
+    // Note: double formatting (12 vs 12.0) handled by BallDouble in preamble.
+    // The compiled engine returns raw numbers for literals; BallDouble wrapping
+    // happens in arithmetic operations (_stdAdd, _stdBinary, etc.).
   }
 
   /**

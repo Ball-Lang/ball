@@ -186,6 +186,7 @@ function hasXxx(obj: any): boolean { return false; }
 function whichXxx(obj: any): string { return 'notSet'; }
 function whichExpr(obj: any): string {
   if (!obj) return 'notSet';
+  if (typeof obj.whichExpr === 'function') return obj.whichExpr();
   if (obj.call) return 'call'; if (obj.literal) return 'literal';
   if (obj.reference) return 'reference'; if (obj.fieldAccess) return 'fieldAccess';
   if (obj.messageCreation) return 'messageCreation'; if (obj.block) return 'block';
@@ -193,6 +194,7 @@ function whichExpr(obj: any): string {
 }
 function whichValue(obj: any): string {
   if (!obj) return 'notSet';
+  if (typeof obj.whichValue === 'function') return obj.whichValue();
   if (obj.intValue !== undefined) return 'intValue'; if (obj.doubleValue !== undefined) return 'doubleValue';
   if (obj.stringValue !== undefined) return 'stringValue'; if (obj.boolValue !== undefined) return 'boolValue';
   if (obj.listValue) return 'listValue'; if (obj.bytesValue !== undefined) return 'bytesValue';
@@ -200,10 +202,12 @@ function whichValue(obj: any): string {
 }
 function whichStmt(obj: any): string {
   if (!obj) return 'notSet';
+  if (typeof obj.whichStmt === 'function') return obj.whichStmt();
   if (obj.let) return 'let'; if (obj.expression) return 'expression'; return 'notSet';
 }
 function whichKind(obj: any): string {
   if (!obj) return 'notSet';
+  if (typeof obj.whichKind === 'function') return obj.whichKind();
   if (obj.nullValue !== undefined) return 'nullValue'; if (obj.numberValue !== undefined) return 'numberValue';
   if (obj.stringValue !== undefined) return 'stringValue'; if (obj.boolValue !== undefined) return 'boolValue';
   if (obj.structValue) return 'structValue'; if (obj.listValue) return 'listValue';
@@ -491,6 +495,12 @@ function __ball_cascade(target: any, ops: any[]): any {
     if (this instanceof Map) return [..._nativeMapValues.call(this)];
     if (this == null || typeof this !== 'object') return [];
     return Object.values(this);
+  });
+  defDartGetter('length', function (this: any) {
+    if (this instanceof Map) return this.size;
+    if (typeof this === 'string' || Array.isArray(this)) return this.length;
+    if (this == null || typeof this !== 'object') return 0;
+    return Object.keys(this).filter((k: string) => !k.startsWith('__')).length;
   });
 
   // Number polyfills for Dart-style methods.

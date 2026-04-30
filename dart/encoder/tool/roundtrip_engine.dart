@@ -204,34 +204,26 @@ String _resolvePartsAndExtensions(String mainPath) {
 
     for (final decl in partUnit.declarations) {
       if (decl is ast.ExtensionDeclaration) {
-        // Extract the body between { and } of the extension.
-        final extSource = partSource.substring(decl.offset, decl.end);
-        final openBrace = extSource.indexOf('{');
-        if (openBrace < 0) continue;
-        final body = extSource.substring(openBrace + 1, extSource.length - 1);
-        // Split into lines and filter duplicate helpers.
-        for (final line in body.split('\n')) {
-          final trimmed = line.trimLeft();
-          final helperMatch = RegExp(r'(?:Map|List)<[^>]+>\?\s+(_\w+)\s*\(').firstMatch(trimmed);
-          if (helperMatch != null && _isHelperName(helperMatch.group(1)!)) {
-            final hName = helperMatch.group(1)!;
-            if (seenHelpers.contains(hName)) {
-              // Skip helper declaration — but also skip its body lines.
-              // We'll handle this by just emitting and letting the analyzer dedup.
-              continue;
-            }
-            seenHelpers.add(hName);
+        // Use the AST to iterate extension members individually.
+        for (final member in decl.body.members) {
+          // Get member name for dedup.
+          String? memberName;
+          if (member is ast.MethodDeclaration) {
+            memberName = member.name.lexeme;
           }
-          buf.writeln(line);
+          if (memberName != null && _isHelperName(memberName)) {
+            if (seenHelpers.contains(memberName)) continue;
+            seenHelpers.add(memberName);
+          }
+          final memberSrc = partSource.substring(member.offset, member.end);
+          buf.writeln();
+          buf.writeln('  $memberSrc');
         }
       } else {
-        // Top-level declaration (const, function, etc.) — append after class.
-        if (decl is ast.TopLevelVariableDeclaration ||
-            decl is ast.FunctionDeclaration) {
-          final src = partSource.substring(decl.offset, decl.end);
-          topLevelBuf.writeln();
-          topLevelBuf.writeln(src);
-        }
+        // Top-level declaration — append after the main class.
+        final src = partSource.substring(decl.offset, decl.end);
+        topLevelBuf.writeln();
+        topLevelBuf.writeln(src);
       }
     }
   }

@@ -3126,9 +3126,13 @@ $1async _resolveAndCallFunction(`,
   private compileStdCall(call: FunctionCall): string {
     const fn = call.function;
     const f = fieldMap(call.input?.messageCreation?.fields ?? []);
-    const bin = (op: string) => `(${this.expr(f.get("left")!)} ${op} ${this.expr(f.get("right")!)})`;
+    const fg = (...names: string[]) => {
+      for (const n of names) { const v = f.get(n); if (v !== undefined) return v; }
+      return undefined;
+    };
+    const bin = (op: string) => `(${this.expr(fg("left", "value", "arg0")!)} ${op} ${this.expr(fg("right", "other", "arg1", "pattern", "separator")!)})`;
     const un = (op: string) => {
-      const inner = this.expr(f.get("value")!);
+      const inner = this.expr(fg("value", "arg0")!);
       if (op === "-" && inner.startsWith("-")) return `-(${inner})`;
       return `${op}${inner}`;
     };
@@ -3194,14 +3198,14 @@ $1async _resolveAndCallFunction(`,
       case "string_trim":  return `${this.wrapIfNeeded(f.get("value")!)}.trim()`;
       case "string_trim_start": return `${this.wrapIfNeeded(f.get("value")!)}.trimStart()`;
       case "string_trim_end": return `${this.wrapIfNeeded(f.get("value")!)}.trimEnd()`;
-      case "string_contains": return `${this.expr(f.get("left")!)}.includes(${this.expr(f.get("right")!)})`;
-      case "string_starts_with": return `${this.expr(f.get("left")!)}.startsWith(${this.expr(f.get("right")!)})`;
-      case "string_ends_with": return `${this.expr(f.get("left")!)}.endsWith(${this.expr(f.get("right")!)})`;
-      case "string_is_empty": return `(${this.expr(f.get("value")!)}.length === 0)`;
-      case "string_split": return `${this.expr(f.get("value")!)}.split(${this.expr(f.get("separator")!)})`;
+      case "string_contains": return `${this.expr(fg("left", "value", "arg0")!)}.includes(${this.expr(fg("right", "pattern", "arg1")!)})`;
+      case "string_starts_with": return `${this.expr(fg("left", "value", "arg0")!)}.startsWith(${this.expr(fg("right", "pattern", "arg1")!)})`;
+      case "string_ends_with": return `${this.expr(fg("left", "value", "arg0")!)}.endsWith(${this.expr(fg("right", "pattern", "arg1")!)})`;
+      case "string_is_empty": return `(${this.expr(fg("value", "arg0")!)}.length === 0)`;
+      case "string_split": return `${this.expr(fg("value", "arg0")!)}.split(${this.expr(fg("separator", "arg1", "right")!)})`;
       case "string_substring": {
-        const v = this.expr(f.get("value")!);
-        const s = this.expr(f.get("start")!);
+        const v = this.expr(fg("value", "arg0")!);
+        const s = this.expr(fg("start", "arg1")!);
         const end = f.get("end");
         return end ? `${v}.substring(${s}, ${this.expr(end)})` : `${v}.substring(${s})`;
       }
@@ -3941,8 +3945,34 @@ function stringFieldVal(
   return m.get(name)?.literal?.stringValue;
 }
 
+const _fieldAliases: Record<string, string[]> = {
+  left: ["value", "arg0", "string"],
+  right: ["other", "arg1", "pattern", "separator"],
+  value: ["arg0", "left"],
+  message: ["value", "arg0"],
+  separator: ["arg1", "right"],
+  pattern: ["arg1", "right"],
+  start: ["arg1"],
+  end: ["arg2"],
+};
+
+class FieldMap extends Map<string, Expression> {
+  override get(key: string): Expression | undefined {
+    const v = super.get(key);
+    if (v !== undefined) return v;
+    const alts = _fieldAliases[key];
+    if (alts) {
+      for (const alt of alts) {
+        const av = super.get(alt);
+        if (av !== undefined) return av;
+      }
+    }
+    return undefined;
+  }
+}
+
 function fieldMap(fields: FieldValuePair[]): Map<string, Expression> {
-  const m = new Map<string, Expression>();
+  const m = new FieldMap();
   for (const f of fields) m.set(f.name, f.value);
   return m;
 }

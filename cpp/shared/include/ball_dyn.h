@@ -546,6 +546,25 @@ inline void ball_set(std::unordered_map<std::string, std::any>& m, const BallDyn
     m[static_cast<std::string>(key)] = value;
 }
 
+// ── handles/call for module handlers (override stubs from ball_emit_runtime.h) ──
+inline bool handles(const BallDyn& handler, const BallDyn& module) {
+    auto mod = ball_to_string(BallDyn(module));
+    return mod == "std" || mod == "dart_std" || mod == "std_collections" ||
+           mod == "std_io" || mod == "std_memory" || mod == "std_convert" ||
+           mod == "std_fs" || mod == "std_time" || mod == "std_concurrency" ||
+           mod == "cpp_std" || mod.empty();
+}
+template<typename E>
+inline BallDyn call(const BallDyn& handler, const BallDyn& function, const BallDyn& input, E&& engine_fn) {
+    auto fn = ball_to_string(BallDyn(function));
+    auto dispatch = handler["_dispatch"s];
+    if (dispatch.has_value()) {
+        auto func = BallDyn(dispatch)[fn];
+        if (func.has_value()) return func(input);
+    }
+    throw std::runtime_error("Unknown std function: " + fn);
+}
+
 // String concatenation
 inline std::string operator+(const std::string& s, const BallDyn& d) {
     return s + static_cast<std::string>(d);

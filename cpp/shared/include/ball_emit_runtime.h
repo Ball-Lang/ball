@@ -811,9 +811,12 @@ inline double atan2_(const std::any& a, const std::any& b) {
     return std::atan2(da, db);
 }
 
-// ── handles/call stubs for module handlers ──
-inline bool handles(const std::any&, const std::any&) { return false; }
-inline std::any call(const std::any&, const std::any&, const std::any&, const std::any&) { return std::any{}; }
+// ── handles/call: defined in ball_dyn.h after BallDyn class ──
+// Forward declarations only (no stubs — BallDyn overloads are the only implementations)
+class BallDyn; // forward declare
+inline bool handles(const BallDyn& handler, const BallDyn& module);
+template<typename E>
+inline BallDyn call(const BallDyn& handler, const BallDyn& function, const BallDyn& input, E&& engine_fn);
 
 // ── Dart async/time/math stubs ──
 // Future.delayed — just sleep synchronously

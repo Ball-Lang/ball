@@ -1382,6 +1382,39 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         auto cond = get_message_field(call, "condition");
         return "assert(" + cond + ")";
     }
+    if (fn == "switch_expr") {
+        // Switch expression: evaluate subject, match against cases
+        auto subject = get_message_field(call, "subject");
+        auto* cases_expr = get_message_field_expr(call, "cases");
+        if (!cases_expr || cases_expr->expr_case() != ball::v1::Expression::kLiteral ||
+            cases_expr->literal().value_case() != ball::v1::Literal::kListValue) {
+            return "BallDyn()";
+        }
+        // Build if-else chain as IIFE
+        std::string result = "[&]() -> BallDyn {\n";
+        result += indent_str() + "  auto __subj = " + subject + ";\n";
+        for (const auto& case_expr : cases_expr->literal().list_value().elements()) {
+            if (case_expr.expr_case() != ball::v1::Expression::kMessageCreation) continue;
+            std::string pattern, body;
+            const ball::v1::Expression* pattern_expr_ptr = nullptr;
+            for (const auto& f : case_expr.message_creation().fields()) {
+                if (f.name() == "pattern") pattern = compile_expr(f.value());
+                if (f.name() == "body") body = compile_expr(f.value());
+                if (f.name() == "pattern_expr") pattern_expr_ptr = &f.value();
+            }
+            if (!pattern.empty() && !body.empty()) {
+                if (pattern == "\"_\"s" || pattern == "\"default\"s") {
+                    result += indent_str() + "  return " + body + ";\n";
+                } else {
+                    result += indent_str() + "  if (__subj == " + pattern + ") return " + body + ";\n";
+                }
+            }
+        }
+        result += indent_str() + "  return BallDyn();\n";
+        result += indent_str() + "}()";
+        return result;
+    }
+
     if (fn == "paren") {
         // Wrapper emitted by the encoder to mark precedence-sensitive
         // parenthesized sub-expressions (e.g. around ternary/assign).

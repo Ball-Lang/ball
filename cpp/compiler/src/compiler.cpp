@@ -2624,6 +2624,17 @@ inline std::map<std::string,std::any> ball_concat(const std::map<std::string,std
   return r;
 }
 
+// BallDyn-aware ball_is_* (override the std::any versions for self-host)
+// Use a template that SFINAE-matches BallDyn specifically
+template<typename T, std::enable_if_t<std::is_same_v<std::decay_t<T>, BallDyn>, int> = 0>
+inline bool ball_is_map(const T& v) { return v._val.has_value() && v._val.type() == typeid(BallMap); }
+template<typename T, std::enable_if_t<std::is_same_v<std::decay_t<T>, BallDyn>, int> = 0>
+inline bool ball_is_list(const T& v) { return v._val.has_value() && v._val.type() == typeid(BallList); }
+template<typename T, std::enable_if_t<std::is_same_v<std::decay_t<T>, BallDyn>, int> = 0>
+inline bool ball_is_string(const T& v) { return v._val.has_value() && v._val.type() == typeid(std::string); }
+template<typename T, std::enable_if_t<std::is_same_v<std::decay_t<T>, BallDyn>, int> = 0>
+inline bool ball_is_function(const T& v) { return v._val.has_value() && v._val.type() == typeid(BallFunc); }
+
 // ball_set with BallDyn keys: handled by wrapping key in ball_to_string() at call site
 
 // ball_set is used with comma operator for expression context:

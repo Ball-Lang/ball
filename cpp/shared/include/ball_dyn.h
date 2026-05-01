@@ -546,6 +546,9 @@ inline void ball_set(std::unordered_map<std::string, std::any>& m, const BallDyn
     m[static_cast<std::string>(key)] = value;
 }
 
+// ball_is_* BallDyn overloads are in the C++ compiler preamble only
+// (to avoid ambiguity with the native engine)
+
 // ── handles/call for module handlers (override stubs from ball_emit_runtime.h) ──
 inline bool handles(const BallDyn& handler, const BallDyn& module) {
     auto mod = ball_to_string(BallDyn(module));

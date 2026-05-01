@@ -766,7 +766,7 @@ std::string CppCompiler::compile_block(const ball::v1::Block& block) {
                       " = " + compile_expr(s.let().value()) + ";\n";
         } else if (s.has_expression()) {
             if (is_last) {
-                result += indent_str() + "return " + compile_expr(s.expression()) + ";\n";
+                result += indent_str() + "return BallDyn(" + compile_expr(s.expression()) + ");\n";
             } else {
                 result += indent_str() + compile_expr(s.expression()) + ";\n";
             }
@@ -799,6 +799,10 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
         }
     } else if (!func.input_type().empty()) {
         result += map_type(func.input_type()) + " input";
+    } else {
+        // Default: accept BallDyn (NOT auto — auto creates generic lambdas
+        // that can't be stored in std::any/BallFunc)
+        result += "BallDyn __lambda_input";
     }
     result += ") mutable";
     if (!func.output_type().empty() && func.output_type() != "void") {
@@ -2714,6 +2718,13 @@ inline BallDyn lookup(const BallDyn& scope, const BallDyn& name) {
   auto parent = scope["_parent"s];
   if (parent.has_value()) return lookup(parent, name);
   return BallDyn();
+}
+
+// indexOf for vector<string> (used by _builtinTypeNames.contains)
+inline int64_t ball_index_of(const std::vector<std::string>& v, const BallDyn& elem) {
+  auto s = ball_to_string(BallDyn(elem));
+  for (size_t i = 0; i < v.size(); i++) if (v[i] == s) return static_cast<int64_t>(i);
+  return -1;
 }
 
 // indexOf helper: works on both strings and vectors

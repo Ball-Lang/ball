@@ -38,6 +38,18 @@ public:
             _val = std::any_cast<const BallDyn&>(_val)._val;
         }
     }
+    // Constructor from callable (wraps as BallFunc for std::any storage)
+    template<typename F, std::enable_if_t<
+        !std::is_same_v<std::decay_t<F>, BallDyn> &&
+        !std::is_same_v<std::decay_t<F>, std::any> &&
+        !std::is_same_v<std::decay_t<F>, BallFunc> &&
+        !std::is_same_v<std::decay_t<F>, const char*> &&
+        !std::is_same_v<std::decay_t<F>, std::string> &&
+        !std::is_arithmetic_v<std::decay_t<F>> &&
+        !std::is_same_v<std::decay_t<F>, BallMap> &&
+        !std::is_same_v<std::decay_t<F>, BallList> &&
+        std::is_class_v<std::decay_t<F>>, int> = 0>
+    BallDyn(F&& f) : _val(BallFunc(std::forward<F>(f))) {}
     BallDyn(int64_t v) : _val(v) {}
     BallDyn(int v) : _val(static_cast<int64_t>(v)) {}
     BallDyn(double v) : _val(v) {}

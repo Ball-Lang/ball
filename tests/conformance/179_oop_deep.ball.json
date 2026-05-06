@@ -1,0 +1,468 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "types": [
+        {
+          "name": "main:Grandparent",
+          "field": [
+            {
+              "name": "name",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "main:Parent"
+        },
+        {
+          "name": "main:Child"
+        },
+        {
+          "name": "main:Grandchild"
+        }
+      ],
+      "functions": [
+        {
+          "name": "main:Grandparent.new",
+          "outputType": "main:Grandparent",
+          "body": {
+            "reference": {
+              "name": "input"
+            }
+          },
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "input",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Grandparent.greet",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "to_string",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    {
+                      "name": "value",
+                      "value": {
+                        "fieldAccess": {
+                          "object": {
+                            "reference": {
+                              "name": "self"
+                            }
+                          },
+                          "field": "name"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Parent.new",
+          "outputType": "main:Parent",
+          "body": {
+            "reference": {
+              "name": "name"
+            }
+          },
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "super",
+                "args": "(name)"
+              }
+            ],
+            "params": [
+              {
+                "name": "name",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Parent.age",
+          "outputType": "int",
+          "body": {
+            "literal": {
+              "intValue": 30
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Child.new",
+          "outputType": "main:Child",
+          "body": {
+            "reference": {
+              "name": "name"
+            }
+          },
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "super",
+                "args": "(name)"
+              }
+            ],
+            "params": [
+              {
+                "name": "name",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Child.toys",
+          "outputType": "int",
+          "body": {
+            "literal": {
+              "intValue": 5
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Grandchild.new",
+          "outputType": "main:Grandchild",
+          "body": {
+            "reference": {
+              "name": "name"
+            }
+          },
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "super",
+                "args": "(name)"
+              }
+            ],
+            "params": [
+              {
+                "name": "name",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Grandchild.games",
+          "outputType": "int",
+          "body": {
+            "literal": {
+              "intValue": 10
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "gc",
+                    "value": {
+                      "call": {
+                        "function": "main:Grandchild.new",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "Timmy"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Grandchild"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "greet",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "gc"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "age",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "gc"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "toys",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "gc"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "games",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "gc"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Grandparent",
+          "descriptor": {
+            "name": "main:Grandparent",
+            "field": [
+              {
+                "name": "name",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          },
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "name",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Parent",
+          "descriptor": {
+            "name": "main:Parent"
+          },
+          "metadata": {
+            "kind": "class",
+            "superclass": "Grandparent"
+          }
+        },
+        {
+          "name": "main:Child",
+          "descriptor": {
+            "name": "main:Child"
+          },
+          "metadata": {
+            "kind": "class",
+            "superclass": "Parent"
+          }
+        },
+        {
+          "name": "main:Grandchild",
+          "descriptor": {
+            "name": "main:Grandchild"
+          },
+          "metadata": {
+            "kind": "class",
+            "superclass": "Child"
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

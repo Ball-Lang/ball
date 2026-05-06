@@ -1,0 +1,37 @@
+# Task 2.4 OOP Conformance Fixtures (177-179) Evidence
+# Generated: 2026-05-06
+
+## Fixtures Created
+
+### 177_oop_diamond.ball.json
+- Tests diamond inheritance: A -> B, A -> C, then D inherits from B and C
+- Verifies which foo() gets called via virtual dispatch order
+- Expected output: A, A+B, A+C
+
+### 178_oop_abstract.ball.json
+- Tests abstract classes with unimplemented method
+- Shape abstract class with abstract area() method
+- Circle concrete subclass implements area()
+- Expected output: red, 3.14
+
+### 179_oop_deep.ball.json
+- Tests deep inheritance chain: Grandparent -> Parent -> Child -> Grandchild
+- Each level adds fields and methods
+- Verifies field access and method calls at each level
+- Expected output: Timmy, 30, 5, 10
+
+## Dart Engine Test Results
+
+```
+$ cd dart/engine && dart test test/conformance_test.dart --name "177_oop_diamond"
+00:00 +1: All tests passed!
+
+$ cd dart/engine && dart test test/conformance_test.dart --name "178_oop_abstract"
+00:00 +1: All tests passed!
+
+$ cd dart/engine && dart test test/conformance_test.dart --name "179_oop_deep"
+00:00 +1: All tests passed!
+```
+
+## Status
+All 3 fixtures PASS on Dart engine.

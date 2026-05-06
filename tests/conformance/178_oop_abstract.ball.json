@@ -1,0 +1,266 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "types": [
+        {
+          "name": "main:Shape",
+          "field": [
+            {
+              "name": "color",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "main:Circle"
+        }
+      ],
+      "functions": [
+        {
+          "name": "main:Shape.new",
+          "outputType": "main:Shape",
+          "body": {
+            "reference": {
+              "name": "input"
+            }
+          },
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "input",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Shape.area",
+          "outputType": "double",
+          "body": {
+            "literal": {
+              "doubleValue": 0
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "isAbstract": true
+          }
+        },
+        {
+          "name": "main:Circle.new",
+          "outputType": "main:Circle",
+          "body": {
+            "reference": {
+              "name": "color"
+            }
+          },
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "super",
+                "args": "(color)"
+              }
+            ],
+            "params": [
+              {
+                "name": "color",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Circle.area",
+          "outputType": "double",
+          "body": {
+            "literal": {
+              "doubleValue": 3.14
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_override": true
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "c",
+                    "value": {
+                      "call": {
+                        "function": "main:Circle.new",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "red"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Circle"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "c"
+                                    }
+                                  },
+                                  "field": "color"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "area",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "c"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Shape",
+          "descriptor": {
+            "name": "main:Shape",
+            "field": [
+              {
+                "name": "color",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          },
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "color",
+                "type": "String"
+              }
+            ],
+            "isAbstract": true
+          }
+        },
+        {
+          "name": "main:Circle",
+          "descriptor": {
+            "name": "main:Circle"
+          },
+          "metadata": {
+            "kind": "class",
+            "superclass": "Shape"
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

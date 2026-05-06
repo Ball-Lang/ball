@@ -1,0 +1,253 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "is",
+          "isBase": true
+        },
+        {
+          "name": "assign",
+          "isBase": true
+        },
+        {
+          "name": "index",
+          "isBase": true
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "scores",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "map_create",
+                        "input": {
+                          "messageCreation": {
+                            "fields": []
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Map<String, int>"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "assign",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "target",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "index",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        { "name": "target", "value": { "reference": { "name": "scores" } } },
+                                        { "name": "index", "value": { "literal": { "stringValue": "alice" } } }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            { "name": "value", "value": { "literal": { "intValue": "95" } } }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "assign",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "target",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "index",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        { "name": "target", "value": { "reference": { "name": "scores" } } },
+                                        { "name": "index", "value": { "literal": { "stringValue": "bob" } } }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            { "name": "value", "value": { "literal": { "intValue": "87" } } }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "isStrIntMap",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "is",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              { "name": "value", "value": { "reference": { "name": "scores" } } },
+                              { "name": "type", "value": { "literal": { "stringValue": "Map<String, int>" } } }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": { "keyword": "var", "type": "bool" }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            { "name": "message", "value": { "reference": { "name": "isStrIntMap" } } }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "notStrStrMap",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "is",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              { "name": "value", "value": { "reference": { "name": "scores" } } },
+                              { "name": "type", "value": { "literal": { "stringValue": "Map<String, String>" } } }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": { "keyword": "var", "type": "bool" }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            { "name": "message", "value": { "reference": { "name": "notStrStrMap" } } }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "isMap",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "is",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              { "name": "value", "value": { "reference": { "name": "scores" } } },
+                              { "name": "type", "value": { "literal": { "stringValue": "Map" } } }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": { "keyword": "var", "type": "bool" }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            { "name": "message", "value": { "reference": { "name": "isMap" } } }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": { "kind": "function" }
+        }
+      ],
+      "moduleImports": [
+        { "name": "std" }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

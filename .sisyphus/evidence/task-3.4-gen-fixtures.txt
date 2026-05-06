@@ -1,0 +1,55 @@
+# Task 3.4: Generics Conformance Fixtures (180-181)
+# Executed: 2026-05-06
+
+## Fixtures Created
+
+### 180_generic_list_ops.ball.json
+- Tests List<int> and List<String> operations
+- Uses std.is for type checking with generic type strings like "List<int>", "List<String>"
+- Verifies int list is List<int> (true), string list is List<String> (true), int list is NOT List<String> (false)
+
+### 181_generic_map_ops.ball.json
+- Tests Map<String, int> operations
+- Uses std.is for type checking with generic type strings like "Map<String, int>", "Map<String, String>"
+- Verifies Map<String, int> is Map<String, int> (true), is NOT Map<String, String> (false), is Map (true)
+
+## Test Results (Dart Engine)
+
+```
+$ cd dart/engine && dart test test/conformance_test.dart --name "180"
+00:00 +1: All tests passed!
+
+$ cd dart/engine && dart test test/conformance_test.dart --name "181"
+00:00 +1: All tests passed!
+```
+
+## Verification of std.is Implementation
+
+The Dart engine's `_stdTypeCheck` function (engine_std.dart:1450-1534) handles generic types:
+- List<T>: Checks all elements match type T
+- Map<K,V>: Checks all keys match K and all values match V
+- Set<T>: Checks all elements match type T
+
+Pattern used in fixtures:
+```json
+{
+  "call": {
+    "module": "std",
+    "function": "is",
+    "input": {
+      "messageCreation": {
+        "fields": [
+          { "name": "value", "value": { "reference": { "name": "intList" } } },
+          { "name": "type", "value": { "literal": { "stringValue": "List<int>" } } }
+        ]
+      }
+    }
+  }
+}
+```
+
+## Status: PASS
+All acceptance criteria met:
+- [x] Fixture 180_generic_list_ops.ball.json created and passing
+- [x] Fixture 181_generic_map_ops.ball.json created and passing
+- [x] Evidence saved to .sisyphus/evidence/task-3.4-gen-fixtures.txt

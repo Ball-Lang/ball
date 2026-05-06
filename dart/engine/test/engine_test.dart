@@ -2921,6 +2921,125 @@ void main() {
       );
       expect(await runAndCapture(p), ['seven']);
     });
+
+    test('structured list pattern binds variables and evaluates guards lazily', () async {
+      final p = buildProgram(
+        stdFunctions: [
+          {'name': 'switch_expr', 'isBase': true},
+          {'name': 'equals', 'isBase': true},
+          {'name': 'index', 'isBase': true},
+        ],
+        functions: [
+          mainFn([
+            letStmt('x', listLit([literal(1), literal(2), literal(3)])),
+            letStmt(
+              'r',
+              stdCall(
+                'switch_expr',
+                msg([
+                  field('subject', ref('x')),
+                  field(
+                    'cases',
+                    listLit([
+                      msg([
+                        field('pattern', literal('0')),
+                        field(
+                          'pattern_expr',
+                          msg([
+                            field('value', literal(0)),
+                          ], typeName: 'ConstPattern'),
+                        ),
+                        field('body', ref('not_in_scope')),
+                      ]),
+                      msg([
+                        field(
+                          'pattern_expr',
+                          msg([
+                            field(
+                              'elements',
+                              listLit([
+                                msg([
+                                  field('value', literal(1)),
+                                ], typeName: 'ConstPattern'),
+                                msg([
+                                  field('name', literal('middle')),
+                                  field('type', literal('int')),
+                                ], typeName: 'VarPattern'),
+                                msg([
+                                  field(
+                                    'subpattern',
+                                    msg([
+                                      field('name', literal('tail')),
+                                    ], typeName: 'VarPattern'),
+                                  ),
+                                ], typeName: 'RestPattern'),
+                              ]),
+                            ),
+                          ], typeName: 'ListPattern'),
+                        ),
+                        field(
+                          'guard',
+                          stdCall(
+                            'equals',
+                            msg([
+                              field('left', ref('middle')),
+                              field('right', literal(2)),
+                            ]),
+                          ),
+                        ),
+                        field(
+                          'body',
+                          stdCall(
+                            'index',
+                            msg([
+                              field('target', ref('tail')),
+                              field('index', literal(0)),
+                            ]),
+                          ),
+                        ),
+                      ]),
+                    ]),
+                  ),
+                ]),
+              ),
+            ),
+            stmt(printExpr(ref('r'))),
+          ]),
+        ],
+      );
+
+      expect(await runAndCapture(p), ['3']);
+    });
+
+    test('throws on non-exhaustive switch expression', () async {
+      final p = buildProgram(
+        stdFunctions: switchFn,
+        functions: [
+          mainFn([
+            letStmt(
+              'r',
+              stdCall(
+                'switch_expr',
+                msg([
+                  field('subject', literal(2)),
+                  field(
+                    'cases',
+                    listLit([
+                      msg([
+                        field('pattern', literal('1')),
+                        field('body', literal('one')),
+                      ]),
+                    ]),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        ],
+      );
+
+      await expectLater(runAndCapture(p), throwsA(isA<BallRuntimeError>()));
+    });
   });
 
   // ── try / catch / finally ────────────────────────────────────────────────

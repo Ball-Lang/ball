@@ -1,0 +1,25 @@
+Task 3.6: Switch_Expr with Full Pattern Semantics
+Date: 2026-05-06
+
+Implementation summary:
+- Routed std.switch_expr through lazy engine control flow so non-selected case bodies are not evaluated.
+- Added structured pattern matching for encoder pattern_expr maps (ConstPattern, VarPattern, WildcardPattern, ListPattern, MapPattern, RecordPattern, ObjectPattern, LogicalAndPattern, LogicalOrPattern, CastPattern, NullCheckPattern, NullAssertPattern, RelationalPattern, RestPattern).
+- Added case-scope bindings for pattern variables so guards and bodies can use narrowed/destructured variables.
+- Added non-exhaustive switch expression runtime error when no case/default matches.
+
+Verification:
+- lsp_diagnostics dart/engine/lib/engine_eval.dart: No diagnostics found
+- lsp_diagnostics dart/engine/lib/engine_control_flow.dart: No diagnostics found
+- lsp_diagnostics dart/engine/lib/engine_std.dart: No diagnostics found
+- lsp_diagnostics dart/engine/test/engine_test.dart: No diagnostics found
+- dart test test/engine_test.dart --name "switch expression": 7/7 passed
+- dart test test/conformance_test.dart --name "170": PASS (170_pattern_switch_expr)
+- dart test test/conformance_test.dart --name "182": PASS (182_list_patterns)
+- dart test test/conformance_test.dart --name "183": PASS (183_type_patterns)
+- dart test test/conformance_test.dart --name "184": PASS (184_nested_patterns)
+
+Additional verification notes:
+- dart analyze reports 2 warnings:
+  1. lib/engine_control_flow.dart:1315 unnecessary duplicate BallGenerator type check in pre-existing yield_each code.
+  2. lib/engine_types.dart:155 unused _isBallFutureError declaration.
+- Full dart test was attempted but is blocked by unrelated existing failures: math_floor/math_ceil/math_round BallDouble casts, invalid 169_pattern_destructure JSON, and later stack overflow during broader type-check tests.

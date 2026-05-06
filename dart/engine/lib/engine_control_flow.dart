@@ -288,44 +288,27 @@ extension BallEngineControlFlow on BallEngine {
       for (final f in caseExpr.messageCreation.fields) {
         cf[f.name] = f.value;
       }
-      final isDefault = cf['is_default'];
-      if (isDefault != null &&
-          isDefault.whichExpr() == Expression_Expr.literal &&
-          isDefault.literal.boolValue) {
+      if (_caseIsDefault(cf)) {
         defaultBody = cf['body'];
         continue;
       }
 
+      var bodyScope = scope;
       if (!matched) {
-        // Standard value-based case.
-        final value = cf['value'];
-        if (value != null) {
-          final caseVal = await _evalExpression(value, scope);
-          if (_ballEquals(caseVal, subjectVal)) matched = true;
-        }
-        // Pattern-based case (e.g., ConstPattern).
-        if (!matched) {
-          final patternExpr = cf['pattern_expr'];
-          if (patternExpr != null) {
-            final pattern = await _evalExpression(patternExpr, scope);
-            final patternMap = _cfAsMap(pattern);
-            final patternVal = (patternMap != null && patternMap.containsKey('value'))
-                ? patternMap['value']
-                : pattern;
-            if (_ballEquals(patternVal, subjectVal)) matched = true;
-          }
-        }
-        // String pattern matching (e.g., "Color.red" matching enum values).
-        if (!matched) {
-          final patternField = cf['pattern'];
-          if (patternField != null) {
-            final patternStr = patternField.whichExpr() == Expression_Expr.literal &&
-                patternField.literal.whichValue() == Literal_Value.stringValue
-                ? patternField.literal.stringValue
-                : null;
-            if (patternStr != null) {
-              matched = _matchSwitchPattern(subjectVal, patternStr);
-            }
+        final bindings = <String, Object?>{};
+        matched = await _matchesSwitchCasePattern(
+          subjectVal,
+          cf,
+          bindings,
+          scope,
+        );
+        if (matched) {
+          bodyScope = _scopeWithPatternBindings(scope, bindings);
+          final guard = cf['guard'];
+          if (guard != null &&
+              !_toBool(await _evalExpression(guard, bodyScope))) {
+            matched = false;
+            continue;
           }
         }
       }
@@ -341,7 +324,7 @@ extension BallEngineControlFlow on BallEngine {
               !body.block.hasResult()) {
             continue; // fall-through
           }
-          final result = await _evalExpression(body, scope);
+          final result = await _evalExpression(body, bodyScope);
           // Consume unlabeled break (switch break, not loop break).
           if (result is _FlowSignal && result.kind == 'break' && result.label == null) {
             return null;
@@ -356,6 +339,114 @@ extension BallEngineControlFlow on BallEngine {
         return null;
       }
       return result;
+    }
+    return null;
+  }
+
+  Future<Object?> _evalLazySwitchExpr(FunctionCall call, _Scope scope) async {
+    final fields = _lazyFields(call);
+    final subject = fields['subject'];
+    final cases = fields['cases'];
+    if (subject == null || cases == null) return null;
+
+    final subjectVal = await _evalExpression(subject, scope);
+    if (cases.whichExpr() != Expression_Expr.literal ||
+        cases.literal.whichValue() != Literal_Value.listValue) {
+      return null;
+    }
+
+    Expression? defaultBody;
+    for (final caseExpr in cases.literal.listValue.elements) {
+      if (caseExpr.whichExpr() != Expression_Expr.messageCreation) continue;
+      final cf = <String, Expression>{};
+      for (final f in caseExpr.messageCreation.fields) {
+        cf[f.name] = f.value;
+      }
+
+      if (_caseIsDefault(cf)) {
+        defaultBody = cf['body'];
+        continue;
+      }
+
+      final bindings = <String, Object?>{};
+      if (!await _matchesSwitchCasePattern(subjectVal, cf, bindings, scope)) {
+        continue;
+      }
+
+      final guard = cf['guard'];
+      final caseScope = _scopeWithPatternBindings(scope, bindings);
+      if (guard != null && !_toBool(await _evalExpression(guard, caseScope))) {
+        continue;
+      }
+
+      final body = cf['body'];
+      if (body == null) return null;
+      return _evalExpression(body, caseScope);
+    }
+
+    if (defaultBody != null) return _evalExpression(defaultBody, scope);
+    throw BallRuntimeError('Non-exhaustive switch expression');
+  }
+
+  bool _caseIsDefault(Map<String, Expression> fields) {
+    final isDefault = fields['is_default'];
+    if (isDefault != null &&
+        isDefault.whichExpr() == Expression_Expr.literal &&
+        isDefault.literal.whichValue() == Literal_Value.boolValue &&
+        isDefault.literal.boolValue) {
+      return true;
+    }
+    final pattern = fields['pattern'];
+    return pattern != null && _stringLiteral(pattern) == '_';
+  }
+
+  _Scope _scopeWithPatternBindings(
+    _Scope parent,
+    Map<String, Object?> bindings,
+  ) {
+    if (bindings.isEmpty) return parent;
+    final child = parent.child();
+    for (final entry in bindings.entries) {
+      child.bind(entry.key, entry.value);
+    }
+    return child;
+  }
+
+  Future<bool> _matchesSwitchCasePattern(
+    Object? subjectVal,
+    Map<String, Expression> fields,
+    Map<String, Object?> bindings,
+    _Scope scope,
+  ) async {
+    final patternExpr = fields['pattern_expr'];
+    if (patternExpr != null) {
+      final pattern = await _evalExpression(patternExpr, scope);
+      if (_matchPattern(subjectVal, pattern, bindings)) return true;
+    }
+
+    final value = fields['value'];
+    if (value != null) {
+      final caseVal = await _evalExpression(value, scope);
+      if (_ballEquals(caseVal, subjectVal)) return true;
+    }
+
+    final patternField = fields['pattern'];
+    final patternStr = patternField == null ? null : _stringLiteral(patternField);
+    if (patternStr != null) {
+      return _matchPattern(subjectVal, patternStr, bindings) ||
+          _matchSwitchPattern(subjectVal, patternStr);
+    }
+    if (patternField != null) {
+      final pattern = await _evalExpression(patternField, scope);
+      return _matchPattern(subjectVal, pattern, bindings);
+    }
+    return false;
+  }
+
+  String? _stringLiteral(Expression expr) {
+    if (expr.whichExpr() == Expression_Expr.literal &&
+        expr.literal.whichValue() == Literal_Value.stringValue) {
+      return expr.literal.stringValue;
     }
     return null;
   }

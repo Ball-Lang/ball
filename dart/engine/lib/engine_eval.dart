@@ -58,6 +58,8 @@ extension BallEngineEval on BallEngine {
           return _evalLazyDoWhile(call, scope);
         case 'switch':
           return _evalLazySwitch(call, scope);
+        case 'switch_expr':
+          return _evalLazySwitchExpr(call, scope);
         case 'try':
           return _evalLazyTry(call, scope);
         case 'and':

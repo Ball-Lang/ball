@@ -1624,16 +1624,17 @@ extension BallEngineStd on BallEngine {
       final cMap = _stdAsMap(c);
       if (cMap == null) continue;
       final pattern = cMap['pattern'];
+      final patternExpr = cMap['pattern_expr'];
       final body = cMap['body'];
       final guard = cMap['guard'];
       // Default / wildcard.
-      if (pattern == null || pattern == '_') {
+      if (cMap['is_default'] == true || pattern == '_') {
         defaultBody = body;
         continue;
       }
       // Try structured pattern matching first.
       final bindings = <String, Object?>{};
-      if (_matchPattern(subject, pattern, bindings)) {
+      if (_matchPattern(subject, patternExpr ?? pattern, bindings)) {
         // Check guard condition if present.
         if (guard != null && guard is Function) {
           var guardResult = guard(bindings);
@@ -1649,7 +1650,8 @@ extension BallEngineStd on BallEngine {
         return body;
       }
     }
-    return defaultBody;
+    if (defaultBody != null) return defaultBody;
+    throw BallRuntimeError('Non-exhaustive switch expression');
   }
 
   /// Structured pattern matching supporting Dart 3 patterns.
@@ -1663,8 +1665,9 @@ extension BallEngineStd on BallEngine {
   ) {
     if (pattern == null || pattern == '_') return true; // wildcard
     if (pattern is String) return _matchStringPattern(value, pattern, bindings);
-    if (pattern is Map<String, Object?>) {
-      return _matchStructuredPattern(value, pattern, bindings);
+    final patternMap = _stdAsMap(pattern);
+    if (patternMap != null) {
+      return _matchStructuredPattern(value, patternMap, bindings);
     }
     // Direct value equality.
     return pattern == value || pattern.toString() == value?.toString();
@@ -1730,7 +1733,7 @@ extension BallEngineStd on BallEngine {
     Map<String, Object?> pattern,
     Map<String, Object?> bindings,
   ) {
-    final kind = pattern['__pattern_kind__'] as String?;
+    final kind = _patternKind(pattern);
     switch (kind) {
       case 'type_test':
         // { __pattern_kind__: 'type_test', type: 'int', name: 'x' }
@@ -1742,19 +1745,77 @@ extension BallEngineStd on BallEngine {
         }
         return false;
 
+      case 'var':
+        final typeName = pattern['type'] as String?;
+        if (typeName != null && !_matchesTypePattern(value, typeName)) {
+          return false;
+        }
+        final varName = pattern['name'] as String?;
+        if (varName != null && varName != '_') bindings[varName] = value;
+        return true;
+
+      case 'wildcard':
+        final typeName = pattern['type'] as String?;
+        return typeName == null || _matchesTypePattern(value, typeName);
+
+      case 'const':
+        return _ballEquals(value, pattern['value']);
+
+      case 'relational':
+        return _matchRelationalPattern(
+          value,
+          pattern['operator'] as String?,
+          pattern['operand'],
+        );
+
       case 'list':
         // { __pattern_kind__: 'list', elements: [...patterns], rest: 'restVar' }
         final listVal = _stdAsList(value);
         if (listVal == null) return false;
-        final elements = pattern['elements'] as List? ?? [];
-        final rest = pattern['rest'] as String?;
-        if (rest == null && listVal.length != elements.length) return false;
-        if (rest != null && listVal.length < elements.length) return false;
+        final elements = _stdAsList(pattern['elements']) ?? const [];
+        final restIndex = elements.indexWhere((e) {
+          final em = _stdAsMap(e);
+          return em != null && _patternKind(em) == 'rest';
+        });
+        final fixedCount = restIndex == -1 ? elements.length : elements.length - 1;
+        if (restIndex == -1 && listVal.length != fixedCount) return false;
+        if (restIndex != -1 && listVal.length < fixedCount) return false;
         for (var i = 0; i < elements.length; i++) {
-          if (!_matchPattern(listVal[i], elements[i], bindings)) return false;
+          final elem = elements[i];
+          final elemMap = _stdAsMap(elem);
+          if (elemMap != null && _patternKind(elemMap) == 'rest') {
+            final restValues = listVal.sublist(i, listVal.length - fixedCount + i);
+            final subpattern = elemMap['subpattern'];
+            if (subpattern != null &&
+                !_matchPattern(restValues, subpattern, bindings)) {
+              return false;
+            }
+            continue;
+          }
+          final valueIndex = restIndex == -1 || i < restIndex
+              ? i
+              : listVal.length - (elements.length - i);
+          if (!_matchPattern(listVal[valueIndex], elem, bindings)) return false;
         }
+        final rest = pattern['rest'] as String?;
         if (rest != null) {
-          bindings[rest] = listVal.sublist(elements.length);
+          bindings[rest] = listVal.sublist(fixedCount);
+        }
+        return true;
+
+      case 'map':
+        final mapVal = _stdAsMap(value);
+        if (mapVal == null && value is! Map) return false;
+        final rawMap = value is Map ? value : mapVal!;
+        final entries = _stdAsList(pattern['entries']) ?? const [];
+        for (final entry in entries) {
+          final entryMap = _stdAsMap(entry);
+          if (entryMap == null) return false;
+          final key = entryMap['key'];
+          if (!rawMap.containsKey(key)) return false;
+          if (!_matchPattern(rawMap[key], entryMap['value'], bindings)) {
+            return false;
+          }
         }
         return true;
 
@@ -1763,13 +1824,10 @@ extension BallEngineStd on BallEngine {
         final objMap = _stdAsMap(value);
         if (objMap == null) return false;
         final objType = pattern['type'] as String?;
-        if (objType != null && objMap['__type__'] != objType) return false;
-        final fieldPatterns = pattern['fields'] as Map<String, Object?>?;
-        if (fieldPatterns != null) {
-          for (final entry in fieldPatterns.entries) {
-            final fieldVal = objMap[entry.key];
-            if (!_matchPattern(fieldVal, entry.value, bindings)) return false;
-          }
+        if (objType != null && !_matchesObjectType(objMap, objType)) return false;
+        for (final entry in _patternFields(pattern['fields']).entries) {
+          final fieldVal = objMap[entry.key];
+          if (!_matchPattern(fieldVal, entry.value, bindings)) return false;
         }
         return true;
 
@@ -1777,12 +1835,9 @@ extension BallEngineStd on BallEngine {
         // { __pattern_kind__: 'record', fields: {named_field: pattern, $1: pattern} }
         final recMap = _stdAsMap(value);
         if (recMap == null) return false;
-        final fieldPatterns = pattern['fields'] as Map<String, Object?>?;
-        if (fieldPatterns != null) {
-          for (final entry in fieldPatterns.entries) {
-            final fieldVal = recMap[entry.key];
-            if (!_matchPattern(fieldVal, entry.value, bindings)) return false;
-          }
+        for (final entry in _patternFields(pattern['fields']).entries) {
+          final fieldVal = recMap[entry.key];
+          if (!_matchPattern(fieldVal, entry.value, bindings)) return false;
         }
         return true;
 
@@ -1807,9 +1862,25 @@ extension BallEngineStd on BallEngine {
 
       case 'cast':
         // { __pattern_kind__: 'cast', type: 'int', name: 'x' }
+        final typeName = pattern['type'] as String?;
+        if (typeName != null && !_matchesTypePattern(value, typeName)) {
+          return false;
+        }
+        final subpattern = pattern['pattern'];
+        if (subpattern != null && !_matchPattern(value, subpattern, bindings)) {
+          return false;
+        }
         final varName = pattern['name'] as String?;
         if (varName != null) bindings[varName] = value;
         return true;
+
+      case 'null_check':
+      case 'null_assert':
+        return value != null &&
+            _matchPattern(value, pattern['pattern'], bindings);
+
+      case 'rest':
+        return _matchPattern(value, pattern['subpattern'], bindings);
 
       default:
         // No special kind — try value equality on each field.
@@ -1825,6 +1896,70 @@ extension BallEngineStd on BallEngine {
         }
         return false;
     }
+  }
+
+  String? _patternKind(Map<String, Object?> pattern) {
+    final explicit = pattern['__pattern_kind__'] as String?;
+    if (explicit != null) return explicit;
+    final type = pattern['__type__'] as String?;
+    return switch (type) {
+      'VarPattern' => 'var',
+      'WildcardPattern' => 'wildcard',
+      'ConstPattern' => 'const',
+      'ListPattern' => 'list',
+      'MapPattern' => 'map',
+      'RecordPattern' => 'record',
+      'ObjectPattern' => 'object',
+      'LogicalAndPattern' => 'logical_and',
+      'LogicalOrPattern' => 'logical_or',
+      'CastPattern' => 'cast',
+      'NullCheckPattern' => 'null_check',
+      'NullAssertPattern' => 'null_assert',
+      'RelationalPattern' => 'relational',
+      'RestPattern' => 'rest',
+      _ => null,
+    };
+  }
+
+  Map<String, Object?> _patternFields(Object? fields) {
+    final map = _stdAsMap(fields);
+    if (map != null) return map;
+    final list = _stdAsList(fields);
+    if (list == null) return const {};
+    final result = <String, Object?>{};
+    var positional = 1;
+    for (final field in list) {
+      final fieldMap = _stdAsMap(field);
+      if (fieldMap == null) continue;
+      final name = fieldMap['name'] as String?;
+      result[(name == null || name.isEmpty) ? '\$${positional++}' : name] =
+          fieldMap['pattern'];
+    }
+    return result;
+  }
+
+  bool _matchRelationalPattern(Object? value, String? operator, Object? operand) {
+    if (operator == null) return false;
+    return switch (operator) {
+      '==' => _ballEquals(value, operand),
+      '!=' => !_ballEquals(value, operand),
+      '>' => value is num && operand is num && value > operand,
+      '<' => value is num && operand is num && value < operand,
+      '>=' => value is num && operand is num && value >= operand,
+      '<=' => value is num && operand is num && value <= operand,
+      _ => false,
+    };
+  }
+
+  bool _matchesObjectType(Map<String, Object?> value, String patternType) {
+    final actual = value['__type__']?.toString();
+    if (actual == null) return false;
+    if (actual == patternType) return true;
+    final actualBare = actual.contains(':') ? actual.split(':').last : actual;
+    final patternBare = patternType.contains(':')
+        ? patternType.split(':').last
+        : patternType;
+    return actualBare == patternBare;
   }
 
   /// Returns true if [value] matches the type-name pattern string.

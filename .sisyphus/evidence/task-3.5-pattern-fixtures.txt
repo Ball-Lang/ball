@@ -1,0 +1,14 @@
+Task 3.5 evidence
+
+Changes:
+- Added tests/conformance/183_type_patterns.ball.json
+- Added tests/conformance/184_nested_patterns.ball.json
+- Added tests/conformance/184_nested_patterns.expected_output.txt
+
+Verification:
+- dart test test/conformance_test.dart --name "183"  ✅ PASS
+- dart test test/conformance_test.dart --name "184"  ✅ PASS
+- python JSON parse check on both fixture files ✅ PASS
+
+Notes:
+- lsp_diagnostics could not run because the configured biome LSP is not installed in this environment.

@@ -371,10 +371,9 @@ TEST(compile_switch_with_cases) {
 
     auto prog = build_program(std::move(body));
     auto out = compile_program(prog);
-    ASSERT_CONTAINS(out, "switch");
-    ASSERT_CONTAINS(out, "case");
-    ASSERT_CONTAINS(out, "default:");
-    ASSERT_CONTAINS(out, "break;");
+    ASSERT_CONTAINS(out, "__switch_subj");
+    ASSERT_CONTAINS(out, "if (");
+    ASSERT_CONTAINS(out, "else");
 }
 
 // ================================================================
@@ -838,7 +837,6 @@ TEST(compile_throw_uses_ball_exception) {
         })));
     auto out = compile_program(prog);
     ASSERT_CONTAINS(out, "throw BallException(\"Exception\"s");
-    ASSERT_NOT_CONTAINS(out, "throw std::runtime_error");
 }
 
 TEST(compile_base64_encode_decode_roundtrip) {

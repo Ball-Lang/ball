@@ -1,6 +1,8 @@
 # C++ Implementation Agents
 
-When working in the C++ codebase:
+**Generated:** 2026-05-05 | **Commit:** e9d2668 | **Branch:** main
+
+When working in the C++ codebase. The C++ implementation is a **prototype** — Dart is the reference.
 
 ## Critical Context
 
@@ -13,6 +15,27 @@ When working in the C++ codebase:
 ```bash
 cd cpp/build && cmake .. && cmake --build .
 ```
+
+## Test
+
+**Prefer conformance tests over unit tests.** The conformance suite (`test_conformance`, `test_selfhost_conformance`) validates against shared `.ball.json` fixtures — same programs tested across Dart, C++, and TS engines. Unit tests should be minimal.
+
+```bash
+cd cpp/build && cmake .. && cmake --build . && ctest --output-on-failure
+# Conformance (highest value — validates against shared fixtures):
+ctest -R conformance_tests
+ctest -R test_selfhost_conformance
+# Per-language (use sparingly):
+ctest -R engine_tests
+ctest -R compiler_tests
+ctest -R encoder_tests
+```
+- Test files: `cpp/test/test_*.cpp` — each compiles as standalone executable
+- CTest targets: `conformance_tests`, `engine_tests`, `compiler_tests`, `encoder_tests`, `e2e_tests`, `snapshot_tests`
+- Non-registered executables: `test_perf` (benchmarks), `test_selfhost_conformance`
+- Conformance fixtures live in `tests/conformance/*.ball.json`
+- Stack sizes: compiler 128MB, encoder 256MB, engine memory 65KB
+- Snapshot tests rewrite baselines with `BALL_UPDATE_SNAPSHOTS=1`
 
 ## Buf CLI Integration
 
@@ -39,4 +62,5 @@ cd cpp/build && cmake .. && cmake --build .
 - Maps use `std::map` (ordered), NOT `std::unordered_map`
 - Encoder uses Clang JSON AST (via `clang -Xclang -ast-dump=json`)
 - Normalizer converts `cpp_std` pointer ops to safe/unsafe memory ops
-- Stack sizes: compiler 128MB, encoder 256MB, engine memory 65KB
+- Compiler stack size: 128MB, Encoder: 256MB, Engine memory: 65KB
+- Memory.hpp: typed linear buffer for C/C++ interop

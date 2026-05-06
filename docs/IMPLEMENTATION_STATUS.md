@@ -1,6 +1,11 @@
 # Ball Programming Language — Status Report
 
+**Last Updated:** May 6, 2026
 **Scope:** Full project analysis — Dart & C++ implementations
+
+> **Note:** This document reflects the state as of May 2026. Many items listed below as missing or in-progress
+> have been completed since this report was written. See `IMPLEMENTATION_PLAN.md` (repository root) for
+> the authoritative current roadmap with all completed items marked [x].
 
 ---
 

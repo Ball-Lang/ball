@@ -1,0 +1,401 @@
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 100_complex_control_flow
+00:00 +1: conformance (hand-written IR) 101_simple_class
+00:00 +2: conformance (hand-written IR) 102_inheritance
+00:00 +3: conformance (hand-written IR) 103_abstract_class
+00:00 +4: conformance (hand-written IR) 104_getter_setter
+00:00 +5: conformance (hand-written IR) 105_static_methods
+00:00 +6: conformance (hand-written IR) 106_factory_constructor
+00:00 +7: conformance (hand-written IR) 107_method_override_super
+00:00 +8: conformance (hand-written IR) 108_class_tostring
+00:00 +9: conformance (hand-written IR) 109_enum_values
+00:00 +10: conformance (hand-written IR) 110_mixin
+00:00 +11: conformance (hand-written IR) 111_cascade_operator
+00:00 +12: conformance (hand-written IR) 112_named_constructors
+00:00 +13: conformance (hand-written IR) 113_operator_overloading
+00:00 +14: conformance (hand-written IR) 114_class_hierarchy
+00:00 +15: conformance (hand-written IR) 115_generic_class
+00:00 +16: conformance (hand-written IR) 116_map_iteration
+00:00 +17: conformance (hand-written IR) 117_list_generate
+00:00 +18: conformance (hand-written IR) 118_set_operations
+00:00 +19: conformance (hand-written IR) 119_nested_maps
+00:00 +20: conformance (hand-written IR) 120_list_of_maps
+00:00 +21: conformance (hand-written IR) 121_map_from_entries
+00:00 +22: conformance (hand-written IR) 122_list_sort_comparator
+00:00 +23: conformance (hand-written IR) 123_queue_simulation
+00:00 +24: conformance (hand-written IR) 124_frequency_counter
+00:00 +25: conformance (hand-written IR) 125_group_by
+00:00 +26: conformance (hand-written IR) 126_flatten_nested_list
+00:00 +27: conformance (hand-written IR) 127_zip_lists
+00:00 +28: conformance (hand-written IR) 128_matrix_transpose
+00:00 +29: conformance (hand-written IR) 129_unique_elements
+00:00 +30: conformance (hand-written IR) 130_running_average
+00:00 +31: conformance (hand-written IR) 131_insertion_sort
+00:00 +32: conformance (hand-written IR) 132_merge_sort
+00:00 +33: conformance (hand-written IR) 133_quick_sort
+00:00 +34: conformance (hand-written IR) 134_counting_sort
+00:00 +35: conformance (hand-written IR) 135_linear_search_sentinel
+00:00 +36: conformance (hand-written IR) 136_string_pattern_match
+00:00 +37: conformance (hand-written IR) 137_pascals_triangle
+00:00 +38: conformance (hand-written IR) 138_matrix_addition
+00:00 +39: conformance (hand-written IR) 139_decimal_to_binary
+00:00 +40: conformance (hand-written IR) 140_caesar_cipher
+00:00 +41: conformance (hand-written IR) 141_palindrome_number
+00:00 +42: conformance (hand-written IR) 142_armstrong_number
+00:00 +43: conformance (hand-written IR) 143_perfect_number
+00:00 +44: conformance (hand-written IR) 144_lcm_computation
+00:00 +45: conformance (hand-written IR) 145_josephus
+00:00 +46: conformance (hand-written IR) 146_nested_try_catch_types
+00:00 +47: conformance (hand-written IR) 147_complex_switch
+00:00 +48: conformance (hand-written IR) 148_labeled_loops
+00:00 +49: conformance (hand-written IR) 149_generator_pattern
+00:00 +50: conformance (hand-written IR) 150_state_machine
+00:00 +51: conformance (hand-written IR) 151_recursive_descent_parser
+00:00 +52: conformance (hand-written IR) 152_coroutine_simulation
+00:00 +53: conformance (hand-written IR) 153_memoized_recursive
+00:00 +54: conformance (hand-written IR) 154_currying
+00:00 +55: conformance (hand-written IR) 155_pipeline_compose
+00:00 +56: conformance (hand-written IR) 160_async_basic
+00:00 +56 -1: conformance (hand-written IR) 160_async_basic [E]
+  BallRuntimeError: Cannot convert BallMap to num
+  package:ball_engine/engine_std.dart 1995:5         BallEngineStd._toNum
+  package:ball_engine/engine_std.dart 1864:12        BallEngineStd._stdAdd
+  package:ball_engine/engine_std.dart 1859:3         BallEngineStd._stdAdd.<fn>
+  package:ball_engine/engine_types.dart 342:19       StdModuleHandler.call
+  package:ball_engine/engine_std.dart 150:38         BallEngineStd._callBaseFunction
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 1186:21       BallEngineEval._evalStatement
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 1154:22       BallEngineEval._evalBlock
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 30:32         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_invocation.dart 100:20  BallEngineInvocation._callFunction
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 826:19        BallEngineEval._evalMessageCreation
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 26:42         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 96:37         BallEngineEval._evalCall
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 1154:22       BallEngineEval._evalBlock
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 30:32         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_invocation.dart 100:20  BallEngineInvocation._callFunction
+  ===== asynchronous gap ===========================
+  test\conformance_test.dart 59:9                    main.<fn>.<fn>
+  
+00:00 +56 -1: conformance (hand-written IR) 161_async_chained
+00:00 +56 -2: conformance (hand-written IR) 161_async_chained [E]
+  BallRuntimeError: Cannot convert BallFuture to num
+  package:ball_engine/engine_std.dart 1995:5         BallEngineStd._toNum
+  package:ball_engine/engine_std.dart 1869:15        BallEngineStd._stdBinary
+  package:ball_engine/engine_std.dart 172:26         BallEngineStd._buildStdDispatch.<fn>
+  package:ball_engine/engine_types.dart 342:19       StdModuleHandler.call
+  package:ball_engine/engine_std.dart 150:38         BallEngineStd._callBaseFunction
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_invocation.dart 100:20  BallEngineInvocation._callFunction
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 1186:21       BallEngineEval._evalStatement
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 1154:22       BallEngineEval._evalBlock
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 30:32         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_invocation.dart 100:20  BallEngineInvocation._callFunction
+  ===== asynchronous gap ===========================
+  test\conformance_test.dart 59:9                    main.<fn>.<fn>
+  
+00:00 +56 -2: conformance (hand-written IR) 162_generator_sync
+00:00 +56 -3: conformance (hand-written IR) 162_generator_sync [E]
+  Expected: '1\n'
+              '2\n'
+              '3\n'
+              '3'
+    Actual: '3\n'
+              '0'
+     Which: is different.
+            Expected: 1\n2\n3\n3 ...
+              Actual: 3\n0
+                      ^
+             Differ at offset 0
+  
+  package:matcher                  expect
+  test\conformance_test.dart 66:9  main.<fn>.<fn>
+  
+00:00 +56 -3: conformance (hand-written IR) 163_generator_async
+00:00 +56 -4: conformance (hand-written IR) 163_generator_async [E]
+  BallRuntimeError: Cannot access field "first" on BallList
+  package:ball_engine/engine_eval.dart 658:5         BallEngineEval._evalFieldAccess
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 25:38         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 495:20        BallEngineEval._evalFieldAccess
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 25:38         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 826:19        BallEngineEval._evalMessageCreation
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 26:42         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 96:37         BallEngineEval._evalCall
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 1154:22       BallEngineEval._evalBlock
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 30:32         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_invocation.dart 100:20  BallEngineInvocation._callFunction
+  ===== asynchronous gap ===========================
+  test\conformance_test.dart 59:9                    main.<fn>.<fn>
+  
+00:00 +56 -4: conformance (hand-written IR) 164_oop_inheritance
+00:00 +56 -5: conformance (hand-written IR) 164_oop_inheritance [E]
+  BallRuntimeError: Function "main.speak" not found
+  package:ball_engine/engine_invocation.dart 456:5   BallEngineInvocation._resolveAndCallFunction
+  package:ball_engine/engine_eval.dart 238:12        BallEngineEval._evalCall
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 826:19        BallEngineEval._evalMessageCreation
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 26:42         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 96:37         BallEngineEval._evalCall
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 1154:22       BallEngineEval._evalBlock
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 30:32         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_invocation.dart 100:20  BallEngineInvocation._callFunction
+  ===== asynchronous gap ===========================
+  test\conformance_test.dart 59:9                    main.<fn>.<fn>
+  
+00:00 +56 -5: conformance (hand-written IR) 165_oop_virtual_dispatch
+00:00 +57 -5: conformance (hand-written IR) 166_oop_super_call
+00:00 +57 -6: conformance (hand-written IR) 166_oop_super_call [E]
+  BallRuntimeError: Cannot access field "name" on String
+  package:ball_engine/engine_eval.dart 658:5         BallEngineEval._evalFieldAccess
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 25:38         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 826:19        BallEngineEval._evalMessageCreation
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 26:42         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 96:37         BallEngineEval._evalCall
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 1154:22       BallEngineEval._evalBlock
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 30:32         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_invocation.dart 100:20  BallEngineInvocation._callFunction
+  ===== asynchronous gap ===========================
+  test\conformance_test.dart 59:9                    main.<fn>.<fn>
+  
+00:00 +57 -6: conformance (hand-written IR) 167_generics_reified
+00:00 +57 -7: conformance (hand-written IR) 167_generics_reified [E]
+  Expected: '42\n'
+              'true\n'
+              'false'
+    Actual: '42\n'
+              'false\n'
+              'false'
+     Which: is different.
+            Expected: 42\ntrue\nfals ...
+              Actual: 42\nfalse\nfal ...
+                          ^
+             Differ at offset 4
+  
+  package:matcher                  expect
+  test\conformance_test.dart 66:9  main.<fn>.<fn>
+  
+00:00 +57 -7: conformance (hand-written IR) 168_generics_type_check
+00:00 +57 -8: conformance (hand-written IR) 168_generics_type_check [E]
+  BallRuntimeError: Function "main.getValue" not found
+  package:ball_engine/engine_invocation.dart 456:5   BallEngineInvocation._resolveAndCallFunction
+  package:ball_engine/engine_eval.dart 238:12        BallEngineEval._evalCall
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 826:19        BallEngineEval._evalMessageCreation
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 26:42         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 96:37         BallEngineEval._evalCall
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_invocation.dart 100:20  BallEngineInvocation._callFunction
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 826:19        BallEngineEval._evalMessageCreation
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 26:42         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 96:37         BallEngineEval._evalCall
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 1154:22       BallEngineEval._evalBlock
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 30:32         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_invocation.dart 100:20  BallEngineInvocation._callFunction
+  ===== asynchronous gap ===========================
+  test\conformance_test.dart 59:9                    main.<fn>.<fn>
+  
+00:00 +57 -8: conformance (hand-written IR) 169_pattern_destructure
+00:00 +57 -9: conformance (hand-written IR) 169_pattern_destructure [E]
+  FormatException: Unexpected character (at line 295, character 11)
+            ]
+            ^
+  
+  dart:convert                      jsonDecode
+  test\conformance_test.dart 54:13  main.<fn>.<fn>
+  
+00:00 +57 -9: conformance (hand-written IR) 170_pattern_switch_expr
+00:00 +58 -9: conformance (hand-written IR) 21_typed_catch
+00:00 +59 -9: conformance (hand-written IR) 22_rethrow_preserves
+00:00 +60 -9: conformance (hand-written IR) 23_labeled_break
+00:00 +61 -9: conformance (hand-written IR) 24_throw_value
+00:00 +62 -9: conformance (hand-written IR) 25_closures
+00:00 +63 -9: conformance (hand-written IR) 26_string_ops
+00:00 +64 -9: conformance (hand-written IR) 27_list_ops
+00:00 +65 -9: conformance (hand-written IR) 28_fibonacci
+00:00 +66 -9: conformance (hand-written IR) 29_nested_functions
+00:00 +67 -9: conformance (hand-written IR) 30_math_utils
+00:00 +68 -9: conformance (hand-written IR) 31_arithmetic_basic
+00:00 +69 -9: conformance (hand-written IR) 32_arithmetic_negative
+00:00 +70 -9: conformance (hand-written IR) 33_comparison_chain
+00:00 +71 -9: conformance (hand-written IR) 34_boolean_logic
+00:00 +72 -9: conformance (hand-written IR) 35_short_circuit
+00:00 +73 -9: conformance (hand-written IR) 36_string_interpolation
+00:00 +74 -9: conformance (hand-written IR) 37_string_concat
+00:00 +75 -9: conformance (hand-written IR) 38_string_length
+00:00 +76 -9: conformance (hand-written IR) 39_compound_assign
+00:00 +77 -9: conformance (hand-written IR) 40_increment_decrement
+00:00 +78 -9: conformance (hand-written IR) 41_for_sum
+00:00 +79 -9: conformance (hand-written IR) 42_nested_functions
+00:00 +80 -9: conformance (hand-written IR) 43_countdown
+00:00 +81 -9: conformance (hand-written IR) 44_for_loop_basic
+00:00 +82 -9: conformance (hand-written IR) 45_for_in_loop
+00:00 +83 -9: conformance (hand-written IR) 46_while_loop
+00:00 +84 -9: conformance (hand-written IR) 47_do_while
+00:00 +85 -9: conformance (hand-written IR) 48_break_continue
+00:00 +86 -9: conformance (hand-written IR) 49_nested_loops
+00:00 +87 -9: conformance (hand-written IR) 50_if_else_chain
+00:00 +88 -9: conformance (hand-written IR) 51_nested_if
+00:00 +89 -9: conformance (hand-written IR) 52_max_of_three
+00:00 +90 -9: conformance (hand-written IR) 53_try_catch_finally
+00:00 +91 -9: conformance (hand-written IR) 54_abs_value
+00:00 +92 -9: conformance (hand-written IR) 55_scope_variable
+00:00 +93 -9: conformance (hand-written IR) 56_closure_capture
+00:00 +94 -9: conformance (hand-written IR) 57_recursion_factorial
+00:00 +95 -9: conformance (hand-written IR) 58_mutual_recursion
+00:00 +96 -9: conformance (hand-written IR) 59_deep_recursion
+00:00 +97 -9: conformance (hand-written IR) 60_collatz
+00:00 +98 -9: conformance (hand-written IR) 61_bitwise_ops
+00:00 +99 -9: conformance (hand-written IR) 62_ternary
+00:00 +100 -9: conformance (hand-written IR) 63_is_prime
+00:00 +101 -9: conformance (hand-written IR) 64_multiple_functions
+00:00 +102 -9: conformance (hand-written IR) 65_higher_order
+00:00 +103 -9: conformance (hand-written IR) 66_digit_sum
+00:00 +104 -9: conformance (hand-written IR) 67_reverse_number
+00:00 +105 -9: conformance (hand-written IR) 68_triangle_pattern
+00:00 +106 -9: conformance (hand-written IR) 69_early_return
+00:00 +107 -9: conformance (hand-written IR) 70_accumulator
+00:00 +108 -9: conformance (hand-written IR) 71_fizzbuzz
+00:00 +109 -9: conformance (hand-written IR) 72_gcd
+00:00 +110 -9: conformance (hand-written IR) 73_power
+00:00 +111 -9: conformance (hand-written IR) 74_fibonacci_sequence
+00:01 +112 -9: conformance (hand-written IR) 75_sum_of_squares
+00:01 +113 -9: conformance (hand-written IR) 76_list_map_filter
+00:01 +114 -9: conformance (hand-written IR) 77_string_builder
+00:01 +115 -9: conformance (hand-written IR) 78_map_operations
+00:01 +116 -9: conformance (hand-written IR) 79_nested_loops_pattern
+00:01 +117 -9: conformance (hand-written IR) 80_bubble_sort
+00:01 +118 -9: conformance (hand-written IR) 81_binary_search
+00:01 +119 -9: conformance (hand-written IR) 82_string_reverse
+00:01 +120 -9: conformance (hand-written IR) 83_matrix_multiply
+00:01 +121 -9: conformance (hand-written IR) 84_exception_chain
+00:01 +122 -9: conformance (hand-written IR) 85_closure_counter
+00:01 +123 -9: conformance (hand-written IR) 86_linked_list
+00:01 +124 -9: conformance (hand-written IR) 87_string_count
+00:01 +125 -9: conformance (hand-written IR) 88_selection_sort
+00:01 +126 -9: conformance (hand-written IR) 89_tower_of_hanoi
+00:01 +127 -9: conformance (hand-written IR) 90_number_patterns
+00:01 +128 -9: conformance (hand-written IR) 91_nested_try_catch
+00:01 +129 -9: conformance (hand-written IR) 92_list_comprehension
+00:01 +130 -9: conformance (hand-written IR) 93_multi_return
+00:01 +131 -9: conformance (hand-written IR) 94_prime_sieve
+00:01 +132 -9: conformance (hand-written IR) 95_fibonacci_memo
+00:01 +133 -9: conformance (hand-written IR) 96_roman_numerals
+00:01 +134 -9: conformance (hand-written IR) 97_stack_operations
+00:01 +135 -9: conformance (hand-written IR) 98_string_tokenizer
+00:01 +136 -9: conformance (hand-written IR) 99_type_conversion
+00:01 +137 -9: conformance (encoder-generated IR) 01_hello
+00:02 +138 -9: conformance (encoder-generated IR) 02_arithmetic
+00:04 +139 -9: conformance (encoder-generated IR) 03_if_else
+00:05 +140 -9: conformance (encoder-generated IR) 04_while
+00:07 +141 -9: conformance (encoder-generated IR) 05_for
+00:08 +142 -9: conformance (encoder-generated IR) 06_function
+00:10 +143 -9: conformance (encoder-generated IR) 07_recursion
+00:12 +144 -9: conformance (encoder-generated IR) 08_comparison
+00:13 +145 -9: conformance (encoder-generated IR) 09_string
+00:15 +146 -9: conformance (encoder-generated IR) 10_nested_control
+00:16 +147 -9: conformance (encoder-generated IR) 11_try_catch
+00:18 +148 -9: conformance (encoder-generated IR) 12_early_return
+00:20 +149 -9: conformance (encoder-generated IR) 13_list_ops
+00:21 +150 -9: conformance (encoder-generated IR) 14_bool_logic
+00:23 +151 -9: conformance (encoder-generated IR) 15_closure
+00:24 +152 -9: conformance (encoder-generated IR) 16_labeled_break
+00:26 +153 -9: conformance (encoder-generated IR) 17_rethrow
+00:27 +154 -9: conformance (encoder-generated IR) 18_do_while
+00:29 +155 -9: conformance (encoder-generated IR) 19_nested_calls
+00:31 +156 -9: conformance (encoder-generated IR) 20_bitwise
+00:32 +157 -9: conformance (encoder-generated IR) 21_ternary
+00:34 +158 -9: conformance (encoder-generated IR) 22_mutual_recursion
+00:35 +159 -9: conformance (encoder-generated IR) 23_string_ops
+00:37 +160 -9: conformance (encoder-generated IR) 24_int_methods
+00:38 +161 -9: conformance (encoder-generated IR) 25_nested_closure
+00:40 +162 -9: conformance (encoder-generated IR) 26_list_iterate
+00:41 +163 -9: conformance (encoder-generated IR) 27_continue
+00:43 +164 -9: conformance (encoder-generated IR) 28_negative_math
+00:45 +165 -9: conformance (encoder-generated IR) 29_short_circuit
+00:46 +166 -9: conformance (encoder-generated IR) 30_deep_recursion
+00:48 +167 -9: conformance (encoder-generated IR) 31_closures
+00:49 +168 -9: conformance (encoder-generated IR) 32_string_ops
+00:51 +169 -9: conformance (encoder-generated IR) 33_list_ops
+00:52 +170 -9: conformance (encoder-generated IR) 34_fibonacci
+00:54 +171 -9: conformance (encoder-generated IR) 35_nested_functions
+00:56 +172 -9: conformance (encoder-generated IR) 36_catch_stack
+00:57 +173 -9: conformance (encoder-generated IR) 36_math_utils
+00:59 +174 -9: Some tests failed.
+
+Failing tests:
+  test/conformance_test.dart: conformance (hand-written IR) 160_async_basic
+  test/conformance_test.dart: conformance (hand-written IR) 161_async_chained
+  test/conformance_test.dart: conformance (hand-written IR) 162_generator_sync
+  test/conformance_test.dart: conformance (hand-written IR) 163_generator_async
+  ... and 5 more
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.

@@ -130,6 +130,8 @@ private:
     // Helpers
     std::string get_message_field(const ball::v1::FunctionCall& call,
                                    const std::string& field_name);
+    std::string get_optional_field(const ball::v1::FunctionCall& call,
+                                    const std::string& field_name);
     std::string get_string_field(const ball::v1::FunctionCall& call,
                                   const std::string& field_name);
     const ball::v1::Expression* get_message_field_expr(

@@ -1,0 +1,359 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "IntInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "is",
+          "isBase": true
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "types": [
+        {
+          "name": "main:Box",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_MESSAGE"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "main:Box.new",
+          "outputType": "main:Box",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "value",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "intBox",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Box",
+                        "fields": [
+                          {
+                            "name": "__type_args__",
+                            "value": {
+                              "literal": {
+                                "stringValue": "<int>"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "42"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Box<int>"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "IntInput",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "fieldAccess": {
+                                              "object": {
+                                                "reference": {
+                                                  "name": "intBox"
+                                                }
+                                              },
+                                              "field": "value"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "strBox",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Box",
+                        "fields": [
+                          {
+                            "name": "__type_args__",
+                            "value": {
+                              "literal": {
+                                "stringValue": "<String>"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "stringValue": "hello"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Box<String>"
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "isIntBox",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "is",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "value",
+                                "value": {
+                                  "reference": {
+                                    "name": "intBox"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "Box<int>"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "bool"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "isIntBox"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "isStrBox",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "is",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "value",
+                                "value": {
+                                  "reference": {
+                                    "name": "intBox"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "Box<String>"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "bool"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "isStrBox"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Box",
+          "descriptor": {
+            "name": "main:Box",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              }
+            ]
+          },
+          "typeParams": [
+            {
+              "name": "T"
+            }
+          ],
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "value",
+                "type": "T"
+              }
+            ],
+            "type_params": [
+              "T"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

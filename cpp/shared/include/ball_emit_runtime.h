@@ -75,9 +75,28 @@ using BallMap_RT = std::map<std::string, std::any>;
 using BallList_RT = std::vector<std::any>;
 using BallFunc_RT = std::function<std::any(std::any)>;
 
+// Helper to unwrap the inner std::any from a BallDyn stored in std::any.
+// On MSVC, implicit conversion of BallDyn to const std::any& may use
+// std::any's template constructor, wrapping the BallDyn object in std::any
+// instead of extracting BallDyn::_val. This helper detects and unwraps.
+struct _BallDynUnwrapper {
+    static const std::any& unwrap(const std::any& v) {
+        if (v.has_value() && _unwrap_fn) {
+            auto* result = _unwrap_fn(v);
+            if (result) return *result;
+        }
+        return v;
+    }
+    using UnwrapFn = const std::any* (*)(const std::any&);
+    static inline UnwrapFn _unwrap_fn = nullptr;
+};
+
 // std::any — attempt known types, fallback to type name.
 inline std::string ball_to_string(const std::any& v) {
     if (!v.has_value()) return "null";
+    // Unwrap BallDyn if present (MSVC wrapping issue)
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    if (&u != &v) return ball_to_string(u);
     if (v.type() == typeid(int64_t)) return std::to_string(std::any_cast<int64_t>(v));
     if (v.type() == typeid(int)) return std::to_string(std::any_cast<int>(v));
     if (v.type() == typeid(double)) return ball_to_string(std::any_cast<double>(v));
@@ -125,20 +144,40 @@ inline std::string ball_to_string(const std::vector<T>& v) {
 // ball_shared.h but live in the global namespace so compiled programs
 // (which embed this header, not ball_shared.h) can use them.
 
-inline bool ball_is_int(const std::any& v) { return v.has_value() && v.type() == typeid(int64_t); }
-inline bool ball_is_double(const std::any& v) { return v.has_value() && v.type() == typeid(double); }
-inline bool ball_is_string(const std::any& v) { return v.has_value() && v.type() == typeid(std::string); }
-inline bool ball_is_bool(const std::any& v) { return v.has_value() && v.type() == typeid(bool); }
-inline bool ball_is_list(const std::any& v) { return v.has_value() && v.type() == typeid(BallList_RT); }
-inline bool ball_is_map(const std::any& v) {
-    return v.has_value() && v.type() == typeid(BallMap_RT);
+inline bool ball_is_int(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    return u.has_value() && u.type() == typeid(int64_t);
 }
-inline bool ball_is_function(const std::any& v) { return v.has_value() && v.type() == typeid(BallFunc_RT); }
+inline bool ball_is_double(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    return u.has_value() && u.type() == typeid(double);
+}
+inline bool ball_is_string(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    return u.has_value() && u.type() == typeid(std::string);
+}
+inline bool ball_is_bool(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    return u.has_value() && u.type() == typeid(bool);
+}
+inline bool ball_is_list(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    return u.has_value() && u.type() == typeid(BallList_RT);
+}
+inline bool ball_is_map(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    return u.has_value() && u.type() == typeid(BallMap_RT);
+}
+inline bool ball_is_function(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    return u.has_value() && u.type() == typeid(BallFunc_RT);
+}
 
 // Check if a value is a FlowSignal (a map with a "kind" field).
 inline bool ball_is_flow_signal(const std::any& v) {
-    if (!v.has_value() || v.type() != typeid(BallMap_RT)) return false;
-    const auto& m = std::any_cast<const BallMap_RT&>(v);
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    if (!u.has_value() || u.type() != typeid(BallMap_RT)) return false;
+    const auto& m = std::any_cast<const BallMap_RT&>(u);
     return m.count("kind") > 0;
 }
 
@@ -157,19 +196,28 @@ inline bool ball_type_name_matches(const std::string& obj_type, const std::strin
 
 // Check if a map value's __type__ matches a type name (walks __super__ chain).
 inline bool ball_object_type_matches(const std::any& value, const std::string& type) {
-    if (!value.has_value() || value.type() != typeid(BallMap_RT)) return false;
-    const auto& m = std::any_cast<const BallMap_RT&>(value);
+    auto& u = _BallDynUnwrapper::unwrap(value);
+    if (!u.has_value() || u.type() != typeid(BallMap_RT)) return false;
+    const auto& m = std::any_cast<const BallMap_RT&>(u);
     auto it = m.find("__type__");
-    if (it != m.end() && it->second.has_value() && it->second.type() == typeid(std::string)) {
-        if (ball_type_name_matches(std::any_cast<const std::string&>(it->second), type)) return true;
+    if (it != m.end() && it->second.has_value()) {
+        auto& tv = _BallDynUnwrapper::unwrap(it->second);
+        if (tv.type() == typeid(std::string)) {
+            if (ball_type_name_matches(std::any_cast<const std::string&>(tv), type)) return true;
+        }
     }
     auto sit = m.find("__super__");
     std::any super_obj = (sit != m.end()) ? sit->second : std::any{};
-    while (super_obj.has_value() && super_obj.type() == typeid(BallMap_RT)) {
-        const auto& sm = std::any_cast<const BallMap_RT&>(super_obj);
+    while (super_obj.has_value()) {
+        auto& su = _BallDynUnwrapper::unwrap(super_obj);
+        if (su.type() != typeid(BallMap_RT)) break;
+        const auto& sm = std::any_cast<const BallMap_RT&>(su);
         auto st = sm.find("__type__");
-        if (st != sm.end() && st->second.has_value() && st->second.type() == typeid(std::string)) {
-            if (ball_type_name_matches(std::any_cast<const std::string&>(st->second), type)) return true;
+        if (st != sm.end() && st->second.has_value()) {
+            auto& stv = _BallDynUnwrapper::unwrap(st->second);
+            if (stv.type() == typeid(std::string)) {
+                if (ball_type_name_matches(std::any_cast<const std::string&>(stv), type)) return true;
+            }
         }
         auto ss = sm.find("__super__");
         super_obj = (ss != sm.end()) ? ss->second : std::any{};
@@ -628,6 +676,13 @@ struct Base64Codec {
 inline std::string encode(const Base64Codec& c, const std::vector<std::any>& b) { return c.encode(b); }
 inline std::vector<std::any> decode(const Base64Codec& c, const std::string& s) { return c.decode(s); }
 
+// BallDyn overloads for codec functions
+class BallDyn;
+inline std::vector<std::any> encode(const Utf8Codec& c, const BallDyn& s);
+inline std::string decode(const Utf8Codec& c, const BallDyn& bytes);
+inline std::string encode(const Base64Codec& c, const BallDyn& bytes);
+inline std::vector<std::any> decode(const Base64Codec& c, const BallDyn& s);
+
 // Global instances matching Dart's top-level `utf8` and `base64`.
 inline Utf8Codec utf8;
 inline Base64Codec base64;
@@ -693,6 +748,7 @@ struct File {
     std::string path;
     File(const std::string& p) : path(p) {}
     File(const std::any& p) : path(ball_to_string(p)) {}
+    File(const BallDyn& p);  // defined in ball_dyn.h
 };
 inline std::string readAsStringSync(const File& f) {
     std::ifstream ifs(f.path);
@@ -707,6 +763,13 @@ inline void writeAsStringSync(const File& f, const std::any& content, const std:
     std::ofstream ofs(f.path);
     ofs << ball_to_string(content);
 }
+inline std::vector<std::any> readAsBytesSync(const File& f) {
+    std::ifstream ifs(f.path, std::ios::binary);
+    std::vector<std::any> result;
+    char c;
+    while (ifs.get(c)) result.push_back(std::any(static_cast<int64_t>(static_cast<unsigned char>(c))));
+    return result;
+}
 inline void writeAsBytesSync(const File& f, const std::any&) {
     // Stub — byte write not fully implemented
 }
@@ -714,6 +777,28 @@ inline bool existsSync(const File& f) {
     std::ifstream ifs(f.path);
     return ifs.good();
 }
+// BallDyn overload in ball_dyn.h
+inline void writeAsStringSync(const File& f, const BallDyn& content, const std::any& = {});
+
+// ── Directory stubs ──
+struct Directory {
+    std::string path;
+    Directory(const std::string& p) : path(p) {}
+    Directory(const std::any& p) : path(ball_to_string(p)) {}
+    Directory(const BallDyn& p);  // defined in ball_dyn.h
+};
+inline std::vector<std::any> listSync(const Directory& d) {
+    std::vector<std::any> result;
+    // Stub: directory listing not implemented
+    return result;
+}
+inline void createSync(const Directory& d, bool recursive = false) {
+    // Stub: directory creation not implemented
+}
+inline bool existsSync(const Directory& d) {
+    return false;
+}
+
 inline void deleteSync(const File& f) {
     std::remove(f.path.c_str());
 }
@@ -729,10 +814,11 @@ inline std::any child(const std::any& scope) {
     newScope["__parent__"] = scope;
     return std::any(newScope);
 }
-inline void bind(std::any& scope, const std::any& name, const std::any& value) {
+inline std::any bind(std::any& scope, const std::any& name, const std::any& value) {
     if (scope.type() == typeid(std::map<std::string, std::any>)) {
         std::any_cast<std::map<std::string, std::any>&>(scope)[ball_to_string(name)] = value;
     }
+    return std::any{};
 }
 // Forward declaration; BallDyn defined later
 class BallDyn;
@@ -863,6 +949,16 @@ inline void stderr_(const std::any& msg) {
     std::cerr << ball_to_string(msg) << std::endl;
 }
 
+// ── registerScopeExit stub ──
+inline void registerScopeExit(const std::any&, const std::any&, const std::any&) {}
+
+// ── Future.then stub ──
+// Dart's Future.then(callback) — in synchronous C++ simulation, just call immediately
+template<typename F>
+inline void then(const std::any&, F callback) {
+    // Synchronous stub: ignore (future already resolved)
+}
+
 // _envGet stub — wraps std::getenv
 inline std::string _envGet(const std::string& name) {
     auto v = std::getenv(name.c_str());
@@ -870,6 +966,87 @@ inline std::string _envGet(const std::string& name) {
 }
 inline std::string _envGet(const std::any& name) {
     return _envGet(ball_to_string(name));
+}
+
+// ── List.generate ──
+// Dart's List.generate(count, generator) → builds a list by calling generator(i) for i in 0..count-1.
+// The type argument (e.g. "List") is ignored.
+// List.generate defined in ball_dyn.h after BallDyn class
+
+// ── ball_to_set / set ops for BallDyn ──
+// Defined in ball_dyn.h after BallDyn class definition.
+
+// ── String.fromCharCode ──
+inline std::string fromCharCode(const std::string&, int64_t code) {
+    return std::string(1, static_cast<char>(code));
+}
+inline std::string fromCharCode(const std::string& tag, const std::any& code_val) {
+    int64_t code = 0;
+    if (code_val.type() == typeid(int64_t)) code = std::any_cast<int64_t>(code_val);
+    else if (code_val.type() == typeid(double)) code = static_cast<int64_t>(std::any_cast<double>(code_val));
+    return fromCharCode(tag, code);
+}
+
+// ── DateTime methods ──
+// fromMillisecondsSinceEpoch(DateTime, ms, isUtc)
+inline std::map<std::string, std::any> fromMillisecondsSinceEpoch(const DateTimeType&, int64_t ms, bool = false) {
+    return {{"millisecondsSinceEpoch", std::any(ms)}};
+}
+inline std::map<std::string, std::any> fromMillisecondsSinceEpoch(const DateTimeType& dt, const std::any& ms_val, const std::any& = {}) {
+    int64_t ms = 0;
+    if (ms_val.type() == typeid(int64_t)) ms = std::any_cast<int64_t>(ms_val);
+    else if (ms_val.type() == typeid(double)) ms = static_cast<int64_t>(std::any_cast<double>(ms_val));
+    return fromMillisecondsSinceEpoch(dt, ms);
+}
+
+// toIso8601String(dt_map) — format DateTime as ISO 8601
+inline std::string toIso8601String(const std::map<std::string, std::any>& dt) {
+    auto it = dt.find("millisecondsSinceEpoch");
+    if (it == dt.end()) return "1970-01-01T00:00:00.000Z";
+    int64_t ms = 0;
+    if (it->second.type() == typeid(int64_t)) ms = std::any_cast<int64_t>(it->second);
+    time_t secs = ms / 1000;
+    int millis = static_cast<int>(ms % 1000);
+    struct tm t;
+#ifdef _WIN32
+    gmtime_s(&t, &secs);
+#else
+    gmtime_r(&secs, &t);
+#endif
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &t);
+    char out[40];
+    std::snprintf(out, sizeof(out), "%s.%03dZ", buf, millis);
+    return std::string(out);
+}
+inline std::string toIso8601String(const std::any& dt_val) {
+    if (dt_val.type() == typeid(std::map<std::string, std::any>))
+        return toIso8601String(std::any_cast<const std::map<std::string, std::any>&>(dt_val));
+    return "1970-01-01T00:00:00.000Z";
+}
+
+// parse(DateTime, str) — parse ISO 8601 string to DateTime map
+inline std::map<std::string, std::any> parse(const DateTimeType&, const std::string& str) {
+    struct tm t = {};
+    int millis = 0;
+    // Try parsing ISO 8601 format
+    if (sscanf(str.c_str(), "%d-%d-%dT%d:%d:%d.%dZ",
+               &t.tm_year, &t.tm_mon, &t.tm_mday,
+               &t.tm_hour, &t.tm_min, &t.tm_sec, &millis) >= 6) {
+        t.tm_year -= 1900;
+        t.tm_mon -= 1;
+#ifdef _WIN32
+        time_t secs = _mkgmtime(&t);
+#else
+        time_t secs = timegm(&t);
+#endif
+        int64_t ms = static_cast<int64_t>(secs) * 1000 + millis;
+        return {{"millisecondsSinceEpoch", std::any(ms)}};
+    }
+    return {{"millisecondsSinceEpoch", std::any(static_cast<int64_t>(0))}};
+}
+inline std::map<std::string, std::any> parse(const DateTimeType& dt, const std::any& str_val) {
+    return parse(dt, ball_to_string(str_val));
 }
 
 #endif  // BALL_EMIT_RUNTIME_H

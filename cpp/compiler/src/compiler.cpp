@@ -182,8 +182,8 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     if (ball_type == "Completer" || ball_type.find("Completer<") == 0)
         return "BallDyn";
 
-    // Dart RegExp → std::regex
-    if (ball_type == "RegExp") return "std::regex";
+    // Dart RegExp → ball_to_regex (handles BallDyn args)
+    if (ball_type == "RegExp") return "ball_to_regex";
     if (ball_type == "Match" || ball_type == "RegExpMatch")
         return "std::smatch";
     if (ball_type == "Duration") return "int64_t";
@@ -252,23 +252,7 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
 }
 
 std::string CppCompiler::map_return_type(const ball::v1::FunctionDefinition& func) {
-    if (func.output_type().empty()) {
-        // If the function has a body that is NOT a block (single expression),
-        // it implies the function returns a value. Use BallDyn as the return
-        // type to avoid 'void function returning a value' errors.
-        if (func.has_body() &&
-            func.body().expr_case() != ball::v1::Expression::kBlock) {
-            return "BallDyn";
-        }
-        // For block bodies, check if the block has a result expression.
-        if (func.has_body() &&
-            func.body().expr_case() == ball::v1::Expression::kBlock &&
-            func.body().block().has_result()) {
-            return "BallDyn";
-        }
-        return "void";
-    }
-    return map_type(func.output_type());
+    return "BallDyn";
 }
 
 std::string CppCompiler::sanitize_name(const std::string& name) {
@@ -489,7 +473,7 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
         if (all_digits) {
             int idx = std::stoi(field.substr(1)) - 1;
             if (idx >= 0) {
-                return "std::get<" + std::to_string(idx) + ">(" + obj + ")";
+                return "BallDyn(" + obj + ")[" + std::to_string(idx) + "LL]";
             }
         }
     }
@@ -514,14 +498,11 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
     // Emit as an aggregate initializer or a map
     if (msg.type_name().empty() || msg.type_name().find("Msg") == 0) {
         // Anonymous message → BallMap (dynamic map)
-        std::string result = "BallDyn(BallMap{";
-        bool first = true;
+        std::string result = "[&]() { std::map<std::string,std::any> __m;";
         for (const auto& f : msg.fields()) {
-            if (!first) result += ", ";
-            result += "{\"" + f.name() + "\"s, std::any(" + compile_expr(f.value()) + ")}";
-            first = false;
+            result += " __m[\"" + f.name() + "\"s] = std::any(" + compile_expr(f.value()) + ");";
         }
-        result += "})";
+        result += " return __m; }()";
         return result;
     }
 
@@ -692,6 +673,26 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
         return result;
     }
 
+    // Runtime stub types (BallDyn subclasses) → emit as map
+    {
+        static const std::set<std::string> stub_types = {
+            "_FlowSignal", "_Scope", "BallRuntimeError", "BallFuture",
+            "BallGenerator", "_ExitSignal", "BallModuleHandler",
+            "StdModuleHandler",
+        };
+        auto bare_t = sanitize_name(msg.type_name());
+        auto bcc = bare_t.find(':');
+        if (bcc != std::string::npos) bare_t = bare_t.substr(bcc + 1);
+        if (stub_types.count(bare_t)) {
+            std::string result = "[&]() { std::map<std::string,std::any> __m;";
+            for (const auto& f : msg.fields()) {
+                result += " __m[\"" + f.name() + "\"s] = std::any(" + compile_expr(f.value()) + ");";
+            }
+            result += " return __m; }()";
+            return result;
+        }
+    }
+
     // Check if there are any argN fields mixed with named fields.
     // If so, look up the constructor to resolve argN to actual param names.
     bool has_arg_fields = false;
@@ -766,7 +767,13 @@ std::string CppCompiler::compile_block(const ball::v1::Block& block) {
                       " = " + compile_expr(s.let().value()) + ";\n";
         } else if (s.has_expression()) {
             if (is_last) {
-                result += indent_str() + "return BallDyn(" + compile_expr(s.expression()) + ");\n";
+                bool expr_is_throw = s.expression().expr_case() == ball::v1::Expression::kCall &&
+                                     s.expression().call().function() == "throw";
+                if (expr_is_throw) {
+                    result += indent_str() + compile_expr(s.expression()) + "; return BallDyn();\n";
+                } else {
+                    result += indent_str() + "return BallDyn(" + compile_expr(s.expression()) + ");\n";
+                }
             } else {
                 result += indent_str() + compile_expr(s.expression()) + ";\n";
             }
@@ -794,7 +801,7 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
         bool first = true;
         for (const auto& p : params) {
             if (!first) result += ", ";
-            result += "auto " + sanitize_name(p);
+            result += "BallDyn " + sanitize_name(p);
             first = false;
         }
     } else if (!func.input_type().empty()) {
@@ -852,6 +859,23 @@ std::string CppCompiler::get_message_field(const ball::v1::FunctionCall& call,
                                             const std::string& field_name) {
     auto* expr = get_message_field_expr(call, field_name);
     return expr ? compile_expr(*expr) : "BallDyn()";
+}
+
+// Returns the compiled field value, or "" if the field is absent or null.
+// Use for optional arguments (e.g., the "end" parameter of substring).
+std::string CppCompiler::get_optional_field(const ball::v1::FunctionCall& call,
+                                             const std::string& field_name) {
+    auto* expr = get_message_field_expr(call, field_name);
+    if (!expr) return "";
+    // Null reference (name "null" or empty reference)
+    if (expr->expr_case() == ball::v1::Expression::kReference &&
+        (expr->reference().name() == "null" || expr->reference().name().empty()))
+        return "";
+    // Null literal (default/unset literal value)
+    if (expr->expr_case() == ball::v1::Expression::kLiteral &&
+        expr->literal().value_case() == ball::v1::Literal::VALUE_NOT_SET)
+        return "";
+    return compile_expr(*expr);
 }
 
 std::string CppCompiler::get_string_field(const ball::v1::FunctionCall& call,
@@ -990,12 +1014,12 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "divide") return compile_binary_op("/", call);
     if (fn == "divide_double") {
         return "(static_cast<double>(" + get_message_field(call, "left") +
-               ") / " + get_message_field(call, "right") + ")";
+               ") / static_cast<double>(" + get_message_field(call, "right") + "))";
     }
     if (fn == "modulo") {
         auto l = get_message_field(call, "left");
         auto r = get_message_field(call, "right");
-        return "[&](auto _a, auto _b){ auto _r = _a % _b; return _r < 0 ? _r + (_b < 0 ? -_b : _b) : _r; }(" + l + ", " + r + ")";
+        return "[&](int64_t _a, int64_t _b){ auto _r = _a % _b; return _r < 0 ? _r + (_b < 0 ? -_b : _b) : _r; }(static_cast<int64_t>(" + l + "), static_cast<int64_t>(" + r + "))";
     }
     if (fn == "negate") return compile_unary_op("-", call);
 
@@ -1136,7 +1160,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "string_substring") {
         auto v = get_message_field(call, "value");
         auto s = get_message_field(call, "start");
-        auto e = get_message_field(call, "end");
+        auto e = get_optional_field(call, "end");
         if (e.empty()) return v + ".substr(" + s + ")";
         return v + ".substr(" + s + ", " + e + " - " + s + ")";
     }
@@ -1193,14 +1217,14 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "regex_match") {
         auto input = get_message_field(call, "left");
         auto pat = get_message_field(call, "right");
-        return "std::regex_search(" + input + ", std::regex(" + pat + "))";
+        return "std::regex_search(ball_to_string(" + input + "), std::regex(ball_to_string(" + pat + ")))";
     }
     if (fn == "regex_find") {
         auto input = get_message_field(call, "left");
         auto pat = get_message_field(call, "right");
         return "[](const std::string& s,const std::string& p){"
                "std::smatch m;if(std::regex_search(s,m,std::regex(p)))return m[0].str();"
-               "return std::string();}(" + input + "," + pat + ")";
+               "return std::string();}(ball_to_string(" + input + "),ball_to_string(" + pat + "))";
     }
     if (fn == "regex_find_all") {
         auto input = get_message_field(call, "left");
@@ -1209,19 +1233,19 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                "std::vector<std::string> r;std::regex re(p);"
                "auto it=std::sregex_iterator(s.begin(),s.end(),re);"
                "for(;it!=std::sregex_iterator();++it)r.push_back((*it)[0].str());"
-               "return r;}(" + input + "," + pat + ")";
+               "return r;}(ball_to_string(" + input + "),ball_to_string(" + pat + "))";
     }
     if (fn == "regex_replace") {
         auto str = get_message_field(call, "value");
         auto from = get_message_field(call, "from");
         auto to = get_message_field(call, "to");
-        return "std::regex_replace(" + str + ",std::regex(" + from + ")," + to + ",std::regex_constants::format_first_only)";
+        return "std::regex_replace(ball_to_string(" + str + "),std::regex(ball_to_string(" + from + ")),ball_to_string(" + to + "),std::regex_constants::format_first_only)";
     }
     if (fn == "regex_replace_all") {
         auto str = get_message_field(call, "value");
         auto from = get_message_field(call, "from");
         auto to = get_message_field(call, "to");
-        return "std::regex_replace(" + str + ",std::regex(" + from + ")," + to + ")";
+        return "std::regex_replace(ball_to_string(" + str + "),std::regex(ball_to_string(" + from + ")),ball_to_string(" + to + "))";
     }
     if (fn == "string_interpolation") {
         auto* parts_expr = get_message_field_expr(call, "parts");
@@ -1242,15 +1266,30 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "if") {
         auto cond = get_message_field(call, "condition");
         auto then = get_message_field(call, "then");
-        auto else_val = get_message_field(call, "else");
-        if (!else_val.empty()) return "(BallDyn(" + cond + " ? BallDyn(" + then + ") : BallDyn(" + else_val + ")))";
-        return "[&](){if (" + cond + ") {return BallDyn(" + then + ");} return BallDyn();}()";
+        auto else_val = get_optional_field(call, "else");
+        auto is_throw = [](const ball::v1::Expression* e) -> bool {
+            if (!e) return false;
+            if (e->expr_case() == ball::v1::Expression::kCall &&
+                e->call().function() == "throw") return true;
+            return false;
+        };
+        auto wrap = [&](const std::string& code, const ball::v1::Expression* expr) {
+            if (is_throw(expr)) return "(" + code + ", BallDyn())";
+            return std::string("BallDyn(" + code + ")");
+        };
+        if (!else_val.empty()) {
+            auto* then_expr = get_message_field_expr(call, "then");
+            auto* else_expr = get_message_field_expr(call, "else");
+            return "(BallDyn(" + cond + " ? " + wrap(then, then_expr) + " : " + wrap(else_val, else_expr) + "))";
+        }
+        auto* then_expr = get_message_field_expr(call, "then");
+        return "[&]() -> BallDyn {if (" + cond + ") {return " + wrap(then, then_expr) + ";} return BallDyn();}()";
     }
     if (fn == "for") {
-        return "[&](){\n" + indent_str() + "    // for loop\n" + indent_str() + "}()";
+        return "([&](){\n" + indent_str() + "    // for loop\n" + indent_str() + "}(), BallDyn())";
     }
     if (fn == "while") {
-        return "[&](){\n" + indent_str() + "    // while loop\n" + indent_str() + "}()";
+        return "([&](){\n" + indent_str() + "    // while loop\n" + indent_str() + "}(), BallDyn())";
     }
     if (fn == "return") {
         auto val = get_message_field(call, "value");
@@ -1293,7 +1332,10 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     }
 
     // ── Math ──
-    if (fn == "math_abs") return "std::abs(" + get_message_field(call, "value") + ")";
+    if (fn == "math_abs") {
+        auto v = get_message_field(call, "value");
+        return "[](BallDyn _v) -> BallDyn { if(_v.type()==typeid(int64_t))return BallDyn(std::abs(static_cast<int64_t>(_v))); return BallDyn(std::abs(static_cast<double>(_v))); }(" + v + ")";
+    }
     if (fn == "math_floor") return "static_cast<int64_t>(std::floor(" + get_message_field(call, "value") + "))";
     if (fn == "math_ceil") return "static_cast<int64_t>(std::ceil(" + get_message_field(call, "value") + "))";
     if (fn == "math_round") return "static_cast<int64_t>(std::round(" + get_message_field(call, "value") + "))";
@@ -1332,7 +1374,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "null_coalesce") {
         auto left = get_message_field(call, "left");
         auto right = get_message_field(call, "right");
-        return "BallDyn(" + left + " ? BallDyn(" + left + ") : BallDyn(" + right + "))";
+        return "(BallDyn(" + left + ").has_value() ? BallDyn(" + left + ") : BallDyn(" + right + "))";
     }
 
     // ── Cascade / spread ──
@@ -1407,10 +1449,21 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 if (f.name() == "pattern_expr") pattern_expr_ptr = &f.value();
             }
             if (!pattern.empty() && !body.empty()) {
-                if (pattern == "\"_\"s" || pattern == "\"default\"s") {
+                // Normalize pattern (strip quotes and enum prefixes)
+                auto sp = pattern;
+                if (sp.size() >= 3 && sp[0] == '"' && sp.back() == 's' && sp[sp.size()-2] == '"') {
+                    auto inner = sp.substr(1, sp.size() - 3);
+                    if (inner.size() >= 2 && inner.front() == '\'' && inner.back() == '\'')
+                        inner = inner.substr(1, inner.size() - 2);
+                    auto dot = inner.rfind('.');
+                    if (dot != std::string::npos && inner.find('_') < dot)
+                        inner = inner.substr(dot + 1);
+                    sp = "\"" + inner + "\"s";
+                }
+                if (sp == "\"_\"s" || sp == "\"default\"s") {
                     result += indent_str() + "  return " + body + ";\n";
                 } else {
-                    result += indent_str() + "  if (__subj == " + pattern + ") return " + body + ";\n";
+                    result += indent_str() + "  if (__subj == " + sp + ") return " + body + ";\n";
                 }
             }
         }
@@ -1484,12 +1537,12 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             }
         }
         if (named.empty()) {
-            std::string out = "std::make_tuple(";
+            std::string out = "std::vector<std::any>{";
             for (size_t i = 0; i < positional.size(); ++i) {
                 if (i) out += ", ";
-                out += positional[i];
+                out += "std::any(" + positional[i] + ")";
             }
-            out += ")";
+            out += "}";
             return out;
         }
         // Named (or mixed) record → unordered_map<string, any>.
@@ -1564,7 +1617,13 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                             else if (ef.name() == "value") val_expr = compile_expr(ef.value());
                         }
                         if (!key_expr.empty() && !val_expr.empty()) {
-                            result += "__m[ball_to_string(" + key_expr + ")] = std::any(" + val_expr + "); ";
+                            // Check if value is a lambda (starts with [) — wrap in BallDyn for BallFunc conversion
+                            bool is_lambda = !val_expr.empty() && val_expr[0] == '[';
+                            if (is_lambda) {
+                                result += "__m[ball_to_string(" + key_expr + ")] = std::any(BallDyn(" + val_expr + ")); ";
+                            } else {
+                                result += "__m[ball_to_string(" + key_expr + ")] = std::any(" + val_expr + "); ";
+                            }
                         }
                     } else {
                         // Non-entry field: use field name as key
@@ -1630,8 +1689,8 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
 std::string CppCompiler::compile_method_call(const std::string& fn,
                                               const ball::v1::FunctionCall& call) {
     auto self = get_message_field(call, "self");
-    auto arg0 = get_message_field(call, "arg0");
-    auto arg1 = get_message_field(call, "arg1");
+    auto arg0 = get_optional_field(call, "arg0");
+    auto arg1 = get_optional_field(call, "arg1");
 
     // If `self` is a member function reference (wrapped in a lambda by
     // compile_reference), it needs to be CALLED (invoked) before method
@@ -1880,7 +1939,7 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
         return "ball_has_field(" + self + ", \"result\"s)";
     }
     if (fn == "hasMatch") {
-        return "std::regex_search(" + arg0 + ", " + self + ")";
+        return "std::regex_search(ball_to_string(" + arg0 + "), ball_to_regex(" + self + "))";
     }
 
     // ── Dart collection helpers ──
@@ -1968,8 +2027,8 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
 void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
     if (stmt.has_let()) {
         emit_indent();
-        out_ << "auto " << sanitize_name(stmt.let().name()) << " = "
-             << compile_expr(stmt.let().value()) << ";\n";
+        out_ << "auto " << sanitize_name(stmt.let().name()) << " = BallDyn("
+             << compile_expr(stmt.let().value()) << ");\n";
     } else if (stmt.has_expression()) {
         // Block expressions used as statements: if the block has only
         // let bindings (no result expression), emit them inline so the
@@ -2189,7 +2248,7 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                 if (var_expr && var_expr->expr_case() == ball::v1::Expression::kLiteral)
                     var_name = var_expr->literal().string_value();
                 auto iter = get_message_field(call, "iterable");
-                emit_line("for (auto " + sanitize_name(var_name) + " : " + iter + ") {");
+                emit_line("for (auto " + sanitize_name(var_name) + " : BallDyn(" + iter + ")) {");
                 indent_++;
                 auto* body_expr = get_message_field_expr(call, "body");
                 if (body_expr) {
@@ -2283,30 +2342,72 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
             if (std_like &&
                 call.function() == "switch") {
                 auto subj = get_message_field(call, "subject");
-                emit_line("switch (" + subj + ") {");
+                emit_line("{");
                 indent_++;
+                emit_line("auto __switch_subj = " + subj + ";");
                 auto* cases_expr = get_message_field_expr(call, "cases");
+                bool first_case = true;
                 if (cases_expr && cases_expr->expr_case() == ball::v1::Expression::kLiteral &&
                     cases_expr->literal().value_case() == ball::v1::Literal::kListValue) {
+                    // Normalize switch pattern values helper
+                    auto normalize_pattern = [](const std::string& s) -> std::string {
+                        if (s.size() < 3 || s[0] != '"' || s.back() != 's' || s[s.size()-2] != '"')
+                            return s;
+                        auto inner = s.substr(1, s.size() - 3);
+                        if (inner.size() >= 2 && inner.front() == '\'' && inner.back() == '\'')
+                            inner = inner.substr(1, inner.size() - 2);
+                        auto dot = inner.rfind('.');
+                        if (dot != std::string::npos && inner.find('_') < dot)
+                            inner = inner.substr(dot + 1);
+                        return "\"" + inner + "\"s";
+                    };
+                    // Collect fall-through patterns (empty body cases grouped with next non-empty case)
+                    std::vector<std::string> pending_patterns;
                     for (const auto& cx : cases_expr->literal().list_value().elements()) {
                         if (cx.expr_case() != ball::v1::Expression::kMessageCreation) continue;
                         const ball::v1::Expression* case_val = nullptr;
                         const ball::v1::Expression* case_body = nullptr;
                         bool is_default = false;
                         for (const auto& f : cx.message_creation().fields()) {
-                            if (f.name() == "value") case_val = &f.value();
+                            if (f.name() == "value" || f.name() == "pattern") case_val = &f.value();
                             else if (f.name() == "body") case_body = &f.value();
                             else if (f.name() == "is_default" &&
                                      f.value().expr_case() == ball::v1::Expression::kLiteral &&
                                      f.value().literal().bool_value()) is_default = true;
                         }
+                        if (case_val && !is_default) {
+                            auto cv = compile_expr(*case_val);
+                            if (cv == "\"_\"s" || cv == "\"default\"s") is_default = true;
+                        }
+                        // Detect empty body (fall-through): empty block with no statements and no result
+                        bool is_empty_body = false;
+                        if (case_body && case_body->expr_case() == ball::v1::Expression::kBlock &&
+                            case_body->block().statements_size() == 0 && !case_body->block().has_result()) {
+                            is_empty_body = true;
+                        }
+                        if (!case_body) is_empty_body = true;
+                        if (is_empty_body && case_val && !is_default) {
+                            pending_patterns.push_back(normalize_pattern(compile_expr(*case_val)));
+                            continue;
+                        }
                         if (is_default) {
-                            emit_line("default: {");
+                            if (first_case) emit_line("{");
+                            else emit_line("else {");
+                            pending_patterns.clear();
                         } else if (case_val) {
-                            emit_line("case " + compile_expr(*case_val) + ": {");
+                            auto cv = normalize_pattern(compile_expr(*case_val));
+                            // Build condition including any fall-through patterns
+                            std::string cond = "BallDyn(__switch_subj) == BallDyn(" + cv + ")";
+                            for (auto& pp : pending_patterns) {
+                                cond += " || BallDyn(__switch_subj) == BallDyn(" + pp + ")";
+                            }
+                            pending_patterns.clear();
+                            if (first_case) emit_line("if (" + cond + ") {");
+                            else emit_line("else if (" + cond + ") {");
                         } else {
                             continue;
                         }
+                        first_case = false;
                         indent_++;
                         if (case_body) {
                             if (case_body->expr_case() == ball::v1::Expression::kBlock) {
@@ -2314,13 +2415,19 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                                     compile_statement(s);
                                 }
                                 if (case_body->block().has_result()) {
-                                    emit_line(compile_expr(case_body->block().result()) + ";");
+                                    emit_line("return " + compile_expr(case_body->block().result()) + ";");
                                 }
                             } else {
-                                emit_line(compile_expr(*case_body) + ";");
+                                auto body_code = compile_expr(*case_body);
+                                // Replace /* return */ comment with actual return
+                                auto pos = body_code.find("/* return */ ");
+                                if (pos == 0) {
+                                    emit_line("return " + body_code.substr(12) + ";");
+                                } else {
+                                    emit_line("return " + body_code + ";");
+                                }
                             }
                         }
-                        emit_line("break;");
                         indent_--;
                         emit_line("}");
                     }
@@ -2539,6 +2646,7 @@ void CppCompiler::emit_includes() {
         emit_line("#include <cstring>");
     }
     emit_line("#include <cstdlib>");
+    emit_line("#include <memory>");
     emit_line("#include <thread>");
     emit_line("#include <chrono>");
     emit_line("#include <random>");
@@ -2654,6 +2762,18 @@ inline std::map<std::string,std::any> ball_concat(const std::map<std::string,std
   return r;
 }
 
+// vector overloads for ball_concat
+inline std::vector<std::any> ball_concat(const std::vector<std::any>& a, const BallDyn& b) {
+  auto r = a;
+  try { auto lb = std::any_cast<BallList>(static_cast<std::any>(b)); r.insert(r.end(), lb.begin(), lb.end()); } catch(...) { r.push_back(static_cast<std::any>(b)); }
+  return r;
+}
+inline std::vector<std::any> ball_concat(const std::vector<std::any>& a, const std::vector<std::any>& b) {
+  auto r = a;
+  r.insert(r.end(), b.begin(), b.end());
+  return r;
+}
+
 // Allow ball_concat(map, BallDyn) and ball_concat(BallDyn, map)
 inline std::map<std::string,std::any> ball_concat(const std::map<std::string,std::any>& a, const BallDyn& b) {
   auto r = a;
@@ -2661,16 +2781,12 @@ inline std::map<std::string,std::any> ball_concat(const std::map<std::string,std
   return r;
 }
 
-// BallDyn-aware ball_is_* (override the std::any versions for self-host)
-// Use a template that SFINAE-matches BallDyn specifically
-template<typename T, std::enable_if_t<std::is_same_v<std::decay_t<T>, BallDyn>, int> = 0>
-inline bool ball_is_map(const T& v) { return v._val.has_value() && v._val.type() == typeid(BallMap); }
-template<typename T, std::enable_if_t<std::is_same_v<std::decay_t<T>, BallDyn>, int> = 0>
-inline bool ball_is_list(const T& v) { return v._val.has_value() && v._val.type() == typeid(BallList); }
-template<typename T, std::enable_if_t<std::is_same_v<std::decay_t<T>, BallDyn>, int> = 0>
-inline bool ball_is_string(const T& v) { return v._val.has_value() && v._val.type() == typeid(std::string); }
-template<typename T, std::enable_if_t<std::is_same_v<std::decay_t<T>, BallDyn>, int> = 0>
-inline bool ball_is_function(const T& v) { return v._val.has_value() && v._val.type() == typeid(BallFunc); }
+// BallDyn-aware ball_is_* overloads for non-const references (auto&& parameters).
+// These prevent MSVC ambiguity between const BallDyn& and const std::any& overloads.
+inline bool ball_is_map(BallDyn& v) { return ball_is_map(static_cast<const BallDyn&>(v)); }
+inline bool ball_is_list(BallDyn& v) { return ball_is_list(static_cast<const BallDyn&>(v)); }
+inline bool ball_is_string(BallDyn& v) { return ball_is_string(static_cast<const BallDyn&>(v)); }
+inline bool ball_is_function(BallDyn& v) { return ball_is_function(static_cast<const BallDyn&>(v)); }
 
 // ball_set with BallDyn keys: handled by wrapping key in ball_to_string() at call site
 
@@ -2702,23 +2818,93 @@ inline BallDyn parse(const std::string& type, const BallDyn& val) {
 }
 
 // Scope method helpers (ball_proto routes scope.has/lookup as standalone)
+// These walk the parent chain using BallScope (shared_ptr<BallMap>) for
+// reference semantics — parent mutations are visible to children.
 inline bool has(const BallDyn& scope, const BallDyn& name) {
+  auto key = ball_to_string(name);
+  if (_ball_scope_has_key(scope, key)) return true;
   auto bindings = scope["_bindings"s];
-  if (bindings.has_value()) {
-    return BallDyn(bindings)[ball_to_string(name)].has_value();
+  if (bindings.has_value() && BallDyn(bindings)[key].has_value()) return true;
+  // Walk parent chain via BallScope shared_ptr
+  BallScope parent = _ball_get_parent_scope(scope);
+  while (parent) {
+    if (parent->count(key) > 0) return true;
+    auto it = parent->find("__parent__");
+    if (it != parent->end() && it->second.type() == typeid(BallScope)) {
+      parent = std::any_cast<const BallScope&>(it->second);
+    } else {
+      break;
+    }
+  }
+  // Legacy fallback: __parent__ stored as value copy
+  if (!parent) {
+    auto parentVal = scope["__parent__"s];
+    if (!parentVal.has_value()) parentVal = scope["_parent"s];
+    if (parentVal.has_value()) return has(parentVal, name);
   }
   return false;
 }
 inline BallDyn lookup(const BallDyn& scope, const BallDyn& name) {
+  auto key = ball_to_string(name);
+  // Check direct binding first
+  if (_ball_scope_has_key(scope, key)) return scope[key];
+  // Check _bindings sub-map
   auto bindings = scope["_bindings"s];
   if (bindings.has_value()) {
-    auto val = BallDyn(bindings)[ball_to_string(name)];
+    auto val = BallDyn(bindings)[key];
     if (val.has_value()) return val;
   }
-  auto parent = scope["_parent"s];
-  if (parent.has_value()) return lookup(parent, name);
+  // Walk parent chain via BallScope shared_ptr (sees live mutations)
+  BallScope parent = _ball_get_parent_scope(scope);
+  while (parent) {
+    auto it = parent->find(key);
+    if (it != parent->end()) return BallDyn(it->second);
+    // Check next parent
+    auto pit = parent->find("__parent__");
+    if (pit != parent->end() && pit->second.type() == typeid(BallScope)) {
+      parent = std::any_cast<const BallScope&>(pit->second);
+    } else {
+      break;
+    }
+  }
+  // Legacy fallback: __parent__ stored as value copy
+  if (!parent) {
+    auto parentVal = scope["__parent__"s];
+    if (!parentVal.has_value()) parentVal = scope["_parent"s];
+    if (parentVal.has_value()) return lookup(parentVal, name);
+  }
   return BallDyn();
 }
+
+// List manipulation helpers for BallDyn
+inline BallDyn ball_list_insert(BallDyn list, int64_t idx, BallDyn elem) {
+  try {
+    auto v = std::any_cast<BallList>(static_cast<std::any>(list));
+    if (idx >= 0 && idx <= static_cast<int64_t>(v.size())) v.insert(v.begin()+idx, std::any(elem));
+    return BallDyn(v);
+  } catch(...) { return list; }
+}
+inline BallDyn ball_list_remove_at(BallDyn list, int64_t idx) {
+  try {
+    auto v = std::any_cast<BallList>(static_cast<std::any>(list));
+    if (idx >= 0 && idx < static_cast<int64_t>(v.size())) v.erase(v.begin()+idx);
+    return BallDyn(v);
+  } catch(...) { return list; }
+}
+inline BallDyn ball_sublist(const BallDyn& list, int64_t start, int64_t end = -1) {
+  try {
+    auto v = std::any_cast<BallList>(static_cast<std::any>(list));
+    auto s = std::max(int64_t(0), start);
+    auto e = end < 0 ? static_cast<int64_t>(v.size()) : std::min(end, static_cast<int64_t>(v.size()));
+    return BallDyn(BallList(v.begin()+s, v.begin()+e));
+  } catch(...) { return BallDyn(BallList{}); }
+}
+inline BallDyn ball_sublist(const BallDyn& list, const BallDyn& start, const BallDyn& end_val = BallDyn()) {
+  int64_t s = start.has_value() ? static_cast<int64_t>(start) : 0;
+  int64_t e = end_val.has_value() ? static_cast<int64_t>(end_val) : -1;
+  return ball_sublist(list, s, e);
+}
+// ball_take / ball_skip defined in ball_dyn.h
 
 // indexOf for vector<string> (used by _builtinTypeNames.contains)
 inline int64_t ball_index_of(const std::vector<std::string>& v, const BallDyn& elem) {
@@ -2729,12 +2915,12 @@ inline int64_t ball_index_of(const std::vector<std::string>& v, const BallDyn& e
 
 // indexOf helper: works on both strings and vectors
 inline int64_t ball_index_of(const BallDyn& container, const BallDyn& element) {
-  auto c = static_cast<std::any>(container);
+  auto& c = container._val;
   if (c.type() == typeid(std::string)) {
-    auto s = std::any_cast<std::string>(c);
-    auto e = static_cast<std::any>(element);
+    auto& s = std::any_cast<const std::string&>(c);
+    auto& e = element._val;
     std::string needle;
-    if (e.type() == typeid(std::string)) needle = std::any_cast<std::string>(e);
+    if (e.type() == typeid(std::string)) needle = std::any_cast<const std::string&>(e);
     else needle = ball_to_string(element);
     auto pos = s.find(needle);
     return pos != std::string::npos ? static_cast<int64_t>(pos) : -1LL;
@@ -3062,7 +3248,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         auto params = func->has_metadata() ? extract_params(func->metadata()) : std::vector<std::string>{};
         for (size_t i = 0; i < params.size(); i++) {
             if (i > 0) out_ << ", ";
-            out_ << "auto " << sanitize_name(params[i]);
+            out_ << "auto&& " << sanitize_name(params[i]);
         }
         out_ << ") {\n";
         indent_++;
@@ -3077,6 +3263,8 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                 emit_line("return " + compile_expr(func->body()) + ";");
             }
         }
+        auto mrt = map_return_type(*func);
+        if (mrt != "void") emit_line("return BallDyn();");
         indent_--;
         emit_line("}");
     }
@@ -3161,7 +3349,7 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
             if (i > 0) out_ << ", ";
             std::string t = (i < param_types.size() && !param_types[i].empty())
                                 ? map_type(param_types[i])
-                                : "auto";
+                                : "auto&&";
             out_ << t << " " << sanitize_name(params[i]);
         }
     } else if (!func.input_type().empty()) {
@@ -3185,21 +3373,15 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         if (func.body().expr_case() == ball::v1::Expression::kBlock) {
             for (const auto& s : func.body().block().statements())
                 compile_statement(s);
-            if (func.body().block().has_result() && return_type != "void") {
+            if (func.body().block().has_result()) {
                 emit_line("return " + compile_expr(func.body().block().result()) + ";");
             }
-        } else if (return_type != "void") {
-            // Value-returning body as a bare expression — emit a return.
-            emit_line("return " + compile_expr(func.body()) + ";");
         } else {
-            // Void body as a bare expression: route through compile_statement
-            // so control-flow calls (try/if/for/while/labeled/etc.) reach
-            // their statement-context emission instead of the broken lambda
-            // fallback in compile_expr (which wraps try in an IIFE).
-            ball::v1::Statement inner;
-            *inner.mutable_expression() = func.body();
-            compile_statement(inner);
+            emit_line("return " + compile_expr(func.body()) + ";");
         }
+    }
+    if (return_type != "void") {
+        emit_line("return BallDyn();");
     }
 
     indent_--;
@@ -3427,7 +3609,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "list_push") {
         auto list = get_message_field(call, "list");
         auto val = get_message_field(call, "value");
-        return "[](auto v, auto e){v.push_back(e);return v;}(" + list + "," + val + ")";
+        return "[](auto v, auto e){v.push_back(std::any(e));return v;}(" + list + "," + val + ")";
     }
     if (fn == "list_pop") {
         auto list = get_message_field(call, "list");
@@ -3477,13 +3659,13 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         auto list = get_message_field(call, "list");
         auto idx = get_message_field(call, "index");
         auto val = get_message_field(call, "value");
-        return "[](auto v, int64_t i, auto e){v.insert(v.begin()+i,e);return v;}("
+        return "ball_list_insert("
                + list + "," + idx + "," + val + ")";
     }
     if (fn == "list_remove_at") {
         auto list = get_message_field(call, "list");
         auto idx = get_message_field(call, "index");
-        return "[](auto v, int64_t i){v.erase(v.begin()+i);return v;}(" + list + "," + idx + ")";
+        return "ball_list_remove_at(" + list + "," + idx + ")";
     }
     if (fn == "list_single") {
         return get_message_field(call, "list") + ".at(0)";
@@ -3546,15 +3728,15 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "list_sort") {
         auto list = get_message_field(call, "list");
-        return "[](auto v){std::sort(v.begin(),v.end());return v;}(" + list + ")";
+        return "[](BallDyn v){auto l=std::any_cast<BallList>(static_cast<std::any>(v));std::sort(l.begin(),l.end(),[](const std::any& a,const std::any& b){return ball_to_string(a)<ball_to_string(b);});return BallDyn(l);}(" + list + ")";
     }
     if (fn == "list_sort_by") {
         auto list = get_message_field(call, "list");
         auto callback = get_message_field(call, "callback");
-        return "[](auto v, auto fn){std::sort(v.begin(),v.end(),"
-               "[&](const auto& a, const auto& b){"
-               "return std::any_cast<bool>(fn(std::any(std::map<std::string,std::any>"
-               "{{\"left\",a},{\"right\",b}})));});return v;}("
+        return "[](BallDyn v, auto fn){auto l=std::any_cast<BallList>(static_cast<std::any>(v));std::sort(l.begin(),l.end(),"
+               "[&](const std::any& a, const std::any& b){"
+               "return BallDyn(fn(BallDyn(std::map<std::string,std::any>"
+               "{{\"left\",a},{\"right\",b}})));});return BallDyn(l);}("
                + list + "," + callback + ")";
     }
     if (fn == "list_concat") {
@@ -3569,13 +3751,11 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "list_slice") {
         auto list = get_message_field(call, "list");
         auto start = get_message_field(call, "start");
-        auto end = get_message_field(call, "end");
+        auto end = get_optional_field(call, "end");
         if (end.empty()) {
-            return "[](const auto& v, int64_t s){return decltype(v)(v.begin()+s,v.end());}("
-                   + list + "," + start + ")";
+            return "ball_sublist(" + list + "," + start + ")";
         }
-        return "[](const auto& v, int64_t s, int64_t e){return decltype(v)(v.begin()+s,v.begin()+e);}("
-               + list + "," + start + "," + end + ")";
+        return "ball_sublist(" + list + "," + start + "," + end + ")";
     }
     if (fn == "string_join") {
         auto list = get_message_field(call, "list");
@@ -3593,8 +3773,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "list_drop") {
         auto list = get_message_field(call, "list");
         auto count = get_message_field(call, "count");
-        return "[](const auto& v, int64_t n){return decltype(v)(v.begin()+std::min(n,static_cast<int64_t>(v.size())),v.end());}("
-               + list + "," + count + ")";
+        return "ball_skip(" + list + "," + count + ")";
     }
     if (fn == "list_to_list") {
         auto list = get_message_field(call, "list");

@@ -340,17 +340,17 @@
 | invoke | ✅ | ✅ | ✅ | ✅ |
 | spread | ✅ | ✅ | ✅ | ✅ |
 | null_spread | ✅ | ✅ | ✅ | ✅ |
-| collection_if | ✅ | ✅ | ✅ | ❌ |
-| collection_for | ✅ | ✅ | ✅ | ❌ |
-| record | ✅ | ✅ | ✅ | ❌ |
-| map_create | ✅ | ✅ | ✅ | ❌ |
-| set_create | ✅ | ✅ | ✅ | ❌ |
-| tear_off | ❌ | ❌ | ❌ | ❌ |
-| dart_await_for | ❌ | ❌ | ❌ | ❌ |
-| dart_stream_yield | ❌ | ❌ | ❌ | ❌ |
-| dart_list_generate | ❌ | ❌ | ❌ | ❌ |
-| dart_list_filled | ❌ | ❌ | ❌ | ❌ |
-| null_aware_cascade | ⚠️ | ⚠️ | ❌ | ❌ |
+| collection_if | ✅ | ✅ | ✅ | ✅ |
+| collection_for | ✅ | ✅ | ✅ | ✅ |
+| record | ✅ | ✅ | ✅ | ✅ |
+| map_create | ✅ | ✅ | ✅ | ✅ |
+| set_create | ✅ | ✅ | ✅ | ✅ |
+| tear_off | ✅ | ✅ | ✅ | ✅ |
+| dart_await_for | ✅ | ✅ | ✅ | ✅ |
+| dart_stream_yield | ✅ | ✅ | ✅ | ✅ |
+| dart_list_generate | ✅ | ✅ | ✅ | ✅ |
+| dart_list_filled | ✅ | ✅ | ✅ | ✅ |
+| null_aware_cascade | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -362,8 +362,8 @@
 | std_collections | 43/43 (100%) | 43/43 (100%) | 43/43 (100%) | 43/43 (100%) |
 | std_io | 10/10 (100%) | 10/10 (100%) | 9/10 (90%) | 10/10 (100%) |
 | std_memory | 30/30 (100%) | 30/30 (100%) | 30/30 (100%) | 30/30 (100%) |
-| dart_std | 14/18 (78%) | 14/18 (78%) | 12/18 (67%) | 8/18 (44%) |
-| **Total** | **170/174 (98%)** | **170/174 (98%)** | **165/174 (95%)** | **159/174 (91%)** |
+| dart_std | 18/18 (100%) | 18/18 (100%) | 18/18 (100%) | 18/18 (100%) |
+| **Total** | **174/174 (100%)** | **174/174 (100%)** | **171/174 (98%)** | **169/174 (97%)** |
 
 ---
 

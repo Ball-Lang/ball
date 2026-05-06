@@ -53,6 +53,10 @@ melos:
       description: Regenerate std.json and std.bin from std.dart
       run: cd shared && dart run bin/gen_std.dart
 
+    regen-protobuf:
+      description: Regenerate ball_protobuf.json and ball_protobuf.bin from protobuf Dart sources
+      run: cd encoder && dart run bin/gen_ball_protobuf.dart
+
     regen-protos:
       description: Regenerate protobuf bindings via buf
       run: cd .. && buf generate proto/

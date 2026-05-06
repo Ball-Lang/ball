@@ -1,0 +1,23 @@
+TASK 0.3 — Conformance Audit Evidence
+======================================
+Generated: 2026-05-06
+
+CONFORMANCE RUNNER OUTPUT: dart test test/conformance_test.dart
+- 135 hand-written fixtures: ALL PASS
+- 37 encoder-generated fixtures: ALL PASS
+- Total: 172 tests, 0 failures, 0 skipped
+
+STD FUNCTIONS ANALYSIS:
+- Total std functions in std.dart: 118
+- Covered by conformance: 52 (44%)
+- Missing conformance: 66 (56%)
+
+MODULE COVERAGE:
+- std (core): 44%
+- std_collections: ~7% (only map_create, set_create, list_push)
+- std_io: 0%
+- std_memory: 0%
+- dart_std: 0%
+
+CROSS-REFERENCE COMPLETE.
+GAP DOCUMENT CREATED: docs/CONFORMANCE_GAPS.md

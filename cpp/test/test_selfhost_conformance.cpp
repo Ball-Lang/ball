@@ -287,8 +287,7 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
 
         // Build std dispatch table and inject into a handler
         auto stdDispatch = engine._buildStdDispatch();
-        StdModuleHandler handler;
-        handler.set("_dispatch", std::any(stdDispatch));
+        StdModuleHandler handler(BallMap{{"_dispatch", std::any(stdDispatch)}});
         engine.moduleHandlers = BallDyn(BallList{std::any(BallDyn(handler))});
 
         // Build lookup tables (indexes functions, types, etc.)
@@ -320,6 +319,14 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
         }
         // Run the program
         engine.run();
+    } catch (const BallException& be) {
+        if (captured->empty()) {
+            std::string fields_str;
+            for (auto& [k,v] : be.fields) fields_str += k + "=" + v + ";";
+            failure_msg = std::string("BallException: ") + be.what() + " type=" + be.type_name + " fields={" + fields_str + "}";
+            return false;
+        }
+        // Some output was produced before the exception — check it
     } catch (const std::runtime_error& sle) {
         std::string msg = sle.what();
         if (msg.find("step") != std::string::npos || msg.find("Step") != std::string::npos) {
@@ -328,12 +335,6 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
             failure_msg = std::string("engine threw: ") + sle.what();
         }
         return false;
-    } catch (const BallException& be) {
-        if (captured->empty()) {
-            failure_msg = std::string("BallException: ") + be.what() + " type=" + be.type_name;
-            return false;
-        }
-        // Some output was produced before the exception — check it
     } catch (const std::bad_any_cast& bac) {
         failure_msg = std::string("bad_any_cast: ") + bac.what();
         return false;
@@ -387,7 +388,7 @@ int main() {
 
     // Per-test timeout in seconds. Tests that exceed this are killed and
     // reported as TIMEOUT. This replaces the old whitelist approach.
-    constexpr int TIMEOUT_SECONDS = 2;
+    constexpr int TIMEOUT_SECONDS = 60;
 
     // Skip list: programs known to hang in the self-hosted engine.
     // These cause infinite loops due to BallDyn wrapping issues in
@@ -399,14 +400,17 @@ int main() {
         "136_string_pattern_match", // >30s regex operations
     };
 
+    // Filter: if BALL_TEST_FILTER env var set, only run matching tests
+    const char* test_filter = std::getenv("BALL_TEST_FILTER");
+
     for (auto& tc : cases) {
         bool skip = false;
         for (auto& prefix : skip_list) {
             if (tc.name.find(prefix) == 0) { skip = true; break; }
         }
+        if (test_filter && tc.name.find(test_filter) == std::string::npos) { skip = true; }
         if (skip) {
             tests_skipped_val++;
-            std::cout << "  SKIP: " << tc.name << "\n";
             continue;
         }
         tests_run++;

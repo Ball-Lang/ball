@@ -15,6 +15,10 @@
 import {
   BallEngine as CompiledEngine,
   StdModuleHandler,
+  BallFuture,
+  BallGenerator,
+  _FlowSignal,
+  _Scope,
 } from './compiled_engine.ts';
 
 // ── BallDouble helper ──────────────────────────────────────────────────────
@@ -65,6 +69,28 @@ const REPEATED_DEFAULTS = [
 function protoWrap(obj: any, isMetadata = false): any {
   if (obj == null || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map((v: any) => protoWrap(v));
+
+  // Normalize `return` statements into expression calls to `std.return`.
+  // The Ball encoder emits `{ "return": { "value": <expr> } }` as a statement,
+  // but the compiled engine only recognizes `let` and `expression` statement types.
+  // std.return is a control-flow call that expects a messageCreation input with a
+  // `value` field, matching the Dart engine's _evalReturn(call, scope) dispatch.
+  if (obj.return !== undefined && obj.expression === undefined && obj.let === undefined) {
+    const retVal = obj.return;
+    const valueExpr = retVal?.value ?? retVal;
+    const inputMsg = valueExpr != null
+      ? { messageCreation: { typeName: '', fields: [{ name: 'value', value: valueExpr }] } }
+      : { messageCreation: { typeName: '', fields: [] } };
+    return protoWrap({
+      expression: {
+        call: {
+          module: 'std',
+          function: 'return',
+          input: inputMsg,
+        },
+      },
+    });
+  }
 
   const base: any = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -161,6 +187,11 @@ function __bts(v: any): string {
     return s.includes('.') || s.includes('e') ? s : s + '.0';
   }
   if (typeof v === 'string') return v;
+  // Unwrap BallFuture / BallGenerator before formatting
+  if (BallFuture && v instanceof BallFuture) return __bts(v.value);
+  if (BallGenerator && v instanceof BallGenerator) return __bts(v.values);
+  if (v && typeof v === 'object' && v.__ball_future__ === true) return __bts(v.value);
+  if (v && typeof v === 'object' && v.__ball_generator__ === true) return __bts(v.values);
   if (Array.isArray(v)) return '[' + v.map(__bts).join(', ') + ']';
   if (v instanceof Map) {
     const parts: string[] = [];
@@ -660,6 +691,37 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
   // Override set operations
   _r('set_create', (i: any) => { const m = _m(i); const elements = m['elements']; if (Array.isArray(elements)) return new Set(elements); return new Set(); });
 
+  // ── Async / Generator ──────────────────────────────────────────────
+  //
+  // std.await: unwrap BallFuture (simulated async result).
+  // In a synchronous engine, BallFuture.value is always available.
+  _r('await', async (i: any) => {
+    const m = _m(i);
+    let val = m['value'] ?? m['arg0'] ?? i;
+    // Unwrap real JS Promises (from async lambda bodies)
+    if (val && typeof val === 'object' && typeof val.then === 'function') val = await val;
+    // Unwrap BallFuture (compiled engine's simulation)
+    if (BallFuture && val instanceof BallFuture) return val.value;
+    // Unwrap plain-object BallFuture markers
+    if (val && typeof val === 'object' && val.__ball_future__ === true) return val.value;
+    return val;
+  });
+
+  // std.yield: in generator context, the caller collects yields via _FlowSignal.
+  // Outside generator context, just return the value.
+  _r('yield', (i: any) => {
+    const m = _m(i);
+    return m['value'] ?? m['arg0'] ?? i;
+  });
+
+  // std.yield_each: flatten iterable yields.
+  _r('yield_each', (i: any) => {
+    const m = _m(i);
+    const val = m['value'] ?? m['arg0'] ?? i;
+    if (Array.isArray(val)) return val;
+    return val;
+  });
+
   // Override dart_list_generate (compiled version's lambda calling may fail)
   _r('dart_list_generate', async (i: any) => {
     const m = _m(i);
@@ -675,6 +737,208 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
     return result;
   });
   _r('dart_list_filled', (i: any) => { const m = _m(i); return Array(Number(m['count'] ?? m['arg0'] ?? 0)).fill(m['value'] ?? m['arg1'] ?? null); });
+}
+
+// ── BallFuture / BallGenerator helpers ─────────────────────────────────────
+//
+// BallFuture and BallGenerator are imported directly from the compiled engine
+// module. We use them for instanceof checks, constructor calls, and patching.
+
+/** Unwrap BallFuture/BallGenerator values for display and consumption. */
+function _unwrapBallValue(v: any): any {
+  if (v instanceof BallFuture) return v.value;
+  if (v instanceof BallGenerator) return v.values;
+  if (v && typeof v === 'object' && v.__ball_future__ === true) return v.value;
+  if (v && typeof v === 'object' && v.__ball_generator__ === true) return v.values;
+  return v;
+}
+
+// ── Patch compiled engine for async/generator support ──────────────────────
+
+function patchCompiledEngine(engine: CompiledEngine): void {
+  const e = engine as any;
+
+  // Store the current generator on the engine instance so yield/yield_each
+  // base functions can push values into it. This avoids scope-chain walking
+  // since _callBaseFunction doesn't receive a scope parameter.
+  e._currentGenerator = null;
+
+  // Patch _callFunction to:
+  // 1. Fix input binding bug: the compiled engine overwrites 'input' with the
+  //    raw input object at line 1036, overwriting the correct arg0 extraction
+  //    at line 987. We fix this by extracting arg0 before calling the original.
+  // 2. Handle is_sync_star / is_async_star metadata (compiled engine only checks
+  //    is_generator and is_async).
+  // 3. Create BallGenerator scope for yield to push values into.
+  // 4. Avoid double-wrapping BallFuture for async functions.
+  const origCallFunction = e._callFunction.bind(e);
+  e._callFunction = async function(moduleName: string, func: any, input: any, parentScope?: any) {
+    if (!func || func.isBase || !func.body) {
+      return origCallFunction(moduleName, func, input, parentScope);
+    }
+
+    // Fix input binding: for single-param functions with inputType, the compiled
+    // engine binds 'input' twice — first to the extracted arg0 value (correct),
+    // then to the raw input object (overwrites). We extract arg0 here and pass
+    // it directly so both bindings get the same correct value.
+    let fixedInput = input;
+    if (func.inputType && func.inputType.isNotEmpty && typeof input === 'object' && input !== null && !Array.isArray(input)) {
+      const params = (e._paramCache[((e._ball_to_string(moduleName) + '.') + e._ball_to_string(func.name))]) ?? (func.metadata ? e._extractParams(func.metadata) : []);
+      if (params.length === 1) {
+        const inputMap = e._asMap(input);
+        if (inputMap && 'arg0' in inputMap && !(params[0] in inputMap)) {
+          fixedInput = inputMap['arg0'];
+        }
+      }
+    }
+
+    // Check for async/generator metadata
+    let isAsync = false;
+    let isSyncStar = false;
+    let isAsyncStar = false;
+    let isGenerator = false;
+    if (func.metadata) {
+      const fields = func.metadata?.fields;
+      if (fields) {
+        const getBool = (key: string) => {
+          const v = fields[key];
+          if (v == null) return false;
+          if (typeof v === 'object' && v !== null) return !!v.boolValue;
+          return !!v;
+        };
+        isAsync = getBool('is_async');
+        isSyncStar = getBool('is_sync_star');
+        isAsyncStar = getBool('is_async_star');
+        isGenerator = getBool('is_generator');
+      }
+    }
+    const isGenFunc = isSyncStar || isAsyncStar || isGenerator;
+
+    // For generator functions, create a BallGenerator and set it as the current
+    // generator on the engine instance. The yield/yield_each base function
+    // handlers will push values into it.
+    let generator: any = null;
+    let prevGenerator = e._currentGenerator;
+    if (isGenFunc) {
+      generator = new BallGenerator();
+      e._currentGenerator = generator;
+    }
+
+    let result = await origCallFunction(moduleName, func, fixedInput, parentScope);
+
+    // Restore previous generator (handles nested generators)
+    e._currentGenerator = prevGenerator;
+
+    // Handle generator results — collect yielded values as a list
+    if (isGenFunc && generator) {
+      generator.completed = true;
+      const values = generator.values;
+      if (isAsyncStar) {
+        // async* → BallFuture of list
+        return new BallFuture(values);
+      }
+      // sync* / generator → plain list
+      return values;
+    }
+
+    // Handle async function results.
+    // The compiled engine already wraps async results in BallFuture (line 1051-1053).
+    // We just need to ensure the result is properly unwrapped if it's a FlowSignal.
+    if (isAsync) {
+      // Unwrap FlowSignal if present
+      if (result instanceof _FlowSignal && result.kind === 'return') {
+        result = result.value;
+      }
+      // If already a BallFuture, return as-is (compiled engine already wrapped it)
+      if (result instanceof BallFuture) {
+        return result;
+      }
+      // Shouldn't happen, but wrap in BallFuture as fallback
+      return new BallFuture(result);
+    }
+
+    return result;
+  };
+
+  // Patch _evalCall to auto-unwrap BallFuture values, matching the Dart engine's
+  // _unwrapFuture behavior. Async functions return BallFuture(value), but callers
+  // should receive the unwrapped value so async is transparent.
+  const origEvalCall = e._evalCall.bind(e);
+  e._evalCall = async function(call: any, scope: any) {
+    const result = await origEvalCall(call, scope);
+    // Auto-unwrap BallFuture so async functions are transparent to callers.
+    if (result instanceof BallFuture) {
+      return result.value;
+    }
+    return result;
+  };
+
+  // Patch _callBaseFunction to handle yield/yield_each/await.
+  // yield: push value into current generator (stored on engine instance).
+  // yield_each: push all values from iterable into current generator.
+  // await: unwrap BallFuture (the compiled engine already does this, but we
+  //        add a safety net for cases where it doesn't fire).
+  const origCallBaseFunction = e._callBaseFunction.bind(e);
+  e._callBaseFunction = function(moduleName: string, fn: string, input: any): any {
+    // Handle yield — add value to current generator
+    if (fn === 'yield') {
+      const val = e._extractUnaryArg(input);
+      const gen = e._currentGenerator;
+      if (gen && gen instanceof BallGenerator) {
+        gen.values.push(val);
+      }
+      return val;
+    }
+
+    // Handle yield_each — add all values from iterable to current generator
+    if (fn === 'yield_each') {
+      const iterable = e._extractUnaryArg(input);
+      const gen = e._currentGenerator;
+      if (gen && gen instanceof BallGenerator) {
+        if (iterable instanceof BallGenerator) {
+          gen.values.push(...iterable.values);
+        } else if (Array.isArray(iterable)) {
+          gen.values.push(...iterable);
+        }
+      }
+      return iterable;
+    }
+
+    // Handle await — unwrap BallFuture
+    if (fn === 'await') {
+      const val = e._extractUnaryArg(input);
+      if (val instanceof BallFuture) return val.value;
+      return val;
+    }
+
+    return origCallBaseFunction(moduleName, fn, input);
+  };
+
+  // Fix BallGenerator.yieldAll — the compiled engine's version replaces
+  // values with an empty array instead of appending items.
+  const proto = BallGenerator.prototype;
+  if (proto && typeof proto.yieldAll === 'function') {
+    proto.yieldAll = function(items: any) {
+      if (Array.isArray(items)) {
+        this.values.push(...items);
+      } else if (items && typeof items[Symbol.iterator] === 'function') {
+        for (const item of items) this.values.push(item);
+      }
+      return this.values;
+    };
+  }
+
+  // Patch __bts (ball-to-string) to unwrap BallFuture/BallGenerator.
+  // The compiled engine sets globalThis.__bts during preamble execution.
+  // We wrap it after the engine runs its preamble.
+  const origBts = (globalThis as any).__bts;
+  if (typeof origBts === 'function') {
+    (globalThis as any).__bts = function(v: any): string {
+      const unwrapped = _unwrapBallValue(v);
+      if (unwrapped !== v) return origBts(unwrapped);
+      return origBts(v);
+    };
+  }
 }
 
 // ── Seed global scope ──────────────────────────────────────────────────────
@@ -764,6 +1028,7 @@ export class BallEngine {
 
     registerExtraStdFunctions(stdHandler);
     seedGlobalScope(this._compiledEngine);
+    patchCompiledEngine(this._compiledEngine);
 
     // Note: double formatting (12 vs 12.0) handled by BallDouble in preamble.
     // The compiled engine returns raw numbers for literals; BallDouble wrapping

@@ -35,6 +35,11 @@ extension BallEngineEval on BallEngine {
 
   // ---- Function Calls ----
 
+  /// Auto-unwrap BallFuture values so async functions are transparent
+  /// to non-async callers. When an async function returns BallFuture(15),
+  /// the caller should receive 15, not BallFuture(15).
+  Object? _unwrapFuture(Object? value) => _unwrapBallFuture(value);
+
   Future<Object?> _evalCall(FunctionCall call, _Scope scope) async {
     final moduleName = call.module.isEmpty ? _currentModule : call.module;
 
@@ -83,6 +88,10 @@ extension BallEngineEval on BallEngine {
         case 'cascade':
         case 'null_aware_cascade':
           return _evalLazyCascade(call, scope);
+        case 'yield':
+          return _evalYield(call, scope);
+        case 'yield_each':
+          return _evalYieldEach(call, scope);
       }
     }
 
@@ -115,13 +124,13 @@ extension BallEngineEval on BallEngine {
     // Only fires when call.module is set explicitly (empty-module calls
     // still flow through the scope-closure check below).
     if (call.module == 'std' || call.module == 'dart_std') {
-      return _callBaseFunction(call.module, call.function, input);
+      return _unwrapFuture(await _callBaseFunction(call.module, call.function, input));
     }
 
     final key = '$moduleName.${call.function}';
     final func = _functions[key];
     if (func != null && func.isBase) {
-      return _callBaseFunction(moduleName, call.function, input);
+      return _unwrapFuture(await _callBaseFunction(moduleName, call.function, input));
     }
 
     // Local closure call: when the function name resolves to a value
@@ -133,8 +142,8 @@ extension BallEngineEval on BallEngine {
       final bound = scope.lookup(call.function);
       if (bound is Function) {
         final result = bound(input);
-        if (result is Future) return await result;
-        return result;
+        if (result is Future) return _unwrapFuture(await result);
+        return _unwrapFuture(result);
       }
     }
 
@@ -150,7 +159,7 @@ extension BallEngineEval on BallEngine {
           final argInput = Map<String, Object?>.from(inputMap)..remove('self');
           final builtinResult = await _dispatchBuiltinClassMethod(
             className, call.function, argInput);
-          if (builtinResult != _sentinel) return builtinResult;
+          if (builtinResult != _sentinel) return _unwrapFuture(builtinResult);
         }
 
         // Static method dispatch on class reference.
@@ -164,7 +173,7 @@ extension BallEngineEval on BallEngine {
           if (staticFunc != null) {
             // Strip 'self' from input for static methods.
             final staticInput = Map<String, Object?>.from(inputMap)..remove('self');
-            return _callFunction(modPart2, staticFunc, staticInput);
+            return _unwrapFuture(await _callFunction(modPart2, staticFunc, staticInput));
           }
         }
 
@@ -175,7 +184,7 @@ extension BallEngineEval on BallEngine {
           // Use _resolveMethod which walks superclass chain and mixins.
           final resolved = _resolveMethod(typeName, call.function);
           if (resolved != null) {
-            return _callFunction(resolved.module, resolved.func, input);
+            return _unwrapFuture(await _callFunction(resolved.module, resolved.func, input));
           }
         }
       }
@@ -183,7 +192,7 @@ extension BallEngineEval on BallEngine {
       // Built-in method dispatch for List, String, and other built-in types.
       final builtinResult = await _dispatchBuiltinInstanceMethod(
         self, call.function, input);
-      if (builtinResult != _sentinel) return builtinResult;
+      if (builtinResult != _sentinel) return _unwrapFuture(builtinResult);
 
       // Fall through to normal resolution if no method found on the type.
     }
@@ -203,39 +212,39 @@ extension BallEngineEval on BallEngine {
                 final dotIdx = f.name.lastIndexOf('.');
                 if (dotIdx >= 0 && f.name.substring(dotIdx + 1) == call.function) {
                   final prefix = f.name.substring(0, dotIdx);
-                  if (prefix == typeName) {
-                    return _callFunction(m.name, f, input);
+if (prefix == typeName) {
+                    return _unwrapFuture(await _callFunction(m.name, f, input));
                   }
                 }
               }
             }
-          }
-          // Walk the superclass chain for inherited methods too.
-          var superType = _findTypeDef(typeName)?.superclass;
-          while (superType != null && superType.isNotEmpty) {
-            final colonIdx = typeName.indexOf(':');
-            final modPart = colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
-            final qualSuper = superType.contains(':') ? superType : '$modPart:$superType';
-            for (final m in program.modules) {
-              for (final f in m.functions) {
-                if (!f.isBase && f.hasBody()) {
-                  final dotIdx = f.name.lastIndexOf('.');
-                  if (dotIdx >= 0 && f.name.substring(dotIdx + 1) == call.function) {
-                    final prefix = f.name.substring(0, dotIdx);
-                    if (prefix == qualSuper || prefix == superType) {
-                      return _callFunction(m.name, f, input);
+            // Walk the superclass chain for inherited methods too.
+            var superType = _findTypeDef(typeName)?.superclass;
+            while (superType != null && superType.isNotEmpty) {
+              final colonIdx = typeName.indexOf(':');
+              final modPart = colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
+              final qualSuper = superType.contains(':') ? superType : '$modPart:$superType';
+              for (final m in program.modules) {
+                for (final f in m.functions) {
+                  if (!f.isBase && f.hasBody()) {
+                    final dotIdx = f.name.lastIndexOf('.');
+                    if (dotIdx >= 0 && f.name.substring(dotIdx + 1) == call.function) {
+                      final prefix = f.name.substring(0, dotIdx);
+                      if (prefix == qualSuper || prefix == superType) {
+                        return _unwrapFuture(await _callFunction(m.name, f, input));
+                      }
                     }
                   }
                 }
               }
+              superType = _findTypeDef(qualSuper)?.superclass;
             }
-            superType = _findTypeDef(qualSuper)?.superclass;
           }
         }
       }
     }
 
-    return _resolveAndCallFunction(call.module, call.function, input);
+    return _unwrapFuture(await _resolveAndCallFunction(call.module, call.function, input));
   }
 
   // ---- Literals ----
@@ -492,8 +501,11 @@ extension BallEngineEval on BallEngine {
   // ---- Field Access ----
 
   Future<Object?> _evalFieldAccess(FieldAccess access, _Scope scope) async {
-    final object = await _evalExpression(access.object, scope);
+    var object = await _evalExpression(access.object, scope);
     final fieldName = access.field_2;
+
+    // Unwrap BallFuture so field access on async results works transparently.
+    if (_isBallFuture(object)) object = (object as Map<String, Object?>)['value'];
 
     // Unwrap BallMap once so all downstream checks work uniformly.
     final objectMap = _asMap(object);
@@ -651,6 +663,8 @@ extension BallEngineEval on BallEngine {
         if (object is num) return object.sign;
       case 'abs':
         if (object is num) return object.abs();
+      case 'toString':
+        return _ballToString(object);
       case 'runtimeType':
         return object?.runtimeType.toString() ?? 'Null';
     }

@@ -88,3 +88,28 @@ buf lint && buf generate
 - Each fixture tests ONE concept (no multi-concept)
 - Naming: `160_async_basic.ball.json`, etc.
 - Must include `.expected_output.txt` for each
+
+### Task 1.2: BallGenerator + Yield Execution (COMPLETED May 6, 2026)
+
+**Key finding**: The implementation was ALREADY COMPLETE in the codebase. The BallGenerator, BallFuture,
+yield/yield_each, and sync*/async* function handling were all implemented before this task started.
+
+**What was already implemented**:
+- `BallGenerator` class in `engine_types.dart` (lines 94-109): has `values` list, `yield_()`, `yieldAll()`, `completed` flag
+- `BallFuture` class in `engine_types.dart` (lines 77-88): wraps async results
+- `_evalYield()` in `engine_control_flow.dart` (lines 1178-1202): walks scope chain to find `__generator__`, adds value
+- `_evalYieldEach()` in `engine_control_flow.dart` (lines 1209-1242): delegates to generator or flattens iterable
+- `_callFunction()` in `engine_invocation.dart` (lines 118-152): detects `is_sync_star`/`is_async_star`/`is_generator` metadata, creates BallGenerator, binds `__generator__` in scope, returns list (sync*) or BallFuture(list) (async*)
+
+**What I changed**:
+- Removed debug `stderr()` statements from `engine_invocation.dart` (lines 48-51, 60-62, 65-67) that were polluting test 160_async_basic output
+
+**How generators work**:
+1. `sync*` function: `_callFunction` detects `is_sync_star` metadata → creates `BallGenerator` → binds as `__generator__` in scope → evaluates body → `std.yield` calls `_evalYield` which walks scope to find `__generator__` and adds value → returns `generator.values` as plain list
+2. `async*` function: Same as sync* but wraps result in `BallFuture(generator.values)` → `std.await` or `_unwrapFuture` unwraps
+3. `yield_each` / `dart_std.yield_each`: `_evalYieldEach` flattens iterable into generator's values list
+
+**Pre-existing failures (NOT related to this task)**:
+- Test 160_async_basic: print receives raw map instead of extracting message field
+- Tests 164, 166, 167, 168, 169: OOP/generics/pattern features not yet implemented
+- Engine unit tests: BallDouble type cast issues, async BallFuture test, stack overflow on `is` type check

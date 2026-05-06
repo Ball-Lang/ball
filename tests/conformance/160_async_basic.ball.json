@@ -74,17 +74,13 @@
                       "type": "int"
                     }
                   }
-                },
-                {
-                  "return": {
-                    "value": {
-                      "reference": {
-                        "name": "result"
-                      }
-                    }
-                  }
                 }
-              ]
+              ],
+              "result": {
+                "reference": {
+                  "name": "result"
+                }
+              }
             }
           },
           "metadata": {

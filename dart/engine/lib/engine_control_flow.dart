@@ -1171,6 +1171,76 @@ extension BallEngineControlFlow on BallEngine {
     return _evalLazyForIn(call, scope);
   }
 
+  /// `std.yield` — adds a value to the current generator's values list.
+  ///
+  /// In a sync*/async* function, the generator is bound as `__generator__`
+  /// in scope. Outside a generator context, yield just returns the value.
+  Future<Object?> _evalYield(FunctionCall call, _Scope scope) async {
+    final fields = _lazyFields(call);
+    final valueExpr = fields['value'] ?? fields['expression'];
+    final val = valueExpr != null
+        ? await _evalExpression(valueExpr, scope)
+        : call.hasInput()
+            ? await _evalExpression(call.input, scope)
+            : null;
+
+    // Walk up the scope chain to find the nearest __generator__ binding.
+    _Scope? s = scope;
+    while (s != null) {
+      if (s._bindings.containsKey('__generator__')) {
+        final gen = s._bindings['__generator__'];
+        if (gen is BallGenerator) {
+          gen.yield_(val);
+          return val;
+        }
+      }
+      s = s._parent;
+    }
+
+    // Outside generator context, just return the value.
+    return val;
+  }
+
+  /// `dart_std.yield_each` / `std.yield_each` — delegates to another generator
+  /// or flattens an iterable into the current generator's values list.
+  ///
+  /// In a sync*/async* function, adds all elements to the current generator.
+  /// Outside a generator context, just returns the iterable.
+  Future<Object?> _evalYieldEach(FunctionCall call, _Scope scope) async {
+    final fields = _lazyFields(call);
+    final iterableExpr = fields['value'] ?? fields['iterable'] ?? fields['expression'];
+    final iterable = iterableExpr != null
+        ? await _evalExpression(iterableExpr, scope)
+        : call.hasInput()
+            ? await _evalExpression(call.input, scope)
+            : null;
+
+    // Walk up the scope chain to find the nearest __generator__ binding.
+    _Scope? s = scope;
+    while (s != null) {
+      if (s._bindings.containsKey('__generator__')) {
+        final gen = s._bindings['__generator__'];
+        if (gen is BallGenerator) {
+          if (gen is BallGenerator) {
+            // If the input is another BallGenerator, add all its values.
+            if (iterable is BallGenerator) {
+              gen.yieldAll(iterable.values);
+            } else {
+              // Flatten any iterable into the generator.
+              final items = _toIterable(iterable);
+              gen.yieldAll(items);
+            }
+          }
+          return iterable;
+        }
+      }
+      s = s._parent;
+    }
+
+    // Outside generator context, just return the iterable.
+    return iterable;
+  }
+
   /// Dispatch a method call on a built-in instance type (List, String, num).
   /// Returns [_sentinel] if the method is not recognized.
   Future<Object?> _dispatchBuiltinInstanceMethod(

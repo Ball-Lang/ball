@@ -559,6 +559,12 @@ BallValue Engine::call_function_internal(const std::string& module_name,
             // For instance methods (input has 'self'), bind param to arg0 not whole map.
             if (is_map(input)) {
                 const auto& m = std::any_cast<const BallMap&>(input);
+                // DEBUG: log input map keys for delayedAdd
+                if (func.name() == "delayedAdd") {
+                    std::cerr << "[DEBUG] delayedAdd input map keys:";
+                    for (const auto& [k,v] : m) std::cerr << " " << k;
+                    std::cerr << std::endl;
+                }
                 auto self_chk = m.find("self");
                 if (self_chk != m.end()) {
                     auto a0 = m.find("arg0");
@@ -575,10 +581,21 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                 } else {
                     // No self: check named param or arg0 first, then whole input
                     auto named = m.find(params[0]);
+                    if (func.name() == "delayedAdd") {
+                        std::cerr << "[DEBUG] delayedAdd: looking for param '" << params[0] << "' in map" << std::endl;
+                        std::cerr << "[DEBUG] delayedAdd: named found = " << (named != m.end()) << std::endl;
+                    }
                     if (named != m.end()) {
                         scope->bind(params[0], named->second);
                     } else {
                         auto a0 = m.find("arg0");
+                        if (func.name() == "delayedAdd") {
+                            std::cerr << "[DEBUG] delayedAdd: looking for 'arg0' in map" << std::endl;
+                            std::cerr << "[DEBUG] delayedAdd: a0 found = " << (a0 != m.end()) << std::endl;
+                            if (a0 != m.end()) {
+                                std::cerr << "[DEBUG] delayedAdd: a0->second type = " << a0->second.type().name() << std::endl;
+                            }
+                        }
                         if (a0 != m.end()) {
                             scope->bind(params[0], a0->second);
                         } else {
@@ -707,6 +724,27 @@ BallValue Engine::call_function_internal(const std::string& module_name,
 
     auto result = eval_expr(func.body(), scope);
     current_module_ = prev_module;
+    // DEBUG: trace function result
+    if (func.name() == "delayedAdd") {
+        std::cerr << "[DEBUG] delayedAdd result type: " << (result.has_value() ? result.type().name() : "empty") << std::endl;
+        if (result.has_value() && result.type() == typeid(int64_t)) {
+            std::cerr << "[DEBUG] delayedAdd result value: " << std::any_cast<int64_t>(result) << std::endl;
+        } else if (result.has_value() && result.type() == typeid(BallFuture)) {
+            std::cerr << "[DEBUG] delayedAdd result is BallFuture" << std::endl;
+        } else if (!result.has_value()) {
+            std::cerr << "[DEBUG] delayedAdd result is null/empty" << std::endl;
+        }
+        // Check if 'input' is bound in scope
+        if (scope->has("input")) {
+            auto input_val = scope->lookup("input");
+            std::cerr << "[DEBUG] delayedAdd input in scope: type=" << (input_val.has_value() ? input_val.type().name() : "empty") << std::endl;
+            if (input_val.has_value() && input_val.type() == typeid(int64_t)) {
+                std::cerr << "[DEBUG] delayedAdd input value: " << std::any_cast<int64_t>(input_val) << std::endl;
+            }
+        } else {
+            std::cerr << "[DEBUG] delayedAdd input NOT in scope" << std::endl;
+        }
+    }
     if (is_flow(result) && as_flow(result).kind == "return") {
         result = as_flow(result).value;
     }
@@ -739,7 +777,9 @@ BallValue Engine::call_function_internal(const std::string& module_name,
         }
     }
 
-    // Check for async/generator metadata
+    // Check for async/generator metadata.
+    // Dart uses is_async, is_generator, is_sync_star, is_async_star.
+    // C++ mirrors all four to match Dart semantics.
     bool is_async_fn = false;
     bool is_generator_fn = false;
     if (func.has_metadata()) {
@@ -747,11 +787,36 @@ BallValue Engine::call_function_internal(const std::string& module_name,
         if (ait != func.metadata().fields().end()) is_async_fn = ait->second.bool_value();
         auto git = func.metadata().fields().find("is_generator");
         if (git != func.metadata().fields().end()) is_generator_fn = git->second.bool_value();
+        // Also check is_sync_star / is_async_star (Dart encoder metadata keys).
+        auto sst = func.metadata().fields().find("is_sync_star");
+        if (sst != func.metadata().fields().end() && sst->second.bool_value())
+            is_generator_fn = true;
+        auto ast = func.metadata().fields().find("is_async_star");
+        if (ast != func.metadata().fields().end() && ast->second.bool_value()) {
+            is_generator_fn = true;
+            is_async_fn = true;  // async* is both async and generator
+        }
     }
 
-    // Wrap async returns in BallFuture
+    // Wrap async returns in BallFuture (synchronous simulation).
     if (is_async_fn && !is_future(result)) {
-        return BallFuture{result, true};
+        result = BallFuture{result, true};
+    }
+
+    // Unwrap BallFuture for synchronous consumers.
+    // In the C++ engine there is no real concurrency, so every BallFuture
+    // is already completed and can be unwrapped immediately.
+    if (is_future(result)) {
+        result = std::any_cast<const BallFuture&>(result).value;
+    }
+
+    // Generator functions: collect yielded values as a list.
+    if (is_generator_fn) {
+        if (is_generator(result)) {
+            result = BallList{std::move(std::any_cast<BallGenerator>(result).values)};
+        } else if (!is_list(result)) {
+            result = BallList{result};
+        }
     }
 
     return result;
@@ -1955,6 +2020,9 @@ BallValue Engine::eval_field_access(const ball::v1::FieldAccess& access, std::sh
     auto object = eval_expr(access.object(), scope);
     const auto& field = access.field();
 
+    // Unwrap BallFuture/BallGenerator for field access (synchronous simulation).
+    object = unwrap(object);
+
     if (is_map(object)) {
         const auto& m = std::any_cast<const BallMap&>(object);
         auto it = m.find(field);
@@ -2087,7 +2155,7 @@ BallValue Engine::eval_field_access(const ball::v1::FieldAccess& access, std::sh
 BallValue Engine::eval_message_creation(const ball::v1::MessageCreation& msg, std::shared_ptr<Scope> scope) {
     BallMap fields;
     for (const auto& pair : msg.fields())
-        fields[pair.name()] = eval_expr(pair.value(), scope);
+        fields[pair.name()] = unwrap(eval_expr(pair.value(), scope));
     if (!msg.type_name().empty()) {
         std::string type_name = msg.type_name();
         // Check if the type_name is actually a function (e.g., method calls encoded

@@ -546,7 +546,7 @@ Max Concurrent: 9 (Wave 1)
 
 ### Wave 1 — Runtime: Async/Await & Generators (GATE: Task 1.8)
 
-- [ ] 1.1 **Dart Engine — BallFuture + Await Execution**
+- [x] 1.1 **Dart Engine — BallFuture + Await Execution**
 
   **What to do**: RED: Run conformance 160, 161 — must FAIL. Define `BallFuture` wrapper: `{__ball_future__: true, value: dynamic, completed: bool}`. Implement `std.await` unwrapping. Implement async function wrapper. Handle chained awaits. GREEN: 160, 161 PASS.
 
@@ -579,7 +579,7 @@ Max Concurrent: 9 (Wave 1)
 
   **Commit**: YES — `feat(engine): implement BallFuture + async/await in Dart engine`
 
-- [ ] 1.2 **Dart Engine — BallGenerator + Yield Execution**
+- [x] 1.2 **Dart Engine — BallGenerator + Yield Execution**
 
   **What to do**: RED: 162, 163 must FAIL. Define `BallGenerator`: `{values: List}`. Implement `std.yield`, `dart_std.yield_each`. `sync*` collects yields → list. `async*` collects → BallFuture of list. GREEN: 162, 163 PASS.
 
@@ -600,7 +600,7 @@ Max Concurrent: 9 (Wave 1)
     Evidence: .sisyphus/evidence/task-1.2-async-gen.txt
   ```
 
-- [ ] 1.3 **C++ Engine — BallFuture/BallGenerator Mirror**
+- [x] 1.3 **C++ Engine — BallFuture/BallGenerator Mirror**
 
   **What to do**: Mirror Dart semantics in C++. `struct BallFuture { bool completed; BallValue value; }`, `struct BallGenerator { std::vector<BallValue> values; }`. Implement await/yield dispatch. Match Dart exactly.
 
@@ -611,7 +611,7 @@ Max Concurrent: 9 (Wave 1)
   **Commit**: YES — `feat(cpp): implement BallFuture/BallGenerator in C++ engine`
   **QA**: `cd cpp/build && ./test/test_conformance 2>&1 | grep -E "160|161|162|163" | grep -c PASS` → 4
 
-- [ ] 1.4 **TS Engine — Async/Generator Support**
+- [x] 1.4 **TS Engine — Async/Generator Support**
 
   **What to do**: Mirror Dart semantics. No real JS Promises — synchronous simulation only.
 

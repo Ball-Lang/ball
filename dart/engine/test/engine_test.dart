@@ -3287,9 +3287,10 @@ void main() {
   // that contract so future changes can't silently regress the simulation.
 
   group('engine: async and await', () {
-    test('async function result wraps in BallFuture', () async {
-      // function get42() is_async → returns 42; the caller observes a
-      // BallFuture holding 42.
+    test('async function result auto-unwraps at call sites', () async {
+      // function get42() is_async → returns 42; the caller observes 42
+      // because _unwrapFuture auto-unwraps BallFuture at call sites,
+      // making async functions transparent to non-async callers.
       final program = buildProgram(
         stdFunctions: [{'name': 'await', 'isBase': true}],
         functions: [
@@ -3311,8 +3312,7 @@ void main() {
       );
       final out = await runAndCapture(program);
       expect(out.length, 1);
-      expect(out[0], contains('BallFuture'));
-      expect(out[0], contains('42'));
+      expect(out[0], '42');
     });
 
     test('await unwraps a BallFuture', () async {
@@ -3342,9 +3342,9 @@ void main() {
     });
 
     test('await recursively unwraps nested BallFutures', () async {
-      // inner() is_async returns 7 → BallFuture(7).
-      // outer() is_async returns inner() → BallFuture(BallFuture(7)).
-      // `await outer()` must yield 7, not BallFuture(7).
+      // inner() is_async returns 7 → BallFuture(7), auto-unwrapped to 7 at call site.
+      // outer() is_async returns inner() → BallFuture(7), auto-unwrapped to 7.
+      // `await outer()` must yield 7 (await is a no-op on already-unwrapped values).
       final program = buildProgram(
         stdFunctions: [{'name': 'await', 'isBase': true}],
         functions: [

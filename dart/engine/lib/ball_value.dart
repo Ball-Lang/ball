@@ -2,7 +2,7 @@
 ///
 /// When compiled to C++, maps to std::variant instead of std::any.
 /// Abstract (not sealed) so the engine library can add internal subtypes
-/// (FlowSignal, BallFuture, etc.) that participate in the same type system.
+/// (FlowSignal, etc.) that participate in the same type system.
 library;
 
 /// The root class for all Ball runtime values.

@@ -31,7 +31,15 @@ extension BallEngineInvocation on BallEngine {
     _currentModule = moduleName;
     final scope = _Scope(_globalScope);
 
-    // Bind parameters: use pre-built param cache for O(1) lookup.
+    // Bind 'input' to the raw input first (as a fallback reference).
+    // Parameter extraction below may override this with the extracted value
+    // when the parameter name is 'input' or matches a named field.
+    if (func.inputType.isNotEmpty && input != null) {
+      scope.bind('input', input);
+    }
+
+// Bind parameters: use pre-built param cache for O(1) lookup.
+    // This overrides the raw 'input' binding when the param name is 'input'.
     final params =
         _paramCache['$moduleName.${func.name}'] ??
         (func.hasMetadata() ? _extractParams(func.metadata) : const []);
@@ -94,9 +102,23 @@ extension BallEngineInvocation on BallEngine {
       }
     }
 
-    if (func.inputType.isNotEmpty && input != null) {
-      scope.bind('input', input);
+    // Generator support: sync* and async* functions collect yielded values
+    // into a BallGenerator. Create one and bind it in scope so std.yield
+    // and dart_std.yield_each can add values to it.
+    final isSyncStar = func.hasMetadata() &&
+        (func.metadata.fields['is_sync_star']?.boolValue ?? false);
+    final isAsyncStar = func.hasMetadata() &&
+        (func.metadata.fields['is_async_star']?.boolValue ?? false);
+    final isGenerator = func.hasMetadata() &&
+        (func.metadata.fields['is_generator']?.boolValue ?? false);
+    final isGenFunc = isSyncStar || isAsyncStar || isGenerator;
+
+    BallGenerator? generator;
+    if (isGenFunc) {
+      generator = BallGenerator();
+      scope.bind('__generator__', generator);
     }
+
     final result = await _evalExpression(func.body, scope);
     _currentModule = prevModule;
 
@@ -107,25 +129,26 @@ extension BallEngineInvocation on BallEngine {
       finalResult = result;
     }
 
+    // Generator: return collected values as a list.
+    if (isGenFunc && generator != null) {
+      generator.completed = true;
+      final values = generator.values;
+      if (isAsyncStar) {
+        // async* → BallFuture of list
+        return _ballFuture(values);
+      }
+      // sync* → plain list
+      return values;
+    }
+
     // Wrap async function results in BallFuture for synchronous simulation.
     if (func.hasMetadata()) {
       final asyncField = func.metadata.fields['is_async'];
-      final generatorField = func.metadata.fields['is_generator'];
       if (asyncField != null && asyncField.boolValue) {
         // async function → wrap return value in BallFuture
-        if (finalResult is! BallFuture) {
-          return BallFuture(finalResult);
+        if (!_isBallFuture(finalResult)) {
+          return _ballFuture(finalResult);
         }
-      }
-      if (generatorField != null && generatorField.boolValue) {
-        // sync* function → collect yielded values as list
-        if (finalResult is BallGenerator) {
-          return finalResult.values;
-        }
-        if (finalResult is List) {
-          return finalResult;
-        }
-        return [finalResult];
       }
     }
 

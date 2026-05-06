@@ -68,23 +68,24 @@ class BallRuntimeError implements Exception {
   String toString() => 'BallRuntimeError: $message';
 }
 
-/// Wrapper for async results in the synchronous interpreter.
+/// Creates a BallFuture map: {__ball_future__: true, value: v, completed: true}.
 ///
-/// Since the engine is a tree-walking interpreter where all I/O is
-/// synchronous, `async` functions wrap their return values in a
-/// [BallFuture] and `await` unwraps them. This faithfully simulates
-/// the async/await protocol without real concurrency.
-class BallFuture extends BallValue {
-  /// The resolved value (always completed in a synchronous interpreter).
-  final Object? value;
+/// BallFuture is a synchronous simulation of async results. Async functions
+/// wrap their return values in a BallFuture map, and `await` unwraps them.
+/// The `__ball_future__` marker makes futures detectable by Ball programs
+/// and the engine alike.
+Map<String, Object?> _ballFuture(Object? value) =>
+    {'__ball_future__': true, 'value': value, 'completed': true};
 
-  /// Whether this future has completed (always `true` in sync mode).
-  final bool completed;
+/// Returns `true` if [value] is a BallFuture map.
+bool _isBallFuture(Object? value) =>
+    value is Map<String, Object?> && value['__ball_future__'] == true;
 
-  BallFuture(this.value, {this.completed = true});
-
-  @override
-  String toString() => 'BallFuture($value)';
+/// Unwraps a BallFuture map, returning the inner value.
+/// If [value] is not a BallFuture, returns it unchanged.
+Object? _unwrapBallFuture(Object? value) {
+  if (_isBallFuture(value)) return (value as Map<String, Object?>)['value'];
+  return value;
 }
 
 /// Wrapper for generator results in the synchronous interpreter.

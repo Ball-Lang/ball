@@ -15,13 +15,105 @@
               "type": "TYPE_STRING"
             }
           ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_MESSAGE",
+              "typeName": ".ball.v1.Expression"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_MESSAGE",
+              "typeName": ".ball.v1.Expression"
+            }
+          ]
+        },
+        {
+          "name": "UnaryInput",
+          "field": [
+            {
+              "name": "value",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_MESSAGE",
+              "typeName": ".ball.v1.Expression"
+            }
+          ]
+        },
+        {
+          "name": "ForInput",
+          "field": [
+            {
+              "name": "init",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_MESSAGE",
+              "typeName": ".ball.v1.Expression"
+            },
+            {
+              "name": "condition",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_MESSAGE",
+              "typeName": ".ball.v1.Expression"
+            },
+            {
+              "name": "update",
+              "number": 3,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_MESSAGE",
+              "typeName": ".ball.v1.Expression"
+            },
+            {
+              "name": "body",
+              "number": 4,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_MESSAGE",
+              "typeName": ".ball.v1.Expression"
+            }
+          ]
+        },
+        {
+          "name": "AssignInput",
+          "field": [
+            {
+              "name": "target",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_MESSAGE",
+              "typeName": ".ball.v1.Expression"
+            },
+            {
+              "name": "value",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_MESSAGE",
+              "typeName": ".ball.v1.Expression"
+            },
+            {
+              "name": "op",
+              "number": 3,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
         }
       ],
       "functions": [
-        {
-          "name": "print",
-          "isBase": true
-        }
+        { "name": "print", "isBase": true },
+        { "name": "lte", "isBase": true },
+        { "name": "add", "isBase": true },
+        { "name": "for", "isBase": true },
+        { "name": "yield", "isBase": true },
+        { "name": "to_string", "isBase": true },
+        { "name": "assign", "isBase": true }
       ]
     },
     {
@@ -32,40 +124,157 @@
           "inputType": "int",
           "outputType": "List<int>",
           "body": {
-            "block": {
-              "statements": [
-                {
-                  "let": {
-                    "name": "result",
-                    "value": {
-                      "literal": {
-                        "listValue": {}
+            "call": {
+              "module": "std",
+              "function": "for",
+              "input": {
+                "messageCreation": {
+                  "typeName": "ForInput",
+                  "fields": [
+                    {
+                      "name": "init",
+                      "value": {
+                        "block": {
+                          "statements": [
+                            {
+                              "let": {
+                                "name": "i",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "1"
+                                  }
+                                },
+                                "metadata": {
+                                  "keyword": "var",
+                                  "type": "int"
+                                }
+                              }
+                            }
+                          ]
+                        }
                       }
                     },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "List<int>"
-                    }
-                  }
-                },
-                {
-                  "let": {
-                    "name": "i",
-                    "value": {
-                      "literal": {
-                        "intValue": "1"
+                    {
+                      "name": "condition",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "lte",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "BinaryInput",
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "reference": {
+                                      "name": "i"
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "reference": {
+                                      "name": "max"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
                       }
                     },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "int"
+                    {
+                      "name": "update",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "assign",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "AssignInput",
+                              "fields": [
+                                {
+                                  "name": "target",
+                                  "value": {
+                                    "reference": {
+                                      "name": "i"
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "add",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "BinaryInput",
+                                          "fields": [
+                                            {
+                                              "name": "left",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "i"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "right",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "1"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "body",
+                      "value": {
+                        "block": {
+                          "statements": [
+                            {
+                              "expression": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "yield",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "UnaryInput",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "i"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
                     }
-                  }
-                }
-              ],
-              "result": {
-                "reference": {
-                  "name": "result"
+                  ]
                 }
               }
             }
@@ -78,14 +287,7 @@
                 "name": "max",
                 "type": "int"
               }
-            ],
-            "yield": {
-              "expression": {
-                "reference": {
-                  "name": "i"
-                }
-              }
-            }
+            ]
           }
         },
         {
@@ -164,16 +366,11 @@
                               "value": {
                                 "fieldAccess": {
                                   "object": {
-                                    "fieldAccess": {
-                                      "object": {
-                                        "reference": {
-                                          "name": "gen"
-                                        }
-                                      },
-                                      "field": "first"
+                                    "reference": {
+                                      "name": "gen"
                                     }
                                   },
-                                  "field": "toString"
+                                  "field": "first"
                                 }
                               }
                             }

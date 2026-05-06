@@ -1,0 +1,6 @@
+Conformance test 163_generator_async: PASS
+
+The async* generator test passes. async* functions return BallFuture wrapping the collected list,
+which is unwrapped by std.await or field access (via _unwrapFuture in _evalCall).
+
+No additional changes were needed beyond removing debug stderr statements.

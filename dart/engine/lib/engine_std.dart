@@ -829,19 +829,21 @@ extension BallEngineStd on BallEngine {
         var val = _extractUnaryArg(i);
         // Unwrap real Dart Futures (from async lambda bodies).
         if (val is Future) val = await val;
-        // Unwrap BallFuture (legacy synchronous simulation).
-        if (val is BallFuture) return val.value;
+        // Unwrap BallFuture (synchronous simulation of async).
+        if (_isBallFuture(val)) return _unwrapBallFuture(val);
         return val;
       },
       'yield': (i) {
         final val = _extractUnaryArg(i);
-        // In generator context, the caller collects yields via _FlowSignal.
+        // In generator context, add the value to the current BallGenerator.
+        // The generator is bound as __generator__ in the function scope by
+        // _callFunction when it detects is_sync_star / is_async_star.
         // Outside generator context, just return the value.
         return val;
       },
       'yield_each': (i) {
         final val = _extractUnaryArg(i);
-        // Flatten iterable yields.
+        // Flatten iterable yields: add all elements to the current generator.
         return val;
       },
 
@@ -1204,6 +1206,8 @@ extension BallEngineStd on BallEngine {
     if (v is BallInt) return v.value.toString();
     if (v is double) return v.toString();
     if (v is BallDouble) return v.toString();
+    // BallFuture: show the resolved value for readable output.
+    if (_isBallFuture(v)) return _ballToString(_unwrapBallFuture(v));
     if (v is BallList) return '[${v.items.map(_ballToString).join(', ')}]';
     if (v is List) return '[${v.map(_ballToString).join(', ')}]';
     final map = _stdAsMap(v);

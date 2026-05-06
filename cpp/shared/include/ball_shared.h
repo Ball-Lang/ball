@@ -85,12 +85,14 @@ inline int64_t to_int(const BallValue& v) {
     if (v.type() == typeid(int64_t)) return std::any_cast<int64_t>(v);
     if (v.type() == typeid(double)) return static_cast<int64_t>(std::any_cast<double>(v));
     if (v.type() == typeid(bool)) return std::any_cast<bool>(v) ? 1 : 0;
+    if (v.type() == typeid(BallFuture)) return to_int(std::any_cast<const BallFuture&>(v).value);
     return 0;
 }
 
 inline double to_double(const BallValue& v) {
     if (v.type() == typeid(double)) return std::any_cast<double>(v);
     if (v.type() == typeid(int64_t)) return static_cast<double>(std::any_cast<int64_t>(v));
+    if (v.type() == typeid(BallFuture)) return to_double(std::any_cast<const BallFuture&>(v).value);
     return 0.0;
 }
 
@@ -99,6 +101,8 @@ inline bool to_bool(const BallValue& v) {
     if (v.type() == typeid(int64_t)) return std::any_cast<int64_t>(v) != 0;
     if (v.type() == typeid(double)) return std::any_cast<double>(v) != 0.0;
     if (v.type() == typeid(std::string)) return !std::any_cast<std::string>(v).empty();
+    if (v.type() == typeid(BallFuture)) return to_bool(std::any_cast<const BallFuture&>(v).value);
+    if (v.type() == typeid(BallGenerator)) return !std::any_cast<const BallGenerator&>(v).values.empty();
     if (!v.has_value()) return false;
     return true;
 }
@@ -114,8 +118,17 @@ inline std::string to_string(const BallValue& v) {
     if (v.type() == typeid(double)) return ball_to_string(std::any_cast<double>(v));
     if (v.type() == typeid(bool)) return ball_to_string(std::any_cast<bool>(v));
     if (!v.has_value()) return "null";
-    if (v.type() == typeid(BallFuture)) return "<future>";
-    if (v.type() == typeid(BallGenerator)) return "<generator>";
+    if (v.type() == typeid(BallFuture)) return to_string(std::any_cast<const BallFuture&>(v).value);
+    if (v.type() == typeid(BallGenerator)) {
+        const auto& gen = std::any_cast<const BallGenerator&>(v);
+        std::string result = "[";
+        for (size_t i = 0; i < gen.values.size(); i++) {
+            if (i > 0) result += ", ";
+            result += to_string(gen.values[i]);
+        }
+        result += "]";
+        return result;
+    }
     if (v.type() == typeid(BallList)) {
         const auto& lst = std::any_cast<const BallList&>(v);
         std::string result = "[";
@@ -144,6 +157,7 @@ inline std::string to_string(const BallValue& v) {
 inline double to_num(const BallValue& v) {
     if (v.type() == typeid(double)) return std::any_cast<double>(v);
     if (v.type() == typeid(int64_t)) return static_cast<double>(std::any_cast<int64_t>(v));
+    if (v.type() == typeid(BallFuture)) return to_num(std::any_cast<const BallFuture&>(v).value);
     return 0.0;
 }
 
@@ -157,6 +171,15 @@ inline bool is_map(const BallValue& v) { return v.type() == typeid(BallMap); }
 inline bool is_function(const BallValue& v) { return v.type() == typeid(BallFunction); }
 inline bool is_future(const BallValue& v) { return v.type() == typeid(BallFuture); }
 inline bool is_generator(const BallValue& v) { return v.type() == typeid(BallGenerator); }
+
+// Unwrap BallFuture/BallGenerator to their inner values.
+// In the synchronous C++ engine, BallFuture is always completed,
+// so unwrapping is safe and immediate.
+inline BallValue unwrap(const BallValue& v) {
+    if (v.type() == typeid(BallFuture)) return std::any_cast<const BallFuture&>(v).value;
+    if (v.type() == typeid(BallGenerator)) return BallList{std::move(std::any_cast<BallGenerator>(v).values)};
+    return v;
+}
 
 // Type-aware value equality: compares by type first, then by value.
 inline bool values_equal(const BallValue& a, const BallValue& b) {
@@ -196,13 +219,24 @@ inline bool values_equal(const BallValue& a, const BallValue& b) {
         }
         return true;
     }
+    // BallFuture equality: compare inner values
+    if (a.type() == typeid(BallFuture) && b.type() == typeid(BallFuture))
+        return values_equal(std::any_cast<const BallFuture&>(a).value,
+                           std::any_cast<const BallFuture&>(b).value);
+    if (a.type() == typeid(BallFuture))
+        return values_equal(std::any_cast<const BallFuture&>(a).value, b);
+    if (b.type() == typeid(BallFuture))
+        return values_equal(a, std::any_cast<const BallFuture&>(b).value);
     return false;
 }
 
-// Extract a field from a BallMap input, returning empty BallValue if not found
+// Extract a field from a BallMap input, returning empty BallValue if not found.
+// Auto-unwraps BallFuture values on the input.
 inline BallValue extract_field(const BallValue& input, const std::string& name) {
-    if (input.type() != typeid(BallMap)) return {};
-    const auto& m = std::any_cast<const BallMap&>(input);
+    BallValue val = input;
+    if (val.type() == typeid(BallFuture)) val = std::any_cast<const BallFuture&>(val).value;
+    if (val.type() != typeid(BallMap)) return {};
+    const auto& m = std::any_cast<const BallMap&>(val);
     auto it = m.find(name);
     return it != m.end() ? it->second : BallValue{};
 }

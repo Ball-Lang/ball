@@ -124,6 +124,55 @@ class BallRuntimeError extends Error {
 }
 
 /**
+ * Wrapper for async results in the synchronous interpreter.
+ * Since the engine is single-threaded, `async` functions wrap their
+ * return values in a BallFuture and `await` unwraps them. This
+ * faithfully simulates the async/await protocol without real concurrency.
+ */
+class BallFuture {
+  readonly __ball_future__: true = true;
+  readonly value: BallValue;
+  readonly completed: boolean;
+
+  constructor(value: BallValue, completed: boolean = true) {
+    this.value = value;
+    this.completed = completed;
+  }
+
+  toString(): string {
+    return `BallFuture(${this.value})`;
+  }
+}
+
+/**
+ * Wrapper for generator results in the synchronous interpreter.
+ * `sync*` functions collect yielded values into a BallGenerator,
+ * which is returned as a list of values.
+ */
+class BallGenerator {
+  readonly __ball_generator__: true = true;
+  values: BallValue[];
+  completed: boolean;
+
+  constructor(values: BallValue[] = []) {
+    this.values = values;
+    this.completed = false;
+  }
+
+  yield_(value: BallValue): void {
+    this.values.push(value);
+  }
+
+  yieldAll(items: BallValue[]): void {
+    this.values.push(...items);
+  }
+
+  toString(): string {
+    return `BallGenerator(${this.values.length} values)`;
+  }
+}
+
+/**
  * Wrapper for double values that need to display with a decimal point.
  * Behaves like a number in arithmetic (via valueOf) but prints as "X.0"
  * when the value is integral.
@@ -142,10 +191,13 @@ class BallDouble {
 
 class Scope {
   private bindings = new Map<string, BallValue>();
-  private parent?: Scope;
+  private _parent?: Scope;
   constructor(parent?: Scope) {
-    this.parent = parent;
+    this._parent = parent;
   }
+
+  /** Public accessor for parent scope (needed for generator __generator__ lookup). */
+  get parent(): Scope | undefined { return this._parent; }
 
   bind(name: string, value: BallValue): void {
     this.bindings.set(name, value);
@@ -342,14 +394,20 @@ export class BallEngine {
   // ── Expression evaluation ─────────────────────────────────────────────
 
   private evalExpr(expr: Expression, scope: Scope): BallValue {
-    if (expr.call) return this.evalCall(expr.call, scope);
+    if (expr.call) return this.unwrapFuture(this.evalCall(expr.call, scope));
     if (expr.literal) return this.evalLiteral(expr.literal, scope);
-    if (expr.reference) return this.evalReference(expr.reference, scope);
+    if (expr.reference) return this.unwrapFuture(this.evalReference(expr.reference, scope));
     if (expr.fieldAccess) return this.evalFieldAccess(expr.fieldAccess, scope);
     if (expr.messageCreation) return this.evalMessageCreation(expr.messageCreation, scope);
     if (expr.block) return this.evalBlock(expr.block, scope);
     if (expr.lambda) return this.evalLambda(expr.lambda, scope);
     return null;
+  }
+
+  /** Auto-unwrap BallFuture values so async functions are transparent to non-async callers. */
+  private unwrapFuture(value: BallValue): BallValue {
+    if (value instanceof BallFuture) return value.value;
+    return value;
   }
 
   private evalCall(call: FunctionCall, scope: Scope): BallValue {
@@ -377,6 +435,8 @@ export class BallEngine {
           return this.evalIncDec(call, scope);
         case 'map_create': return this.evalMapCreate(call, scope);
         case 'cascade': case 'null_aware_cascade': return this.evalCascade(call, scope);
+        case 'yield': return this.evalYield(call, scope);
+        case 'yield_each': return this.evalYieldEach(call, scope);
       }
     }
 
@@ -545,8 +605,46 @@ export class BallEngine {
       }
     }
 
+    // Generator support: sync* and async* functions collect yielded values
+    // into a BallGenerator. Create one and bind it in scope so std.yield
+    // and std.yield_each can add values to it.
+    const isSyncStar = fn.metadata?.is_sync_star ?? false;
+    const isAsyncStar = fn.metadata?.is_async_star ?? false;
+    const isGenerator = fn.metadata?.is_generator ?? false;
+    const isGenFunc = isSyncStar || isAsyncStar || isGenerator;
+
+    let generator: BallGenerator | undefined;
+    if (isGenFunc) {
+      generator = new BallGenerator();
+      fnScope.bind('__generator__', generator);
+    }
+
     let result = this.evalExpr(fn.body, fnScope);
     this.currentModule = prevModule;
+
+    if (isGenFunc && generator) {
+      generator.completed = true;
+      const values = generator.values;
+      if (isAsyncStar) {
+        // async* → BallFuture of list
+        return new BallFuture(values);
+      }
+      // sync* → plain list
+      return values;
+    }
+
+    // Wrap async function results in BallFuture for synchronous simulation.
+    const isAsync = fn.metadata?.is_async ?? false;
+    if (isAsync) {
+      // async function → wrap return value in BallFuture
+      if (result instanceof FlowSignal && result.kind === 'return') {
+        return new BallFuture(result.value);
+      }
+      if (!(result instanceof BallFuture)) {
+        return new BallFuture(result);
+      }
+      return result;
+    }
 
     // For constructor with body: after executing the body, sync fields back to self and return self.
     if (kind === 'constructor' && selfObj && typeof selfObj === 'object') {
@@ -918,7 +1016,9 @@ export class BallEngine {
   }
 
   private evalFieldAccess(fa: { object: Expression; field: string }, scope: Scope): BallValue {
-    const obj = this.evalExpr(fa.object, scope);
+    let obj = this.evalExpr(fa.object, scope);
+    // Unwrap BallFuture so field access on async results works transparently.
+    if (obj instanceof BallFuture) obj = obj.value;
     // Handle function objects with __class_name__ (class references as static receivers)
     if (typeof obj === 'function' && obj.__class_name__) {
       const className = obj.__class_name__;
@@ -1560,8 +1660,10 @@ export class BallEngine {
     const varName = fields.variable?.literal?.stringValue ?? 'item';
     if (!fields.iterable || !fields.body) return null;
     const iterable = this.evalExpr(fields.iterable, scope);
-    if (!Array.isArray(iterable)) throw new BallRuntimeError('for_in: iterable is not a List');
-    for (const item of iterable) {
+    // Unwrap BallFuture if present (async* returns BallFuture of list).
+    const items = iterable instanceof BallFuture ? iterable.value : iterable;
+    if (!Array.isArray(items)) throw new BallRuntimeError('for_in: iterable is not a List');
+    for (const item of items) {
       const loopScope = scope.child();
       loopScope.bind(varName, item);
       const result = this.evalExpr(fields.body, loopScope);
@@ -2063,8 +2165,10 @@ export class BallEngine {
     const varName = fields.variable?.literal?.stringValue ?? 'item';
     if (!fields.iterable || !fields.body) return null;
     const iterable = this.evalExpr(fields.iterable, scope);
-    if (!Array.isArray(iterable)) throw new BallRuntimeError('for_in: iterable is not a List');
-    for (const item of iterable) {
+    // Unwrap BallFuture if present (async* returns BallFuture of list).
+    const items = iterable instanceof BallFuture ? iterable.value : iterable;
+    if (!Array.isArray(items)) throw new BallRuntimeError('for_in: iterable is not a List');
+    for (const item of items) {
       const loopScope = scope.child();
       loopScope.bind(varName, item);
       const result = this.evalExpr(fields.body, loopScope);
@@ -2152,6 +2256,73 @@ export class BallEngine {
     }
 
     try { return scope.lookup(token); } catch { return 0; }
+  }
+
+  /**
+   * `std.yield` — adds a value to the current generator's values list.
+   * In a sync*/async* function, the generator is bound as `__generator__`
+   * in scope. Outside a generator context, yield just returns the value.
+   */
+  private evalYield(call: FunctionCall, scope: Scope): BallValue {
+    const fields = this.lazyFields(call);
+    const valueExpr = fields.value ?? fields.expression;
+    const val = valueExpr
+      ? this.evalExpr(valueExpr, scope)
+      : call.input
+        ? this.evalExpr(call.input, scope)
+        : null;
+
+    // Walk up the scope chain to find the nearest __generator__ binding.
+    let s: Scope | undefined = scope;
+    while (s) {
+      if (s.has('__generator__')) {
+        const gen = s.lookup('__generator__');
+        if (gen instanceof BallGenerator) {
+          gen.yield_(val);
+          return val;
+        }
+      }
+      s = s.parent;
+    }
+
+    // Outside generator context, just return the value.
+    return val;
+  }
+
+  /**
+   * `std.yield_each` / `dart_std.yield_each` — delegates to another generator
+   * or flattens an iterable into the current generator's values list.
+   * Outside a generator context, just returns the iterable.
+   */
+  private evalYieldEach(call: FunctionCall, scope: Scope): BallValue {
+    const fields = this.lazyFields(call);
+    const iterableExpr = fields.value ?? fields.iterable ?? fields.expression;
+    const iterable = iterableExpr
+      ? this.evalExpr(iterableExpr, scope)
+      : call.input
+        ? this.evalExpr(call.input, scope)
+        : null;
+
+    // Walk up the scope chain to find the nearest __generator__ binding.
+    let s: Scope | undefined = scope;
+    while (s) {
+      if (s.has('__generator__')) {
+        const gen = s.lookup('__generator__');
+        if (gen instanceof BallGenerator) {
+          // If the input is another BallGenerator, add all its values.
+          if (iterable instanceof BallGenerator) {
+            gen.yieldAll(iterable.values);
+          } else if (Array.isArray(iterable)) {
+            gen.yieldAll(iterable);
+          }
+          return iterable;
+        }
+      }
+      s = s.parent;
+    }
+
+    // Outside generator context, just return the iterable.
+    return iterable;
   }
 
   private evalMapCreate(call: FunctionCall, scope: Scope): BallValue {
@@ -2877,6 +3048,28 @@ export class BallEngine {
       // Null
       case 'null_coalesce': return left ?? right;
 
+      // Async — synchronous simulation via BallFuture/BallGenerator
+      case 'await': {
+        const awaitVal = value ?? input?.value ?? input;
+        // Unwrap BallFuture (synchronous simulation).
+        if (awaitVal instanceof BallFuture) return awaitVal.value;
+        return awaitVal;
+      }
+      case 'yield': {
+        const yieldVal = value ?? input?.value ?? input;
+        // In generator context, add the value to the current BallGenerator.
+        // The generator is bound as __generator__ in the function scope by
+        // callFunction when it detects is_sync_star / is_async_star.
+        // Outside generator context, just return the value.
+        // NOTE: yield is also handled lazily in evalCall for generator context.
+        return yieldVal;
+      }
+      case 'yield_each': {
+        const iterable = value ?? input?.value ?? input?.iterable ?? input;
+        // Outside generator context, just return the iterable.
+        return iterable;
+      }
+
       // Misc
       case 'paren': return value ?? input;
       case 'string_interpolation': return String(value ?? input);
@@ -3009,6 +3202,8 @@ export class BallEngine {
 
   private ballToString(v: BallValue): string {
     if (v === null || v === undefined) return 'null';
+    if (v instanceof BallFuture) return this.ballToString(v.value);
+    if (v instanceof BallGenerator) return `[${v.values.map(x => this.ballToString(x)).join(', ')}]`;
     if (v instanceof BallDouble) return v.toString();
     if (typeof v === 'number') {
       return Number.isInteger(v) ? v.toString() : v.toString();

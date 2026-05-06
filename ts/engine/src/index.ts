@@ -783,7 +783,7 @@ function patchCompiledEngine(engine: CompiledEngine): void {
     // it directly so both bindings get the same correct value.
     let fixedInput = input;
     if (func.inputType && func.inputType.isNotEmpty && typeof input === 'object' && input !== null && !Array.isArray(input)) {
-      const params = (e._paramCache[((e._ball_to_string(moduleName) + '.') + e._ball_to_string(func.name))]) ?? (func.metadata ? e._extractParams(func.metadata) : []);
+      const params = (e._paramCache[((__bts(moduleName) + '.') + __bts(func.name))]) ?? (func.metadata ? e._extractParams(func.metadata) : []);
       if (params.length === 1) {
         const inputMap = e._asMap(input);
         if (inputMap && 'arg0' in inputMap && !(params[0] in inputMap)) {
@@ -835,7 +835,7 @@ function patchCompiledEngine(engine: CompiledEngine): void {
       const values = generator.values;
       if (isAsyncStar) {
         // async* → BallFuture of list
-        return new BallFuture(values);
+        return new BallFuture(values, true);
       }
       // sync* / generator → plain list
       return values;
@@ -854,7 +854,7 @@ function patchCompiledEngine(engine: CompiledEngine): void {
         return result;
       }
       // Shouldn't happen, but wrap in BallFuture as fallback
-      return new BallFuture(result);
+      return new BallFuture(result, true);
     }
 
     return result;

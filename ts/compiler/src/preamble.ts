@@ -784,4 +784,51 @@ const ModuleImport_Source = {
     return [];
   });
 })();
+
+// Minimal DateTime / Duration / Future polyfills used by std_time and
+// the round-tripped engine's sleep_ms helper. Wide enough for the
+// conformance suite, narrow enough to stay out of users' way.
+class DateTime {
+  readonly _epochMs: number;
+  readonly isUtc: boolean;
+  constructor(epochMs?: number, isUtc: boolean = false) {
+    this._epochMs = typeof epochMs === 'number' ? epochMs : Date.now();
+    this.isUtc = isUtc;
+  }
+  static now(): DateTime { return new DateTime(Date.now(), false); }
+  static fromMillisecondsSinceEpoch(ms: number, isUtc: any = false): DateTime {
+    return new DateTime(ms, isUtc === true || (isUtc && (isUtc as any).isUtc === true));
+  }
+  static parse(s: string): DateTime { return new DateTime(Date.parse(s), true); }
+  get millisecondsSinceEpoch(): number { return this._epochMs; }
+  get microsecondsSinceEpoch(): number { return this._epochMs * 1000; }
+  toUtc(): DateTime { return new DateTime(this._epochMs, true); }
+  toIso8601String(): string { return new Date(this._epochMs).toISOString(); }
+  get year(): number { return new Date(this._epochMs).getUTCFullYear(); }
+  get month(): number { return new Date(this._epochMs).getUTCMonth() + 1; }
+  get day(): number { return new Date(this._epochMs).getUTCDate(); }
+  get hour(): number { return new Date(this._epochMs).getUTCHours(); }
+  get minute(): number { return new Date(this._epochMs).getUTCMinutes(); }
+  get second(): number { return new Date(this._epochMs).getUTCSeconds(); }
+}
+class Duration {
+  readonly _us: number;
+  constructor(opts?: any) {
+    const o = opts ?? {};
+    const ms = o.milliseconds ?? 0;
+    const s = o.seconds ?? 0;
+    const m = o.minutes ?? 0;
+    const us = o.microseconds ?? 0;
+    this._us = us + ms * 1000 + s * 1_000_000 + m * 60_000_000;
+  }
+  get inMilliseconds(): number { return Math.floor(this._us / 1000); }
+  get inMicroseconds(): number { return this._us; }
+}
+const Future = {
+  delayed(d: any): Promise<void> {
+    const ms = (d && typeof d.inMilliseconds === 'number') ? d.inMilliseconds : Number(d ?? 0);
+    return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+  },
+  value(v: any): Promise<any> { return Promise.resolve(v); },
+};
 `;

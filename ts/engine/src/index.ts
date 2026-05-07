@@ -737,6 +737,62 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
     return result;
   });
   _r('dart_list_filled', (i: any) => { const m = _m(i); return Array(Number(m['count'] ?? m['arg0'] ?? 0)).fill(m['value'] ?? m['arg1'] ?? null); });
+
+  // std_time
+  _r('now', () => Date.now());
+  _r('now_micros', () => Date.now() * 1000);
+  _r('format_timestamp', (i: any) => {
+    const m = _m(i);
+    const ms = Number(m['timestamp_ms'] ?? m['arg0'] ?? 0);
+    return new Date(ms).toISOString();
+  });
+  _r('parse_timestamp', (i: any) => {
+    const m = _m(i);
+    const s = String(m['value'] ?? m['arg0'] ?? '');
+    return Date.parse(s);
+  });
+  _r('duration_add', (i: any) => { const m = _m(i); return Number(m['left'] ?? m['arg0'] ?? 0) + Number(m['right'] ?? m['arg1'] ?? 0); });
+  _r('duration_subtract', (i: any) => { const m = _m(i); return Number(m['left'] ?? m['arg0'] ?? 0) - Number(m['right'] ?? m['arg1'] ?? 0); });
+  _r('year', () => new Date().getUTCFullYear());
+  _r('month', () => new Date().getUTCMonth() + 1);
+  _r('day', () => new Date().getUTCDate());
+  _r('hour', () => new Date().getUTCHours());
+  _r('minute', () => new Date().getUTCMinutes());
+  _r('second', () => new Date().getUTCSeconds());
+
+  // std_convert
+  _r('json_encode', (i: any) => {
+    const m = _m(i);
+    const v = m['value'] ?? (m['arg0'] !== undefined ? m['arg0'] : i);
+    return JSON.stringify(v);
+  });
+  _r('json_decode', (i: any) => {
+    const m = _m(i);
+    const s = String(m['value'] ?? m['arg0'] ?? '');
+    return JSON.parse(s);
+  });
+  _r('utf8_encode', (i: any) => {
+    const m = _m(i);
+    const s = String(m['value'] ?? m['arg0'] ?? '');
+    return Array.from(new TextEncoder().encode(s));
+  });
+  _r('utf8_decode', (i: any) => {
+    const m = _m(i);
+    const bytes = m['value'] ?? m['arg0'] ?? [];
+    return new TextDecoder().decode(new Uint8Array(bytes));
+  });
+  _r('base64_encode', (i: any) => {
+    const m = _m(i);
+    const bytes = m['value'] ?? m['arg0'] ?? [];
+    if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
+    return btoa(String.fromCharCode(...(bytes as number[])));
+  });
+  _r('base64_decode', (i: any) => {
+    const m = _m(i);
+    const s = String(m['value'] ?? m['arg0'] ?? '');
+    if (typeof Buffer !== 'undefined') return Array.from(Buffer.from(s, 'base64'));
+    return Array.from(atob(s), (c: any) => (c as string).charCodeAt(0));
+  });
 }
 
 // ── BallFuture / BallGenerator helpers ─────────────────────────────────────

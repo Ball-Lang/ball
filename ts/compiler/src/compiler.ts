@@ -4330,6 +4330,39 @@ function sanitize(name: string): string {
   let out = name;
   const colon = out.indexOf(":");
   if (colon >= 0) out = out.slice(colon + 1);
+  // Dart operator method names ([]= / [] / == / + / -) round-trip as
+  // valid Ball IR identifiers but parse as syntax errors when emitted
+  // verbatim into a TS class body. Map them to JS-safe identifiers.
+  const operatorMap: Record<string, string> = {
+    "[]=": "__op_index_assign",
+    "[]": "__op_index",
+    "==": "__op_eq",
+    "!=": "__op_ne",
+    "<": "__op_lt",
+    "<=": "__op_le",
+    ">": "__op_gt",
+    ">=": "__op_ge",
+    "+": "__op_add",
+    "-": "__op_sub",
+    "*": "__op_mul",
+    "/": "__op_div",
+    "~/": "__op_int_div",
+    "%": "__op_mod",
+    "&": "__op_and",
+    "|": "__op_or",
+    "^": "__op_xor",
+    "<<": "__op_shl",
+    ">>": "__op_shr",
+    ">>>": "__op_shr_unsigned",
+    "~": "__op_bnot",
+    "unary-": "__op_neg",
+  };
+  // hasOwnProperty.call avoids matching `Object.prototype.toString` for
+  // a method literally named `toString` — the latter is fine as-is and
+  // must not be replaced by a Function reference.
+  if (Object.prototype.hasOwnProperty.call(operatorMap, out)) {
+    return operatorMap[out];
+  }
   out = out.replace(/[.-]/g, "_");
   const reserved = new Set([
     "class", "function", "return", "new", "delete", "var", "let", "const",

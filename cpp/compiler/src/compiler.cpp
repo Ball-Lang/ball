@@ -1092,6 +1092,14 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         if (op == "~/=") {
             return "(" + target + " = static_cast<int64_t>(" + target + " / " + val + "))";
         }
+        if (op == "??=") {
+            // Dart's null-aware assignment: assign only when LHS is null /
+            // empty BallDyn. Lower to a ternary that mirrors Dart's
+            // `(<lhs> ??= <rhs>)` value semantics (returns the resulting
+            // value).
+            return "((BallDyn(" + target + ").has_value()) ? BallDyn(" +
+                   target + ") : (" + target + " = " + val + "))";
+        }
         // When the target is a field access (obj["field"]) or index (obj[idx]),
         // use ball_set() free function instead of plain assignment, because
         // BallDyn's operator[] returns by value. ball_set works for both
@@ -3549,6 +3557,14 @@ std::string CppCompiler::compile() {
         emit_enum(ed);
     }
 
+    // Top-level variables — emit BEFORE classes so class methods that
+    // reference them (e.g. `value.size() * _ballPointerBytes`) resolve
+    // the identifier without a forward-declaration round.
+    for (const auto* func : top_level_vars) {
+        emit_top_level_var(*func);
+    }
+    if (!top_level_vars.empty()) emit_newline();
+
     // Structs/classes — skip types whose sanitized name collides with
     // runtime-provided types (e.g., the preamble already defines
     // BallException, File, JsonEncoder, JsonDecoder, Map_from, etc.).
@@ -3566,12 +3582,6 @@ std::string CppCompiler::compile() {
         auto methods = it != class_methods.end() ? it->second : std::vector<const ball::v1::FunctionDefinition*>{};
         emit_struct(td, methods);
     }
-
-    // Top-level variables
-    for (const auto* func : top_level_vars) {
-        emit_top_level_var(*func);
-    }
-    if (!top_level_vars.empty()) emit_newline();
 
     // Standalone functions
     for (const auto* func : standalone) {

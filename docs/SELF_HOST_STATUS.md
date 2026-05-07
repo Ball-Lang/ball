@@ -27,13 +27,17 @@ Last refreshed: 2026-05-07.
 
 ### C++ self-host
 
-Per `CLAUDE.md`: ~60/135 conformance pass on Windows MSVC, blocked primarily by the BallDyn-in-`std::any` wrapping bug (MSVC stores BallDyn instances inside `std::any` instead of using the `operator std::any()` cast). Three tests skipped for infinite loops in memoization with BallDyn map keys.
+Re-measured on Windows MSVC against the May 5 `engine_rt.cpp` backup: **66 / 170 pass (38.8%)**. Most failures land in three categories:
+
+1. `BallException: Exception type=Exception` — symptomatic of the MSVC `BallDyn`-in-`std::any` wrapping bug from `CLAUDE.md`: MSVC stores `BallDyn` instances inside `std::any` instead of using `operator std::any()`, which breaks every test that catches a typed exception or stores a class instance in a heterogeneous container.
+2. Three skipped tests for infinite loops in memoization with `BallDyn` map keys.
+3. `engine_rt.cpp` regen against the latest `engine.ball.pb` (with the Wave 7 security additions) currently fails to compile: the new `_trackMemoryAllocation` overload set confuses MSVC's overload resolution. Tracked separately — until that's resolved the C++ self-host stays pinned to the older engine snapshot.
 
 ### TypeScript self-host
 
 **Goal:** zero-wrapper engine — `import { BallEngine } from './compiled_engine.ts'` should be enough, no hand-written shim.
 
-**Current:** `ts/engine/src/compiled_engine.ts` regenerated from the latest `engine.ball.json`. Through the existing wrapper at `ts/engine/src/index.ts`: **9 / 220 conformance pass** (was 194 / 220 against an older engine encoding before we started this drop-the-wrapper push).
+**Current:** wrapper-mediated **194 / 220 conformance pass**. The drop-the-wrapper push (commits `b4287e7` → `e165f8b`) broke the wrapper integration and was reverted in `2c67f94` to keep the suite green; the pure-harness file `ts/engine/test/harness_pure.mjs` is kept as groundwork for the next attempt.
 
 The drop is multi-iteration. Progress so far:
 - Compiler now sanitises Dart operator method names ([]=, [], ==, +, …) into JS-safe identifiers, fixing `BallObject.operator []=` round-trip.
@@ -78,8 +82,9 @@ Conformance fixtures that depend on `BallEngine` constructor knobs that don't su
 | US-001 Regenerate Dart roundtrip | ✅ done — `dart analyze` clean, parity test runs to completion |
 | US-002 Skip-list parity tests | ✅ done — 6 host-knob fixtures skipped, no infinite hangs |
 | US-003 Drive Dart parity ≥ 90% | ✅ done — 156/172 (90.7%) on non-skipped fixtures |
-| US-004 Regenerate compiled_engine.ts | not started |
-| US-005 Drive TS conformance ≥ 90% | not started |
-| US-006 Regenerate engine_rt.cpp | not started |
-| US-007 Drive C++ conformance ≥ 50% | not started |
+| US-004 Regenerate compiled_engine.ts | partial — regen produces an engine the wrapper can load; the drop-the-wrapper push was reverted to keep 194/220 green |
+| US-005 Drive TS conformance ≥ 90% | partial — 194/220 (88.2%) through wrapper, 4 short of the bar |
+| US-006 Regenerate engine_rt.cpp | partial — `compile_engine_cpp.dart` emits a 9013-line `engine_rt.cpp` from the latest engine.ball.pb, but it doesn't build under MSVC because the Wave 7 `_trackMemoryAllocation` overload set confuses overload resolution. The May 5 backup is the live build artifact. |
+| US-007 Drive C++ conformance ≥ 50% | not started — currently 66/170 (38.8%); blocked on the MSVC `BallDyn`-in-`std::any` issue |
 | US-008 Add new conformance fixtures | not started |
+| US-009 Final self-host status doc | this file ✅ |

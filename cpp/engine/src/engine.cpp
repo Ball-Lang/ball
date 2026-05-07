@@ -4870,8 +4870,13 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_generate"] = [](BallValue input, BallCallable engine) -> BallValue {
+        // Encoders disagree on the field names: legacy uses count/function,
+        // Dart's List.generate maps to length/generator. Accept both.
         auto count = to_int(extract_field(input, "count"));
-        auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
+        if (count == 0) count = to_int(extract_field(input, "length"));
+        auto fn_val = extract_field(input, "function");
+        if (!fn_val.has_value()) fn_val = extract_field(input, "generator");
+        auto func = std::any_cast<BallFunction>(fn_val);
         BallList result;
         for (int64_t i = 0; i < count; i++) {
             result.push_back(func(BallValue(i)));

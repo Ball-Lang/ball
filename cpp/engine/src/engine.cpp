@@ -4858,6 +4858,20 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         return result;
     };
 
+    dispatch_["list_filled"] = [](BallValue input, BallCallable) -> BallValue {
+        // Encoders disagree on the count field name: `count` (legacy) and
+        // `length` (Dart's List.filled signature). Accept either.
+        auto count = to_int(extract_field(input, "count"));
+        if (count == 0) count = to_int(extract_field(input, "length"));
+        auto value = extract_field(input, "value");
+        BallList result;
+        result.reserve(count > 0 ? static_cast<size_t>(count) : 0);
+        for (int64_t i = 0; i < count; i++) {
+            result.push_back(value);
+        }
+        return result;
+    };
+
     // ── Set operations (using sorted BallList as backing store) ──
 
     // Helper: extract set as BallList (handles empty maps from set_create)

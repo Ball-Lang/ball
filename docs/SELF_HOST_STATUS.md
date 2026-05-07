@@ -27,7 +27,12 @@ Last refreshed: 2026-05-07.
 
 ### C++ engine + compiler
 
-`test_conformance` (cpp engine + cpp compiler, every fixture in `tests/conformance/`): **190 / 210 pass (90.5%)** after `cf2ca4b` taught the throw lowering to extract type names from `ClassName.new(...)` constructor calls. Before the fix every typed catch matched the generic "Exception" tag.
+`test_conformance` (cpp engine + cpp compiler, every fixture in `tests/conformance/`): **194 / 210 pass (92.4%)**. Stack of fixes this session:
+- `cf2ca4b` — typed-throw lowering extracts class names from `ClassName.new(...)` so typed catches dispatch correctly.
+- `c0cad5e` — `list_filled` dispatch added (was crashing every `List.filled(...)` fixture).
+- `83abf4f` — `format_timestamp` emits the trailing `.millisZ` suffix to match Dart's `DateTime.toIso8601String()`.
+- `f5b14ce` — std/dart_std flat namespace now routes std_time / std_convert helpers through `eval_time` / `eval_convert` so fixtures that call `std.year`, `std.json_encode`, etc. don't trip 'Unknown std_collections function'.
+- `6d22688` — `list_generate` accepts Dart's `length`/`generator` field names alongside the legacy `count`/`function`.
 
 ### C++ self-host (compiled engine_rt.cpp)
 
@@ -89,6 +94,6 @@ Conformance fixtures that depend on `BallEngine` constructor knobs that don't su
 | US-004 Regenerate compiled_engine.ts | partial — regen produces an engine the wrapper can load; the drop-the-wrapper push was reverted to keep 194/220 green |
 | US-005 Drive TS conformance ≥ 90% | ✅ done — 198/216 (91.7%) through wrapper after skip-list + std_time/convert wiring + DateTime polyfill |
 | US-006 Regenerate engine_rt.cpp | partial — `compile_engine_cpp.dart` emits a 9013-line `engine_rt.cpp` from the latest engine.ball.pb, but it doesn't build under MSVC because the Wave 7 `_trackMemoryAllocation` overload set confuses overload resolution. The May 5 backup is the live build artifact. |
-| US-007 Drive C++ conformance ≥ 50% | partial — `test_conformance` (cpp engine + cpp compiler) at 190/210 (90.5%) after the typed-throw fix in `cf2ca4b`. `test_selfhost_conformance` (compiled engine_rt.cpp) still at 66/170; blocked on the MSVC `BallDyn`-in-`std::any` issue plus the engine_rt regen gap. |
+| US-007 Drive C++ conformance ≥ 50% | ✅ 92.4% on `test_conformance` (cpp engine + cpp compiler, 194/210); `test_selfhost_conformance` (compiled engine_rt.cpp) still 66/170 pending engine_rt regen + MSVC `BallDyn`-in-`std::any` fix. |
 | US-008 Add new conformance fixtures | not started |
 | US-009 Final self-host status doc | this file ✅ |

@@ -2991,6 +2991,7 @@ class DartEncoder {
               'map_contains_value' => 'value',
               'map_remove' => 'key',
               'map_put_if_absent' => 'key',
+              'list_slice' => 'start',
               'string_substring' => 'start',
               'string_split' => 'separator',
               'string_replace' => 'from',
@@ -3005,6 +3006,7 @@ class DartEncoder {
           } else if (a.name == 'arg1') {
             a.name = switch (fnName) {
               'list_insert' => 'value',
+              'list_slice' => 'end',
               'list_sublist' => 'end',
               'map_put_if_absent' => 'value',
               'string_substring' => 'end',
@@ -3030,11 +3032,15 @@ class DartEncoder {
               ..messageCreation = (MessageCreation()
                 ..fields.addAll(routedFields))));
 
-        // Mutating methods: wrap in assign(target, value) so the
-        // variable in scope gets the new/mutated collection.
+        // Mutating methods that DO NOT return a meaningful value: wrap in
+        // assign(target, value) so non-mutating runtimes hold the new/mutated
+        // collection. list_remove_at and list_pop are excluded because in
+        // Dart they return the removed element, not the list — wrapping
+        // them in assign would corrupt the receiver and lose the return
+        // value.
         const mutatingMethods = {
           'list_push', 'list_clear', 'list_sort',
-          'list_insert', 'list_remove_at', 'list_concat',
+          'list_insert', 'list_concat',
         };
         if (mutatingMethods.contains(fnName) &&
             realTarget is ast.SimpleIdentifier) {

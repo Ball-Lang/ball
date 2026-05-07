@@ -2399,13 +2399,13 @@ class DartCompiler {
         target.whichExpr() == Expression_Expr.reference &&
         value.whichExpr() == Expression_Expr.call) {
       final inner = value.call;
+      // Methods that mutate the receiver in place in Dart, so the encoder's
+      // wrap-in-assign(target=x, value=op(list=x, ...)) can be elided.
       const inPlaceMutations = <(String, String)>{
         ('std_collections', 'list_push'),
         ('std_collections', 'list_clear'),
         ('std_collections', 'list_sort'),
         ('std_collections', 'list_insert'),
-        ('std_collections', 'list_remove_at'),
-        ('std_collections', 'list_concat'),
       };
       if (inPlaceMutations.contains((inner.module, inner.function))) {
         final innerFields = _extractFields(inner);
@@ -2414,6 +2414,23 @@ class DartCompiler {
             mutated.whichExpr() == Expression_Expr.reference &&
             mutated.reference.name == target.reference.name) {
           _wl('${_e(value)};');
+          return;
+        }
+      }
+      // list_concat creates a new list (encoder uses it for `addAll`) — the
+      // assign would fail on a `final` receiver. When the receiver of the
+      // concat *is* the assign target, the original was an addAll() call;
+      // emit `target.addAll(other);` (in-place) instead of reassigning.
+      if (inner.module == 'std_collections' &&
+          inner.function == 'list_concat') {
+        final innerFields = _extractFields(inner);
+        final left = innerFields['left'] ?? innerFields['list'];
+        final right = innerFields['right'] ?? innerFields['value'];
+        if (left != null &&
+            left.whichExpr() == Expression_Expr.reference &&
+            left.reference.name == target.reference.name &&
+            right != null) {
+          _wl('${_e(target)}.addAll(${_e(right)});');
           return;
         }
       }
@@ -2686,6 +2703,8 @@ class DartCompiler {
       'compare_to' => _methodCall2(f, 'compareTo'),
       'to_double' => _methodCallExpr(f, 'toDouble()'),
       'to_int' => _methodCallExpr(f, 'toInt()'),
+      'to_string_as_fixed' => _methodCall2(f, 'toStringAsFixed'),
+      'string_code_unit_at' => _methodCall2(f, 'codeUnitAt'),
       // ── Dart-specific ───────────────────────────────────────
       'dart_list_generate' =>
         'List.generate(${_e(f['count']!)}, ${_e(f['generator']!)})',
@@ -2946,6 +2965,8 @@ class DartCompiler {
       // Map operations
       'map_get' => '${_e(f['map']!)}[${_e(f['key']!)}]',
       'map_set' => '(${_e(f['map']!)}[${_e(f['key']!)}] = ${_e(f['value']!)})',
+      'map_put_if_absent' =>
+        '${_e(f['map']!)}.putIfAbsent(${_e(f['key']!)}, ${_e(f['value']!)})',
       'map_delete' => '${_e(f['map']!)}.remove(${_e(f['key']!)})',
       'map_contains_key' => '${_e(f['map']!)}.containsKey(${_e(f['key']!)})',
       'map_keys' => '${_e(f['map']!)}.keys.toList()',
@@ -3286,6 +3307,7 @@ class DartCompiler {
         f['pattern'] ??
         f['separator'] ??
         f['from'] ??
+        f['digits'] ??
         f['arg'] ??
         f['other'] ??
         f['arg0'];
@@ -3348,13 +3370,15 @@ class DartCompiler {
         target.whichExpr() == Expression_Expr.reference &&
         value.whichExpr() == Expression_Expr.call) {
       final inner = value.call;
+      // Methods that mutate the receiver in place in Dart, so the encoder's
+      // wrap-in-assign(target=x, value=op(list=x, ...)) can be elided. Only
+      // list_concat / list_remove_at create or return new structures, so
+      // those are deliberately NOT elided here.
       const inPlaceMutations = <(String, String)>{
         ('std_collections', 'list_push'),
         ('std_collections', 'list_clear'),
         ('std_collections', 'list_sort'),
         ('std_collections', 'list_insert'),
-        ('std_collections', 'list_remove_at'),
-        ('std_collections', 'list_concat'),
       };
       if (inPlaceMutations.contains((inner.module, inner.function))) {
         final innerFields = _extractFields(inner);
@@ -3479,10 +3503,22 @@ class DartCompiler {
   /// string.  The encoder emits this sentinel so that the decoder can
   /// restore `..member` syntax.
   static String _stripCascadeSelf(String s) {
-    const prefix = '__cascade_self__.';
-    if (s.startsWith(prefix)) return s.substring(prefix.length);
-    // Also handle things like `(__cascade_self__.field = value)` if the
-    // assign already stripped it via _compileCascadeAwareTarget — nothing to do.
+    const sentinel = '__cascade_self__';
+    if (!s.startsWith(sentinel)) return s;
+    var i = sentinel.length;
+    // Skip any whitespace inserted by code_builder between the sentinel
+    // and the following `.`/`[`/`?.`/`?[` operator.
+    while (i < s.length && (s[i] == ' ' || s[i] == '\t')) {
+      i++;
+    }
+    if (i >= s.length) return s;
+    final ch = s[i];
+    if (ch == '.') return s.substring(i + 1);
+    if (ch == '[') return s.substring(i);
+    if (ch == '?' && i + 1 < s.length) {
+      final next = s[i + 1];
+      if (next == '.' || next == '[') return s.substring(i);
+    }
     return s;
   }
 

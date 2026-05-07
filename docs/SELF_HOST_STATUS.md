@@ -21,16 +21,9 @@ Last refreshed: 2026-05-07.
 
 ### Dart roundtrip (live engine → Ball IR → Dart)
 
-**Compile state:** `dart/self_host/lib/engine_roundtrip.dart` regenerates with **20 dart-analyze errors** (down from 511 before this commit's compiler fixes). Remaining error categories:
+**Compile state:** `dart/self_host/lib/engine_roundtrip.dart` regenerates with **0 dart-analyze errors** (down from 511 before the compiler/encoder fixes — only 5 warnings remain). The round-trip is clean: `! dart analyze reported issues (exit 3)` becomes `✓ engine.dart round-trip clean — Phase 1 passes.`
 
-| Count | Kind | Notes |
-|------:|------|-------|
-| 10 | not_iterable_spread | encoder produces spread of non-iterable in some cascade contexts |
-| 6 | undefined_getter `__cascade_self__` | cascade-self placeholder not stripped on map-typed receivers |
-| 3 | return_without_value | encoder emits `return;` where original returned an expression |
-| 1 | argument_type_not_assignable | minor nullability mismatch |
-
-**Parity:** baseline before compiler fixes was 26/178 conformance fixtures passing through the round-tripped engine, with infinite hangs on `196_timeout`. Re-measured baseline pending re-run after the 20 remaining errors are resolved or the parity test gains a skip-list (US-002).
+**Parity:** **156 pass / 16 fail / 6 skip** of the 178 conformance fixtures (90.7% pass rate of non-skipped). Baseline before this iteration was 26/178 with the suite hanging on `196_timeout`. The 6 skipped fixtures depend on `BallEngine` constructor knobs that the IR can't express (timeoutMs, maxMemoryBytes, sandbox, etc.) — see Skip-list below.
 
 ### C++ self-host
 
@@ -66,9 +59,9 @@ Conformance fixtures that depend on `BallEngine` constructor knobs that don't su
 
 | Story | State |
 |-------|-------|
-| US-001 Regenerate Dart roundtrip | partial — regen runs, output has 20 analyze errors, baseline parity not re-measured |
-| US-002 Skip-list parity tests | not started |
-| US-003 Drive Dart parity ≥ 90% | not started |
+| US-001 Regenerate Dart roundtrip | ✅ done — `dart analyze` clean, parity test runs to completion |
+| US-002 Skip-list parity tests | ✅ done — 6 host-knob fixtures skipped, no infinite hangs |
+| US-003 Drive Dart parity ≥ 90% | ✅ done — 156/172 (90.7%) on non-skipped fixtures |
 | US-004 Regenerate compiled_engine.ts | not started |
 | US-005 Drive TS conformance ≥ 90% | not started |
 | US-006 Regenerate engine_rt.cpp | not started |

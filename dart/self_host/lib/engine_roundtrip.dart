@@ -301,8 +301,7 @@ class BallEngine {
             _setters[(key.toString() + '=')] = func;
           }
           if (((isSetterField != null) && isSetterField.boolValue)) {
-            /* unsupported: std_collections.map_put_if_absent */
-            ;
+            _functions.putIfAbsent(key, () => func);
           } else {
             _functions[key] = func;
           }
@@ -675,7 +674,7 @@ class BallEngine {
     final ctorInput = (<String, Object?>{}
       ..addAll(inputMap)
       ..addAll(resolvedParams)
-      ..__cascade_self__['self'] = instance);
+      ..['self'] = instance);
     final constructed = await _callFunction(moduleName, func, ctorInput);
     final constructedMap = _asMap(constructed);
     if (((constructedMap != null) && constructedMap.containsKey('__type__'))) {
@@ -2087,7 +2086,7 @@ class BallEngine {
           final ctorInput = (<String, Object?>{}
             ..addAll(fields)
             ..addAll(resolvedParams)
-            ..__cascade_self__['self'] = instance);
+            ..['self'] = instance);
           final constructed = await _callFunction(
             ctorEntry.module,
             ctorEntry.func,
@@ -2296,7 +2295,7 @@ class BallEngine {
       final qualifiedSuper = (superclass.contains(':')
           ? superclass
           : ((modPart.toString() + ':') + superclass.toString()));
-      [...names, ..._collectAllFieldNames(qualifiedSuper)];
+      names.addAll(_collectAllFieldNames(qualifiedSuper));
     }
     for (final fieldName in typeDef.fieldNames) {
       if (!names.contains(fieldName)) {
@@ -2410,16 +2409,16 @@ class BallEngine {
       final qualSuper = (typeDef.superclass!.contains(':')
           ? typeDef.superclass!
           : ((modPart.toString() + ':') + typeDef.superclass!.toString()));
-      [...methods, ..._resolveTypeMethodsWithInheritance(qualSuper)];
+      methods.addAll(_resolveTypeMethodsWithInheritance(qualSuper));
     }
     final mixins = _getMixins(typeName);
     for (final mixin in mixins) {
       final qualMixin = (mixin.contains(':')
           ? mixin
           : ((modPart.toString() + ':') + mixin.toString()));
-      [...methods, ..._resolveTypeMethods(qualMixin)];
+      methods.addAll(_resolveTypeMethods(qualMixin));
     }
-    [...methods, ..._resolveTypeMethods(typeName)];
+    methods.addAll(_resolveTypeMethods(typeName));
     return methods;
   }
 
@@ -3966,7 +3965,9 @@ class BallEngine {
               .join(((arg0 != null) ? arg0.toString() : ', '));
         case 'sublist':
           final end = args['arg1'];
-          return _wrapList(self.sublist(((end != null) ? _toInt(end) : null)));
+          return _wrapList(
+            self.sublist(_toInt(arg0), ((end != null) ? _toInt(end) : null)),
+          );
         case 'reversed':
           return _wrapList(self.reversed.toList());
         case 'sort':
@@ -4150,9 +4151,9 @@ class BallEngine {
                 r = await r;
               }
               if ((r is BallList)) {
-                [...result, ...r.items];
+                result.addAll(r.items);
               } else if ((r is List)) {
-                [...result, ...r];
+                result.addAll(r);
               } else {
                 result..add(r);
               }
@@ -4195,7 +4196,7 @@ class BallEngine {
           return null;
         case 'addAll':
           if ((arg0 is Iterable)) {
-            [...self, ...arg0];
+            self.addAll(arg0);
           }
           return null;
         case 'remove':
@@ -4291,7 +4292,7 @@ class BallEngine {
         case 'toString':
           return self;
         case 'codeUnitAt':
-          return /* unsupported: std.string_code_unit_at */;
+          return self.codeUnitAt(_toInt(arg0));
         case 'compareTo':
           return self.compareTo(arg0.toString());
       }
@@ -4306,7 +4307,7 @@ class BallEngine {
         case 'toString':
           return _ballToString(self);
         case 'toStringAsFixed':
-          return /* unsupported: std.to_string_as_fixed */;
+          return self.toStringAsFixed(_toInt(arg0));
         case 'abs':
           return self.abs();
         case 'round':
@@ -4910,7 +4911,7 @@ class BallEngine {
           s = 0;
           e = null;
         }
-        final result = list.sublist((e ?? list.length));
+        final result = list.sublist(s, (e ?? list.length));
         _trackMemoryAllocation((result.length * _ballPointerBytes));
         return result;
       },
@@ -4927,7 +4928,7 @@ class BallEngine {
             r = await r;
           }
           if ((r is List)) {
-            [...result, ...r];
+            result.addAll(r);
           } else {
             result..add(r);
           }
@@ -6431,6 +6432,7 @@ class BallEngine {
           final elemMap = _stdAsMap(elem);
           if (((elemMap != null) && (_patternKind(elemMap) == 'rest'))) {
             final restValues = listVal.sublist(
+              i,
               ((listVal.length - fixedCount) + i),
             );
             final subpattern = elemMap['subpattern'];
@@ -6504,7 +6506,7 @@ class BallEngine {
       case 'logical_or':
         final leftBindings = <String, Object?>{};
         if (_matchPattern(value, pattern['left'], leftBindings)) {
-          [...bindings, ...leftBindings];
+          bindings.addAll(leftBindings);
           return true;
         }
         return _matchPattern(value, pattern['right'], bindings);
@@ -6512,7 +6514,7 @@ class BallEngine {
         final tempBindings = <String, Object?>{};
         if ((_matchPattern(value, pattern['left'], tempBindings) &&
             _matchPattern(value, pattern['right'], tempBindings))) {
-          [...bindings, ...tempBindings];
+          bindings.addAll(tempBindings);
           return true;
         }
         return false;
@@ -6962,7 +6964,7 @@ class BallEngine {
     }
     final target = ((((m['target'] ?? m['value']) ?? m['string']) as String));
     final index = _toInt(m['index']);
-    return /* unsupported: std.string_code_unit_at */;
+    return target.codeUnitAt(index);
   }
 
   Object? _stdStringReplace(Object? input, bool all) {
@@ -7264,10 +7266,10 @@ class BallObject extends BallMap {
     (entries
       ..clear()
       ..addAll(fields)
-      ..__cascade_self__['__type__'] = typeName
-      ..__cascade_self__['__super__'] = superObject
-      ..__cascade_self__['__fields__'] = fields
-      ..__cascade_self__['__methods__'] = methods);
+      ..['__type__'] = typeName
+      ..['__super__'] = superObject
+      ..['__fields__'] = fields
+      ..['__methods__'] = methods);
   }
 
   void setField(String name, Object? value) {
@@ -7370,7 +7372,7 @@ class BallGenerator extends BallValue {
 
   void yieldAll(Iterable<Object?> input) {
     Iterable<Object?> items = input;
-    [...values, ...items];
+    values.addAll(items);
   }
 
   @override
@@ -7453,8 +7455,7 @@ class StdModuleHandler extends BallModuleHandler {
       if (((allowlist != null) && !allowlist.contains(entry.key))) {
         continue;
       }
-      /* unsupported: std_collections.map_put_if_absent */
-      ;
+      _dispatch.putIfAbsent(entry.key, () => entry.value);
     }
   }
 

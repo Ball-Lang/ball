@@ -5277,8 +5277,13 @@ BallValue Engine::eval_time(const std::string& function, BallValue input) {
         gmtime_r(&tt, &tm_buf);
 #endif
         char buf[64];
-        std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
-        return std::string(buf);
+        std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &tm_buf);
+        // Append fractional milliseconds + 'Z' suffix to match Dart's
+        // DateTime.toIso8601String() format.
+        char out[80];
+        std::snprintf(out, sizeof(out), "%s.%03lldZ", buf,
+                      static_cast<long long>(((ms % 1000) + 1000) % 1000));
+        return std::string(out);
     }
     if (function == "parse_timestamp") {
         auto str = is_map(input) ? ball::to_string(extract_field(input, "value")) : "";

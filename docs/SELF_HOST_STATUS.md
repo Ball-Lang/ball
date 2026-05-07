@@ -37,7 +37,7 @@ Re-measured on Windows MSVC against the May 5 `engine_rt.cpp` backup: **66 / 170
 
 **Goal:** zero-wrapper engine — `import { BallEngine } from './compiled_engine.ts'` should be enough, no hand-written shim.
 
-**Current:** wrapper-mediated **194 / 220 conformance pass**. The drop-the-wrapper push (commits `b4287e7` → `e165f8b`) broke the wrapper integration and was reverted in `2c67f94` to keep the suite green; the pure-harness file `ts/engine/test/harness_pure.mjs` is kept as groundwork for the next attempt.
+**Current:** wrapper-mediated **198 / 216 conformance pass (91.7%)** after `a970c5f` added a host-knob skip-list, std_time/convert wiring in the wrapper, an operator-name sanitiser in the compiler, and a DateTime polyfill in the preamble. The drop-the-wrapper push (commits `b4287e7` → `e165f8b`) broke the wrapper integration and was reverted in `2c67f94` to keep the suite green; the pure-harness file `ts/engine/test/harness_pure.mjs` is kept as groundwork for the next attempt.
 
 The drop is multi-iteration. Progress so far:
 - Compiler now sanitises Dart operator method names ([]=, [], ==, +, …) into JS-safe identifiers, fixing `BallObject.operator []=` round-trip.
@@ -83,7 +83,7 @@ Conformance fixtures that depend on `BallEngine` constructor knobs that don't su
 | US-002 Skip-list parity tests | ✅ done — 6 host-knob fixtures skipped, no infinite hangs |
 | US-003 Drive Dart parity ≥ 90% | ✅ done — 156/172 (90.7%) on non-skipped fixtures |
 | US-004 Regenerate compiled_engine.ts | partial — regen produces an engine the wrapper can load; the drop-the-wrapper push was reverted to keep 194/220 green |
-| US-005 Drive TS conformance ≥ 90% | partial — 194/220 (88.2%) through wrapper, 4 short of the bar |
+| US-005 Drive TS conformance ≥ 90% | ✅ done — 198/216 (91.7%) through wrapper after skip-list + std_time/convert wiring + DateTime polyfill |
 | US-006 Regenerate engine_rt.cpp | partial — `compile_engine_cpp.dart` emits a 9013-line `engine_rt.cpp` from the latest engine.ball.pb, but it doesn't build under MSVC because the Wave 7 `_trackMemoryAllocation` overload set confuses overload resolution. The May 5 backup is the live build artifact. |
 | US-007 Drive C++ conformance ≥ 50% | not started — currently 66/170 (38.8%); blocked on the MSVC `BallDyn`-in-`std::any` issue |
 | US-008 Add new conformance fixtures | not started |

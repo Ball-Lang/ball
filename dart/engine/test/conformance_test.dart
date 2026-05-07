@@ -26,19 +26,19 @@ void main() {
 
   final handFiles = handDir.existsSync()
       ? (handDir
-              .listSync()
-              .whereType<File>()
-              .where((f) => f.path.endsWith('.ball.json'))
-              .toList()
-            ..sort((a, b) => a.path.compareTo(b.path)))
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.ball.json'))
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path)))
       : <File>[];
   final genFiles = genDir.existsSync()
       ? (genDir
-              .listSync()
-              .whereType<File>()
-              .where((f) => f.path.endsWith('.ball.json'))
-              .toList()
-            ..sort((a, b) => a.path.compareTo(b.path)))
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.ball.json'))
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path)))
       : <File>[];
 
   group('conformance (hand-written IR)', () {
@@ -47,6 +47,131 @@ void main() {
       final expectedFile = File(
         testFile.path.replaceAll('.ball.json', '.expected_output.txt'),
       );
+      if (name == '197_memory_limit') {
+        test(name, () async {
+          final jsonMap =
+              jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
+          final program = Program()
+            ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
+
+          await expectLater(
+            BallEngine(program, maxMemoryBytes: 1000).run(),
+            throwsA(
+              isA<BallRuntimeError>().having(
+                (error) => error.message,
+                'message',
+                contains('Memory limit exceeded'),
+              ),
+            ),
+          );
+        });
+        continue;
+      }
+      if (name == '200_resource_exhaustion_protection') {
+        test(name, () async {
+          final jsonMap =
+              jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
+          final program = Program()
+            ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
+
+          await expectLater(
+            BallEngine(program, maxMemoryBytes: 1000).run(),
+            throwsA(
+              isA<BallRuntimeError>().having(
+                (error) => error.message,
+                'message',
+                contains('Memory limit exceeded'),
+              ),
+            ),
+          );
+        });
+        continue;
+      }
+      if (name == '196_timeout') {
+        test(name, () async {
+          final jsonMap =
+              jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
+          final program = Program()
+            ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
+
+          await expectLater(
+            BallEngine(program, timeoutMs: 1).run(),
+            throwsA(
+              isA<BallRuntimeError>().having(
+                (error) => error.message,
+                'message',
+                contains('Execution timeout exceeded'),
+              ),
+            ),
+          );
+        });
+        continue;
+      }
+      if (name == '202_sandbox_mode') {
+        test(name, () async {
+          final jsonMap =
+              jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
+          final program = Program()
+            ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
+
+          await expectLater(
+            BallEngine(program, sandbox: true).run(),
+            throwsA(
+              isA<BallRuntimeError>().having(
+                (error) => error.message,
+                'message',
+                equals('Sandbox violation: file_read is not allowed'),
+              ),
+            ),
+          );
+        });
+        continue;
+      }
+      if (name == '201_input_validation') {
+        test(name, () async {
+          final jsonMap =
+              jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
+          final program = Program()
+            ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
+
+          expect(
+            () => BallEngine(program),
+            throwsA(
+              isA<BallRuntimeError>().having(
+                (error) => error.message,
+                'message',
+                equals('Too many modules: 102 (max 100)'),
+              ),
+            ),
+          );
+
+          expect(
+            () => BallEngine(program, maxModules: 200, maxExpressionDepth: 3),
+            throwsA(
+              isA<BallRuntimeError>().having(
+                (error) => error.message,
+                'message',
+                equals('Expression too deep: 4 levels (max 3)'),
+              ),
+            ),
+          );
+
+          expect(
+            () => BallEngine(program, maxModules: 200, maxProgramSizeBytes: 1),
+            throwsA(
+              isA<BallRuntimeError>().having(
+                (error) => error.message,
+                'message',
+                allOf(
+                  startsWith('Program too large: '),
+                  contains(' bytes (max 1)'),
+                ),
+              ),
+            ),
+          );
+        });
+        continue;
+      }
       if (!expectedFile.existsSync()) continue;
 
       test(name, () async {
@@ -74,9 +199,7 @@ void main() {
   group('conformance (encoder-generated IR)', () {
     for (final testFile in genFiles) {
       final name = testFile.uri.pathSegments.last.replaceAll('.ball.json', '');
-      final sourceFile = File(
-        '../../tests/fixtures/dart/$name.dart',
-      );
+      final sourceFile = File('../../tests/fixtures/dart/$name.dart');
       if (!sourceFile.existsSync()) continue;
 
       test(name, () async {
@@ -90,11 +213,10 @@ void main() {
         final engineOut = lines.join('\n').trimRight();
 
         // Compare against `dart run` on the original source.
-        final r = Process.runSync(
-          Platform.resolvedExecutable,
-          ['run', sourceFile.absolute.path],
-          stdoutEncoding: utf8,
-        );
+        final r = Process.runSync(Platform.resolvedExecutable, [
+          'run',
+          sourceFile.absolute.path,
+        ], stdoutEncoding: utf8);
         final dartOut = (r.stdout as String)
             .replaceAll('\r\n', '\n')
             .trimRight();

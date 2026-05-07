@@ -1,0 +1,167 @@
+{
+  "name": "173_async_multiple_futures",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "add", "isBase": true },
+        { "name": "multiply", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "asyncTriple",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "multiply",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    { "name": "left", "value": { "reference": { "name": "n" } } },
+                    { "name": "right", "value": { "literal": { "intValue": "3" } } }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "is_async": true,
+            "params": [ { "name": "n", "type": "int" } ]
+          }
+        },
+        {
+          "name": "asyncDouble",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "multiply",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    { "name": "left", "value": { "reference": { "name": "n" } } },
+                    { "name": "right", "value": { "literal": { "intValue": "2" } } }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "is_async": true,
+            "params": [ { "name": "n", "type": "int" } ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "first",
+                    "value": {
+                      "call": {
+                        "function": "asyncDouble",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              { "name": "arg0", "value": { "literal": { "intValue": "10" } } }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "int"
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "second",
+                    "value": {
+                      "call": {
+                        "function": "asyncTriple",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              { "name": "arg0", "value": { "literal": { "intValue": "5" } } }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "int"
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "sum",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "add",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              { "name": "left", "value": { "reference": { "name": "first" } } },
+                              { "name": "right", "value": { "reference": { "name": "second" } } }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "int"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            { "name": "message", "value": { "reference": { "name": "sum" } } }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

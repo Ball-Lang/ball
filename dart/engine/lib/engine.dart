@@ -77,6 +77,44 @@ class BallEngine {
   /// Mirrors V8's bytecode dispatch counters (GetDispatchCountersObject).
   Map<String, int>? _callCounts;
 
+  /// Maximum number of nested non-base Ball function calls allowed.
+  final int maxRecursionDepth;
+
+  /// Maximum wall-clock execution time in milliseconds for [run].
+  /// `null` disables timeout enforcement.
+  final int? timeoutMs;
+
+  /// Maximum approximate memory allocated for Ball values in bytes.
+  /// `null` disables memory limit enforcement.
+  final int? maxMemoryBytes;
+
+  /// Maximum number of modules accepted in the program.
+  final int maxModules;
+
+  /// Maximum nested expression evaluation depth.
+  final int maxExpressionDepth;
+
+  /// Maximum approximate UTF-8 JSON size accepted for the program.
+  /// `null` disables program size enforcement.
+  final int? maxProgramSizeBytes;
+
+  /// When true, blocks all I/O / process-affecting base functions
+  /// (file_*, dir_*, env_get, exit, panic) by throwing [BallRuntimeError].
+  /// Use for evaluating untrusted programs.
+  final bool sandbox;
+
+  /// Approximate bytes allocated by Ball values during this engine run.
+  int _memoryUsedBytes = 0;
+
+  /// Current nested expression evaluation depth.
+  int _expressionDepth = 0;
+
+  /// Millisecond timestamp captured when [run] starts.
+  int? _executionStartMs;
+
+  /// Current nested non-base Ball function call depth.
+  int _recursionDepth = 0;
+
   /// Registered module handlers consulted by [_callBaseFunction].
   ///
   /// The list is searched in order; the first handler for which
@@ -123,6 +161,13 @@ class BallEngine {
     String Function(String)? envGet,
     List<String>? args,
     bool enableProfiling = false,
+    this.maxRecursionDepth = 10000,
+    this.timeoutMs,
+    this.maxMemoryBytes,
+    this.maxModules = 100,
+    this.maxExpressionDepth = 1000,
+    this.maxProgramSizeBytes = 10 * 1024 * 1024,
+    this.sandbox = false,
     List<BallModuleHandler>? moduleHandlers,
     ModuleResolver? resolver,
   }) : stdout = stdout ?? print,
@@ -131,6 +176,7 @@ class BallEngine {
        _envGet = envGet ?? ((name) => io.Platform.environment[name] ?? ''),
        _args = args ?? [],
        moduleHandlers = moduleHandlers ?? [StdModuleHandler()] {
+    _validateProgramLimits();
     if (enableProfiling) _callCounts = {};
     for (final handler in this.moduleHandlers) {
       handler.init(this);
@@ -147,6 +193,115 @@ class BallEngine {
   /// Invoke any ball function by [module] and [function] name with [input].
   Future<Object?> callFunction(String module, String function, Object? input) =>
       _resolveAndCallFunction(module, function, input);
+
+  void _validateProgramLimits() {
+    final moduleCount = program.modules.length;
+    if (moduleCount > maxModules) {
+      throw BallRuntimeError(
+        'Too many modules: $moduleCount (max $maxModules)',
+      );
+    }
+
+    final maxProgramBytes = maxProgramSizeBytes;
+    if (maxProgramBytes != null) {
+      final programSizeBytes = utf8
+          .encode(jsonEncode(program.toProto3Json()))
+          .length;
+      if (programSizeBytes > maxProgramBytes) {
+        throw BallRuntimeError(
+          'Program too large: $programSizeBytes bytes (max $maxProgramBytes)',
+        );
+      }
+    }
+
+    _validateStaticExpressionDepth();
+  }
+
+  void _validateStaticExpressionDepth() {
+    for (final module in program.modules) {
+      for (final func in module.functions) {
+        if (func.hasBody()) _validateExpressionDepth(func.body);
+      }
+    }
+  }
+
+  void _validateExpressionDepth(Expression root) {
+    final stack = <({Expression expr, int depth})>[(expr: root, depth: 1)];
+    while (stack.isNotEmpty) {
+      final current = stack.removeLast();
+      final depth = current.depth;
+      if (depth > maxExpressionDepth) {
+        throw BallRuntimeError(
+          'Expression too deep: $depth levels (max $maxExpressionDepth)',
+        );
+      }
+
+      switch (current.expr.whichExpr()) {
+        case Expression_Expr.call:
+          final call = current.expr.call;
+          if (call.hasInput()) {
+            stack.add((expr: call.input, depth: depth + 1));
+          }
+        case Expression_Expr.literal:
+          final literal = current.expr.literal;
+          if (literal.hasListValue()) {
+            for (final element in literal.listValue.elements) {
+              stack.add((expr: element, depth: depth + 1));
+            }
+          }
+        case Expression_Expr.fieldAccess:
+          final access = current.expr.fieldAccess;
+          if (access.hasObject()) {
+            stack.add((expr: access.object, depth: depth + 1));
+          }
+        case Expression_Expr.messageCreation:
+          for (final field in current.expr.messageCreation.fields) {
+            if (field.hasValue()) {
+              stack.add((expr: field.value, depth: depth + 1));
+            }
+          }
+        case Expression_Expr.block:
+          final block = current.expr.block;
+          for (final statement in block.statements) {
+            switch (statement.whichStmt()) {
+              case Statement_Stmt.let:
+                final binding = statement.let;
+                if (binding.hasValue()) {
+                  stack.add((expr: binding.value, depth: depth + 1));
+                }
+              case Statement_Stmt.expression:
+                stack.add((expr: statement.expression, depth: depth + 1));
+              case Statement_Stmt.notSet:
+                break;
+            }
+          }
+          if (block.hasResult()) {
+            stack.add((expr: block.result, depth: depth + 1));
+          }
+        case Expression_Expr.lambda:
+          final lambda = current.expr.lambda;
+          if (lambda.hasBody()) {
+            stack.add((expr: lambda.body, depth: depth + 1));
+          }
+        case Expression_Expr.reference:
+        case Expression_Expr.notSet:
+          break;
+      }
+    }
+  }
+
+  void _checkExpressionDepth() {
+    _expressionDepth += 1;
+    if (_expressionDepth > maxExpressionDepth) {
+      throw BallRuntimeError(
+        'Expression too deep: $_expressionDepth levels (max $maxExpressionDepth)',
+      );
+    }
+  }
+
+  void _exitExpression() {
+    _expressionDepth -= 1;
+  }
 
   void _buildLookupTables() {
     for (final module in program.modules) {
@@ -227,7 +382,8 @@ class BallEngine {
         if (!func.hasMetadata()) continue;
         final kindValue = func.metadata.fields['kind'];
         final kindStr = kindValue?.stringValue;
-        if (kindStr != 'top_level_variable' && kindStr != 'static_field') continue;
+        if (kindStr != 'top_level_variable' && kindStr != 'static_field')
+          continue;
         _currentModule = module.name;
         var value = func.hasBody()
             ? await _evalExpression(func.body, _globalScope)
@@ -243,6 +399,7 @@ class BallEngine {
 
   /// Execute the program starting from the entry point.
   Future<Object?> run() async {
+    _executionStartMs = DateTime.now().millisecondsSinceEpoch;
     await _initialized;
     final key = '${program.entryModule}.${program.entryFunction}';
     final entryFunc = _functions[key];
@@ -254,5 +411,36 @@ class BallEngine {
     }
     _currentModule = program.entryModule;
     return _callFunction(program.entryModule, entryFunc, null);
+  }
+
+  void _checkExecutionTimeout() {
+    final timeout = timeoutMs;
+    final start = _executionStartMs;
+    if (timeout == null || start == null) return;
+
+    final elapsed = DateTime.now().millisecondsSinceEpoch - start;
+    if (elapsed > timeout) {
+      throw BallRuntimeError('Execution timeout exceeded');
+    }
+  }
+
+  String _trackStringAllocation(String value) {
+    _trackMemoryAllocation(value.length * _ballStringCodeUnitBytes);
+    return value;
+  }
+
+  List<int> _trackByteListAllocation(List<int> value) {
+    _trackMemoryAllocation(value.length * _ballPointerBytes);
+    return value;
+  }
+
+  void _trackMemoryAllocation(int bytes) {
+    final limit = maxMemoryBytes;
+    if (limit == null || bytes <= 0) return;
+
+    if (_memoryUsedBytes + bytes > limit) {
+      throw BallRuntimeError('Memory limit exceeded');
+    }
+    _memoryUsedBytes += bytes;
   }
 }

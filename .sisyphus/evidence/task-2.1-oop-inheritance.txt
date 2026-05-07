@@ -1,0 +1,38 @@
+Task 2.1 — Dart Engine BallObject Implementation
+================================================
+Date: 2026-05-06
+
+## Summary
+Successfully implemented BallObject with inheritance and virtual dispatch in Dart engine.
+
+## Test Results
+
+### OOP Fixtures (NEW - Wave 2)
+- 164_oop_inheritance: PASS ✓
+- 165_oop_virtual_dispatch: PASS ✓
+- 166_oop_super_call: PASS ✓
+
+### Overall Conformance
+- Total: 187 tests
+- Passed: 185
+- Failed: 2 (both Wave 3 features - generics and pattern matching, expected)
+
+### Regression Check
+- All existing class fixtures (101-114) continue to pass
+- All Wave 1 async/generator fixtures (160-163, 171-176) continue to pass
+- No regressions detected
+
+## Implementation
+The BallObject type was implemented with:
+- `__type__`: String type name
+- `__super__`: Reference to parent BallObject (nullable)
+- `__fields__`: Map of field names to values
+- `__methods__`: Map of method names to FunctionDefinition
+
+Features working:
+✓ Field access walks inheritance chain
+✓ Method calls use virtual dispatch (walk __super__ chain)
+✓ Super keyword works in constructors and methods
+
+## Status
+Task 2.1 COMPLETE - Ready for Wave 2 continuation

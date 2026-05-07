@@ -1,0 +1,36 @@
+Task 7.4 - Input Size Validation Evidence
+
+Changed Dart files diagnostics:
+- lib/engine.dart: No diagnostics found
+- lib/engine_eval.dart: No diagnostics found
+- test/engine_test.dart: No diagnostics found
+- test/conformance_test.dart: No diagnostics found
+
+Command: dart test test/engine_test.dart --name "input_validation"
+Working directory: dart/engine
+Output:
+00:00 +0: loading test/engine_test.dart
+00:00 +0: engine: input_validation throws when program has too many modules
+00:00 +1: engine: input_validation throws when expression nesting exceeds the default limit
+00:00 +2: engine: input_validation throws when program JSON size exceeds configured limit
+00:00 +3: All tests passed!
+
+Command: dart test test/conformance_test.dart --name "201"
+Working directory: dart/engine
+Output:
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 201_input_validation
+00:00 +1: All tests passed!
+
+Command: dart analyze
+Working directory: dart/engine
+Output:
+Analyzing engine...
+
+warning - lib\engine_control_flow.dart:1376:15 - Unnecessary type check; the result is always 'true'. Try correcting the type check, or removing the type check. - unnecessary_type_check
+warning - lib\engine_types.dart:155:6 - The declaration '_isBallFutureError' isn't referenced. Try removing the declaration of '_isBallFutureError'. - unused_element
+
+2 issues found.
+
+Notes:
+- The analyze warnings are in pre-existing untouched files and are not introduced by Task 7.4 changes.

@@ -1,0 +1,68 @@
+{
+  "name": "std_time_now",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "equals", "isBase": true }
+      ]
+    },
+    {
+      "name": "std_io",
+      "functions": [ { "name": "timestamp_ms", "outputType": "int", "isBase": true } ]
+    },
+    {
+      "name": "std_time",
+      "types": [
+        {
+          "name": "FormatTimestampInput",
+          "field": [
+            { "name": "timestamp_ms", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_INT64" },
+            { "name": "format", "number": 2, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" }
+          ]
+        },
+        {
+          "name": "ParseTimestampInput",
+          "field": [
+            { "name": "value", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" },
+            { "name": "format", "number": 2, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" }
+          ]
+        }
+      ],
+      "functions": [
+        { "name": "now", "isBase": true },
+        { "name": "format_timestamp", "inputType": "FormatTimestampInput", "outputType": "string", "isBase": true },
+        { "name": "parse_timestamp", "inputType": "ParseTimestampInput", "outputType": "int", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                { "let": { "name": "unusedNow", "value": { "call": { "module": "std_time", "function": "now", "input": { "messageCreation": { "typeName": "", "fields": [] } } } } } },
+                { "let": { "name": "currentMs", "value": { "call": { "module": "std_io", "function": "timestamp_ms", "input": { "messageCreation": { "typeName": "", "fields": [] } } } } } },
+                { "let": { "name": "fixedMs", "value": { "literal": { "intValue": "1704067200000" } } } },
+                { "let": { "name": "formatted", "value": { "call": { "module": "std_time", "function": "format_timestamp", "input": { "messageCreation": { "typeName": "FormatTimestampInput", "fields": [ { "name": "timestamp_ms", "value": { "reference": { "name": "fixedMs" } } }, { "name": "format", "value": { "literal": { "stringValue": "" } } } ] } } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [ { "name": "message", "value": { "reference": { "name": "formatted" } } } ] } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [ { "name": "message", "value": { "call": { "module": "std", "function": "equals", "input": { "messageCreation": { "typeName": "", "fields": [ { "name": "left", "value": { "call": { "module": "std_time", "function": "parse_timestamp", "input": { "messageCreation": { "typeName": "ParseTimestampInput", "fields": [ { "name": "value", "value": { "reference": { "name": "formatted" } } }, { "name": "format", "value": { "literal": { "stringValue": "" } } } ] } } } } }, { "name": "right", "value": { "reference": { "name": "fixedMs" } } } ] } } } } } ] } } } } }
+              ]
+            }
+          }
+        }
+      ],
+      "moduleImports": [ { "name": "std" }, { "name": "std_io" }, { "name": "std_time" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

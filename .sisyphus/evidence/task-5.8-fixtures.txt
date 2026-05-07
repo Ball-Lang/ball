@@ -1,0 +1,6 @@
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 190_utf8_encode_decode
+00:00 +1: All tests passed!
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 191_base64_encode_decode
+00:01 +1: All tests passed!

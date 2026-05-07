@@ -1,0 +1,120 @@
+{
+  "name": "172_async_nested_await",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "add", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "inner",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "add",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    { "name": "left", "value": { "reference": { "name": "x" } } },
+                    { "name": "right", "value": { "literal": { "intValue": "10" } } }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "is_async": true,
+            "params": [ { "name": "x", "type": "int" } ]
+          }
+        },
+        {
+          "name": "outer",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "function": "inner",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    { "name": "arg0", "value": { "reference": { "name": "y" } } }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "is_async": true,
+            "params": [ { "name": "y", "type": "int" } ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "result",
+                    "value": {
+                      "call": {
+                        "function": "outer",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              { "name": "arg0", "value": { "literal": { "intValue": "5" } } }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "int"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            { "name": "message", "value": { "reference": { "name": "result" } } }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

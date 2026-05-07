@@ -12,6 +12,63 @@ class _FlowSignal extends BallValue {
   _FlowSignal(this.kind, {this.label, this.value});
 }
 
+/// Runtime representation of a Ball class instance.
+///
+/// The public shape mirrors the object metadata expected by conformance tests:
+/// `__type__`, `__super__`, `__fields__`, and `__methods__`.  It also extends
+/// [BallMap] so existing map-oriented engine paths keep working while class
+/// fields remain grouped under [fields].
+class BallObject extends BallMap {
+  final String typeName;
+  Object? superObject;
+  final Map<String, Object?> fields;
+  final Map<String, Object?> methods;
+
+  BallObject({
+    required this.typeName,
+    this.superObject,
+    Map<String, Object?>? fields,
+    Map<String, Object?>? methods,
+  }) : fields = fields ?? <String, Object?>{},
+       methods = methods ?? <String, Object?>{},
+       super(<String, Object?>{}) {
+    _refreshEntries();
+  }
+
+  void _refreshEntries() {
+    entries
+      ..clear()
+      ..addAll(fields)
+      ..['__type__'] = typeName
+      ..['__super__'] = superObject
+      ..['__fields__'] = fields
+      ..['__methods__'] = methods;
+  }
+
+  void setField(String name, Object? value) {
+    fields[name] = value;
+    entries[name] = value;
+  }
+
+  @override
+  void operator []=(String key, Object? value) {
+    if (key == '__super__') {
+      superObject = value;
+      entries[key] = value;
+      return;
+    }
+    if (key == '__methods__') {
+      methods
+        ..clear()
+        ..addAll(value is Map<String, Object?> ? value : <String, Object?>{});
+      entries[key] = methods;
+      return;
+    }
+    if (!key.startsWith('__')) fields[key] = value;
+    entries[key] = value;
+  }
+}
+
 /// A scope contains variable bindings. Scopes are chained for lexical nesting.
 class _Scope {
   final Map<String, Object?> _bindings = {};
@@ -74,17 +131,45 @@ class BallRuntimeError implements Exception {
 /// wrap their return values in a BallFuture map, and `await` unwraps them.
 /// The `__ball_future__` marker makes futures detectable by Ball programs
 /// and the engine alike.
-Map<String, Object?> _ballFuture(Object? value) =>
-    {'__ball_future__': true, 'value': value, 'completed': true};
+Map<String, Object?> _ballFuture(Object? value) => {
+  '__ball_future__': true,
+  'value': value,
+  'completed': true,
+};
+
+/// Creates a BallFuture in error state: {__ball_future__: true, error: e, completed: true}.
+///
+/// When an async function throws, the error is captured into a BallFuture
+/// so that `await` can rethrow it at the call site.
+Map<String, Object?> _ballFutureError(Object? error) => {
+  '__ball_future__': true,
+  'error': error,
+  'completed': true,
+};
 
 /// Returns `true` if [value] is a BallFuture map.
 bool _isBallFuture(Object? value) =>
     value is Map<String, Object?> && value['__ball_future__'] == true;
 
+/// Returns `true` if [value] is a BallFuture in error state.
+bool _isBallFutureError(Object? value) =>
+    _isBallFuture(value) &&
+    (value as Map<String, Object?>).containsKey('error');
+
 /// Unwraps a BallFuture map, returning the inner value.
+/// If [value] is a BallFuture in error state, rethrows the stored error.
 /// If [value] is not a BallFuture, returns it unchanged.
 Object? _unwrapBallFuture(Object? value) {
-  if (_isBallFuture(value)) return (value as Map<String, Object?>)['value'];
+  if (_isBallFuture(value)) {
+    final map = value as Map<String, Object?>;
+    if (map.containsKey('error')) {
+      final error = map['error'];
+      if (error is BallException) throw error;
+      if (error is BallRuntimeError) throw error;
+      throw BallRuntimeError(error?.toString() ?? 'Unknown async error');
+    }
+    return map['value'];
+  }
   return value;
 }
 
@@ -351,7 +436,24 @@ const Object _sentinel = Object();
 /// Executes ball programs directly at runtime.
 /// Built-in type names that should not be resolved as class references.
 const _builtinTypeNames = {
-  'int', 'double', 'num', 'String', 'bool', 'List', 'Map', 'Set',
-  'Null', 'void', 'Object', 'dynamic', 'Function', 'Future', 'Stream',
-  'Iterable', 'Iterator', 'Type', 'Symbol', 'Never',
+  'int',
+  'double',
+  'num',
+  'String',
+  'bool',
+  'List',
+  'Map',
+  'Set',
+  'Null',
+  'void',
+  'Object',
+  'dynamic',
+  'Function',
+  'Future',
+  'Stream',
+  'Iterable',
+  'Iterator',
+  'Type',
+  'Symbol',
+  'Never',
 };

@@ -1,0 +1,120 @@
+{
+  "name": "list_filled",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "for_in", "isBase": true }
+      ]
+    },
+    {
+      "name": "dart_std",
+      "functions": [
+        { "name": "list_filled", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "values",
+                    "value": {
+                      "call": {
+                        "module": "dart_std",
+                        "function": "list_filled",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "length",
+                                "value": { "literal": { "intValue": "3" } }
+                              },
+                              {
+                                "name": "value",
+                                "value": { "literal": { "stringValue": "x" } }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "for_in",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "variable",
+                              "value": { "literal": { "stringValue": "value" } }
+                            },
+                            {
+                              "name": "iterable",
+                              "value": { "reference": { "name": "values" } }
+                            },
+                            {
+                              "name": "body",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "print",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "PrintInput",
+                                      "fields": [
+                                        {
+                                          "name": "message",
+                                          "value": { "reference": { "name": "value" } }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "moduleImports": [
+        { "name": "std" },
+        { "name": "dart_std" }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

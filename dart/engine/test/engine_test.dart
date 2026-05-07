@@ -792,6 +792,109 @@ void main() {
       );
       expect(await runAndCapture(program), ['55']);
     });
+
+    group('recursion_limit', () {
+      Program countdownProgram(int start) {
+        return buildProgram(
+          functions: [
+            functionDef(
+              'countdown',
+              inputType: 'int',
+              outputType: 'int',
+              params: [
+                {'name': 'n', 'type': 'int'},
+              ],
+              body: {
+                'block': {
+                  'statements': [
+                    stmt(
+                      stdCall(
+                        'if',
+                        msg([
+                          field(
+                            'condition',
+                            stdCall(
+                              'lte',
+                              msg([
+                                field('left', ref('n')),
+                                field('right', literal(0)),
+                              ]),
+                            ),
+                          ),
+                          field('then', {
+                            'block': {
+                              'statements': [
+                                stmt(
+                                  stdCall(
+                                    'return',
+                                    msg([field('value', literal(0))]),
+                                  ),
+                                ),
+                              ],
+                            },
+                          }),
+                          field('else', {
+                            'block': {
+                              'statements': [
+                                stmt(
+                                  stdCall(
+                                    'return',
+                                    msg([
+                                      field(
+                                        'value',
+                                        call(
+                                          'countdown',
+                                          input: stdCall(
+                                            'subtract',
+                                            msg([
+                                              field('left', ref('n')),
+                                              field('right', literal(1)),
+                                            ]),
+                                          ),
+                                        ),
+                                      ),
+                                    ]),
+                                  ),
+                                ),
+                              ],
+                            },
+                          }),
+                        ]),
+                      ),
+                    ),
+                  ],
+                },
+              },
+            ),
+            mainFn([
+              stmt(printToString(call('countdown', input: literal(start)))),
+            ]),
+          ],
+        );
+      }
+
+      test('allows normal recursion below the default limit', () async {
+        expect(await runAndCapture(countdownProgram(50)), ['0']);
+      });
+
+      test('throws when configured recursion depth is exceeded', () async {
+        final engine = BallEngine(
+          countdownProgram(6),
+          stdout: (_) {},
+          maxRecursionDepth: 5,
+        );
+        await expectLater(
+          engine.run(),
+          throwsA(
+            isA<BallRuntimeError>().having(
+              (error) => error.message,
+              'message',
+              contains('Maximum recursion depth exceeded'),
+            ),
+          ),
+        );
+      });
+    });
   });
 
   group('engine: control flow', () {
@@ -1044,6 +1147,325 @@ void main() {
     });
   });
 
+  group('engine: memory_limit', () {
+    final memoryFns = [
+      {'name': 'list_filled', 'isBase': true},
+      {'name': 'list_length', 'isBase': true},
+    ];
+
+    test('small limit throws on large list creation', () async {
+      final program = buildProgram(
+        stdFunctions: memoryFns,
+        functions: [
+          mainFn([
+            stmt(
+              stdCall(
+                'list_filled',
+                msg([field('count', literal(200)), field('value', literal(0))]),
+              ),
+            ),
+          ]),
+        ],
+      );
+      final engine = BallEngine(program, maxMemoryBytes: 1000);
+
+      await expectLater(
+        engine.run(),
+        throwsA(
+          isA<BallRuntimeError>().having(
+            (error) => error.message,
+            'message',
+            contains('Memory limit exceeded'),
+          ),
+        ),
+      );
+    });
+
+    test('generous limit allows normal execution', () async {
+      final program = buildProgram(
+        stdFunctions: memoryFns,
+        functions: [
+          mainFn([
+            letStmt(
+              'items',
+              stdCall(
+                'list_filled',
+                msg([field('count', literal(10)), field('value', literal(1))]),
+              ),
+            ),
+            stmt(
+              printToString(
+                stdCall('list_length', msg([field('list', ref('items'))])),
+              ),
+            ),
+          ]),
+        ],
+      );
+      final lines = <String>[];
+      final engine = BallEngine(
+        program,
+        stdout: lines.add,
+        maxMemoryBytes: 10000,
+      );
+
+      await engine.run();
+
+      expect(lines, ['10']);
+    });
+  });
+
+  group('engine: input_validation', () {
+    Expression deeplyNestedToString(int levels) {
+      var expr = Expression()..literal = (Literal()..stringValue = '0');
+      for (var i = 0; i < levels; i++) {
+        expr = Expression()
+          ..call = FunctionCall(
+            module: 'std',
+            function: 'to_string',
+            input: Expression()
+              ..messageCreation = MessageCreation(
+                fields: [FieldValuePair(name: 'value', value: expr)],
+              ),
+          );
+      }
+      return expr;
+    }
+
+    Program directProgram(Expression body) {
+      return Program(
+        name: 'test',
+        version: '1.0.0',
+        entryModule: 'main',
+        entryFunction: 'main',
+        modules: [
+          Module(
+            name: 'std',
+            functions: [FunctionDefinition(name: 'to_string', isBase: true)],
+          ),
+          Module(
+            name: 'main',
+            functions: [FunctionDefinition(name: 'main', body: body)],
+          ),
+        ],
+      );
+    }
+
+    test('throws when program has too many modules', () {
+      final program = buildProgram(
+        functions: [
+          mainFn([stmt(printStr('unreachable'))]),
+        ],
+      );
+      for (var i = 0; i < 99; i++) {
+        program.modules.add(Module()..name = 'extra_$i');
+      }
+
+      expect(
+        () => BallEngine(program),
+        throwsA(
+          isA<BallRuntimeError>().having(
+            (error) => error.message,
+            'message',
+            equals('Too many modules: 101 (max 100)'),
+          ),
+        ),
+      );
+    });
+
+    test('throws when expression nesting exceeds the default limit', () {
+      final program = directProgram(deeplyNestedToString(1001));
+
+      expect(
+        () => BallEngine(program, maxProgramSizeBytes: null),
+        throwsA(
+          isA<BallRuntimeError>().having(
+            (error) => error.message,
+            'message',
+            contains('Expression too deep: '),
+          ),
+        ),
+      );
+    });
+
+    test('throws when program JSON size exceeds configured limit', () {
+      final program = buildProgram(
+        functions: [
+          mainFn([stmt(printStr('unreachable'))]),
+        ],
+      );
+
+      expect(
+        () => BallEngine(program, maxProgramSizeBytes: 1),
+        throwsA(
+          isA<BallRuntimeError>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              startsWith('Program too large: '),
+              contains(' bytes (max 1)'),
+            ),
+          ),
+        ),
+      );
+    });
+  });
+
+  group('engine: sandbox mode', () {
+    Program sandboxProgramFor(String fn, {Map<String, dynamic>? input}) {
+      return buildProgram(
+        functions: [
+          mainFn([
+            stmt(
+              call(
+                fn,
+                module: 'std',
+                input: input ?? msg([field('path', literal('does_not_matter'))]),
+              ),
+            ),
+          ]),
+        ],
+        stdFunctions: [
+          {'name': fn, 'isBase': true},
+        ],
+      );
+    }
+
+    final blockedOps = <String, Map<String, dynamic>>{
+      'file_read': msg([field('path', literal('/tmp/x'))]),
+      'file_read_bytes': msg([field('path', literal('/tmp/x'))]),
+      'file_write': msg([
+        field('path', literal('/tmp/x')),
+        field('content', literal('y')),
+      ]),
+      'file_write_bytes': msg([
+        field('path', literal('/tmp/x')),
+        field('content', literal('y')),
+      ]),
+      'file_append': msg([
+        field('path', literal('/tmp/x')),
+        field('content', literal('y')),
+      ]),
+      'file_exists': msg([field('path', literal('/tmp/x'))]),
+      'file_delete': msg([field('path', literal('/tmp/x'))]),
+      'dir_list': msg([field('path', literal('/tmp'))]),
+      'dir_create': msg([field('path', literal('/tmp/x'))]),
+      'dir_exists': msg([field('path', literal('/tmp'))]),
+      'env_get': msg([field('name', literal('PATH'))]),
+      'exit': msg([field('code', literal(0))]),
+      'panic': msg([field('message', literal('boom'))]),
+    };
+
+    for (final entry in blockedOps.entries) {
+      final fn = entry.key;
+      test('blocks $fn under sandbox=true', () async {
+        final program = sandboxProgramFor(fn, input: entry.value);
+        final engine = BallEngine(program, sandbox: true);
+
+        await expectLater(
+          engine.run(),
+          throwsA(
+            isA<BallRuntimeError>().having(
+              (error) => error.message,
+              'message',
+              equals('Sandbox violation: $fn is not allowed'),
+            ),
+          ),
+        );
+      });
+    }
+
+    test('sandbox=false (default) leaves env_get untouched', () async {
+      final program = buildProgram(
+        functions: [
+          mainFn([
+            stmt(
+              printExpr(
+                call(
+                  'env_get',
+                  module: 'std',
+                  input: msg([field('name', literal('NON_EXISTENT_VAR_123'))]),
+                ),
+              ),
+            ),
+          ]),
+        ],
+        stdFunctions: [
+          {'name': 'env_get', 'isBase': true},
+        ],
+      );
+      final lines = <String>[];
+      final engine = BallEngine(
+        program,
+        stdout: lines.add,
+        envGet: (_) => '',
+      );
+      await engine.run();
+
+      expect(lines, ['']);
+    });
+
+    test('sandbox=true permits non-IO base functions', () async {
+      final program = buildProgram(
+        functions: [
+          mainFn([stmt(printStr('safe'))]),
+        ],
+      );
+      final lines = <String>[];
+      final engine = BallEngine(program, stdout: lines.add, sandbox: true);
+      await engine.run();
+
+      expect(lines, ['safe']);
+    });
+  });
+
+  group('engine: execution timeout', () {
+    test('short timeout throws on long-running code', () async {
+      final program = buildProgram(
+        functions: [
+          mainFn([
+            stmt(
+              stdCall(
+                'while',
+                msg([
+                  field('condition', literal(true)),
+                  field('body', {
+                    'block': {'statements': []},
+                  }),
+                ]),
+              ),
+            ),
+          ]),
+        ],
+      );
+      final engine = BallEngine(program, timeoutMs: 1);
+
+      await expectLater(
+        engine.run(),
+        throwsA(
+          isA<BallRuntimeError>().having(
+            (error) => error.message,
+            'message',
+            contains('Execution timeout exceeded'),
+          ),
+        ),
+      );
+    });
+
+    test('long timeout allows normal execution', () async {
+      final program = buildProgram(
+        functions: [
+          mainFn([stmt(printStr('completed'))]),
+        ],
+      );
+      final lines = <String>[];
+      final engine = BallEngine(program, stdout: lines.add, timeoutMs: 10000);
+
+      await engine.run();
+
+      expect(lines, ['completed']);
+    });
+  });
+
   group('engine: for loop', () {
     test('for loop counting', () async {
       // The encoder declares the loop var outside the for and uses a
@@ -1146,7 +1568,10 @@ void main() {
           mainFn([stmt(printToString(ref('undefined_var')))]),
         ],
       );
-      await expectLater(runAndCapture(program), throwsA(isA<BallRuntimeError>()));
+      await expectLater(
+        runAndCapture(program),
+        throwsA(isA<BallRuntimeError>()),
+      );
     });
 
     test('throws on missing entry point', () async {
@@ -1160,7 +1585,10 @@ void main() {
         'entryFunction': 'nonexistent',
       };
       final program = Program()..mergeFromProto3Json(programJson);
-      await expectLater(runAndCapture(program), throwsA(isA<BallRuntimeError>()));
+      await expectLater(
+        runAndCapture(program),
+        throwsA(isA<BallRuntimeError>()),
+      );
     });
   });
 
@@ -1288,19 +1716,28 @@ void main() {
             letStmt('name', literal('Ball')),
             stmt(
               printExpr(
-                stdCall('concat', msg([
-                  field(
-                    'left',
-                    stdCall('concat', msg([
-                      field('left', literal('Hello ')),
-                      field(
-                        'right',
-                        stdCall('to_string', msg([field('value', ref('name'))])),
+                stdCall(
+                  'concat',
+                  msg([
+                    field(
+                      'left',
+                      stdCall(
+                        'concat',
+                        msg([
+                          field('left', literal('Hello ')),
+                          field(
+                            'right',
+                            stdCall(
+                              'to_string',
+                              msg([field('value', ref('name'))]),
+                            ),
+                          ),
+                        ]),
                       ),
-                    ])),
-                  ),
-                  field('right', literal('!')),
-                ])),
+                    ),
+                    field('right', literal('!')),
+                  ]),
+                ),
               ),
             ),
           ]),
@@ -2922,94 +3359,97 @@ void main() {
       expect(await runAndCapture(p), ['seven']);
     });
 
-    test('structured list pattern binds variables and evaluates guards lazily', () async {
-      final p = buildProgram(
-        stdFunctions: [
-          {'name': 'switch_expr', 'isBase': true},
-          {'name': 'equals', 'isBase': true},
-          {'name': 'index', 'isBase': true},
-        ],
-        functions: [
-          mainFn([
-            letStmt('x', listLit([literal(1), literal(2), literal(3)])),
-            letStmt(
-              'r',
-              stdCall(
-                'switch_expr',
-                msg([
-                  field('subject', ref('x')),
-                  field(
-                    'cases',
-                    listLit([
-                      msg([
-                        field('pattern', literal('0')),
-                        field(
-                          'pattern_expr',
-                          msg([
-                            field('value', literal(0)),
-                          ], typeName: 'ConstPattern'),
-                        ),
-                        field('body', ref('not_in_scope')),
-                      ]),
-                      msg([
-                        field(
-                          'pattern_expr',
-                          msg([
-                            field(
-                              'elements',
-                              listLit([
-                                msg([
-                                  field('value', literal(1)),
-                                ], typeName: 'ConstPattern'),
-                                msg([
-                                  field('name', literal('middle')),
-                                  field('type', literal('int')),
-                                ], typeName: 'VarPattern'),
-                                msg([
-                                  field(
-                                    'subpattern',
-                                    msg([
-                                      field('name', literal('tail')),
-                                    ], typeName: 'VarPattern'),
-                                  ),
-                                ], typeName: 'RestPattern'),
+    test(
+      'structured list pattern binds variables and evaluates guards lazily',
+      () async {
+        final p = buildProgram(
+          stdFunctions: [
+            {'name': 'switch_expr', 'isBase': true},
+            {'name': 'equals', 'isBase': true},
+            {'name': 'index', 'isBase': true},
+          ],
+          functions: [
+            mainFn([
+              letStmt('x', listLit([literal(1), literal(2), literal(3)])),
+              letStmt(
+                'r',
+                stdCall(
+                  'switch_expr',
+                  msg([
+                    field('subject', ref('x')),
+                    field(
+                      'cases',
+                      listLit([
+                        msg([
+                          field('pattern', literal('0')),
+                          field(
+                            'pattern_expr',
+                            msg([
+                              field('value', literal(0)),
+                            ], typeName: 'ConstPattern'),
+                          ),
+                          field('body', ref('not_in_scope')),
+                        ]),
+                        msg([
+                          field(
+                            'pattern_expr',
+                            msg([
+                              field(
+                                'elements',
+                                listLit([
+                                  msg([
+                                    field('value', literal(1)),
+                                  ], typeName: 'ConstPattern'),
+                                  msg([
+                                    field('name', literal('middle')),
+                                    field('type', literal('int')),
+                                  ], typeName: 'VarPattern'),
+                                  msg([
+                                    field(
+                                      'subpattern',
+                                      msg([
+                                        field('name', literal('tail')),
+                                      ], typeName: 'VarPattern'),
+                                    ),
+                                  ], typeName: 'RestPattern'),
+                                ]),
+                              ),
+                            ], typeName: 'ListPattern'),
+                          ),
+                          field(
+                            'guard',
+                            stdCall(
+                              'equals',
+                              msg([
+                                field('left', ref('middle')),
+                                field('right', literal(2)),
                               ]),
                             ),
-                          ], typeName: 'ListPattern'),
-                        ),
-                        field(
-                          'guard',
-                          stdCall(
-                            'equals',
-                            msg([
-                              field('left', ref('middle')),
-                              field('right', literal(2)),
-                            ]),
                           ),
-                        ),
-                        field(
-                          'body',
-                          stdCall(
-                            'index',
-                            msg([
-                              field('target', ref('tail')),
-                              field('index', literal(0)),
-                            ]),
+                          field(
+                            'body',
+                            stdCall(
+                              'index',
+                              msg([
+                                field('target', ref('tail')),
+                                field('index', literal(0)),
+                              ]),
+                            ),
                           ),
-                        ),
+                        ]),
                       ]),
-                    ]),
-                  ),
-                ]),
+                    ),
+                  ]),
+                ),
               ),
-            ),
-            stmt(printExpr(ref('r'))),
-          ]),
-        ],
-      );
+              stmt(printExpr(ref('r'))),
+            ]),
+          ],
+        );
 
-      expect(await runAndCapture(p), ['3']);
-    });
+        expect(await runAndCapture(p), ['3']);
+      },
+    );
 
     test('throws on non-exhaustive switch expression', () async {
       final p = buildProgram(
@@ -3213,9 +3653,7 @@ void main() {
                                     stmt(
                                       stdCall(
                                         'throw',
-                                        msg([
-                                          field('value', literal('boom')),
-                                        ]),
+                                        msg([field('value', literal('boom'))]),
                                       ),
                                     ),
                                   ],
@@ -3229,12 +3667,7 @@ void main() {
                                     field('body', {
                                       'block': {
                                         'statements': [
-                                          stmt(
-                                            stdCall(
-                                              'rethrow',
-                                              msg([]),
-                                            ),
-                                          ),
+                                          stmt(stdCall('rethrow', msg([]))),
                                         ],
                                       },
                                     }),
@@ -3276,12 +3709,13 @@ void main() {
       final program = buildProgram(
         stdFunctions: fns,
         functions: [
-          mainFn([
-            stmt(stdCall('rethrow', msg([]))),
-          ]),
+          mainFn([stmt(stdCall('rethrow', msg([])))]),
         ],
       );
-      await expectLater(runAndCapture(program), throwsA(isA<BallRuntimeError>()));
+      await expectLater(
+        runAndCapture(program),
+        throwsA(isA<BallRuntimeError>()),
+      );
     });
 
     test('typed catch matches by exception type', () async {
@@ -3306,10 +3740,13 @@ void main() {
                           stdCall(
                             'throw',
                             msg([
-                              field('value', msg([
-                                field('__type', literal('NotFound')),
-                                field('detail', literal('missing')),
-                              ])),
+                              field(
+                                'value',
+                                msg([
+                                  field('__type', literal('NotFound')),
+                                  field('detail', literal('missing')),
+                                ]),
+                              ),
                             ]),
                           ),
                         ),
@@ -3367,9 +3804,10 @@ void main() {
                           stdCall(
                             'throw',
                             msg([
-                              field('value', msg([
-                                field('__type', literal('Anything')),
-                              ])),
+                              field(
+                                'value',
+                                msg([field('__type', literal('Anything'))]),
+                              ),
                             ]),
                           ),
                         ),
@@ -3411,22 +3849,18 @@ void main() {
       // because _unwrapFuture auto-unwraps BallFuture at call sites,
       // making async functions transparent to non-async callers.
       final program = buildProgram(
-        stdFunctions: [{'name': 'await', 'isBase': true}],
+        stdFunctions: [
+          {'name': 'await', 'isBase': true},
+        ],
         functions: [
           {
             'name': 'get42',
             'body': {
-              'block': {
-                'statements': [],
-                'result': literal(42),
-              },
+              'block': {'statements': [], 'result': literal(42)},
             },
             'metadata': {'is_async': true},
           },
-          mainFn([
-            letStmt('f', call('get42')),
-            stmt(printToString(ref('f'))),
-          ]),
+          mainFn([letStmt('f', call('get42')), stmt(printToString(ref('f')))]),
         ],
       );
       final out = await runAndCapture(program);
@@ -3436,15 +3870,14 @@ void main() {
 
     test('await unwraps a BallFuture', () async {
       final program = buildProgram(
-        stdFunctions: [{'name': 'await', 'isBase': true}],
+        stdFunctions: [
+          {'name': 'await', 'isBase': true},
+        ],
         functions: [
           {
             'name': 'get42',
             'body': {
-              'block': {
-                'statements': [],
-                'result': literal(42),
-              },
+              'block': {'statements': [], 'result': literal(42)},
             },
             'metadata': {'is_async': true},
           },
@@ -3465,25 +3898,21 @@ void main() {
       // outer() is_async returns inner() → BallFuture(7), auto-unwrapped to 7.
       // `await outer()` must yield 7 (await is a no-op on already-unwrapped values).
       final program = buildProgram(
-        stdFunctions: [{'name': 'await', 'isBase': true}],
+        stdFunctions: [
+          {'name': 'await', 'isBase': true},
+        ],
         functions: [
           {
             'name': 'inner',
             'body': {
-              'block': {
-                'statements': [],
-                'result': literal(7),
-              },
+              'block': {'statements': [], 'result': literal(7)},
             },
             'metadata': {'is_async': true},
           },
           {
             'name': 'outer',
             'body': {
-              'block': {
-                'statements': [],
-                'result': call('inner'),
-              },
+              'block': {'statements': [], 'result': call('inner')},
             },
             'metadata': {'is_async': true},
           },
@@ -3501,7 +3930,9 @@ void main() {
 
     test('await on a non-future value passes through', () async {
       final program = buildProgram(
-        stdFunctions: [{'name': 'await', 'isBase': true}],
+        stdFunctions: [
+          {'name': 'await', 'isBase': true},
+        ],
         functions: [
           mainFn([
             stmt(
@@ -3531,10 +3962,7 @@ void main() {
               'block': {
                 'statements': [
                   stmt(
-                    stdCall(
-                      'throw',
-                      msg([field('value', literal('kapow'))]),
-                    ),
+                    stdCall('throw', msg([field('value', literal('kapow'))])),
                   ),
                 ],
               },
@@ -3550,10 +3978,7 @@ void main() {
                     'block': {
                       'statements': [
                         stmt(
-                          stdCall(
-                            'await',
-                            msg([field('value', call('boom'))]),
-                          ),
+                          stdCall('await', msg([field('value', call('boom'))])),
                         ),
                       ],
                     },
@@ -4268,12 +4693,7 @@ void main() {
         stdFunctions: nullFns,
         functions: [
           mainFn([
-            letStmt(
-              'obj',
-              msg([
-                field('name', literal('Alice')),
-              ]),
-            ),
+            letStmt('obj', msg([field('name', literal('Alice'))])),
             stmt(
               printToString(
                 stdCall(
@@ -4297,9 +4717,7 @@ void main() {
         functions: [
           mainFn([
             letStmt('x', litNull()),
-            stmt(
-              stdCall('null_check', msg([field('value', ref('x'))])),
-            ),
+            stmt(stdCall('null_check', msg([field('value', ref('x'))]))),
           ]),
         ],
       );
@@ -4323,11 +4741,14 @@ void main() {
             letStmt('x', litNull(), keyword: 'var'),
             // x ??= 42
             stmt(
-              stdCall('assign', msg([
-                field('target', ref('x')),
-                field('op', literal('??=')),
-                field('value', literal(42)),
-              ])),
+              stdCall(
+                'assign',
+                msg([
+                  field('target', ref('x')),
+                  field('op', literal('??=')),
+                  field('value', literal(42)),
+                ]),
+              ),
             ),
             stmt(printToString(ref('x'))),
           ]),
@@ -4344,11 +4765,14 @@ void main() {
             letStmt('x', literal(7), keyword: 'var'),
             // x ??= 99
             stmt(
-              stdCall('assign', msg([
-                field('target', ref('x')),
-                field('op', literal('??=')),
-                field('value', literal(99)),
-              ])),
+              stdCall(
+                'assign',
+                msg([
+                  field('target', ref('x')),
+                  field('op', literal('??=')),
+                  field('value', literal(99)),
+                ]),
+              ),
             ),
             stmt(printToString(ref('x'))),
           ]),
@@ -4365,47 +4789,60 @@ void main() {
             letStmt('obj', msg([field('value', litNull())]), keyword: 'var'),
             // obj.value ??= 10
             stmt(
-              stdCall('assign', msg([
-                field('target', {
-                  'fieldAccess': {'object': ref('obj'), 'field': 'value'},
-                }),
-                field('op', literal('??=')),
-                field('value', literal(10)),
-              ])),
+              stdCall(
+                'assign',
+                msg([
+                  field('target', {
+                    'fieldAccess': {'object': ref('obj'), 'field': 'value'},
+                  }),
+                  field('op', literal('??=')),
+                  field('value', literal(10)),
+                ]),
+              ),
             ),
-            stmt(printToString({
-              'fieldAccess': {'object': ref('obj'), 'field': 'value'},
-            })),
+            stmt(
+              printToString({
+                'fieldAccess': {'object': ref('obj'), 'field': 'value'},
+              }),
+            ),
           ]),
         ],
       );
       expect(await runAndCapture(p), ['10']);
     });
 
-    test('??= on field access does not assign when field is non-null', () async {
-      final p = buildProgram(
-        stdFunctions: nullFns,
-        functions: [
-          mainFn([
-            letStmt('obj', msg([field('value', literal(5))]), keyword: 'var'),
-            // obj.value ??= 99
-            stmt(
-              stdCall('assign', msg([
-                field('target', {
+    test(
+      '??= on field access does not assign when field is non-null',
+      () async {
+        final p = buildProgram(
+          stdFunctions: nullFns,
+          functions: [
+            mainFn([
+              letStmt('obj', msg([field('value', literal(5))]), keyword: 'var'),
+              // obj.value ??= 99
+              stmt(
+                stdCall(
+                  'assign',
+                  msg([
+                    field('target', {
+                      'fieldAccess': {'object': ref('obj'), 'field': 'value'},
+                    }),
+                    field('op', literal('??=')),
+                    field('value', literal(99)),
+                  ]),
+                ),
+              ),
+              stmt(
+                printToString({
                   'fieldAccess': {'object': ref('obj'), 'field': 'value'},
                 }),
-                field('op', literal('??=')),
-                field('value', literal(99)),
-              ])),
-            ),
-            stmt(printToString({
-              'fieldAccess': {'object': ref('obj'), 'field': 'value'},
-            })),
-          ]),
-        ],
-      );
-      expect(await runAndCapture(p), ['5']);
-    });
+              ),
+            ]),
+          ],
+        );
+        expect(await runAndCapture(p), ['5']);
+      },
+    );
 
     test('??= on index assigns when element is null', () async {
       final p = buildProgram(
@@ -4424,21 +4861,35 @@ void main() {
             }, keyword: 'var'),
             // list[0] ??= 42
             stmt(
-              stdCall('assign', msg([
-                field('target', stdCall('index', msg([
-                  field('target', ref('list')),
-                  field('index', literal(0)),
-                ]))),
-                field('op', literal('??=')),
-                field('value', literal(42)),
-              ])),
+              stdCall(
+                'assign',
+                msg([
+                  field(
+                    'target',
+                    stdCall(
+                      'index',
+                      msg([
+                        field('target', ref('list')),
+                        field('index', literal(0)),
+                      ]),
+                    ),
+                  ),
+                  field('op', literal('??=')),
+                  field('value', literal(42)),
+                ]),
+              ),
             ),
-            stmt(printToString(
-              stdCall('index', msg([
-                field('target', ref('list')),
-                field('index', literal(0)),
-              ])),
-            )),
+            stmt(
+              printToString(
+                stdCall(
+                  'index',
+                  msg([
+                    field('target', ref('list')),
+                    field('index', literal(0)),
+                  ]),
+                ),
+              ),
+            ),
           ]),
         ],
       );
@@ -4596,10 +5047,13 @@ void main() {
             letStmt('x', msg([], typeName: 'Foo')),
             stmt(
               printToString(
-                stdCall('is', msg([
-                  field('value', ref('x')),
-                  field('type', literal('Foo')),
-                ])),
+                stdCall(
+                  'is',
+                  msg([
+                    field('value', ref('x')),
+                    field('type', literal('Foo')),
+                  ]),
+                ),
               ),
             ),
           ]),
@@ -4616,10 +5070,13 @@ void main() {
             letStmt('x', msg([], typeName: 'Foo')),
             stmt(
               printToString(
-                stdCall('is', msg([
-                  field('value', ref('x')),
-                  field('type', literal('Bar')),
-                ])),
+                stdCall(
+                  'is',
+                  msg([
+                    field('value', ref('x')),
+                    field('type', literal('Bar')),
+                  ]),
+                ),
               ),
             ),
           ]),
@@ -4637,10 +5094,13 @@ void main() {
             letStmt('x', msg([], typeName: 'main:Foo')),
             stmt(
               printToString(
-                stdCall('is', msg([
-                  field('value', ref('x')),
-                  field('type', literal('Foo')),
-                ])),
+                stdCall(
+                  'is',
+                  msg([
+                    field('value', ref('x')),
+                    field('type', literal('Foo')),
+                  ]),
+                ),
               ),
             ),
           ]),
@@ -4687,10 +5147,7 @@ void main() {
                         'let': {
                           'name': 'b',
                           'value': {
-                            'messageCreation': {
-                              'typeName': 'B',
-                              'fields': [],
-                            },
+                            'messageCreation': {'typeName': 'B', 'fields': []},
                           },
                         },
                       },
@@ -5599,18 +6056,24 @@ void main() {
       return Program()..mergeFromProto3Json(json);
     }
 
-    test('composition-only module resolves cross-module calls correctly', () async {
-      final lines = await runAndCapture(buildCompositionProgram());
-      expect(lines[0], '5.0');
-      expect(lines[1], '81.0');
-    });
+    test(
+      'composition-only module resolves cross-module calls correctly',
+      () async {
+        final lines = await runAndCapture(buildCompositionProgram());
+        expect(lines[0], '5.0');
+        expect(lines[1], '81.0');
+      },
+    );
 
-    test('no handler registration required for composition-only module', () async {
-      // Default engine — only StdModuleHandler registered.
-      // geometry has no isBase functions, so no handler is needed for it.
-      final engine = BallEngine(buildCompositionProgram(), stdout: (_) {});
-      expect(engine.run, returnsNormally);
-    });
+    test(
+      'no handler registration required for composition-only module',
+      () async {
+        // Default engine — only StdModuleHandler registered.
+        // geometry has no isBase functions, so no handler is needed for it.
+        final engine = BallEngine(buildCompositionProgram(), stdout: (_) {});
+        expect(engine.run, returnsNormally);
+      },
+    );
 
     test('composition-only module chains multiple levels deep', () async {
       // cube(n) = square(n) * n  — calls geometry.square which calls std.multiply
@@ -5740,7 +6203,10 @@ void main() {
         'entryFunction': 'main',
       };
       final prog = Program()..mergeFromProto3Json(json);
-      final lines = await runAndCapture(prog, handlers: [StdModuleHandler(), mymath]);
+      final lines = await runAndCapture(
+        prog,
+        handlers: [StdModuleHandler(), mymath],
+      );
       expect(lines, ['7', '7']);
     });
 
@@ -5811,8 +6277,10 @@ void main() {
           final m = input as Map<String, Object?>;
           final a = m['a'] as num;
           final b = m['b'] as num;
-          final a2 = await engine('std', 'multiply', {'left': a, 'right': a}) as num;
-          final b2 = await engine('std', 'multiply', {'left': b, 'right': b}) as num;
+          final a2 =
+              await engine('std', 'multiply', {'left': a, 'right': a}) as num;
+          final b2 =
+              await engine('std', 'multiply', {'left': b, 'right': b}) as num;
           return a2 + b2;
         });
       final json = {
@@ -5884,7 +6352,8 @@ void main() {
         ..register('my_const', (_) => 42)
         ..registerComposer(
           'my_doubled',
-          (input, engine) async => (await engine('std', 'my_const', null) as int) * 2,
+          (input, engine) async =>
+              (await engine('std', 'my_const', null) as int) * 2,
         );
       final json = {
         'name': 'test',
@@ -6078,33 +6547,36 @@ void main() {
       expect(lines, ['6']);
     });
 
-    test('throws BallRuntimeError when no handler matches the module', () async {
-      final json = {
-        'name': 'test',
-        'version': '1.0.0',
-        'modules': [
-          {
-            'name': 'ghost',
-            'functions': [
-              {'name': 'foo', 'isBase': true},
-            ],
-          },
-          {
-            'name': 'main',
-            'functions': [
-              mainFn([stmt(call('foo', module: 'ghost', input: literal(1)))]),
-            ],
-          },
-        ],
-        'entryModule': 'main',
-        'entryFunction': 'main',
-      };
-      final prog = Program()..mergeFromProto3Json(json);
-      await expectLater(
-        BallEngine(prog, moduleHandlers: [StdModuleHandler()]).run(),
-        throwsA(isA<BallRuntimeError>()),
-      );
-    });
+    test(
+      'throws BallRuntimeError when no handler matches the module',
+      () async {
+        final json = {
+          'name': 'test',
+          'version': '1.0.0',
+          'modules': [
+            {
+              'name': 'ghost',
+              'functions': [
+                {'name': 'foo', 'isBase': true},
+              ],
+            },
+            {
+              'name': 'main',
+              'functions': [
+                mainFn([stmt(call('foo', module: 'ghost', input: literal(1)))]),
+              ],
+            },
+          ],
+          'entryModule': 'main',
+          'entryFunction': 'main',
+        };
+        final prog = Program()..mergeFromProto3Json(json);
+        await expectLater(
+          BallEngine(prog, moduleHandlers: [StdModuleHandler()]).run(),
+          throwsA(isA<BallRuntimeError>()),
+        );
+      },
+    );
   });
 
   group('engine: StdModuleHandler customisation', () {
@@ -6143,7 +6615,11 @@ void main() {
       };
       final prog = Program()..mergeFromProto3Json(json);
       final lines = <String>[];
-      await BallEngine(prog, stdout: lines.add, moduleHandlers: [stdHandler]).run();
+      await BallEngine(
+        prog,
+        stdout: lines.add,
+        moduleHandlers: [stdHandler],
+      ).run();
       expect(lines, ['hihi']);
     });
 
@@ -7490,10 +7966,17 @@ class _ComposingHandler extends BallModuleHandler {
   bool handles(String module) => module == 'mymath';
 
   @override
-  FutureOr<Object?> call(String function, Object? input, BallCallable engine) async {
+  FutureOr<Object?> call(
+    String function,
+    Object? input,
+    BallCallable engine,
+  ) async {
     if (function == 'abs_diff') {
       final m = input as Map<String, Object?>;
-      final diff = await engine('std', 'subtract', {'left': m['a'], 'right': m['b']});
+      final diff = await engine('std', 'subtract', {
+        'left': m['a'],
+        'right': m['b'],
+      });
       return engine('std', 'math_abs', {'value': diff});
     }
     throw BallRuntimeError('Unknown mymath function: "$function"');
@@ -7506,7 +7989,11 @@ class _UserFnDelegateHandler extends BallModuleHandler {
   bool handles(String module) => module == 'ops';
 
   @override
-  FutureOr<Object?> call(String function, Object? input, BallCallable engine) async {
+  FutureOr<Object?> call(
+    String function,
+    Object? input,
+    BallCallable engine,
+  ) async {
     if (function == 'quadruple') {
       final once = await engine('main', 'double_it', input);
       return engine('main', 'double_it', once);
@@ -7542,18 +8029,13 @@ Program _buildConstructorProgram({
   if (ctorBody != null) {
     ctorFunc['body'] = ctorBody;
   } else {
-    ctorFunc['body'] = msg(
-      [
-        field('__type__', literal(className)),
-        field('x', ref('x')),
-      ],
-    );
+    ctorFunc['body'] = msg([
+      field('__type__', literal(className)),
+      field('x', ref('x')),
+    ]);
   }
 
-  final mainFunc = <String, dynamic>{
-    'name': 'main',
-    'body': mainBody,
-  };
+  final mainFunc = <String, dynamic>{'name': 'main', 'body': mainBody};
 
   final programJson = {
     'name': 'test_ctor',
@@ -7601,10 +8083,7 @@ void _constructorCallableTests() {
     return {
       'expression': stdCall('assign', {
         'messageCreation': {
-          'fields': [
-            field('target', ref(name)),
-            field('value', value),
-          ],
+          'fields': [field('target', ref(name)), field('value', value)],
         },
       }),
     };
@@ -7616,10 +8095,7 @@ void _constructorCallableTests() {
         'messageCreation': {
           'fields': [
             field('message', {
-              'fieldAccess': {
-                'object': ref(varName),
-                'field': fieldName,
-              },
+              'fieldAccess': {'object': ref(varName), 'field': fieldName},
             }),
           ],
         },
@@ -7637,8 +8113,10 @@ void _constructorCallableTests() {
           'block': {
             'statements': [
               assignStmt('f', ref('Foo')),
-              assignStmt('obj',
-                  call('f', input: msg([field('x', literal(42))]))),
+              assignStmt(
+                'obj',
+                call('f', input: msg([field('x', literal(42))])),
+              ),
               printFieldStmt('obj', '__type__'),
             ],
           },
@@ -7658,8 +8136,10 @@ void _constructorCallableTests() {
         mainBody: {
           'block': {
             'statements': [
-              assignStmt('obj',
-                  call('Bar', input: msg([field('x', literal(99))]))),
+              assignStmt(
+                'obj',
+                call('Bar', input: msg([field('x', literal(99))])),
+              ),
               printFieldStmt('obj', '__type__'),
             ],
           },
@@ -7678,8 +8158,10 @@ void _constructorCallableTests() {
           'block': {
             'statements': [
               assignStmt('f', ref('Baz.new')),
-              assignStmt('obj',
-                  call('f', input: msg([field('x', literal(7))]))),
+              assignStmt(
+                'obj',
+                call('f', input: msg([field('x', literal(7))])),
+              ),
               printFieldStmt('obj', '__type__'),
             ],
           },
@@ -7804,9 +8286,7 @@ void _inheritanceTests() {
                     },
                   ],
                 },
-                'metadata': {
-                  'superclass': 'Animal',
-                },
+                'metadata': {'superclass': 'Animal'},
               },
             ],
           },
@@ -7904,9 +8384,7 @@ void _inheritanceTests() {
                           'messageCreation': {
                             'fields': [
                               field('message', {
-                                'call': {
-                                  'function': 'barkFn',
-                                },
+                                'call': {'function': 'barkFn'},
                               }),
                             ],
                           },
@@ -7934,9 +8412,7 @@ void _inheritanceTests() {
                           'messageCreation': {
                             'fields': [
                               field('message', {
-                                'call': {
-                                  'function': 'greetFn',
-                                },
+                                'call': {'function': 'greetFn'},
                               }),
                             ],
                           },
@@ -7950,20 +8426,12 @@ void _inheritanceTests() {
             'typeDefs': [
               {
                 'name': 'main:Animal',
-                'descriptor': {
-                  'name': 'Animal',
-                  'field': [],
-                },
+                'descriptor': {'name': 'Animal', 'field': []},
               },
               {
                 'name': 'main:Dog',
-                'descriptor': {
-                  'name': 'Dog',
-                  'field': [],
-                },
-                'metadata': {
-                  'superclass': 'Animal',
-                },
+                'descriptor': {'name': 'Dog', 'field': []},
+                'metadata': {'superclass': 'Animal'},
               },
             ],
           },
@@ -8055,9 +8523,7 @@ void _inheritanceTests() {
                           'messageCreation': {
                             'fields': [
                               field('message', {
-                                'call': {
-                                  'function': 'dogSpeak',
-                                },
+                                'call': {'function': 'dogSpeak'},
                               }),
                             ],
                           },
@@ -8101,9 +8567,7 @@ void _inheritanceTests() {
                           'messageCreation': {
                             'fields': [
                               field('message', {
-                                'call': {
-                                  'function': 'animalSpeak',
-                                },
+                                'call': {'function': 'animalSpeak'},
                               }),
                             ],
                           },
@@ -8117,20 +8581,12 @@ void _inheritanceTests() {
             'typeDefs': [
               {
                 'name': 'main:Animal',
-                'descriptor': {
-                  'name': 'Animal',
-                  'field': [],
-                },
+                'descriptor': {'name': 'Animal', 'field': []},
               },
               {
                 'name': 'main:Dog',
-                'descriptor': {
-                  'name': 'Dog',
-                  'field': [],
-                },
-                'metadata': {
-                  'superclass': 'Animal',
-                },
+                'descriptor': {'name': 'Dog', 'field': []},
+                'metadata': {'superclass': 'Animal'},
               },
             ],
           },
@@ -8178,11 +8634,16 @@ void _inheritanceTests() {
                   'block': {
                     'statements': [
                       // print(Foo().bar()) — method call with self
-                      stmt(printToString(
-                        call('bar', input: msg([
-                          field('self', msg([], typeName: 'main:Foo')),
-                        ])),
-                      )),
+                      stmt(
+                        printToString(
+                          call(
+                            'bar',
+                            input: msg([
+                              field('self', msg([], typeName: 'main:Foo')),
+                            ]),
+                          ),
+                        ),
+                      ),
                     ],
                   },
                 },
@@ -8227,10 +8688,13 @@ void _inheritanceTests() {
               {
                 'name': 'main:Foo.double_',
                 'metadata': {'kind': 'method'},
-                'body': stdCall('multiply', msg([
-                  field('left', fieldAcc(ref('self'), 'x')),
-                  field('right', literal(2)),
-                ])),
+                'body': stdCall(
+                  'multiply',
+                  msg([
+                    field('left', fieldAcc(ref('self'), 'x')),
+                    field('right', literal(2)),
+                  ]),
+                ),
               },
               // main function
               {
@@ -8239,13 +8703,21 @@ void _inheritanceTests() {
                   'block': {
                     'statements': [
                       // print(Foo(x:5).double_())
-                      stmt(printToString(
-                        call('double_', input: msg([
-                          field('self', msg([
-                            field('x', literal(5)),
-                          ], typeName: 'main:Foo')),
-                        ])),
-                      )),
+                      stmt(
+                        printToString(
+                          call(
+                            'double_',
+                            input: msg([
+                              field(
+                                'self',
+                                msg([
+                                  field('x', literal(5)),
+                                ], typeName: 'main:Foo'),
+                              ),
+                            ]),
+                          ),
+                        ),
+                      ),
                     ],
                   },
                 },
@@ -8309,11 +8781,16 @@ void _inheritanceTests() {
                   'block': {
                     'statements': [
                       // print(B().val()) — B inherits val from A
-                      stmt(printToString(
-                        call('val', input: msg([
-                          field('self', msg([], typeName: 'main:B')),
-                        ])),
-                      )),
+                      stmt(
+                        printToString(
+                          call(
+                            'val',
+                            input: msg([
+                              field('self', msg([], typeName: 'main:B')),
+                            ]),
+                          ),
+                        ),
+                      ),
                     ],
                   },
                 },
@@ -8327,9 +8804,7 @@ void _inheritanceTests() {
               {
                 'name': 'main:B',
                 'descriptor': {'name': 'B', 'field': []},
-                'metadata': {
-                  'superclass': 'A',
-                },
+                'metadata': {'superclass': 'A'},
               },
             ],
           },
@@ -8374,7 +8849,9 @@ void _inheritanceTests() {
                     'fields': [
                       {
                         'name': '_x',
-                        'value': {'literal': {'intValue': '5'}},
+                        'value': {
+                          'literal': {'intValue': '5'},
+                        },
                       },
                     ],
                   },
@@ -8395,14 +8872,18 @@ void _inheritanceTests() {
                             'name': 'left',
                             'value': {
                               'fieldAccess': {
-                                'object': {'reference': {'name': 'self'}},
+                                'object': {
+                                  'reference': {'name': 'self'},
+                                },
                                 'field': '_x',
                               },
                             },
                           },
                           {
                             'name': 'right',
-                            'value': {'literal': {'intValue': '2'}},
+                            'value': {
+                              'literal': {'intValue': '2'},
+                            },
                           },
                         ],
                       },
@@ -8426,16 +8907,16 @@ void _inheritanceTests() {
                               'fields': [
                                 {
                                   'name': '_x',
-                                  'value': {'literal': {'intValue': '5'}},
+                                  'value': {
+                                    'literal': {'intValue': '5'},
+                                  },
                                 },
                               ],
                             },
                           },
                         },
                       },
-                      stmt(printToString(
-                        fieldAcc(ref('foo'), 'doubled'),
-                      )),
+                      stmt(printToString(fieldAcc(ref('foo'), 'doubled'))),
                     ],
                   },
                 },
@@ -8481,7 +8962,9 @@ void _inheritanceTests() {
                 'name': 'main:Foo.x',
                 'body': {
                   'fieldAccess': {
-                    'object': {'reference': {'name': 'self'}},
+                    'object': {
+                      'reference': {'name': 'self'},
+                    },
                     'field': '_x',
                   },
                 },
@@ -8506,14 +8989,18 @@ void _inheritanceTests() {
                                     'name': 'target',
                                     'value': {
                                       'fieldAccess': {
-                                        'object': {'reference': {'name': 'self'}},
+                                        'object': {
+                                          'reference': {'name': 'self'},
+                                        },
                                         'field': '_x',
                                       },
                                     },
                                   },
                                   {
                                     'name': 'value',
-                                    'value': {'reference': {'name': 'value'}},
+                                    'value': {
+                                      'reference': {'name': 'value'},
+                                    },
                                   },
                                 ],
                               },
@@ -8527,7 +9014,9 @@ void _inheritanceTests() {
                 'metadata': {
                   'kind': 'method',
                   'is_setter': true,
-                  'params': [{'name': 'value', 'type': 'int'}],
+                  'params': [
+                    {'name': 'value', 'type': 'int'},
+                  ],
                 },
               },
               // main
@@ -8545,7 +9034,9 @@ void _inheritanceTests() {
                               'fields': [
                                 {
                                   'name': '_x',
-                                  'value': {'literal': {'intValue': '0'}},
+                                  'value': {
+                                    'literal': {'intValue': '0'},
+                                  },
                                 },
                               ],
                             },
@@ -8566,14 +9057,18 @@ void _inheritanceTests() {
                                     'name': 'target',
                                     'value': {
                                       'fieldAccess': {
-                                        'object': {'reference': {'name': 'f'}},
+                                        'object': {
+                                          'reference': {'name': 'f'},
+                                        },
                                         'field': 'x',
                                       },
                                     },
                                   },
                                   {
                                     'name': 'value',
-                                    'value': {'literal': {'intValue': '42'}},
+                                    'value': {
+                                      'literal': {'intValue': '42'},
+                                    },
                                   },
                                 ],
                               },
@@ -8582,9 +9077,7 @@ void _inheritanceTests() {
                         },
                       },
                       // print(f.x)
-                      stmt(printToString(
-                        fieldAcc(ref('f'), 'x'),
-                      )),
+                      stmt(printToString(fieldAcc(ref('f'), 'x'))),
                     ],
                   },
                 },
@@ -8626,16 +9119,16 @@ void _inheritanceTests() {
             'functions': [
               {
                 'name': 'answer',
-                'body': {'literal': {'intValue': '42'}},
+                'body': {
+                  'literal': {'intValue': '42'},
+                },
                 'metadata': {'kind': 'function', 'is_getter': true},
               },
               {
                 'name': 'main',
                 'body': {
                   'block': {
-                    'statements': [
-                      stmt(printToString(ref('answer'))),
-                    ],
+                    'statements': [stmt(printToString(ref('answer')))],
                   },
                 },
               },
@@ -8697,10 +9190,7 @@ void _inheritanceTests() {
         'body': operatorBody,
       };
 
-      final mainFunc = <String, dynamic>{
-        'name': 'main',
-        'body': mainBody,
-      };
+      final mainFunc = <String, dynamic>{'name': 'main', 'body': mainBody};
 
       final programJson = {
         'name': 'test_operator',
@@ -8765,44 +9255,69 @@ void _inheritanceTests() {
         operatorSymbol: '+',
         operatorBody: msg([
           field('__type__', literal('main:Point')),
-          field('x', stdCall('add', msg([
-            field('left', {
-              'fieldAccess': {'object': ref('self'), 'field': 'x'},
-            }),
-            field('right', {
-              'fieldAccess': {'object': ref('other'), 'field': 'x'},
-            }),
-          ]))),
-          field('y', stdCall('add', msg([
-            field('left', {
-              'fieldAccess': {'object': ref('self'), 'field': 'y'},
-            }),
-            field('right', {
-              'fieldAccess': {'object': ref('other'), 'field': 'y'},
-            }),
-          ]))),
+          field(
+            'x',
+            stdCall(
+              'add',
+              msg([
+                field('left', {
+                  'fieldAccess': {'object': ref('self'), 'field': 'x'},
+                }),
+                field('right', {
+                  'fieldAccess': {'object': ref('other'), 'field': 'x'},
+                }),
+              ]),
+            ),
+          ),
+          field(
+            'y',
+            stdCall(
+              'add',
+              msg([
+                field('left', {
+                  'fieldAccess': {'object': ref('self'), 'field': 'y'},
+                }),
+                field('right', {
+                  'fieldAccess': {'object': ref('other'), 'field': 'y'},
+                }),
+              ]),
+            ),
+          ),
         ]),
         mainBody: {
           'block': {
             'statements': [
-              letStmt('a', call('Point', input: msg([
-                field('x', literal(1)),
-                field('y', literal(2)),
-              ]))),
-              letStmt('b', call('Point', input: msg([
-                field('x', literal(3)),
-                field('y', literal(4)),
-              ]))),
-              letStmt('c', stdCall('add', msg([
-                field('left', ref('a')),
-                field('right', ref('b')),
-              ]))),
-              stmt(printToString({
-                'fieldAccess': {'object': ref('c'), 'field': 'x'},
-              })),
-              stmt(printToString({
-                'fieldAccess': {'object': ref('c'), 'field': 'y'},
-              })),
+              letStmt(
+                'a',
+                call(
+                  'Point',
+                  input: msg([field('x', literal(1)), field('y', literal(2))]),
+                ),
+              ),
+              letStmt(
+                'b',
+                call(
+                  'Point',
+                  input: msg([field('x', literal(3)), field('y', literal(4))]),
+                ),
+              ),
+              letStmt(
+                'c',
+                stdCall(
+                  'add',
+                  msg([field('left', ref('a')), field('right', ref('b'))]),
+                ),
+              ),
+              stmt(
+                printToString({
+                  'fieldAccess': {'object': ref('c'), 'field': 'x'},
+                }),
+              ),
+              stmt(
+                printToString({
+                  'fieldAccess': {'object': ref('c'), 'field': 'y'},
+                }),
+              ),
             ],
           },
         },
@@ -8818,50 +9333,82 @@ void _inheritanceTests() {
       final program = buildOperatorProgram(
         className: 'Token',
         operatorSymbol: '==',
-        operatorBody: stdCall('and', msg([
-          field('left', stdCall('equals', msg([
-            field('left', {
-              'fieldAccess': {'object': ref('self'), 'field': 'x'},
-            }),
-            field('right', {
-              'fieldAccess': {'object': ref('other'), 'field': 'x'},
-            }),
-          ]))),
-          field('right', stdCall('equals', msg([
-            field('left', {
-              'fieldAccess': {'object': ref('self'), 'field': 'y'},
-            }),
-            field('right', {
-              'fieldAccess': {'object': ref('other'), 'field': 'y'},
-            }),
-          ]))),
-        ])),
+        operatorBody: stdCall(
+          'and',
+          msg([
+            field(
+              'left',
+              stdCall(
+                'equals',
+                msg([
+                  field('left', {
+                    'fieldAccess': {'object': ref('self'), 'field': 'x'},
+                  }),
+                  field('right', {
+                    'fieldAccess': {'object': ref('other'), 'field': 'x'},
+                  }),
+                ]),
+              ),
+            ),
+            field(
+              'right',
+              stdCall(
+                'equals',
+                msg([
+                  field('left', {
+                    'fieldAccess': {'object': ref('self'), 'field': 'y'},
+                  }),
+                  field('right', {
+                    'fieldAccess': {'object': ref('other'), 'field': 'y'},
+                  }),
+                ]),
+              ),
+            ),
+          ]),
+        ),
         extraStdFunctions: ['and'],
         mainBody: {
           'block': {
             'statements': [
-              letStmt('a', call('Token', input: msg([
-                field('x', literal(1)),
-                field('y', literal(2)),
-              ]))),
-              letStmt('b', call('Token', input: msg([
-                field('x', literal(1)),
-                field('y', literal(2)),
-              ]))),
-              letStmt('c', call('Token', input: msg([
-                field('x', literal(1)),
-                field('y', literal(99)),
-              ]))),
+              letStmt(
+                'a',
+                call(
+                  'Token',
+                  input: msg([field('x', literal(1)), field('y', literal(2))]),
+                ),
+              ),
+              letStmt(
+                'b',
+                call(
+                  'Token',
+                  input: msg([field('x', literal(1)), field('y', literal(2))]),
+                ),
+              ),
+              letStmt(
+                'c',
+                call(
+                  'Token',
+                  input: msg([field('x', literal(1)), field('y', literal(99))]),
+                ),
+              ),
               // a == b should be true (same x and y)
-              stmt(printToString(stdCall('equals', msg([
-                field('left', ref('a')),
-                field('right', ref('b')),
-              ])))),
+              stmt(
+                printToString(
+                  stdCall(
+                    'equals',
+                    msg([field('left', ref('a')), field('right', ref('b'))]),
+                  ),
+                ),
+              ),
               // a == c should be false (different y)
-              stmt(printToString(stdCall('equals', msg([
-                field('left', ref('a')),
-                field('right', ref('c')),
-              ])))),
+              stmt(
+                printToString(
+                  stdCall(
+                    'equals',
+                    msg([field('left', ref('a')), field('right', ref('c'))]),
+                  ),
+                ),
+              ),
             ],
           },
         },

@@ -1,0 +1,27 @@
+Task 6.4 edge fixtures — verification evidence
+
+Diagnostics:
+- tests/conformance/src/192_overflow_and_large_numbers.dart — No diagnostics found
+- tests/conformance/src/193_unicode_and_special_characters.dart — No diagnostics found
+- tests/conformance/src/194_null_handling.dart — No diagnostics found
+- tests/conformance/src/195_deep_nesting.dart — No diagnostics found
+
+Test: dart test test/conformance_test.dart --name "192"
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 192_overflow_and_large_numbers
+00:00 +1: All tests passed!
+
+Test: dart test test/conformance_test.dart --name "193"
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 193_unicode_and_special_characters
+00:00 +1: All tests passed!
+
+Test: dart test test/conformance_test.dart --name "194"
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 194_null_handling
+00:00 +1: All tests passed!
+
+Test: dart test test/conformance_test.dart --name "195"
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 195_deep_nesting
+00:00 +1: All tests passed!

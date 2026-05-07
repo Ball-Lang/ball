@@ -1,0 +1,132 @@
+CONFORMANCE COVERAGE ANALYSIS
+==============================
+
+Total Fixtures: 171
+Total Base Functions: 187
+Coverage: 171/187 = 91.44%
+
+Missing Coverage:
+- std.assert
+- std.await
+- std.double_to_string
+- std.goto
+- std.int_to_string
+- std.is_not
+- std.label
+- std.length
+- std.math_acos
+- std.math_asin
+- std.math_atan
+- std.math_atan2
+- std.math_ceil
+- std.math_cos
+- std.math_e
+- std.math_exp
+- std.math_floor
+- std.math_gcd
+- std.math_infinity
+- std.math_is_finite
+- std.math_is_infinite
+- std.math_is_nan
+- std.math_lcm
+- std.math_log
+- std.math_log10
+- std.math_log2
+- std.math_max
+- std.math_min
+- std.math_nan
+- std.math_pi
+- std.math_pow
+- std.math_round
+- std.math_sign
+- std.math_sin
+- std.math_sqrt
+- std.math_tan
+- std.math_trunc
+- std.pre_decrement
+- std.pre_increment
+- std.regex_find
+- std.regex_find_all
+- std.regex_match
+- std.regex_replace
+- std.regex_replace_all
+- std.string_char_at
+- std.string_char_code_at
+- std.string_concat
+- std.string_contains
+- std.string_ends_with
+- std.string_from_char_code
+- std.string_index_of
+- std.string_is_empty
+- std.string_last_index_of
+- std.string_length
+- std.string_pad_left
+- std.string_pad_right
+- std.string_repeat
+- std.string_replace
+- std.string_replace_all
+- std.string_starts_with
+- std.string_to_double
+- std.string_trim_end
+- std.string_trim_start
+- std.unsigned_right_shift
+- std_collections.list_all
+- std_collections.list_any
+- std_collections.list_concat
+- std_collections.list_drop
+- std_collections.list_filter
+- std_collections.list_find
+- std_collections.list_first
+- std_collections.list_flat_map
+- std_collections.list_get
+- std_collections.list_index_of
+- std_collections.list_insert
+- std_collections.list_is_empty
+- std_collections.list_last
+- std_collections.list_length
+- std_collections.list_none
+- std_collections.list_reduce
+- std_collections.list_reverse
+- std_collections.list_set
+- std_collections.list_single
+- std_collections.list_sort_by
+- std_collections.list_take
+- std_collections.list_zip
+- std_collections.map_delete
+- std_collections.map_entries
+- std_collections.map_filter
+- std_collections.map_from_entries
+- std_collections.map_get
+- std_collections.map_is_empty
+- std_collections.map_keys
+- std_collections.map_length
+- std_collections.map_map
+- std_collections.map_merge
+- std_collections.map_set
+- std_collections.map_values
+- std_collections.set_add
+- std_collections.set_contains
+- std_collections.set_create
+- std_collections.set_difference
+- std_collections.set_intersection
+- std_collections.set_is_empty
+- std_collections.set_length
+- std_collections.set_remove
+- std_collections.set_to_list
+- std_collections.set_union
+- std_collections.string_join
+- std_io.args_get
+- std_io.env_get
+- std_io.exit
+- std_io.panic
+- std_io.print_error
+- std_io.random_double
+- std_io.random_int
+- std_io.read_line
+- std_io.sleep_ms
+
+Covered Modules:
+- std: 67/118 functions
+- std_collections: 12/53 functions
+- std_io: 1/10 functions
+- std_convert: 6/6 functions

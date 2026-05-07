@@ -12,147 +12,302 @@ extension BallEngineInvocation on BallEngine {
     FunctionDefinition func,
     Object? input,
   ) async {
+    final kind = func.hasMetadata()
+        ? func.metadata.fields['kind']?.stringValue
+        : null;
+
     if (func.isBase) {
       return _callBaseFunction(moduleName, func.name, input);
     }
 
-    // Constructor without body: build an instance from `is_this` params.
-    if (!func.hasBody()) {
-      if (func.hasMetadata()) {
-        final kindField = func.metadata.fields['kind'];
-        if (kindField?.stringValue == 'constructor') {
-          return _buildConstructorInstance(moduleName, func, input);
-        }
-      }
-      return null;
+    if (_recursionDepth >= maxRecursionDepth) {
+      throw BallRuntimeError(
+        'Maximum recursion depth exceeded: $maxRecursionDepth',
+      );
     }
 
-    final prevModule = _currentModule;
-    _currentModule = moduleName;
-    final scope = _Scope(_globalScope);
-
-    // Bind 'input' to the raw input first (as a fallback reference).
-    // Parameter extraction below may override this with the extracted value
-    // when the parameter name is 'input' or matches a named field.
-    if (func.inputType.isNotEmpty && input != null) {
-      scope.bind('input', input);
-    }
-
-// Bind parameters: use pre-built param cache for O(1) lookup.
-    // This overrides the raw 'input' binding when the param name is 'input'.
-    final params =
-        _paramCache['$moduleName.${func.name}'] ??
-        (func.hasMetadata() ? _extractParams(func.metadata) : const []);
-    final inputMap = _asMap(input);
-    if (params.isNotEmpty) {
-      if (params.length == 1 &&
-          !(inputMap != null && inputMap.containsKey('self'))) {
-        // Single parameter — bind the input directly (but not for instance
-        // methods where `self` is mixed in; those use the map extraction path).
-        // If input is a map with positional args (arg0), extract the value.
-        if (inputMap != null &&
-            inputMap.containsKey('arg0') &&
-            !inputMap.containsKey(params[0])) {
-          scope.bind(params[0], inputMap['arg0']);
-        } else {
-          scope.bind(params[0], input);
-        }
-      } else if (inputMap != null) {
-        // Multiple parameters — named args or positional arg0/arg1.
-        for (var i = 0; i < params.length; i++) {
-          final p = params[i];
-          if (inputMap.containsKey(p)) {
-            scope.bind(p, inputMap[p]);
-          } else if (inputMap.containsKey('arg$i')) {
-            scope.bind(p, inputMap['arg$i']);
+    _recursionDepth++;
+    try {
+      // Constructor without body: build an instance from `is_this` params.
+      if (!func.hasBody()) {
+        if (func.hasMetadata()) {
+          if (kind == 'constructor') {
+            return _buildConstructorInstance(moduleName, func, input);
           }
         }
-      } else if (input is List) {
-        // Positional args as list.
-        for (var i = 0; i < params.length && i < input.length; i++) {
-          scope.bind(params[i], input[i]);
+        return null;
+      }
+
+      if (kind == 'constructor') {
+        final constructorInput = _asMap(input);
+        final dotIdx = func.name.indexOf('.');
+        final typeName = dotIdx >= 0
+            ? func.name.substring(0, dotIdx)
+            : func.name;
+        if ((constructorInput == null ||
+                !constructorInput.containsKey('self')) &&
+            _findTypeDef(typeName) != null) {
+          return _callObjectConstructor(moduleName, func, input);
         }
       }
-    }
 
-    // Bind 'self' for instance method calls so `this` references resolve.
-    // Also bind all fields from self into scope so methods can reference
-    // `x` instead of `self.x`.
-    if (inputMap != null && inputMap.containsKey('self')) {
-      final self = inputMap['self'];
-      scope.bind('self', self);
-      final selfMap = _asMap(self);
-      if (selfMap != null) {
-        // Bind direct fields. Use temporary debug to trace.
-        for (final entry in selfMap.entries) {
-          if (!entry.key.startsWith('__')) {
-            scope.bind(entry.key, entry.value);
+      final prevModule = _currentModule;
+      _currentModule = moduleName;
+      final scope = _Scope(_globalScope);
+
+      // Bind 'input' to the raw input first (as a fallback reference).
+      // Parameter extraction below may override this with the extracted value
+      // when the parameter name is 'input' or matches a named field.
+      if (func.inputType.isNotEmpty && input != null) {
+        scope.bind('input', input);
+      }
+
+      // Bind parameters: use pre-built param cache for O(1) lookup.
+      // This overrides the raw 'input' binding when the param name is 'input'.
+      final params =
+          _paramCache['$moduleName.${func.name}'] ??
+          (func.hasMetadata() ? _extractParams(func.metadata) : const []);
+      final inputMap = _asMap(input);
+      if (params.isNotEmpty) {
+        if (params.length == 1 &&
+            !(inputMap != null && inputMap.containsKey('self'))) {
+          // Single parameter — bind the input directly (but not for instance
+          // methods where `self` is mixed in; those use the map extraction path).
+          // If input is a map with positional args (arg0), extract the value.
+          if (inputMap != null &&
+              inputMap.containsKey('arg0') &&
+              !inputMap.containsKey(params[0])) {
+            scope.bind(params[0], inputMap['arg0']);
+          } else {
+            scope.bind(params[0], input);
+          }
+        } else if (inputMap != null) {
+          // Multiple parameters — named args or positional arg0/arg1.
+          for (var i = 0; i < params.length; i++) {
+            final p = params[i];
+            if (inputMap.containsKey(p)) {
+              scope.bind(p, inputMap[p]);
+            } else if (inputMap.containsKey('arg$i')) {
+              scope.bind(p, inputMap['arg$i']);
+            }
+          }
+        } else if (input is List) {
+          // Positional args as list.
+          for (var i = 0; i < params.length && i < input.length; i++) {
+            scope.bind(params[i], input[i]);
           }
         }
-        // Also bind inherited fields from __super__ chain.
-        var superObj = _asMap(selfMap['__super__']);
-        while (superObj != null) {
-          for (final entry in superObj.entries) {
-            if (!entry.key.startsWith('__') && !scope.has(entry.key)) {
+      }
+
+      // Bind 'self' for instance method calls so `this` references resolve.
+      // Also bind all fields from self into scope so methods can reference
+      // `x` instead of `self.x`.
+      if (inputMap != null && inputMap.containsKey('self')) {
+        final self = inputMap['self'];
+        scope.bind('self', self);
+        final selfMap = _asMap(self);
+        if (selfMap != null) {
+          // Bind direct fields. Use temporary debug to trace.
+          for (final entry in selfMap.entries) {
+            if (!entry.key.startsWith('__')) {
               scope.bind(entry.key, entry.value);
             }
           }
-          superObj = _asMap(superObj['__super__']);
+          // Also bind inherited fields from __super__ chain.
+          var superObj = _asMap(selfMap['__super__']);
+          while (superObj != null) {
+            for (final entry in superObj.entries) {
+              if (!entry.key.startsWith('__') && !scope.has(entry.key)) {
+                scope.bind(entry.key, entry.value);
+              }
+            }
+            superObj = _asMap(superObj['__super__']);
+          }
+
+          final superValue = selfMap['__super__'];
+          if (superValue != null) {
+            scope.bind('super', superValue);
+          }
+          if (kind == 'constructor') {
+            final typeName = selfMap['__type__'];
+            if (typeName is String)
+              scope.bind('__constructor_type__', typeName);
+          }
         }
       }
-    }
 
-    // Generator support: sync* and async* functions collect yielded values
-    // into a BallGenerator. Create one and bind it in scope so std.yield
-    // and dart_std.yield_each can add values to it.
-    final isSyncStar = func.hasMetadata() &&
-        (func.metadata.fields['is_sync_star']?.boolValue ?? false);
-    final isAsyncStar = func.hasMetadata() &&
-        (func.metadata.fields['is_async_star']?.boolValue ?? false);
-    final isGenerator = func.hasMetadata() &&
-        (func.metadata.fields['is_generator']?.boolValue ?? false);
-    final isGenFunc = isSyncStar || isAsyncStar || isGenerator;
+      // Generator support: sync* and async* functions collect yielded values
+      // into a BallGenerator. Create one and bind it in scope so std.yield
+      // and dart_std.yield_each can add values to it.
+      final isSyncStar =
+          func.hasMetadata() &&
+          (func.metadata.fields['is_sync_star']?.boolValue ?? false);
+      final isAsyncStar =
+          func.hasMetadata() &&
+          (func.metadata.fields['is_async_star']?.boolValue ?? false);
+      final isGenerator =
+          func.hasMetadata() &&
+          (func.metadata.fields['is_generator']?.boolValue ?? false);
+      final isGenFunc = isSyncStar || isAsyncStar || isGenerator;
 
-    BallGenerator? generator;
-    if (isGenFunc) {
-      generator = BallGenerator();
-      scope.bind('__generator__', generator);
-    }
-
-    final result = await _evalExpression(func.body, scope);
-    _currentModule = prevModule;
-
-    Object? finalResult;
-    if (result is _FlowSignal && result.kind == 'return') {
-      finalResult = result.value;
-    } else {
-      finalResult = result;
-    }
-
-    // Generator: return collected values as a list.
-    if (isGenFunc && generator != null) {
-      generator.completed = true;
-      final values = generator.values;
-      if (isAsyncStar) {
-        // async* → BallFuture of list
-        return _ballFuture(values);
+      BallGenerator? generator;
+      if (isGenFunc) {
+        generator = BallGenerator();
+        scope.bind('__generator__', generator);
       }
-      // sync* → plain list
-      return values;
-    }
 
-    // Wrap async function results in BallFuture for synchronous simulation.
-    if (func.hasMetadata()) {
-      final asyncField = func.metadata.fields['is_async'];
-      if (asyncField != null && asyncField.boolValue) {
+      // Detect async functions for error-wrapping.
+      final isAsync =
+          func.hasMetadata() &&
+          (func.metadata.fields['is_async']?.boolValue ?? false);
+
+      Object? finalResult;
+      if (isAsync && !isGenFunc) {
+        // Async (non-generator) function: wrap errors in BallFutureError
+        // so that `await` can rethrow them at the call site.
+        try {
+          final result = await _evalExpression(func.body, scope);
+          _currentModule = prevModule;
+          if (result is _FlowSignal && result.kind == 'return') {
+            finalResult = result.value;
+          } else {
+            finalResult = result;
+          }
+        } catch (e) {
+          _currentModule = prevModule;
+          return _ballFutureError(e);
+        }
+      } else {
+        final result = await _evalExpression(func.body, scope);
+        _currentModule = prevModule;
+
+        if (kind == 'constructor' &&
+            inputMap != null &&
+            inputMap.containsKey('self')) {
+          if (result is _FlowSignal && result.kind == 'return') {
+            finalResult = result.value;
+          } else {
+            finalResult = inputMap['self'];
+          }
+        } else if (result is _FlowSignal && result.kind == 'return') {
+          // Early return in a generator: stop yielding immediately.
+          // The return value is ignored for generators — only collected
+          // values matter. For non-generators, the return value is the result.
+          if (isGenFunc && generator != null) {
+            // Generator early return: just finalize with collected values.
+            // The return value is discarded per Dart sync*/async* semantics.
+          } else {
+            finalResult = result.value;
+          }
+        } else {
+          finalResult = result;
+        }
+      }
+
+      // Generator: return collected values as a list.
+      if (isGenFunc && generator != null) {
+        generator.completed = true;
+        final values = generator.values;
+        if (isAsyncStar) {
+          // async* → BallFuture of list
+          return _ballFuture(values);
+        }
+        // sync* → plain list (never null, even if empty)
+        return values;
+      }
+
+      // Wrap async function results in BallFuture for synchronous simulation.
+      if (isAsync) {
         // async function → wrap return value in BallFuture
         if (!_isBallFuture(finalResult)) {
           return _ballFuture(finalResult);
         }
       }
+
+      return finalResult;
+    } finally {
+      _recursionDepth--;
+    }
+  }
+
+  Future<Object?> _callObjectConstructor(
+    String moduleName,
+    FunctionDefinition func,
+    Object? input,
+  ) async {
+    final dotIdx = func.name.indexOf('.');
+    final typeName = dotIdx >= 0 ? func.name.substring(0, dotIdx) : func.name;
+    final typeDef = _findTypeDef(typeName);
+    if (typeDef == null) return null;
+
+    final inputMap = _asMap(input) ?? <String, Object?>{'arg0': input};
+    final instanceFields = <String, Object?>{};
+    for (final fieldName in typeDef.fieldNames) {
+      instanceFields[fieldName] = null;
     }
 
-    return finalResult;
+    final allFieldNames = _collectAllFieldNames(typeName);
+    final params = func.hasMetadata()
+        ? _extractParams(func.metadata)
+        : const <String>[];
+    final paramsMeta = func.hasMetadata()
+        ? _extractParamsMeta(func.metadata)
+        : const <Map<String, Object?>>[];
+    final resolvedParams = <String, Object?>{};
+
+    for (var i = 0; i < params.length; i++) {
+      final param = params[i];
+      Object? value;
+      if (inputMap.containsKey(param)) {
+        value = inputMap[param];
+      } else if (inputMap.containsKey('arg$i')) {
+        value = inputMap['arg$i'];
+      }
+      if (value == null &&
+          i < paramsMeta.length &&
+          paramsMeta[i].containsKey('default')) {
+        value = paramsMeta[i]['default'];
+      }
+      resolvedParams[param] = value;
+
+      final isThis = i < paramsMeta.length && paramsMeta[i]['is_this'] == true;
+      if (isThis || allFieldNames.contains(param)) {
+        instanceFields[param] = value;
+      } else if (params.length == 1 && allFieldNames.length == 1) {
+        instanceFields[allFieldNames.first] = value;
+      }
+    }
+
+    _initFieldDefaults(typeName, instanceFields);
+
+    final superclass = _getMetaString(typeDef, 'superclass');
+    Object? superObject;
+    if (superclass != null && superclass.isNotEmpty) {
+      superObject = await _invokeSuperConstructor(
+        func,
+        superclass,
+        resolvedParams,
+      );
+      superObject ??= _buildSuperObject(superclass, instanceFields);
+    }
+    final methods = _resolveTypeMethodsWithInheritance(typeName);
+    final instance = BallObject(
+      typeName: typeName,
+      superObject: superObject,
+      fields: instanceFields,
+      methods: methods.cast<String, Object?>(),
+    );
+
+    final ctorInput = <String, Object?>{}
+      ..addAll(inputMap)
+      ..addAll(resolvedParams)
+      ..['self'] = instance;
+    final constructed = await _callFunction(moduleName, func, ctorInput);
+    final constructedMap = _asMap(constructed);
+    if (constructedMap != null && constructedMap.containsKey('__type__')) {
+      return constructed;
+    }
+    return instance;
   }
 
   /// Build a class instance from a constructor with no body.
@@ -163,7 +318,9 @@ extension BallEngineInvocation on BallEngine {
     FunctionDefinition func,
     Object? input,
   ) async {
-    final params = func.hasMetadata() ? _extractParams(func.metadata) : const <String>[];
+    final params = func.hasMetadata()
+        ? _extractParams(func.metadata)
+        : const <String>[];
     final paramsMeta = _extractParamsMeta(func.metadata);
 
     final instance = <String, Object?>{};
@@ -181,7 +338,8 @@ extension BallEngineInvocation on BallEngine {
     if (inputMap != null) {
       for (var i = 0; i < params.length; i++) {
         final p = params[i];
-        final isThis = i < paramsMeta.length && paramsMeta[i]['is_this'] == true;
+        final isThis =
+            i < paramsMeta.length && paramsMeta[i]['is_this'] == true;
         Object? val;
         if (inputMap.containsKey(p)) {
           val = inputMap[p];
@@ -234,7 +392,9 @@ extension BallEngineInvocation on BallEngine {
                 instance[name] = false;
               } else if (num.tryParse(valStr) != null) {
                 final numVal = num.parse(valStr);
-                instance[name] = valStr.contains('.') ? BallDouble(numVal.toDouble()) : numVal.toInt();
+                instance[name] = valStr.contains('.')
+                    ? BallDouble(numVal.toDouble())
+                    : numVal.toInt();
               } else {
                 // Try as a param/variable reference.
                 instance[name] = resolvedParams[valStr] ?? valStr;
@@ -259,7 +419,9 @@ extension BallEngineInvocation on BallEngine {
       if (superclass != null && superclass.isNotEmpty) {
         // Check for super() initializer in constructor metadata.
         final superInstance = await _invokeSuperConstructor(
-          func, superclass, resolvedParams,
+          func,
+          superclass,
+          resolvedParams,
         );
         final superMap = _asMap(superInstance);
         if (superMap != null) {
@@ -311,12 +473,14 @@ extension BallEngineInvocation on BallEngine {
               if (resolvedParams.containsKey(token)) {
                 superInput['arg$i'] = resolvedParams[token];
               } else if ((token.startsWith("'") && token.endsWith("'")) ||
-                         (token.startsWith('"') && token.endsWith('"'))) {
+                  (token.startsWith('"') && token.endsWith('"'))) {
                 // String literal: strip quotes.
                 superInput['arg$i'] = token.substring(1, token.length - 1);
               } else if (num.tryParse(token) != null) {
                 final n = num.parse(token);
-                superInput['arg$i'] = token.contains('.') ? n.toDouble() : n.toInt();
+                superInput['arg$i'] = token.contains('.')
+                    ? n.toDouble()
+                    : n.toInt();
               } else if (token == 'true') {
                 superInput['arg$i'] = true;
               } else if (token == 'false') {
@@ -326,7 +490,11 @@ extension BallEngineInvocation on BallEngine {
             // Find and invoke the super constructor.
             final superCtorEntry = _lookupConstructor(superclass);
             if (superCtorEntry != null) {
-              return _callFunction(superCtorEntry.module, superCtorEntry.func, superInput);
+              return _callFunction(
+                superCtorEntry.module,
+                superCtorEntry.func,
+                superInput,
+              );
             }
           }
         }
@@ -341,7 +509,11 @@ extension BallEngineInvocation on BallEngine {
       for (var i = 0; i < resolvedParams.length; i++) {
         superInput['arg$i'] = resolvedParams.values.elementAt(i);
       }
-      return _callFunction(superCtorEntry.module, superCtorEntry.func, superInput);
+      return _callFunction(
+        superCtorEntry.module,
+        superCtorEntry.func,
+        superInput,
+      );
     }
 
     return null;
@@ -376,7 +548,11 @@ extension BallEngineInvocation on BallEngine {
         ? trimmed.substring(1, trimmed.length - 1)
         : trimmed;
     if (inner.isEmpty) return [];
-    return inner.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    return inner
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
   }
 
   /// Extract full parameter metadata (not just names) from function metadata.
@@ -482,7 +658,8 @@ extension BallEngineInvocation on BallEngine {
   Future<Module?> _tryLazyResolve(String moduleName) async {
     for (final m in program.modules) {
       for (final import_ in m.moduleImports) {
-        if (import_.name == moduleName && import_.whichSource() != ModuleImport_Source.notSet) {
+        if (import_.name == moduleName &&
+            import_.whichSource() != ModuleImport_Source.notSet) {
           try {
             return await _resolver!.resolve(import_);
           } catch (_) {}

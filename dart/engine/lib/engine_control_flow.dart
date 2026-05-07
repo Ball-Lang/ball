@@ -29,9 +29,9 @@ extension BallEngineControlFlow on BallEngine {
     }
     final condVal = await _evalExpression(condition, scope);
     if (_toBool(condVal)) {
-      return _evalExpression(thenBranch, scope);
+      return await _evalExpression(thenBranch, scope);
     } else if (elseBranch != null) {
-      return _evalExpression(elseBranch, scope);
+      return await _evalExpression(elseBranch, scope);
     }
     return null;
   }
@@ -68,7 +68,9 @@ extension BallEngineControlFlow on BallEngine {
           final rawVal = match.group(2)!.trim();
           // Try parsing as simple literal first.
           final intParsed = int.tryParse(rawVal);
-          final doubleParsed = intParsed == null ? double.tryParse(rawVal) : null;
+          final doubleParsed = intParsed == null
+              ? double.tryParse(rawVal)
+              : null;
           Object? parsed;
           if (intParsed != null) {
             parsed = intParsed;
@@ -117,7 +119,9 @@ extension BallEngineControlFlow on BallEngine {
   /// Handles patterns like: "5", "s.length - 1", "i * i", "n", "arr.length".
   Object? _evalSimpleInitExpr(String rawVal, _Scope scope) {
     // "var.prop OP number" pattern (e.g., "s.length - 1").
-    final propOpNum = RegExp(r'^(\w+)\.(\w+)\s*([+\-*/])\s*(\d+)$').firstMatch(rawVal);
+    final propOpNum = RegExp(
+      r'^(\w+)\.(\w+)\s*([+\-*/])\s*(\d+)$',
+    ).firstMatch(rawVal);
     if (propOpNum != null) {
       final ref = propOpNum.group(1)!;
       final prop = propOpNum.group(2)!;
@@ -126,12 +130,18 @@ extension BallEngineControlFlow on BallEngine {
       if (scope.has(ref)) {
         final obj = scope.lookup(ref);
         num? propVal;
-        if (obj is BallString && prop == 'length') propVal = obj.value.length;
-        else if (obj is String && prop == 'length') propVal = obj.length;
-        else if (obj is BallList && prop == 'length') propVal = obj.items.length;
-        else if (obj is List && prop == 'length') propVal = obj.length;
-        else if (obj is BallMap && prop == 'length') propVal = obj.entries.length;
-        else if (obj is Map && prop == 'length') propVal = obj.length;
+        if (obj is BallString && prop == 'length')
+          propVal = obj.value.length;
+        else if (obj is String && prop == 'length')
+          propVal = obj.length;
+        else if (obj is BallList && prop == 'length')
+          propVal = obj.items.length;
+        else if (obj is List && prop == 'length')
+          propVal = obj.length;
+        else if (obj is BallMap && prop == 'length')
+          propVal = obj.entries.length;
+        else if (obj is Map && prop == 'length')
+          propVal = obj.length;
         else {
           final map = _cfAsMap(obj);
           if (map != null && map.containsKey(prop)) {
@@ -158,10 +168,17 @@ extension BallEngineControlFlow on BallEngine {
       final op = varOpVar.group(2)!;
       final right = varOpVar.group(3)!;
       num? leftVal, rightVal;
-      if (scope.has(left)) { final v = scope.lookup(left); if (v is num) leftVal = v; }
+      if (scope.has(left)) {
+        final v = scope.lookup(left);
+        if (v is num) leftVal = v;
+      }
       final rightNum = int.tryParse(right);
-      if (rightNum != null) { rightVal = rightNum; }
-      else if (scope.has(right)) { final v = scope.lookup(right); if (v is num) rightVal = v; }
+      if (rightNum != null) {
+        rightVal = rightNum;
+      } else if (scope.has(right)) {
+        final v = scope.lookup(right);
+        if (v is num) rightVal = v;
+      }
       if (leftVal != null && rightVal != null) {
         return switch (op) {
           '+' => leftVal + rightVal,
@@ -326,7 +343,9 @@ extension BallEngineControlFlow on BallEngine {
           }
           final result = await _evalExpression(body, bodyScope);
           // Consume unlabeled break (switch break, not loop break).
-          if (result is _FlowSignal && result.kind == 'break' && result.label == null) {
+          if (result is _FlowSignal &&
+              result.kind == 'break' &&
+              result.label == null) {
             return null;
           }
           return result;
@@ -335,7 +354,9 @@ extension BallEngineControlFlow on BallEngine {
     }
     if (defaultBody != null) {
       final result = await _evalExpression(defaultBody, scope);
-      if (result is _FlowSignal && result.kind == 'break' && result.label == null) {
+      if (result is _FlowSignal &&
+          result.kind == 'break' &&
+          result.label == null) {
         return null;
       }
       return result;
@@ -431,7 +452,9 @@ extension BallEngineControlFlow on BallEngine {
     }
 
     final patternField = fields['pattern'];
-    final patternStr = patternField == null ? null : _stringLiteral(patternField);
+    final patternStr = patternField == null
+        ? null
+        : _stringLiteral(patternField);
     if (patternStr != null) {
       return _matchPattern(subjectVal, patternStr, bindings) ||
           _matchSwitchPattern(subjectVal, patternStr);
@@ -478,9 +501,13 @@ extension BallEngineControlFlow on BallEngine {
         if (typeName != null) {
           // Match "Color" against "main:Color" (strip module prefix).
           final colonIdx = typeName.indexOf(':');
-          final bareType = colonIdx >= 0 ? typeName.substring(colonIdx + 1) : typeName;
-          if (bareType == enumType && subjectMap['name'] == enumValue) return true;
-          if (typeName == enumType && subjectMap['name'] == enumValue) return true;
+          final bareType = colonIdx >= 0
+              ? typeName.substring(colonIdx + 1)
+              : typeName;
+          if (bareType == enumType && subjectMap['name'] == enumValue)
+            return true;
+          if (typeName == enumType && subjectMap['name'] == enumValue)
+            return true;
         }
       }
       // Also try resolving the pattern to an actual enum value and comparing.
@@ -556,12 +583,16 @@ extension BallEngineControlFlow on BallEngine {
               // e.typeName may be "main:FormatException", catchType may be "FormatException".
               final eType = e.typeName;
               final eColonIdx = eType.indexOf(':');
-              final eBare = eColonIdx >= 0 ? eType.substring(eColonIdx + 1) : eType;
+              final eBare = eColonIdx >= 0
+                  ? eType.substring(eColonIdx + 1)
+                  : eType;
               matches = eType == catchType || eBare == catchType;
             } else if (e is Map && e['__type__'] != null) {
               final eType = e['__type__'].toString();
               final eColonIdx = eType.indexOf(':');
-              final eBare = eColonIdx >= 0 ? eType.substring(eColonIdx + 1) : eType;
+              final eBare = eColonIdx >= 0
+                  ? eType.substring(eColonIdx + 1)
+                  : eType;
               matches = eType == catchType || eBare == catchType;
             } else {
               matches = e.runtimeType.toString() == catchType;
@@ -576,7 +607,10 @@ extension BallEngineControlFlow on BallEngine {
             // Bind original thrown value for BallException (so catch
             // bodies can read field data); fall back to string form for
             // real Dart runtime errors.
-            catchScope.bind(variable, e is BallException ? e.value : e.toString());
+            catchScope.bind(
+              variable,
+              e is BallException ? e.value : e.toString(),
+            );
             // Bind the stack-trace variable when the source was
             // `catch (e, stack) { ... }`. We use the trace Dart
             // captured at the outer `catch (e, stackTrace)` above so
@@ -670,7 +704,9 @@ extension BallEngineControlFlow on BallEngine {
         value.whichExpr() == Expression_Expr.call) {
       final valFn = value.call.function;
       final valMod = value.call.module;
-      if ((valFn == 'list_remove_at' || valFn == 'list_pop' || valFn == 'list_remove_last') &&
+      if ((valFn == 'list_remove_at' ||
+              valFn == 'list_pop' ||
+              valFn == 'list_remove_last') &&
           (valMod == 'std' || valMod == 'std_collections' || valMod.isEmpty)) {
         final valFields = _lazyFields(value.call);
         final listExpr = valFields['list'];
@@ -953,9 +989,10 @@ extension BallEngineControlFlow on BallEngine {
 
   Object? _applyCompoundOp(String op, Object? current, Object? val) {
     return switch (op) {
-      '+=' => (current is String || val is String)
-          ? '${current ?? ''}${val ?? ''}'
-          : _numOp(current, val, (a, b) => a + b),
+      '+=' =>
+        (current is String || val is String)
+            ? '${current ?? ''}${val ?? ''}'
+            : _numOp(current, val, (a, b) => a + b),
       '-=' => _numOp(current, val, (a, b) => a - b),
       '*=' => _numOp(current, val, (a, b) => a * b),
       '~/=' => _intOp(current, val, (a, b) => a ~/ b),
@@ -1025,7 +1062,10 @@ extension BallEngineControlFlow on BallEngine {
       if (stmt.whichStmt() == Statement_Stmt.expression &&
           stmt.expression.whichExpr() == Expression_Expr.call) {
         final fn = stmt.expression.call.function;
-        if (fn == 'for' || fn == 'while' || fn == 'for_in' || fn == 'do_while') {
+        if (fn == 'for' ||
+            fn == 'while' ||
+            fn == 'for_in' ||
+            fn == 'do_while') {
           return stmt.expression.call;
         }
       }
@@ -1034,7 +1074,11 @@ extension BallEngineControlFlow on BallEngine {
   }
 
   /// Evaluate a for/while loop with a label, handling labeled break/continue.
-  Future<Object?> _evalLabeledLoop(FunctionCall loopCall, String label, _Scope scope) async {
+  Future<Object?> _evalLabeledLoop(
+    FunctionCall loopCall,
+    String label,
+    _Scope scope,
+  ) async {
     return switch (loopCall.function) {
       'for' => _evalLabeledFor(loopCall, label, scope),
       'for_in' => _evalLabeledForIn(loopCall, label, scope),
@@ -1044,7 +1088,11 @@ extension BallEngineControlFlow on BallEngine {
     };
   }
 
-  Future<Object?> _evalLabeledFor(FunctionCall call, String label, _Scope scope) async {
+  Future<Object?> _evalLabeledFor(
+    FunctionCall call,
+    String label,
+    _Scope scope,
+  ) async {
     final fields = _lazyFields(call);
     final initExpr = fields['init'];
     final condition = fields['condition'];
@@ -1110,7 +1158,11 @@ extension BallEngineControlFlow on BallEngine {
     return null;
   }
 
-  Future<Object?> _evalLabeledForIn(FunctionCall call, String label, _Scope scope) async {
+  Future<Object?> _evalLabeledForIn(
+    FunctionCall call,
+    String label,
+    _Scope scope,
+  ) async {
     final fields = _lazyFields(call);
     final variable = _stringFieldVal(fields, 'variable') ?? 'item';
     final iterable = fields['iterable'];
@@ -1136,7 +1188,11 @@ extension BallEngineControlFlow on BallEngine {
     return null;
   }
 
-  Future<Object?> _evalLabeledWhile(FunctionCall call, String label, _Scope scope) async {
+  Future<Object?> _evalLabeledWhile(
+    FunctionCall call,
+    String label,
+    _Scope scope,
+  ) async {
     final fields = _lazyFields(call);
     final condition = fields['condition'];
     final body = fields['body'];
@@ -1161,7 +1217,11 @@ extension BallEngineControlFlow on BallEngine {
     return null;
   }
 
-  Future<Object?> _evalLabeledDoWhile(FunctionCall call, String label, _Scope scope) async {
+  Future<Object?> _evalLabeledDoWhile(
+    FunctionCall call,
+    String label,
+    _Scope scope,
+  ) async {
     final fields = _lazyFields(call);
     final body = fields['body'];
     final condition = fields['condition'];
@@ -1272,8 +1332,8 @@ extension BallEngineControlFlow on BallEngine {
     final val = valueExpr != null
         ? await _evalExpression(valueExpr, scope)
         : call.hasInput()
-            ? await _evalExpression(call.input, scope)
-            : null;
+        ? await _evalExpression(call.input, scope)
+        : null;
 
     // Walk up the scope chain to find the nearest __generator__ binding.
     _Scope? s = scope;
@@ -1299,12 +1359,13 @@ extension BallEngineControlFlow on BallEngine {
   /// Outside a generator context, just returns the iterable.
   Future<Object?> _evalYieldEach(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
-    final iterableExpr = fields['value'] ?? fields['iterable'] ?? fields['expression'];
+    final iterableExpr =
+        fields['value'] ?? fields['iterable'] ?? fields['expression'];
     final iterable = iterableExpr != null
         ? await _evalExpression(iterableExpr, scope)
         : call.hasInput()
-            ? await _evalExpression(call.input, scope)
-            : null;
+        ? await _evalExpression(call.input, scope)
+        : null;
 
     // Walk up the scope chain to find the nearest __generator__ binding.
     _Scope? s = scope;
@@ -1335,7 +1396,9 @@ extension BallEngineControlFlow on BallEngine {
   /// Dispatch a method call on a built-in instance type (List, String, num).
   /// Returns [_sentinel] if the method is not recognized.
   Future<Object?> _dispatchBuiltinInstanceMethod(
-    Object? self, String method, Object? input,
+    Object? self,
+    String method,
+    Object? input,
   ) async {
     final inputMap = _cfAsMap(input);
     final args = inputMap ?? <String, Object?>{};
@@ -1364,18 +1427,34 @@ extension BallEngineControlFlow on BallEngine {
       Object? _wrapList(List<Object?> result) =>
           wasBallList ? BallList(result) : result;
       switch (method) {
-        case 'add': self.add(arg0); return null;
-        case 'removeLast': return self.removeLast();
-        case 'removeAt': return self.removeAt(_toInt(arg0));
-        case 'insert': self.insert(_toInt(arg0), args['arg1']); return null;
-        case 'clear': self.clear(); return null;
-        case 'contains': return self.contains(arg0);
-        case 'indexOf': return self.indexOf(arg0);
-        case 'join': return self.map((e) => _ballToString(e)).join(arg0 != null ? arg0.toString() : ', ');
+        case 'add':
+          self.add(arg0);
+          return null;
+        case 'removeLast':
+          return self.removeLast();
+        case 'removeAt':
+          return self.removeAt(_toInt(arg0));
+        case 'insert':
+          self.insert(_toInt(arg0), args['arg1']);
+          return null;
+        case 'clear':
+          self.clear();
+          return null;
+        case 'contains':
+          return self.contains(arg0);
+        case 'indexOf':
+          return self.indexOf(arg0);
+        case 'join':
+          return self
+              .map((e) => _ballToString(e))
+              .join(arg0 != null ? arg0.toString() : ', ');
         case 'sublist':
           final end = args['arg1'];
-          return _wrapList(self.sublist(_toInt(arg0), end != null ? _toInt(end) : null));
-        case 'reversed': return _wrapList(self.reversed.toList());
+          return _wrapList(
+            self.sublist(_toInt(arg0), end != null ? _toInt(end) : null),
+          );
+        case 'reversed':
+          return _wrapList(self.reversed.toList());
         case 'sort':
           if (arg0 is Function) {
             // Use insertion sort to support async comparators.
@@ -1384,7 +1463,14 @@ extension BallEngineControlFlow on BallEngine {
               final key = sorted[j];
               var k = j - 1;
               while (k >= 0) {
-                var r = arg0(<String, Object?>{'arg0': sorted[k], 'arg1': key, 'a': sorted[k], 'b': key, 'left': sorted[k], 'right': key});
+                var r = arg0(<String, Object?>{
+                  'arg0': sorted[k],
+                  'arg1': key,
+                  'a': sorted[k],
+                  'b': key,
+                  'left': sorted[k],
+                  'right': key,
+                });
                 if (r is Future) r = await r;
                 if (r is num && r > 0) {
                   sorted[k + 1] = sorted[k];
@@ -1477,24 +1563,39 @@ extension BallEngineControlFlow on BallEngine {
             return acc;
           }
           return arg0;
-        case 'toList': return _wrapList(self.toList());
-        case 'toSet': return _wrapList(self.toSet().toList());
-        case 'toString': return '[${self.map(_ballToString).join(', ')}]';
+        case 'toList':
+          return _wrapList(self.toList());
+        case 'toSet':
+          return _wrapList(self.toSet().toList());
+        case 'toString':
+          return '[${self.map(_ballToString).join(', ')}]';
         case 'filled':
           // List.filled(n, value) encoded as self=[], arg0=n, arg1=value
           return _wrapList(List.filled(_toInt(arg0), args['arg1']));
         // Set operations (sets are encoded as arrays).
         case 'union':
-          final other = arg0 is BallList ? arg0.items : (arg0 is List ? arg0 : <Object?>[]);
+          final other = arg0 is BallList
+              ? arg0.items
+              : (arg0 is List ? arg0 : <Object?>[]);
           return _wrapList({...self, ...other}.toList());
         case 'intersection':
-          final otherSet = (arg0 is BallList ? arg0.items : (arg0 is List ? arg0 : <Object?>[])).toSet();
+          final otherSet =
+              (arg0 is BallList
+                      ? arg0.items
+                      : (arg0 is List ? arg0 : <Object?>[]))
+                  .toSet();
           return _wrapList(self.where((x) => otherSet.contains(x)).toList());
         case 'difference':
-          final otherSet2 = (arg0 is BallList ? arg0.items : (arg0 is List ? arg0 : <Object?>[])).toSet();
+          final otherSet2 =
+              (arg0 is BallList
+                      ? arg0.items
+                      : (arg0 is List ? arg0 : <Object?>[]))
+                  .toSet();
           return _wrapList(self.where((x) => !otherSet2.contains(x)).toList());
         case 'addAll':
-          final other2 = arg0 is BallList ? arg0.items : (arg0 is List ? arg0 : <Object?>[]);
+          final other2 = arg0 is BallList
+              ? arg0.items
+              : (arg0 is List ? arg0 : <Object?>[]);
           for (final item in other2) {
             if (!self.contains(item)) self.add(item);
           }
@@ -1516,10 +1617,14 @@ extension BallEngineControlFlow on BallEngine {
             return _wrapList(result);
           }
           return wasBallList ? BallList(self) : self;
-        case 'take': return _wrapList(self.take(_toInt(arg0)).toList());
-        case 'skip': return _wrapList(self.skip(_toInt(arg0)).toList());
+        case 'take':
+          return _wrapList(self.take(_toInt(arg0)).toList());
+        case 'skip':
+          return _wrapList(self.skip(_toInt(arg0)).toList());
         case 'followedBy':
-          final other3 = arg0 is BallList ? arg0.items : (arg0 is List ? arg0 : <Object?>[]);
+          final other3 = arg0 is BallList
+              ? arg0.items
+              : (arg0 is List ? arg0 : <Object?>[]);
           return _wrapList([...self, ...other3]);
       }
     }
@@ -1530,25 +1635,41 @@ extension BallEngineControlFlow on BallEngine {
       final selfList = self.toList();
       switch (method) {
         case 'union':
-          final otherU = arg0 is Set ? arg0 : (arg0 is List ? arg0.toSet() : <Object?>{});
+          final otherU = arg0 is Set
+              ? arg0
+              : (arg0 is List ? arg0.toSet() : <Object?>{});
           return self.union(otherU);
         case 'intersection':
-          final otherI = arg0 is Set ? arg0 : (arg0 is List ? arg0.toSet() : <Object?>{});
+          final otherI = arg0 is Set
+              ? arg0
+              : (arg0 is List ? arg0.toSet() : <Object?>{});
           return self.intersection(otherI);
         case 'difference':
-          final otherD = arg0 is Set ? arg0 : (arg0 is List ? arg0.toSet() : <Object?>{});
+          final otherD = arg0 is Set
+              ? arg0
+              : (arg0 is List ? arg0.toSet() : <Object?>{});
           return self.difference(otherD);
-        case 'add': self.add(arg0); return null;
+        case 'add':
+          self.add(arg0);
+          return null;
         case 'addAll':
           if (arg0 is Iterable) self.addAll(arg0);
           return null;
-        case 'remove': self.remove(arg0); return null;
-        case 'contains': return self.contains(arg0);
-        case 'toList': return selfList;
-        case 'toSet': return self;
-        case 'length': return self.length;
-        case 'isEmpty': return self.isEmpty;
-        case 'isNotEmpty': return self.isNotEmpty;
+        case 'remove':
+          self.remove(arg0);
+          return null;
+        case 'contains':
+          return self.contains(arg0);
+        case 'toList':
+          return selfList;
+        case 'toSet':
+          return self;
+        case 'length':
+          return self.length;
+        case 'isEmpty':
+          return self.isEmpty;
+        case 'isNotEmpty':
+          return self.isNotEmpty;
         case 'forEach':
           if (arg0 is Function) {
             for (final item in self) {
@@ -1587,23 +1708,40 @@ extension BallEngineControlFlow on BallEngine {
     if (unwrappedSelf is String) {
       final self = unwrappedSelf;
       switch (method) {
-        case 'contains': return self.contains(arg0.toString());
+        case 'contains':
+          return self.contains(arg0.toString());
         case 'substring':
           final end = args['arg1'];
           return self.substring(_toInt(arg0), end != null ? _toInt(end) : null);
-        case 'indexOf': return self.indexOf(arg0.toString());
-        case 'split': return self.split(arg0.toString());
-        case 'trim': return self.trim();
-        case 'toUpperCase': return self.toUpperCase();
-        case 'toLowerCase': return self.toLowerCase();
-        case 'replaceAll': return self.replaceAll(arg0.toString(), (args['arg1'] ?? '').toString());
-        case 'startsWith': return self.startsWith(arg0.toString());
-        case 'endsWith': return self.endsWith(arg0.toString());
-        case 'padLeft': return self.padLeft(_toInt(arg0), args['arg1']?.toString() ?? ' ');
-        case 'padRight': return self.padRight(_toInt(arg0), args['arg1']?.toString() ?? ' ');
-        case 'toString': return self;
-        case 'codeUnitAt': return self.codeUnitAt(_toInt(arg0));
-        case 'compareTo': return self.compareTo(arg0.toString());
+        case 'indexOf':
+          return self.indexOf(arg0.toString());
+        case 'split':
+          return self.split(arg0.toString());
+        case 'trim':
+          return self.trim();
+        case 'toUpperCase':
+          return self.toUpperCase();
+        case 'toLowerCase':
+          return self.toLowerCase();
+        case 'replaceAll':
+          return self.replaceAll(
+            arg0.toString(),
+            (args['arg1'] ?? '').toString(),
+          );
+        case 'startsWith':
+          return self.startsWith(arg0.toString());
+        case 'endsWith':
+          return self.endsWith(arg0.toString());
+        case 'padLeft':
+          return self.padLeft(_toInt(arg0), args['arg1']?.toString() ?? ' ');
+        case 'padRight':
+          return self.padRight(_toInt(arg0), args['arg1']?.toString() ?? ' ');
+        case 'toString':
+          return self;
+        case 'codeUnitAt':
+          return self.codeUnitAt(_toInt(arg0));
+        case 'compareTo':
+          return self.compareTo(arg0.toString());
       }
     }
 
@@ -1611,18 +1749,30 @@ extension BallEngineControlFlow on BallEngine {
     if (unwrappedSelf is num) {
       final self = unwrappedSelf;
       switch (method) {
-        case 'toDouble': return self.toDouble();
-        case 'toInt': return self.toInt();
-        case 'toString': return _ballToString(self);
-        case 'toStringAsFixed': return self.toStringAsFixed(_toInt(arg0));
-        case 'abs': return self.abs();
-        case 'round': return self.round();
-        case 'floor': return self.floor();
-        case 'ceil': return self.ceil();
-        case 'compareTo': return self.compareTo(_toNum(arg0));
-        case 'clamp': return self.clamp(_toNum(arg0), _toNum(args['arg1'] ?? self));
-        case 'truncate': return self.truncate();
-        case 'remainder': return self.remainder(_toNum(arg0));
+        case 'toDouble':
+          return self.toDouble();
+        case 'toInt':
+          return self.toInt();
+        case 'toString':
+          return _ballToString(self);
+        case 'toStringAsFixed':
+          return self.toStringAsFixed(_toInt(arg0));
+        case 'abs':
+          return self.abs();
+        case 'round':
+          return self.round();
+        case 'floor':
+          return self.floor();
+        case 'ceil':
+          return self.ceil();
+        case 'compareTo':
+          return self.compareTo(_toNum(arg0));
+        case 'clamp':
+          return self.clamp(_toNum(arg0), _toNum(args['arg1'] ?? self));
+        case 'truncate':
+          return self.truncate();
+        case 'remainder':
+          return self.remainder(_toNum(arg0));
       }
     }
 
@@ -1631,20 +1781,31 @@ extension BallEngineControlFlow on BallEngine {
     if (selfMap != null && selfMap.containsKey('__type__')) {
       // StringBuffer methods.
       final typeName = selfMap['__type__'] as String?;
-      if (typeName != null && (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
+      if (typeName != null &&
+          (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
         switch (method) {
           case 'write':
-            selfMap['__buffer__'] = (selfMap['__buffer__'] as String? ?? '') + _ballToString(arg0);
+            selfMap['__buffer__'] =
+                (selfMap['__buffer__'] as String? ?? '') + _ballToString(arg0);
             return null;
           case 'writeln':
-            selfMap['__buffer__'] = (selfMap['__buffer__'] as String? ?? '') + _ballToString(arg0) + '\n';
+            selfMap['__buffer__'] =
+                (selfMap['__buffer__'] as String? ?? '') +
+                _ballToString(arg0) +
+                '\n';
             return null;
           case 'writeCharCode':
-            selfMap['__buffer__'] = (selfMap['__buffer__'] as String? ?? '') + String.fromCharCode(_toInt(arg0));
+            selfMap['__buffer__'] =
+                (selfMap['__buffer__'] as String? ?? '') +
+                String.fromCharCode(_toInt(arg0));
             return null;
-          case 'toString': return selfMap['__buffer__'] ?? '';
-          case 'clear': selfMap['__buffer__'] = ''; return null;
-          case 'length': return (selfMap['__buffer__'] as String? ?? '').length;
+          case 'toString':
+            return selfMap['__buffer__'] ?? '';
+          case 'clear':
+            selfMap['__buffer__'] = '';
+            return null;
+          case 'length':
+            return (selfMap['__buffer__'] as String? ?? '').length;
         }
       }
 
@@ -1680,5 +1841,4 @@ extension BallEngineControlFlow on BallEngine {
     scope.registerScopeExit(cleanupEntry.value, scope);
     return null;
   }
-
 }

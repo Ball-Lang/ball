@@ -1,0 +1,34 @@
+Dart Engine Conformance Test Evidence - Task 1.6 Generator Fixtures
+=====================================================================
+Date: 2026-05-06 06:12 AM
+
+Command: cd dart/engine && dart test test/conformance_test.dart --name "<test>"
+
+Results:
+---------
+174_generator_yield_star: PASS
+  > dart test test/conformance_test.dart --name "174_generator_yield_star"
+  > 00:00 +1: All tests passed!
+
+175_generator_empty_return: PASS
+  > dart test test/conformance_test.dart --name "175_generator_empty_return"
+  > 00:00 +1: All tests passed!
+
+176_generator_early_return: PASS
+  > dart test test/conformance_test.dart --name "176_generator_early_return"
+  > 00:00 +1: All tests passed!
+
+Summary:
+--------
+All 3 new generator conformance fixtures PASS on Dart engine.
+- 174: Tests yield* (yield_each) with nested generators - outer delegates to inner
+- 175: Tests empty generator (no yield) returns list with length 0
+- 176: Tests early return inside generator stops further yielding (only 1,2 printed)
+
+Fixtures created:
+- tests/conformance/174_generator_yield_star.ball.json
+- tests/conformance/174_generator_yield_star.expected_output.txt
+- tests/conformance/175_generator_empty_return.ball.json
+- tests/conformance/175_generator_empty_return.expected_output.txt
+- tests/conformance/176_generator_early_return.ball.json
+- tests/conformance/176_generator_early_return.expected_output.txt

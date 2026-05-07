@@ -1,0 +1,58 @@
+{
+  "name": "timeout",
+  "version": "1.0.0",
+  "entryModule": "main",
+  "entryFunction": "main",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "while",
+          "isBase": true
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "while",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "condition",
+                      "value": {
+                        "literal": {
+                          "boolValue": true
+                        }
+                      }
+                    },
+                    {
+                      "name": "body",
+                      "value": {
+                        "block": {
+                          "statements": []
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ]
+    }
+  ]
+}

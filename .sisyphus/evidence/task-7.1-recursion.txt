@@ -1,0 +1,23 @@
+Task 7.1 Recursion Depth Limit Evidence
+
+Changed files diagnostics:
+- dart/engine/lib/engine.dart: No diagnostics found
+- dart/engine/lib/engine_invocation.dart: No diagnostics found
+- dart/engine/lib/engine_control_flow.dart: No diagnostics found
+- dart/engine/lib/engine_eval.dart: No diagnostics found
+- dart/engine/test/engine_test.dart: No diagnostics found
+
+Command: dart test test/engine_test.dart --name "recursion_limit"
+Working directory: $REPO/dart/engine
+Output:
+00:00 +0: loading test/engine_test.dart
+00:00 +0: engine: user-defined functions recursion_limit allows normal recursion below the default limit
+00:00 +1: engine: user-defined functions recursion_limit throws when configured recursion depth is exceeded
+00:00 +2: All tests passed!
+
+Command: dart test test/conformance_test.dart --name "59"
+Working directory: $REPO/dart/engine
+Output:
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 59_deep_recursion
+00:00 +1: All tests passed!

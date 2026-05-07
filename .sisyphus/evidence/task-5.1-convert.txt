@@ -1,0 +1,18 @@
+Task 5.1: std_convert (Dart Engine Only)
+
+Fixture 185_std_convert created and passing.
+
+Test Result:
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 185_std_convert
+00:00 +1: All tests passed!
+
+Functions tested:
+- std_convert.json_encode: Converts Ball map to JSON string
+- std_convert.json_decode: Parses JSON string to Ball map
+
+Expected output:
+{"name":"Alice","age":30}
+{x: 1, y: 2}
+
+Note: This is Dart engine only. C++ and TS engines need std_convert implementation.

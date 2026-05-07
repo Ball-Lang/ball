@@ -1,0 +1,199 @@
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 188_std_time_now
+00:00 +0 -1: conformance (hand-written IR) 188_std_time_now [E]
+  BallRuntimeError: Cannot access field "sign" on null
+  package:ball_engine/engine_eval.dart 738:5         BallEngineEval._evalFieldAccess
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 25:38         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 910:19        BallEngineEval._evalMessageCreation
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 29:42         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 111:11        BallEngineEval._evalCall
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 22:31         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 1367:22       BallEngineEval._evalBlock
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_eval.dart 33:32         BallEngineEval._evalExpression
+  ===== asynchronous gap ===========================
+  package:ball_engine/engine_invocation.dart 169:22  BallEngineInvocation._callFunction
+  ===== asynchronous gap ===========================
+  test\conformance_test.dart 59:9                    main.<fn>.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  test/conformance_test.dart: conformance (hand-written IR) 188_std_time_now
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 188_std_time_now
+00:00 +0 -1: conformance (hand-written IR) 188_std_time_now [E]
+  Expected: 'int\n'
+              '2024-01-01T00:00:00.000Z\n'
+              'true'
+    Actual: 'Null\n'
+              '2024-01-01T00:00:00.000Z\n'
+              'true'
+     Which: is different.
+            Expected: int\n2024- ...
+              Actual: Null\n2024 ...
+                      ^
+             Differ at offset 0
+  
+  package:matcher                  expect
+  test\conformance_test.dart 66:9  main.<fn>.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  test/conformance_test.dart: conformance (hand-written IR) 188_std_time_now
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 188_std_time_now
+00:00 +0 -1: conformance (hand-written IR) 188_std_time_now [E]
+  Expected: 'int\n'
+              '2024-01-01T00:00:00.000Z\n'
+              'true'
+    Actual: 'Null\n'
+              '2024-01-01T00:00:00.000Z\n'
+              'true'
+     Which: is different.
+            Expected: int\n2024- ...
+              Actual: Null\n2024 ...
+                      ^
+             Differ at offset 0
+  
+  package:matcher                  expect
+  test\conformance_test.dart 66:9  main.<fn>.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  test/conformance_test.dart: conformance (hand-written IR) 188_std_time_now
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 188_std_time_now
+00:00 +0 -1: conformance (hand-written IR) 188_std_time_now [E]
+  Expected: 'int\n'
+              '2024-01-01T00:00:00.000Z\n'
+              'true'
+    Actual: 'Null\n'
+              '2024-01-01T00:00:00.000Z\n'
+              'true'
+     Which: is different.
+            Expected: int\n2024- ...
+              Actual: Null\n2024 ...
+                      ^
+             Differ at offset 0
+  
+  package:matcher                  expect
+  test\conformance_test.dart 66:9  main.<fn>.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  test/conformance_test.dart: conformance (hand-written IR) 188_std_time_now
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 188_std_time_now
+00:00 +0 -1: conformance (hand-written IR) 188_std_time_now [E]
+  Expected: 'int\n'
+              '2024-01-01T00:00:00.000Z\n'
+              'true'
+    Actual: 'Null\n'
+              '2024-01-01T00:00:00.000Z\n'
+              'true'
+     Which: is different.
+            Expected: int\n2024- ...
+              Actual: Null\n2024 ...
+                      ^
+             Differ at offset 0
+  
+  package:matcher                  expect
+  test\conformance_test.dart 66:9  main.<fn>.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  test/conformance_test.dart: conformance (hand-written IR) 188_std_time_now
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 188_std_time_now
+00:00 +1: All tests passed!
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 189_std_time_components
+00:00 +0 -1: conformance (hand-written IR) 189_std_time_components [E]
+  Expected: 'int\n'
+              'int\n'
+              'int\n'
+              'int\n'
+              'int\n'
+              'int'
+    Actual: 'Null\n'
+              'Null\n'
+              'Null\n'
+              'Null\n'
+              'Null\n'
+              'Null'
+     Which: is different.
+            Expected: int\nint\n ...
+              Actual: Null\nNull ...
+                      ^
+             Differ at offset 0
+  
+  package:matcher                  expect
+  test\conformance_test.dart 66:9  main.<fn>.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  test/conformance_test.dart: conformance (hand-written IR) 189_std_time_components
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 189_std_time_components
+00:00 +0 -1: conformance (hand-written IR) 189_std_time_components [E]
+  Expected: 'int\n'
+              'int\n'
+              'int\n'
+              'int\n'
+              'int\n'
+              'int'
+    Actual: 'Null\n'
+              'Null\n'
+              'Null\n'
+              'Null\n'
+              'Null\n'
+              'Null'
+     Which: is different.
+            Expected: int\nint\n ...
+              Actual: Null\nNull ...
+                      ^
+             Differ at offset 0
+  
+  package:matcher                  expect
+  test\conformance_test.dart 66:9  main.<fn>.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  test/conformance_test.dart: conformance (hand-written IR) 189_std_time_components
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 189_std_time_components
+00:00 +1: All tests passed!

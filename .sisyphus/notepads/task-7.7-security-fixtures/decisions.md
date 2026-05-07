@@ -1,0 +1,2 @@
+- Fixture 200 is verified via a direct engine-memory-limit assertion in `conformance_test.dart` rather than stdout comparison, matching the existing 197-style limit tests.
+- Fixture 199 uses a self-referential list plus a depth guard and caught `RangeError` to keep the test deterministic and fast.

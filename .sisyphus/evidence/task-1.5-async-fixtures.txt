@@ -1,0 +1,48 @@
+# Task 1.5 Evidence: Async Fixtures 171-173
+
+## Fixtures Created
+
+1. `171_async_error_propagation.ball.json` - Tests error propagation in async functions
+2. `172_async_nested_await.ball.json` - Tests nested await calls (await inside await)
+3. `173_async_multiple_futures.ball.json` - Tests handling multiple async operations
+
+## Verification
+
+All 3 fixtures PASS on Dart engine:
+
+```
+$ dart test test/conformance_test.dart -n "async_error"
+00:00 +0: conformance (hand-written IR) 171_async_error_propagation
+00:00 +1: All tests passed!
+
+$ dart test test/conformance_test.dart -n "nested_await"
+00:00 +0: conformance (hand-written IR) 172_async_nested_await
+00:00 +1: All tests passed!
+
+$ dart test test/conformance_test.dart -n "multiple_futures"
+00:00 +0: conformance (hand-written IR) 173_async_multiple_futures
+00:00 +1: All tests passed!
+```
+
+## Fixture Details
+
+### 171_async_error_propagation
+- Creates async function `failAsync` that throws
+- Main wraps call in try/catch with `std.try`
+- Catches `AsyncError` type and prints "error-caught"
+- Expected output: "error-caught"
+
+### 172_async_nested_await
+- Creates `inner` async (adds 10 to input)
+- Creates `outer` async (calls inner)
+- Main calls outer with 5, gets 5+10=15
+- Expected output: "15"
+
+### 173_async_multiple_futures
+- Creates `asyncDouble` (multiply by 2)
+- Creates `asyncTriple` (multiply by 3)
+- Main calls both with different values: double(10)=20, triple(5)=15
+- Adds results: 20+15=35
+- Expected output: "35"
+
+## Date: 2026-05-06

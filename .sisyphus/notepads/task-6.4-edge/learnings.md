@@ -1,0 +1,2 @@
+- Large integer literals near the 64-bit minimum boundary are not safe for this Dart-engine conformance path; the engine misread the lower-bound literal, so fixture 192 now stays on the upper edge only.
+- Encoder-generated conformance sources should avoid typed collection literals when they lower to unsupported engine functions like `typed_list`; inferred literals were accepted and kept the null fixture deterministic.

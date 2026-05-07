@@ -39,10 +39,7 @@ extension BallEngineStd on BallEngine {
 
   /// Try to dispatch a std operator call to a user-defined operator override.
   /// Returns `null` if no override is found.
-  Future<Object?> _tryOperatorOverride(
-    String function,
-    Object? input,
-  ) async {
+  Future<Object?> _tryOperatorOverride(String function, Object? input) async {
     final op = _stdFunctionToOperator[function];
     if (op == null) return null;
     final m = _stdAsMap(input);
@@ -66,8 +63,9 @@ extension BallEngineStd on BallEngine {
 
     final typeName = leftMap['__type__'] as String;
     final colonIdx = typeName.indexOf(':');
-    final modPart =
-        colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
+    final modPart = colonIdx >= 0
+        ? typeName.substring(0, colonIdx)
+        : _currentModule;
 
     // Walk the type hierarchy (self, then __super__ chain) looking for the
     // operator method, mirroring normal method dispatch.
@@ -76,10 +74,10 @@ extension BallEngineStd on BallEngine {
       final curType = current['__type__'] as String?;
       if (curType != null) {
         final cColonIdx = curType.indexOf(':');
-        final cModPart =
-            cColonIdx >= 0 ? curType.substring(0, cColonIdx) : modPart;
-        final cTypeName =
-            cColonIdx >= 0 ? curType : '$cModPart:$curType';
+        final cModPart = cColonIdx >= 0
+            ? curType.substring(0, cColonIdx)
+            : modPart;
+        final cTypeName = cColonIdx >= 0 ? curType : '$cModPart:$curType';
         final methodKey = '$cModPart.$cTypeName.$op';
         final method = _functions[methodKey];
         if (method != null) {
@@ -103,7 +101,9 @@ extension BallEngineStd on BallEngine {
   /// Dispatch a static method call on a built-in class (List, Map, Set).
   /// Returns [_sentinel] if not handled.
   Future<Object?> _dispatchBuiltinClassMethod(
-    String className, String method, Map<String, Object?> args,
+    String className,
+    String method,
+    Map<String, Object?> args,
   ) async {
     switch ('$className.$method') {
       case 'List.generate':
@@ -124,9 +124,19 @@ extension BallEngineStd on BallEngine {
       case 'List.from':
         final source = args['arg0'] ?? args['value'];
         final sourceList = _stdAsList(source);
-        if (sourceList != null) return sourceList.toList();
-        if (source is Set) return source.toList();
-        if (source is Iterable) return source.toList();
+        if (sourceList != null) {
+          _trackMemoryAllocation(sourceList.length * _ballPointerBytes);
+          return sourceList.toList();
+        }
+        if (source is Set) {
+          _trackMemoryAllocation(source.length * _ballPointerBytes);
+          return source.toList();
+        }
+        if (source is Iterable) {
+          final result = source.toList();
+          _trackMemoryAllocation(result.length * _ballPointerBytes);
+          return result;
+        }
         return <Object?>[];
       case 'Map.fromEntries':
         final list = args['arg0'] ?? args['list'];
@@ -138,7 +148,11 @@ extension BallEngineStd on BallEngine {
     }
   }
 
-  Future<Object?> _callBaseFunction(String module, String function, Object? input) async {
+  Future<Object?> _callBaseFunction(
+    String module,
+    String function,
+    Object? input,
+  ) async {
     // Check for operator overrides on class instances before std dispatch.
     if (_stdFunctionToOperator.containsKey(function)) {
       final override = await _tryOperatorOverride(function, input);
@@ -234,12 +248,20 @@ extension BallEngineStd on BallEngine {
         if (m != null) {
           final parts = _stdAsList(m['parts']);
           if (parts != null) {
-            return parts.map((p) => _ballToString(p)).join();
+            final result = parts.map((p) => _ballToString(p)).join();
+            _trackMemoryAllocation(result.length * _ballStringCodeUnitBytes);
+            return result;
           }
           final value = m['value'];
-          if (value != null) return _ballToString(value);
+          if (value != null) {
+            final result = _ballToString(value);
+            _trackMemoryAllocation(result.length * _ballStringCodeUnitBytes);
+            return result;
+          }
         }
-        return _ballToString(i);
+        final result = _ballToString(i);
+        _trackMemoryAllocation(result.length * _ballStringCodeUnitBytes);
+        return result;
       },
 
       // Null safety
@@ -277,24 +299,10 @@ extension BallEngineStd on BallEngine {
         if (m != null) return m['callback'] ?? m['method'];
         return i;
       },
-      'dart_list_generate': (i) async {
-        final m = _stdAsMap(i)!;
-        final count = _toInt(m['count']);
-        final gen = m['generator'] as Function;
-        final result = <Object?>[];
-        for (var idx = 0; idx < count; idx++) {
-          var v = gen(idx);
-          if (v is Future) v = await v;
-          result.add(v);
-        }
-        return result;
-      },
-      'dart_list_filled': (i) {
-        final m = _stdAsMap(i)!;
-        final count = _toInt(m['count']);
-        final value = m['value'];
-        return List.filled(count, value);
-      },
+      'list_generate': _stdListGenerate,
+      'dart_list_generate': _stdListGenerate,
+      'list_filled': _stdListFilled,
+      'dart_list_filled': _stdListFilled,
 
       // Collections
       'map_create': _stdMapCreate,
@@ -307,7 +315,9 @@ extension BallEngineStd on BallEngine {
       'list_push': (i) {
         final m = _stdAsMap(i)!;
         final raw = m['list'];
-        final list = _stdAsList(raw) ?? (raw is Set ? raw.toList() : <Object?>[]);
+        final list =
+            _stdAsList(raw) ?? (raw is Set ? raw.toList() : <Object?>[]);
+        _trackMemoryAllocation(_ballPointerBytes);
         list.add(m['value']);
         return list;
       },
@@ -319,6 +329,7 @@ extension BallEngineStd on BallEngine {
       'list_insert': (i) {
         final m = _stdAsMap(i)!;
         final list = (_stdAsList(m['list'])!).toList();
+        _trackMemoryAllocation((list.length + 1) * _ballPointerBytes);
         list.insert(_toInt(m['index']), m['value']);
         return list;
       },
@@ -334,21 +345,20 @@ extension BallEngineStd on BallEngine {
       'list_set': (i) {
         final m = _stdAsMap(i)!;
         final list = (_stdAsList(m['list'])!).toList();
+        _trackMemoryAllocation(list.length * _ballPointerBytes);
         list[_toInt(m['index'])] = m['value'];
         return list;
       },
-      'list_length': (i) =>
-          _stdAsList((_stdAsMap(i)!)['list'])!.length,
-      'list_is_empty': (i) =>
-          _stdAsList((_stdAsMap(i)!)['list'])!.isEmpty,
+      'list_length': (i) => _stdAsList((_stdAsMap(i)!)['list'])!.length,
+      'list_is_empty': (i) => _stdAsList((_stdAsMap(i)!)['list'])!.isEmpty,
       'list_first': (i) => _stdAsList((_stdAsMap(i)!)['list'])!.first,
       'list_last': (i) => _stdAsList((_stdAsMap(i)!)['list'])!.last,
-      'list_single': (i) =>
-          _stdAsList((_stdAsMap(i)!)['list'])!.single,
+      'list_single': (i) => _stdAsList((_stdAsMap(i)!)['list'])!.single,
       'list_contains': (i) {
         final m = _stdAsMap(i)!;
         final collection = m['list'];
-        if (collection is String) return collection.contains(m['value'].toString());
+        if (collection is String)
+          return collection.contains(m['value'].toString());
         final collectionList = _stdAsList(collection);
         if (collectionList != null) return collectionList.contains(m['value']);
         if (collection is Set) return collection.contains(m['value']);
@@ -363,6 +373,7 @@ extension BallEngineStd on BallEngine {
         final list = _stdAsList(m['list'])!;
         final cb = (m['callback'] ?? m['function'] ?? m['value']) as Function;
         final result = <Object?>[];
+        _trackMemoryAllocation(list.length * _ballPointerBytes);
         for (final e in list) {
           var v = cb(e);
           if (v is Future) v = await v;
@@ -375,6 +386,7 @@ extension BallEngineStd on BallEngine {
         final list = _stdAsList(m['list'])!;
         final cb = (m['callback'] ?? m['function'] ?? m['value']) as Function;
         final result = <Object?>[];
+        _trackMemoryAllocation(list.length * _ballPointerBytes);
         for (final e in list) {
           var v = cb(e);
           if (v is Future) v = await v;
@@ -441,7 +453,9 @@ extension BallEngineStd on BallEngine {
       'list_sort': (i) async {
         final m = _stdAsMap(i)!;
         final sorted = (_stdAsList(m['list'])!).toList();
-        final cb = m['callback'] ?? m['comparator'] ?? m['compare'] ?? m['value'];
+        _trackMemoryAllocation(sorted.length * _ballPointerBytes);
+        final cb =
+            m['callback'] ?? m['comparator'] ?? m['compare'] ?? m['value'];
         if (cb == null || cb is! Function) {
           // Natural sort (no comparator).
           sorted.sort((a, b) => (a as Comparable).compareTo(b));
@@ -452,7 +466,14 @@ extension BallEngineStd on BallEngine {
           final key = sorted[j];
           var k = j - 1;
           while (k >= 0) {
-            var r = (cb as Function)(<String, Object?>{'left': sorted[k], 'right': key, 'arg0': sorted[k], 'arg1': key, 'a': sorted[k], 'b': key});
+            var r = (cb as Function)(<String, Object?>{
+              'left': sorted[k],
+              'right': key,
+              'arg0': sorted[k],
+              'arg1': key,
+              'a': sorted[k],
+              'b': key,
+            });
             if (r is Future) r = await r;
             final cmp = (r is int) ? r : (r as num).toInt();
             if (cmp <= 0) break;
@@ -466,6 +487,7 @@ extension BallEngineStd on BallEngine {
       'list_sort_by': (i) async {
         final m = _stdAsMap(i)!;
         final list = (_stdAsList(m['list'])!).toList();
+        _trackMemoryAllocation(list.length * _ballPointerBytes);
         final cb = m['callback'];
         // Pre-compute keys with await support.
         final keys = <Comparable>[];
@@ -475,12 +497,15 @@ extension BallEngineStd on BallEngine {
           keys.add(k as Comparable);
         }
         // Build index list and sort by keys.
+        _trackMemoryAllocation(list.length * _ballPointerBytes);
         final indices = List.generate(list.length, (i) => i);
         indices.sort((a, b) => keys[a].compareTo(keys[b]));
+        _trackMemoryAllocation(indices.length * _ballPointerBytes);
         return [for (final idx in indices) list[idx]];
       },
-      'list_reverse': (i) =>
-          _stdAsList((_stdAsMap(i)!)['list'])!.reversed.toList(),
+      'list_reverse': (i) => _trackListCopy(
+        _stdAsList((_stdAsMap(i)!)['list'])!.reversed.toList(),
+      ),
       'list_slice': (i) {
         final m = _stdAsMap(i)!;
         final list = _stdAsList(m['list'])!;
@@ -508,13 +533,16 @@ extension BallEngineStd on BallEngine {
           s = 0;
           e = null;
         }
-        return list.sublist(s, e ?? list.length);
+        final result = list.sublist(s, e ?? list.length);
+        _trackMemoryAllocation(result.length * _ballPointerBytes);
+        return result;
       },
       'list_flat_map': (i) async {
         final m = _stdAsMap(i)!;
         final list = _stdAsList(m['list'])!;
         final cb = (m['callback'] ?? m['function'] ?? m['value']) as Function;
         final result = <Object?>[];
+        _trackMemoryAllocation(list.length * _ballPointerBytes);
         for (final e in list) {
           var r = cb(e);
           if (r is Future) r = await r;
@@ -531,23 +559,33 @@ extension BallEngineStd on BallEngine {
         final a = _stdAsList(m['list'])!;
         final b = _stdAsList(m['value'])!;
         final len = a.length < b.length ? a.length : b.length;
-        return List.generate(len, (j) => [a[j], b[j]]);
+        _trackMemoryAllocation(len * _ballPointerBytes);
+        return List.generate(len, (j) {
+          _trackMemoryAllocation(2 * _ballPointerBytes);
+          return [a[j], b[j]];
+        });
       },
       'list_take': (i) {
         final m = _stdAsMap(i)!;
-        return (_stdAsList(m['list'])!)
-            .take(_toInt(m['value'] ?? m['index']))
-            .toList();
+        final result = (_stdAsList(
+          m['list'],
+        )!).take(_toInt(m['value'] ?? m['index'])).toList();
+        _trackMemoryAllocation(result.length * _ballPointerBytes);
+        return result;
       },
       'list_drop': (i) {
         final m = _stdAsMap(i)!;
-        return (_stdAsList(m['list'])!)
-            .skip(_toInt(m['value'] ?? m['index']))
-            .toList();
+        final result = (_stdAsList(
+          m['list'],
+        )!).skip(_toInt(m['value'] ?? m['index'])).toList();
+        _trackMemoryAllocation(result.length * _ballPointerBytes);
+        return result;
       },
       'list_concat': (i) {
         final m = _stdAsMap(i)!;
-        return [..._stdAsList(m['list'])!, ..._stdAsList(m['value'])!];
+        final result = [..._stdAsList(m['list'])!, ..._stdAsList(m['value'])!];
+        _trackMemoryAllocation(result.length * _ballPointerBytes);
+        return result;
       },
       'list_clear': (i) {
         final m = _stdAsMap(i)!;
@@ -562,8 +600,14 @@ extension BallEngineStd on BallEngine {
       'list_to_list': (i) {
         final raw = (_stdAsMap(i)!)['list'];
         final list = _stdAsList(raw);
-        if (list != null) return list.toList();
-        if (raw is Set) return raw.toList();
+        if (list != null) {
+          _trackMemoryAllocation(list.length * _ballPointerBytes);
+          return list.toList();
+        }
+        if (raw is Set) {
+          _trackMemoryAllocation(raw.length * _ballPointerBytes);
+          return raw.toList();
+        }
         return <Object?>[];
       },
       'list_foreach': (i) async {
@@ -619,20 +663,29 @@ extension BallEngineStd on BallEngine {
       'map_get': (i) {
         final m = _stdAsMap(i)!;
         final raw = m['map'];
-        final map = raw is BallMap ? raw.entries : (raw is Map ? raw : <dynamic, dynamic>{});
+        final map = raw is BallMap
+            ? raw.entries
+            : (raw is Map ? raw : <dynamic, dynamic>{});
         return map[m['key']];
       },
       'map_set': (i) {
         final m = _stdAsMap(i)!;
         final raw = m['map'];
-        final map = raw is BallMap ? raw.entries : (raw is Map ? raw : <dynamic, dynamic>{});
+        final map = raw is BallMap
+            ? raw.entries
+            : (raw is Map ? raw : <dynamic, dynamic>{});
+        if (!map.containsKey(m['key'])) {
+          _trackMemoryAllocation(_ballMapEntryBytes);
+        }
         map[m['key']] = m['value'];
         return map;
       },
       'map_delete': (i) {
         final m = _stdAsMap(i)!;
         final raw = m['map'];
-        final map = raw is BallMap ? raw.entries : (raw is Map ? raw : <dynamic, dynamic>{});
+        final map = raw is BallMap
+            ? raw.entries
+            : (raw is Map ? raw : <dynamic, dynamic>{});
         map.remove(m['key']);
         return map;
       },
@@ -647,7 +700,9 @@ extension BallEngineStd on BallEngine {
       'map_contains_value': (i) {
         final m = _stdAsMap(i)!;
         final raw = m['map'];
-        final map = raw is BallMap ? raw.entries : (raw is Map ? raw : <dynamic, dynamic>{});
+        final map = raw is BallMap
+            ? raw.entries
+            : (raw is Map ? raw : <dynamic, dynamic>{});
         return map.containsValue(m['value']);
       },
       'map_put_if_absent': (i) {
@@ -655,27 +710,42 @@ extension BallEngineStd on BallEngine {
         final map = _stdAsMap(m['map']) ?? (m['map'] as Map);
         final key = m['key'] as String;
         if (!map.containsKey(key)) {
+          _trackMemoryAllocation(_ballMapEntryBytes);
           final val = m['value'];
           map[key] = val is Function ? val() : val;
         }
         return map[key];
       },
       'map_keys': (i) {
-        final map = _stdAsMap((_stdAsMap(i)!)['map']) ?? ((_stdAsMap(i)!)['map'] as Map);
-        return map.keys.toList();
+        final map =
+            _stdAsMap((_stdAsMap(i)!)['map']) ??
+            ((_stdAsMap(i)!)['map'] as Map);
+        final result = map.keys.toList();
+        _trackMemoryAllocation(result.length * _ballPointerBytes);
+        return result;
       },
       'map_values': (i) {
-        final map = _stdAsMap((_stdAsMap(i)!)['map']) ?? ((_stdAsMap(i)!)['map'] as Map);
-        return map.values.toList();
+        final map =
+            _stdAsMap((_stdAsMap(i)!)['map']) ??
+            ((_stdAsMap(i)!)['map'] as Map);
+        final result = map.values.toList();
+        _trackMemoryAllocation(result.length * _ballPointerBytes);
+        return result;
       },
       'map_entries': (i) {
-        final map = _stdAsMap((_stdAsMap(i)!)['map']) ?? ((_stdAsMap(i)!)['map'] as Map);
+        final map =
+            _stdAsMap((_stdAsMap(i)!)['map']) ??
+            ((_stdAsMap(i)!)['map'] as Map);
+        _trackMemoryAllocation(
+          map.length * (_ballPointerBytes + _ballMapEntryBytes),
+        );
         return map.entries
             .map((e) => <String, Object?>{'key': e.key, 'value': e.value})
             .toList();
       },
       'map_from_entries': (i) {
         final list = _stdAsList((_stdAsMap(i)!)['list'])!;
+        _trackMemoryAllocation(list.length * _ballMapEntryBytes);
         final result = <String, Object?>{};
         for (final e in list) {
           final eMap = _stdAsMap(e);
@@ -695,16 +765,19 @@ extension BallEngineStd on BallEngine {
         final m = _stdAsMap(i)!;
         final map1 = _stdAsMap(m['map']) ?? (m['map'] as Map);
         final map2 = _stdAsMap(m['value']) ?? (m['value'] as Map);
-        return <String, Object?>{
+        final result = <String, Object?>{
           ...map1.cast<String, Object?>(),
           ...map2.cast<String, Object?>(),
         };
+        _trackMemoryAllocation(result.length * _ballMapEntryBytes);
+        return result;
       },
       'map_map': (i) async {
         final m = _stdAsMap(i)!;
         final map = _stdAsMap(m['map']) ?? (m['map'] as Map);
         final cb = m['callback'];
         final result = <String, Object?>{};
+        _trackMemoryAllocation(map.length * _ballMapEntryBytes);
         for (final entry in map.entries) {
           var r = (cb as Function)(<String, Object?>{
             'key': entry.key,
@@ -725,11 +798,12 @@ extension BallEngineStd on BallEngine {
         final map = _stdAsMap(m['map']) ?? (m['map'] as Map);
         final cb = m['callback'];
         final result = <String, Object?>{};
+        _trackMemoryAllocation(map.length * _ballMapEntryBytes);
         for (final entry in map.entries) {
           var v = (cb as Function)(<String, Object?>{
-                'key': entry.key,
-                'value': entry.value,
-              });
+            'key': entry.key,
+            'value': entry.value,
+          });
           if (v is Future) v = await v;
           if (v == true) {
             result[entry.key as String] = entry.value;
@@ -738,20 +812,26 @@ extension BallEngineStd on BallEngine {
         return result;
       },
       'map_is_empty': (i) {
-        final map = _stdAsMap((_stdAsMap(i)!)['map']) ?? ((_stdAsMap(i)!)['map'] as Map);
+        final map =
+            _stdAsMap((_stdAsMap(i)!)['map']) ??
+            ((_stdAsMap(i)!)['map'] as Map);
         return map.isEmpty;
       },
       'map_length': (i) {
-        final map = _stdAsMap((_stdAsMap(i)!)['map']) ?? ((_stdAsMap(i)!)['map'] as Map);
+        final map =
+            _stdAsMap((_stdAsMap(i)!)['map']) ??
+            ((_stdAsMap(i)!)['map'] as Map);
         return map.length;
       },
 
       // std_collections — string join
       'string_join': (i) {
         final m = _stdAsMap(i)!;
-        return (_stdAsList(m['list'])!)
-            .map((e) => '$e')
-            .join(m['separator'] as String? ?? '');
+        final result = (_stdAsList(
+          m['list'],
+        )!).map((e) => '$e').join(m['separator'] as String? ?? '');
+        _trackMemoryAllocation(result.length * _ballStringCodeUnitBytes);
+        return result;
       },
 
       // std_collections — set operations
@@ -784,10 +864,8 @@ extension BallEngineStd on BallEngine {
         return (m['left'] as Set).difference(m['right'] as Set);
       },
       'set_length': (i) => ((_stdAsMap(i)!)['set'] as Set).length,
-      'set_is_empty': (i) =>
-          ((_stdAsMap(i)!)['set'] as Set).isEmpty,
-      'set_to_list': (i) =>
-          ((_stdAsMap(i)!)['set'] as Set).toList(),
+      'set_is_empty': (i) => ((_stdAsMap(i)!)['set'] as Set).isEmpty,
+      'set_to_list': (i) => ((_stdAsMap(i)!)['set'] as Set).toList(),
 
       // Switch expression
       'switch_expr': _stdSwitchExpr,
@@ -798,8 +876,10 @@ extension BallEngineStd on BallEngine {
         String typeName = 'Exception';
         final valMap = _stdAsMap(val);
         if (valMap != null) {
-          typeName = (valMap['__type__'] as String?) ??
-              (valMap['__type'] as String?) ?? 'Exception';
+          typeName =
+              (valMap['__type__'] as String?) ??
+              (valMap['__type'] as String?) ??
+              'Exception';
           // Ensure 'message' field exists for standard exception types.
           // The encoder stores the message as arg0; Dart code accesses e.message.
           if (!valMap.containsKey('message') && valMap.containsKey('arg0')) {
@@ -889,8 +969,15 @@ extension BallEngineStd on BallEngine {
         final m = _stdAsMap(i);
         if (m != null) {
           final str = (m['string'] ?? m['value'] ?? m['left'] ?? '') as String;
-          final delim = (m['delimiter'] ?? m['separator'] ?? m['right'] ?? '') as String;
-          return str.split(delim);
+          final delim =
+              (m['delimiter'] ?? m['separator'] ?? m['right'] ?? '') as String;
+          final result = str.split(delim);
+          _trackMemoryAllocation(
+            result.length * _ballPointerBytes +
+                result.fold<int>(0, (sum, part) => sum + part.length) *
+                    _ballStringCodeUnitBytes,
+          );
+          return result;
         }
         return <String>[];
       },
@@ -950,23 +1037,21 @@ extension BallEngineStd on BallEngine {
       // ── std_io ─────────────────────────────────────────────────
       'print_error': (i) {
         final im = _stdAsMap(i);
-        final msg = im != null
-            ? im['message']?.toString() ?? ''
-            : '$i';
+        final msg = im != null ? im['message']?.toString() ?? '' : '$i';
         stderr(msg);
         return null;
       },
       'read_line': (_) => stdinReader?.call() ?? '',
       'exit': (i) {
+        _checkSandbox('exit');
         final im = _stdAsMap(i);
         final code = im != null ? (im['code'] as int?) ?? 0 : 0;
         throw _ExitSignal(code);
       },
       'panic': (i) {
+        _checkSandbox('panic');
         final im = _stdAsMap(i);
-        final msg = im != null
-            ? im['message']?.toString() ?? ''
-            : '$i';
+        final msg = im != null ? im['message']?.toString() ?? '' : '$i';
         stderr(msg);
         throw _ExitSignal(1);
       },
@@ -986,10 +1071,9 @@ extension BallEngineStd on BallEngine {
       },
       'random_double': (_) => _random.nextDouble(),
       'env_get': (i) {
+        _checkSandbox('env_get');
         final im = _stdAsMap(i);
-        final name = im != null
-            ? im['name'] as String? ?? ''
-            : '$i';
+        final name = im != null ? im['name'] as String? ?? '' : '$i';
         return _envGet(name);
       },
       'args_get': (_) => _args,
@@ -1002,37 +1086,27 @@ extension BallEngineStd on BallEngine {
       },
       'json_decode': (i) {
         final im = _stdAsMap(i);
-        final str = im != null
-            ? im['value'] as String? ?? ''
-            : '$i';
+        final str = im != null ? im['value'] as String? ?? '' : '$i';
         return _jsonDecode(str);
       },
       'utf8_encode': (i) {
         final im = _stdAsMap(i);
-        final str = im != null
-            ? im['value'] as String? ?? ''
-            : '$i';
+        final str = im != null ? im['value'] as String? ?? '' : '$i';
         return _utf8Encode(str);
       },
       'utf8_decode': (i) {
         final im = _stdAsMap(i);
-        final bytes = im != null
-            ? im['value'] as List<int>? ?? []
-            : <int>[];
+        final bytes = im != null ? im['value'] as List<int>? ?? [] : <int>[];
         return _utf8Decode(bytes);
       },
       'base64_encode': (i) {
         final im = _stdAsMap(i);
-        final bytes = im != null
-            ? im['value'] as List<int>? ?? []
-            : <int>[];
+        final bytes = im != null ? im['value'] as List<int>? ?? [] : <int>[];
         return _base64Encode(bytes);
       },
       'base64_decode': (i) {
         final im = _stdAsMap(i);
-        final str = im != null
-            ? im['value'] as String? ?? ''
-            : '$i';
+        final str = im != null ? im['value'] as String? ?? '' : '$i';
         return _base64Decode(str);
       },
 
@@ -1191,6 +1265,11 @@ extension BallEngineStd on BallEngine {
 
   // ---- std function implementations ----
 
+  List<Object?> _trackListCopy(List<Object?> list) {
+    _trackMemoryAllocation(list.length * _ballPointerBytes);
+    return list;
+  }
+
   /// Convert a Ball value to its string representation.
   ///
   /// For typed objects with a user-defined `toString` method, invokes that
@@ -1214,7 +1293,8 @@ extension BallEngineStd on BallEngine {
     if (map != null) {
       // StringBuffer: return the buffer contents.
       final typeName = map['__type__'] as String?;
-      if (typeName != null && (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
+      if (typeName != null &&
+          (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
         return (map['__buffer__'] as String?) ?? '';
       }
       // Typed object: try to invoke the user's toString method.
@@ -1222,13 +1302,20 @@ extension BallEngineStd on BallEngine {
         final resolved = _resolveMethod(typeName, 'toString');
         if (resolved != null) {
           try {
-            final future = _callFunction(resolved.module, resolved.func, <String, Object?>{'self': map});
+            final future = _callFunction(
+              resolved.module,
+              resolved.func,
+              <String, Object?>{'self': map},
+            );
             // _callFunction returns Future<Object?>. Most calls complete
             // synchronously (Dart optimises already-completed Futures).
             // Use .then to grab the value if already resolved.
             Object? syncResult;
             var done = false;
-            future.then((r) { syncResult = r; done = true; });
+            future.then((r) {
+              syncResult = r;
+              done = true;
+            });
             if (done) return syncResult?.toString() ?? 'null';
             // If truly async, fall back to default representation.
             return map.toString();
@@ -1248,7 +1335,9 @@ extension BallEngineStd on BallEngine {
     String methodName,
   ) {
     final colonIdx = typeName.indexOf(':');
-    final modPart = colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
+    final modPart = colonIdx >= 0
+        ? typeName.substring(0, colonIdx)
+        : _currentModule;
 
     // Try "module.typeName.methodName" in _functions.
     final methodKey = '$modPart.$typeName.$methodName';
@@ -1259,9 +1348,13 @@ extension BallEngineStd on BallEngine {
 
     // Walk superclass chain via _findTypeDef.
     final typeDef = _findTypeDef(typeName);
-    if (typeDef != null && typeDef.superclass != null && typeDef.superclass!.isNotEmpty) {
+    if (typeDef != null &&
+        typeDef.superclass != null &&
+        typeDef.superclass!.isNotEmpty) {
       final superclass = typeDef.superclass!;
-      final qualSuper = superclass.contains(':') ? superclass : '$modPart:$superclass';
+      final qualSuper = superclass.contains(':')
+          ? superclass
+          : '$modPart:$superclass';
       final superResult = _resolveMethod(qualSuper, methodName);
       if (superResult != null) return superResult;
     }
@@ -1341,14 +1434,19 @@ extension BallEngineStd on BallEngine {
     final map = _stdAsMap(v);
     if (map != null) {
       final typeName = map['__type__'] as String?;
-      if (typeName != null && (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
+      if (typeName != null &&
+          (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
         return (map['__buffer__'] as String?) ?? '';
       }
       if (typeName != null) {
         final resolved = _resolveMethod(typeName, 'toString');
         if (resolved != null) {
           try {
-            final result = await _callFunction(resolved.module, resolved.func, <String, Object?>{'self': map});
+            final result = await _callFunction(
+              resolved.module,
+              resolved.func,
+              <String, Object?>{'self': map},
+            );
             return result?.toString() ?? 'null';
           } catch (_) {
             // Fall back on error.
@@ -1378,7 +1476,8 @@ extension BallEngineStd on BallEngine {
     final index = m['index'];
     final listTarget = _stdAsList(target);
     if (listTarget != null) return listTarget[_toInt(index)];
-    if (target is BallMap) return target.entries[index is int ? index.toString() : index];
+    if (target is BallMap)
+      return target.entries[index is int ? index.toString() : index];
     if (target is Map) return target[index];
     if (target is String) return target[_toInt(index)];
     throw BallRuntimeError('std.index: unsupported types');
@@ -1396,6 +1495,39 @@ extension BallEngineStd on BallEngine {
     final target = m['target'];
     if (target == null) return null;
     return target;
+  }
+
+  FutureOr<Object?> _stdListGenerate(Object? input) async {
+    final m = _stdAsMap(input);
+    if (m == null) {
+      throw BallRuntimeError('dart_std.list_generate: expected message');
+    }
+    final length = _toInt(m['length'] ?? m['count'] ?? m['arg0']);
+    final generator =
+        m['generator'] ?? m['callback'] ?? m['function'] ?? m['arg1'];
+    if (generator is! Function) {
+      throw BallRuntimeError(
+        'dart_std.list_generate: generator is not callable',
+      );
+    }
+    _trackMemoryAllocation(length * _ballPointerBytes);
+    final result = <Object?>[];
+    for (var index = 0; index < length; index++) {
+      var value = generator(index);
+      if (value is Future) value = await value;
+      result.add(value);
+    }
+    return result;
+  }
+
+  Object? _stdListFilled(Object? input) {
+    final m = _stdAsMap(input);
+    if (m == null) {
+      throw BallRuntimeError('dart_std.list_filled: expected message');
+    }
+    final length = _toInt(m['length'] ?? m['count'] ?? m['arg0']);
+    _trackMemoryAllocation(length * _ballPointerBytes);
+    return List<Object?>.filled(length, m['value'] ?? m['arg1']);
   }
 
   FutureOr<Object?> _stdInvoke(Object? input) async {
@@ -1491,11 +1623,29 @@ extension BallEngineStd on BallEngine {
       }
       // Check BallObject __type__ with __type_args__
       final objMap = _stdAsMap(value);
-      if (objMap != null && _typeNameMatches(objMap['__type__'] as String?, baseType)) {
+      if (objMap != null &&
+          _typeNameMatches(objMap['__type__'] as String?, baseType)) {
         final objArgs = objMap['__type_args__'];
-        if (objArgs is List && objArgs.length == typeArgs.length) {
+        // Handle __type_args__ as a string (e.g., "<int>") or as a List (e.g., ["int"])
+        List<String> objTypeArgs = [];
+        if (objArgs is String) {
+          // Strip angle brackets and split by comma
+          final argsStr = objArgs.trim();
+          if (argsStr.startsWith('<') && argsStr.endsWith('>')) {
+            objTypeArgs = argsStr
+                .substring(1, argsStr.length - 1)
+                .split(',')
+                .map((s) => s.trim())
+                .toList();
+          } else {
+            objTypeArgs = [argsStr];
+          }
+        } else if (objArgs is List) {
+          objTypeArgs = objArgs.map((e) => e.toString()).toList();
+        }
+        if (objTypeArgs.length == typeArgs.length) {
           for (var i = 0; i < typeArgs.length; i++) {
-            if (objArgs[i] != typeArgs[i]) return false;
+            if (objTypeArgs[i] != typeArgs[i]) return false;
           }
           return true;
         }
@@ -1548,7 +1698,8 @@ extension BallEngineStd on BallEngine {
     final objColon = objType.indexOf(':');
     final checkColon = checkType.indexOf(':');
     if (objColon >= 0 && checkColon >= 0) {
-      return objType.substring(objColon + 1) == checkType.substring(checkColon + 1);
+      return objType.substring(objColon + 1) ==
+          checkType.substring(checkColon + 1);
     }
     return false;
   }
@@ -1578,6 +1729,7 @@ extension BallEngineStd on BallEngine {
     final entries = m['entries'] ?? m['entry'];
     final entriesList = _stdAsList(entries);
     if (entriesList != null) {
+      _trackMemoryAllocation(entriesList.length * _ballMapEntryBytes);
       final result = <Object?, Object?>{};
       for (final entry in entriesList) {
         final entryMap = _stdAsMap(entry);
@@ -1591,6 +1743,7 @@ extension BallEngineStd on BallEngine {
     final entriesMap = _stdAsMap(entries);
     if (entriesMap != null) {
       // Single entry (not wrapped in a list).
+      _trackMemoryAllocation(_ballMapEntryBytes);
       final key = entriesMap['key'] ?? entriesMap['name'];
       return <Object?, Object?>{key: entriesMap['value']};
     }
@@ -1602,7 +1755,10 @@ extension BallEngineStd on BallEngine {
     if (m == null) return <Object?>{};
     final elements = m['elements'];
     final elementsList = _stdAsList(elements);
-    if (elementsList != null) return elementsList.toSet();
+    if (elementsList != null) {
+      _trackMemoryAllocation(elementsList.length * _ballPointerBytes);
+      return elementsList.toSet();
+    }
     return <Object?>{};
   }
 
@@ -1777,14 +1933,19 @@ extension BallEngineStd on BallEngine {
           final em = _stdAsMap(e);
           return em != null && _patternKind(em) == 'rest';
         });
-        final fixedCount = restIndex == -1 ? elements.length : elements.length - 1;
+        final fixedCount = restIndex == -1
+            ? elements.length
+            : elements.length - 1;
         if (restIndex == -1 && listVal.length != fixedCount) return false;
         if (restIndex != -1 && listVal.length < fixedCount) return false;
         for (var i = 0; i < elements.length; i++) {
           final elem = elements[i];
           final elemMap = _stdAsMap(elem);
           if (elemMap != null && _patternKind(elemMap) == 'rest') {
-            final restValues = listVal.sublist(i, listVal.length - fixedCount + i);
+            final restValues = listVal.sublist(
+              i,
+              listVal.length - fixedCount + i,
+            );
             final subpattern = elemMap['subpattern'];
             if (subpattern != null &&
                 !_matchPattern(restValues, subpattern, bindings)) {
@@ -1824,7 +1985,8 @@ extension BallEngineStd on BallEngine {
         final objMap = _stdAsMap(value);
         if (objMap == null) return false;
         final objType = pattern['type'] as String?;
-        if (objType != null && !_matchesObjectType(objMap, objType)) return false;
+        if (objType != null && !_matchesObjectType(objMap, objType))
+          return false;
         for (final entry in _patternFields(pattern['fields']).entries) {
           final fieldVal = objMap[entry.key];
           if (!_matchPattern(fieldVal, entry.value, bindings)) return false;
@@ -1938,7 +2100,11 @@ extension BallEngineStd on BallEngine {
     return result;
   }
 
-  bool _matchRelationalPattern(Object? value, String? operator, Object? operand) {
+  bool _matchRelationalPattern(
+    Object? value,
+    String? operator,
+    Object? operand,
+  ) {
     if (operator == null) return false;
     return switch (operator) {
       '==' => _ballEquals(value, operand),
@@ -2013,10 +2179,7 @@ extension BallEngineStd on BallEngine {
     return op(_toInt(left), _toInt(right));
   }
 
-  Object? _stdBinaryDouble(
-    Object? input,
-    double Function(double, double) op,
-  ) {
+  Object? _stdBinaryDouble(Object? input, double Function(double, double) op) {
     final (left, right) = _extractBinaryArgs(input);
     return op(_toDouble(left), _toDouble(right));
   }
@@ -2031,10 +2194,7 @@ extension BallEngineStd on BallEngine {
     return op(_toBool(left), _toBool(right));
   }
 
-  Object? _stdBinaryAny(
-    Object? input,
-    Object? Function(Object?, Object?) op,
-  ) {
+  Object? _stdBinaryAny(Object? input, Object? Function(Object?, Object?) op) {
     final (left, right) = _extractBinaryArgs(input);
     return op(left, right);
   }
@@ -2051,7 +2211,9 @@ extension BallEngineStd on BallEngine {
 
   Object? _stdConcat(Object? input) {
     final (left, right) = _extractBinaryArgs(input);
-    return '$left$right';
+    final result = '$left$right';
+    _trackMemoryAllocation(result.length * _ballStringCodeUnitBytes);
+    return result;
   }
 
   Object? _stdLength(Object? input) {
@@ -2170,9 +2332,11 @@ extension BallEngineStd on BallEngine {
     final value = m['value'] as String;
     final start = _toInt(m['start']);
     final end = m['end'];
-    return end != null
+    final result = end != null
         ? value.substring(start, _toInt(end))
         : value.substring(start);
+    _trackMemoryAllocation(result.length * _ballStringCodeUnitBytes);
+    return result;
   }
 
   Object? _stdStringCharAt(Object? input) {
@@ -2203,7 +2367,11 @@ extension BallEngineStd on BallEngine {
     final value = m['value'] as String;
     final from = m['from'] as String;
     final to = m['to'] as String;
-    return all ? value.replaceAll(from, to) : value.replaceFirst(from, to);
+    final result = all
+        ? value.replaceAll(from, to)
+        : value.replaceFirst(from, to);
+    _trackMemoryAllocation(result.length * _ballStringCodeUnitBytes);
+    return result;
   }
 
   Object? _stdRegexReplace(Object? input, bool all) {
@@ -2215,9 +2383,11 @@ extension BallEngineStd on BallEngine {
     final from = m['from'] as String;
     final to = m['to'] as String;
     final pattern = RegExp(from);
-    return all
+    final result = all
         ? value.replaceAll(pattern, to)
         : value.replaceFirst(pattern, to);
+    _trackMemoryAllocation(result.length * _ballStringCodeUnitBytes);
+    return result;
   }
 
   Object? _stdStringRepeat(Object? input) {
@@ -2227,7 +2397,9 @@ extension BallEngineStd on BallEngine {
     }
     final value = m['value'] as String;
     final count = _toInt(m['count']);
-    return value * count;
+    final result = value * count;
+    _trackMemoryAllocation(result.length * _ballStringCodeUnitBytes);
+    return result;
   }
 
   Object? _stdStringPad(Object? input, bool left) {
@@ -2238,9 +2410,11 @@ extension BallEngineStd on BallEngine {
     final value = m['value'] as String;
     final width = _toInt(m['width']);
     final padding = (m['padding'] as String?) ?? ' ';
-    return left
+    final result = left
         ? value.padLeft(width, padding)
         : value.padRight(width, padding);
+    _trackMemoryAllocation(result.length * _ballStringCodeUnitBytes);
+    return result;
   }
 
   // ---- Math helpers (using dart:math would need import, so inline) ----
@@ -2250,10 +2424,7 @@ extension BallEngineStd on BallEngine {
     return op(_toDouble(value));
   }
 
-  Object? _stdMathBinary(
-    Object? input,
-    double Function(double, double) op,
-  ) {
+  Object? _stdMathBinary(Object? input, double Function(double, double) op) {
     final (left, right) = _extractBinaryArgs(input);
     return op(_toDouble(left), _toDouble(right));
   }
@@ -2304,8 +2475,7 @@ extension BallEngineStd on BallEngine {
     if (mapVal != null) {
       return {
         for (final e in mapVal.entries)
-          if (!e.key.startsWith('__'))
-            e.key: _toJsonSafe(e.value),
+          if (!e.key.startsWith('__')) e.key: _toJsonSafe(e.value),
       };
     }
     if (v is Map) {
@@ -2326,37 +2496,45 @@ extension BallEngineStd on BallEngine {
   String _base64Encode(List<int> bytes) => base64.encode(bytes);
   List<int> _base64Decode(String s) => base64.decode(s);
 
+  /// Throws [BallRuntimeError] when [op] is invoked under sandbox mode.
+  void _checkSandbox(String op) {
+    if (sandbox) {
+      throw BallRuntimeError('Sandbox violation: $op is not allowed');
+    }
+  }
+
   // ---- std_fs helpers ----
 
   Object? _stdFileRead(Object? input) {
+    _checkSandbox('file_read');
     final m = _stdAsMap(input);
-    final path = m != null
-        ? m['path'] as String? ?? ''
-        : '$input';
+    final path = m != null ? m['path'] as String? ?? '' : '$input';
     return io.File(path).readAsStringSync();
   }
 
   Object? _stdFileReadBytes(Object? input) {
+    _checkSandbox('file_read_bytes');
     final m = _stdAsMap(input);
-    final path = m != null
-        ? m['path'] as String? ?? ''
-        : '$input';
+    final path = m != null ? m['path'] as String? ?? '' : '$input';
     return io.File(path).readAsBytesSync().toList();
   }
 
   Object? _stdFileWrite(Object? input) {
+    _checkSandbox('file_write');
     final m = _stdAsMap(input)!;
     io.File(m['path'] as String).writeAsStringSync(m['content'] as String);
     return null;
   }
 
   Object? _stdFileWriteBytes(Object? input) {
+    _checkSandbox('file_write_bytes');
     final m = _stdAsMap(input)!;
     io.File(m['path'] as String).writeAsBytesSync(m['content'] as List<int>);
     return null;
   }
 
   Object? _stdFileAppend(Object? input) {
+    _checkSandbox('file_append');
     final m = _stdAsMap(input)!;
     io.File(
       m['path'] as String,
@@ -2365,44 +2543,39 @@ extension BallEngineStd on BallEngine {
   }
 
   Object? _stdFileExists(Object? input) {
+    _checkSandbox('file_exists');
     final m = _stdAsMap(input);
-    final path = m != null
-        ? m['path'] as String? ?? ''
-        : '$input';
+    final path = m != null ? m['path'] as String? ?? '' : '$input';
     return io.File(path).existsSync();
   }
 
   Object? _stdFileDelete(Object? input) {
+    _checkSandbox('file_delete');
     final m = _stdAsMap(input);
-    final path = m != null
-        ? m['path'] as String? ?? ''
-        : '$input';
+    final path = m != null ? m['path'] as String? ?? '' : '$input';
     io.File(path).deleteSync();
     return null;
   }
 
   Object? _stdDirList(Object? input) {
+    _checkSandbox('dir_list');
     final m = _stdAsMap(input);
-    final path = m != null
-        ? m['path'] as String? ?? ''
-        : '$input';
+    final path = m != null ? m['path'] as String? ?? '' : '$input';
     return io.Directory(path).listSync().map((e) => e.path).toList();
   }
 
   Object? _stdDirCreate(Object? input) {
+    _checkSandbox('dir_create');
     final m = _stdAsMap(input);
-    final path = m != null
-        ? m['path'] as String? ?? ''
-        : '$input';
+    final path = m != null ? m['path'] as String? ?? '' : '$input';
     io.Directory(path).createSync(recursive: true);
     return null;
   }
 
   Object? _stdDirExists(Object? input) {
+    _checkSandbox('dir_exists');
     final m = _stdAsMap(input);
-    final path = m != null
-        ? m['path'] as String? ?? ''
-        : '$input';
+    final path = m != null ? m['path'] as String? ?? '' : '$input';
     return io.Directory(path).existsSync();
   }
 }

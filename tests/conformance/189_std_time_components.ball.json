@@ -1,0 +1,46 @@
+{
+  "name": "std_time_components",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "year", "isBase": true },
+        { "name": "month", "isBase": true },
+        { "name": "day", "isBase": true },
+        { "name": "hour", "isBase": true },
+        { "name": "minute", "isBase": true },
+        { "name": "second", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                { "let": { "name": "y", "value": { "call": { "module": "std", "function": "year", "input": { "messageCreation": { "typeName": "", "fields": [] } } } } } },
+                { "let": { "name": "m", "value": { "call": { "module": "std", "function": "month", "input": { "messageCreation": { "typeName": "", "fields": [] } } } } } },
+                { "let": { "name": "d", "value": { "call": { "module": "std", "function": "day", "input": { "messageCreation": { "typeName": "", "fields": [] } } } } } },
+                { "let": { "name": "h", "value": { "call": { "module": "std", "function": "hour", "input": { "messageCreation": { "typeName": "", "fields": [] } } } } } },
+                { "let": { "name": "min", "value": { "call": { "module": "std", "function": "minute", "input": { "messageCreation": { "typeName": "", "fields": [] } } } } } },
+                { "let": { "name": "s", "value": { "call": { "module": "std", "function": "second", "input": { "messageCreation": { "typeName": "", "fields": [] } } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [ { "name": "message", "value": { "literal": { "stringValue": "ok" } } } ] } } } } }
+              ]
+            }
+          }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

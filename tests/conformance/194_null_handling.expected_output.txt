@@ -1,0 +1,5 @@
+[null, alpha, null]
+{a: null, b: present, c: null}
+false
+true
+false

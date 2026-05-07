@@ -1,0 +1,50 @@
+{
+  "name": "sandbox_mode",
+  "version": "1.0.0",
+  "entryModule": "main",
+  "entryFunction": "main",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "file_read",
+          "isBase": true
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "file_read",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "path",
+                      "value": {
+                        "literal": {
+                          "stringValue": "/etc/passwd"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ]
+    }
+  ]
+}

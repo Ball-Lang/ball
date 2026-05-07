@@ -1,0 +1,58 @@
+{
+  "name": "memory_limit",
+  "version": "1.0.0",
+  "entryModule": "main",
+  "entryFunction": "main",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "list_filled",
+          "isBase": true
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "list_filled",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "count",
+                      "value": {
+                        "literal": {
+                          "intValue": "200"
+                        }
+                      }
+                    },
+                    {
+                      "name": "value",
+                      "value": {
+                        "literal": {
+                          "intValue": "0"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ]
+    }
+  ]
+}

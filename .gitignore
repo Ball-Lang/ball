@@ -25,6 +25,7 @@ build/
 # C++ Build
 # ----------------------------------
 cpp/build/
+cpp/build*/
 CMakeUserPresets.json
 
 # C++ test logs at project level
@@ -79,3 +80,20 @@ target/
 csharp/**/bin/
 csharp/**/obj/
 *.user
+
+# ----------------------------------
+# Local agent / tooling state (per-machine, may leak absolute paths)
+# ----------------------------------
+.omc/
+**/.omc/
+.sisyphus/boulder.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+
+# ----------------------------------
+# Transient logs / scratch output
+# ----------------------------------
+*.log
+test_output.txt
+engine_test.log
+dart_test_out.txt

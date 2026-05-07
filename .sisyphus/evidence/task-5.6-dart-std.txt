@@ -1,0 +1,9 @@
+dart test test/conformance_test.dart --name "186"
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 186_list_generate
+00:00 +1: All tests passed!
+
+dart test test/conformance_test.dart --name "187"
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 187_list_filled
+00:00 +1: All tests passed!

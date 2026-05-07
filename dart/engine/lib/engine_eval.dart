@@ -1,5 +1,9 @@
 part of 'engine.dart';
 
+const _ballPointerBytes = 8;
+const _ballStringCodeUnitBytes = 2;
+const _ballMapEntryBytes = _ballPointerBytes * 2;
+
 extension BallEngineEval on BallEngine {
   /// Unwrap a value to its underlying [Map<String, Object?>] if it is a
   /// [BallMap] or already a raw map.  Returns `null` otherwise.
@@ -18,19 +22,31 @@ extension BallEngineEval on BallEngine {
   }
 
   Future<Object?> _evalExpression(Expression expr, _Scope scope) async {
-    return switch (expr.whichExpr()) {
-      Expression_Expr.call => await _evalCall(expr.call, scope),
-      Expression_Expr.literal => await _evalLiteral(expr.literal, scope),
-      Expression_Expr.reference => await _evalReference(expr.reference, scope),
-      Expression_Expr.fieldAccess => await _evalFieldAccess(expr.fieldAccess, scope),
-      Expression_Expr.messageCreation => await _evalMessageCreation(
-        expr.messageCreation,
-        scope,
-      ),
-      Expression_Expr.block => await _evalBlock(expr.block, scope),
-      Expression_Expr.lambda => _evalLambda(expr.lambda, scope),
-      Expression_Expr.notSet => null,
-    };
+    _checkExecutionTimeout();
+    _checkExpressionDepth();
+    try {
+      return switch (expr.whichExpr()) {
+        Expression_Expr.call => await _evalCall(expr.call, scope),
+        Expression_Expr.literal => await _evalLiteral(expr.literal, scope),
+        Expression_Expr.reference => await _evalReference(
+          expr.reference,
+          scope,
+        ),
+        Expression_Expr.fieldAccess => await _evalFieldAccess(
+          expr.fieldAccess,
+          scope,
+        ),
+        Expression_Expr.messageCreation => await _evalMessageCreation(
+          expr.messageCreation,
+          scope,
+        ),
+        Expression_Expr.block => await _evalBlock(expr.block, scope),
+        Expression_Expr.lambda => _evalLambda(expr.lambda, scope),
+        Expression_Expr.notSet => null,
+      };
+    } finally {
+      _exitExpression();
+    }
   }
 
   // ---- Function Calls ----
@@ -104,7 +120,9 @@ extension BallEngineEval on BallEngine {
     }
 
     // Eager evaluation for all other calls
-    final input = call.hasInput() ? await _evalExpression(call.input, scope) : null;
+    final input = call.hasInput()
+        ? await _evalExpression(call.input, scope)
+        : null;
 
     // Well-known global functions (not in any module).
     if (call.module.isEmpty) {
@@ -126,13 +144,17 @@ extension BallEngineEval on BallEngine {
     // Only fires when call.module is set explicitly (empty-module calls
     // still flow through the scope-closure check below).
     if (call.module == 'std' || call.module == 'dart_std') {
-      return _unwrapFuture(await _callBaseFunction(call.module, call.function, input));
+      return _unwrapFuture(
+        await _callBaseFunction(call.module, call.function, input),
+      );
     }
 
     final key = '$moduleName.${call.function}';
     final func = _functions[key];
     if (func != null && func.isBase) {
-      return _unwrapFuture(await _callBaseFunction(moduleName, call.function, input));
+      return _unwrapFuture(
+        await _callBaseFunction(moduleName, call.function, input),
+      );
     }
 
     // Local closure call: when the function name resolves to a value
@@ -160,22 +182,32 @@ extension BallEngineEval on BallEngine {
           final className = selfMap['__class_ref__'] as String;
           final argInput = Map<String, Object?>.from(inputMap)..remove('self');
           final builtinResult = await _dispatchBuiltinClassMethod(
-            className, call.function, argInput);
+            className,
+            call.function,
+            argInput,
+          );
           if (builtinResult != _sentinel) return _unwrapFuture(builtinResult);
         }
 
         // Static method dispatch on class reference.
         if (selfMap['__type__'] == '__class__') {
           final className = selfMap['__class_ref__'] as String;
-          final qualifiedName = className.contains(':') ? className : '$_currentModule:$className';
+          final qualifiedName = className.contains(':')
+              ? className
+              : '$_currentModule:$className';
           final colonIdx2 = qualifiedName.indexOf(':');
-          final modPart2 = colonIdx2 >= 0 ? qualifiedName.substring(0, colonIdx2) : _currentModule;
+          final modPart2 = colonIdx2 >= 0
+              ? qualifiedName.substring(0, colonIdx2)
+              : _currentModule;
           final staticKey = '$modPart2.$qualifiedName.${call.function}';
           final staticFunc = _functions[staticKey];
           if (staticFunc != null) {
             // Strip 'self' from input for static methods.
-            final staticInput = Map<String, Object?>.from(inputMap)..remove('self');
-            return _unwrapFuture(await _callFunction(modPart2, staticFunc, staticInput));
+            final staticInput = Map<String, Object?>.from(inputMap)
+              ..remove('self');
+            return _unwrapFuture(
+              await _callFunction(modPart2, staticFunc, staticInput),
+            );
           }
         }
 
@@ -183,17 +215,36 @@ extension BallEngineEval on BallEngine {
         if (typeName != null &&
             typeName != '__builtin_class__' &&
             typeName != '__class__') {
+          Map<String, Object?>? methodOwner = selfMap;
+          while (methodOwner != null) {
+            final methods = methodOwner['__methods__'];
+            if (methods is Map && methods.containsKey(call.function)) {
+              final method = methods[call.function];
+              if (method is Function) {
+                final result = method(input);
+                if (result is Future) return _unwrapFuture(await result);
+                return _unwrapFuture(result);
+              }
+            }
+            methodOwner = _asMap(methodOwner['__super__']);
+          }
+
           // Use _resolveMethod which walks superclass chain and mixins.
           final resolved = _resolveMethod(typeName, call.function);
           if (resolved != null) {
-            return _unwrapFuture(await _callFunction(resolved.module, resolved.func, input));
+            return _unwrapFuture(
+              await _callFunction(resolved.module, resolved.func, input),
+            );
           }
         }
       }
 
       // Built-in method dispatch for List, String, and other built-in types.
       final builtinResult = await _dispatchBuiltinInstanceMethod(
-        self, call.function, input);
+        self,
+        call.function,
+        input,
+      );
       if (builtinResult != _sentinel) return _unwrapFuture(builtinResult);
 
       // Fall through to normal resolution if no method found on the type.
@@ -212,9 +263,10 @@ extension BallEngineEval on BallEngine {
             for (final f in m.functions) {
               if (!f.isBase && f.hasBody()) {
                 final dotIdx = f.name.lastIndexOf('.');
-                if (dotIdx >= 0 && f.name.substring(dotIdx + 1) == call.function) {
+                if (dotIdx >= 0 &&
+                    f.name.substring(dotIdx + 1) == call.function) {
                   final prefix = f.name.substring(0, dotIdx);
-if (prefix == typeName) {
+                  if (prefix == typeName) {
                     return _unwrapFuture(await _callFunction(m.name, f, input));
                   }
                 }
@@ -224,16 +276,23 @@ if (prefix == typeName) {
             var superType = _findTypeDef(typeName)?.superclass;
             while (superType != null && superType.isNotEmpty) {
               final colonIdx = typeName.indexOf(':');
-              final modPart = colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
-              final qualSuper = superType.contains(':') ? superType : '$modPart:$superType';
+              final modPart = colonIdx >= 0
+                  ? typeName.substring(0, colonIdx)
+                  : _currentModule;
+              final qualSuper = superType.contains(':')
+                  ? superType
+                  : '$modPart:$superType';
               for (final m in program.modules) {
                 for (final f in m.functions) {
                   if (!f.isBase && f.hasBody()) {
                     final dotIdx = f.name.lastIndexOf('.');
-                    if (dotIdx >= 0 && f.name.substring(dotIdx + 1) == call.function) {
+                    if (dotIdx >= 0 &&
+                        f.name.substring(dotIdx + 1) == call.function) {
                       final prefix = f.name.substring(0, dotIdx);
                       if (prefix == qualSuper || prefix == superType) {
-                        return _unwrapFuture(await _callFunction(m.name, f, input));
+                        return _unwrapFuture(
+                          await _callFunction(m.name, f, input),
+                        );
                       }
                     }
                   }
@@ -246,7 +305,9 @@ if (prefix == typeName) {
       }
     }
 
-    return _unwrapFuture(await _resolveAndCallFunction(call.module, call.function, input));
+    return _unwrapFuture(
+      await _resolveAndCallFunction(call.module, call.function, input),
+    );
   }
 
   // ---- Literals ----
@@ -255,9 +316,11 @@ if (prefix == typeName) {
     return switch (lit.whichValue()) {
       Literal_Value.intValue => lit.intValue.toInt(),
       Literal_Value.doubleValue => BallDouble(lit.doubleValue),
-      Literal_Value.stringValue => lit.stringValue,
+      Literal_Value.stringValue => _trackStringAllocation(lit.stringValue),
       Literal_Value.boolValue => lit.boolValue,
-      Literal_Value.bytesValue => lit.bytesValue.toList(),
+      Literal_Value.bytesValue => _trackByteListAllocation(
+        lit.bytesValue.toList(),
+      ),
       Literal_Value.listValue => await _evalListLiteral(lit.listValue, scope),
       Literal_Value.notSet => null,
     };
@@ -266,6 +329,7 @@ if (prefix == typeName) {
   /// Evaluates a list literal, handling collection_if and collection_for.
   Future<BallList> _evalListLiteral(ListLiteral listVal, _Scope scope) async {
     final result = <Object?>[];
+    _trackMemoryAllocation(listVal.elements.length * _ballPointerBytes);
     for (final element in listVal.elements) {
       if (element.hasCall()) {
         final call = element.call;
@@ -299,11 +363,13 @@ if (prefix == typeName) {
     if (cond) {
       final thenExpr = fields['then'];
       if (thenExpr != null) {
+        _trackMemoryAllocation(_ballPointerBytes);
         await _addCollectionElement(thenExpr, scope, result);
       }
     } else {
       final elseExpr = fields['else'];
       if (elseExpr != null) {
+        _trackMemoryAllocation(_ballPointerBytes);
         await _addCollectionElement(elseExpr, scope, result);
       }
     }
@@ -324,6 +390,7 @@ if (prefix == typeName) {
     final iterableList = _asList(iterable);
     if (iterableList == null) return;
     for (final item in iterableList) {
+      _trackMemoryAllocation(_ballPointerBytes);
       final loopScope = scope.child();
       loopScope.bind((variable ?? '').isEmpty ? 'item' : variable!, item);
       await _addCollectionElement(bodyExpr, loopScope, result);
@@ -350,6 +417,7 @@ if (prefix == typeName) {
         return;
       }
     }
+    _trackMemoryAllocation(_ballPointerBytes);
     result.add(await _evalExpression(expr, scope));
   }
 
@@ -407,11 +475,16 @@ if (prefix == typeName) {
     if (!_builtinTypeNames.contains(name)) {
       final qualifiedName = '$_currentModule:$name';
       // Check if constructors or static methods exist for this class.
-      final hasCtor = _constructors.containsKey(name) || _constructors.containsKey(qualifiedName);
-      final hasStaticMethods = _functions.keys.any((k) =>
-          k.startsWith('$_currentModule.$qualifiedName.') ||
-          k.startsWith('$_currentModule.$name.'));
-      final typeExists = _types.containsKey(name) || _types.containsKey(qualifiedName);
+      final hasCtor =
+          _constructors.containsKey(name) ||
+          _constructors.containsKey(qualifiedName);
+      final hasStaticMethods = _functions.keys.any(
+        (k) =>
+            k.startsWith('$_currentModule.$qualifiedName.') ||
+            k.startsWith('$_currentModule.$name.'),
+      );
+      final typeExists =
+          _types.containsKey(name) || _types.containsKey(qualifiedName);
       if (typeExists && (hasCtor || hasStaticMethods)) {
         return BallMap({'__class_ref__': name, '__type__': '__class__'});
       }
@@ -507,7 +580,8 @@ if (prefix == typeName) {
     final fieldName = access.field_2;
 
     // Unwrap BallFuture so field access on async results works transparently.
-    if (_isBallFuture(object)) object = (object as Map<String, Object?>)['value'];
+    if (_isBallFuture(object))
+      object = (object as Map<String, Object?>)['value'];
 
     // Unwrap BallMap once so all downstream checks work uniformly.
     final objectMap = _asMap(object);
@@ -519,7 +593,11 @@ if (prefix == typeName) {
       return (Object? input) async {
         final argsMap = _asMap(input);
         final args = argsMap ?? <String, Object?>{'arg0': input};
-        final result = await _dispatchBuiltinClassMethod(className, fieldName, args);
+        final result = await _dispatchBuiltinClassMethod(
+          className,
+          fieldName,
+          args,
+        );
         if (result != _sentinel) return result;
         throw BallRuntimeError('Unknown static method: $className.$fieldName');
       };
@@ -528,10 +606,13 @@ if (prefix == typeName) {
     // ── Class reference field access (static methods, named ctors) ──
     if (objectMap != null && objectMap['__type__'] == '__class__') {
       final className = objectMap['__class_ref__'] as String;
-      final qualifiedName = className.contains(':') ? className : '$_currentModule:$className';
+      final qualifiedName = className.contains(':')
+          ? className
+          : '$_currentModule:$className';
 
       // Named constructor: "ClassName.ctorName"
-      final namedCtor = _constructors['$qualifiedName.$fieldName'] ??
+      final namedCtor =
+          _constructors['$qualifiedName.$fieldName'] ??
           _constructors['$className.$fieldName'];
       if (namedCtor != null) {
         return (Object? input) async {
@@ -541,7 +622,9 @@ if (prefix == typeName) {
 
       // Static method: look up "module.qualifiedName.methodName"
       final colonIdx = qualifiedName.indexOf(':');
-      final modPart = colonIdx >= 0 ? qualifiedName.substring(0, colonIdx) : _currentModule;
+      final modPart = colonIdx >= 0
+          ? qualifiedName.substring(0, colonIdx)
+          : _currentModule;
       final staticKey = '$modPart.$qualifiedName.$fieldName';
       final staticFunc = _functions[staticKey];
       if (staticFunc != null) {
@@ -572,8 +655,9 @@ if (prefix == typeName) {
 
       // Look up methods on the object.
       final methods = objectMap['__methods__'];
-      if (methods is Map<String, Function> && methods.containsKey(fieldName)) {
-        return methods[fieldName];
+      if (methods is Map && methods.containsKey(fieldName)) {
+        final method = methods[fieldName];
+        if (method is Function) return method;
       }
 
       // Walk __super__ chain for methods.
@@ -581,9 +665,9 @@ if (prefix == typeName) {
       superMap = _asMap(superObj);
       while (superMap != null) {
         final superMethods = superMap['__methods__'];
-        if (superMethods is Map<String, Function> &&
-            superMethods.containsKey(fieldName)) {
-          return superMethods[fieldName];
+        if (superMethods is Map && superMethods.containsKey(fieldName)) {
+          final method = superMethods[fieldName];
+          if (method is Function) return method;
         }
         superObj = superMap['__super__'];
         superMap = _asMap(superObj);
@@ -687,18 +771,17 @@ if (prefix == typeName) {
     if (typeName == null) return _sentinel;
 
     final colonIdx = typeName.indexOf(':');
-    final modPart =
-        colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
+    final modPart = colonIdx >= 0
+        ? typeName.substring(0, colonIdx)
+        : _currentModule;
 
     // Check "module.typeName.fieldName" as a getter.
     final getterKey = '$modPart.$typeName.$fieldName';
     final getterFunc = _getters[getterKey] ?? _functions[getterKey];
     if (getterFunc != null && _isGetter(getterFunc)) {
-      return _callFunction(
-        modPart,
-        getterFunc,
-        <String, Object?>{'self': object},
-      );
+      return _callFunction(modPart, getterFunc, <String, Object?>{
+        'self': object,
+      });
     }
 
     // Walk __super__ chain for inherited getters.
@@ -708,18 +791,17 @@ if (prefix == typeName) {
       final superType = superMap['__type__'] as String?;
       if (superType != null) {
         final sColonIdx = superType.indexOf(':');
-        final sModPart =
-            sColonIdx >= 0 ? superType.substring(0, sColonIdx) : modPart;
-        final sTypeName =
-            sColonIdx >= 0 ? superType : '$sModPart:$superType';
+        final sModPart = sColonIdx >= 0
+            ? superType.substring(0, sColonIdx)
+            : modPart;
+        final sTypeName = sColonIdx >= 0 ? superType : '$sModPart:$superType';
         final superGetterKey = '$sModPart.$sTypeName.$fieldName';
-        final superGetterFunc = _getters[superGetterKey] ?? _functions[superGetterKey];
+        final superGetterFunc =
+            _getters[superGetterKey] ?? _functions[superGetterKey];
         if (superGetterFunc != null && _isGetter(superGetterFunc)) {
-          return _callFunction(
-            sModPart,
-            superGetterFunc,
-            <String, Object?>{'self': object},
-          );
+          return _callFunction(sModPart, superGetterFunc, <String, Object?>{
+            'self': object,
+          });
         }
       }
       superObj = superMap['__super__'];
@@ -759,21 +841,22 @@ if (prefix == typeName) {
     if (typeName == null) return _sentinel;
 
     final colonIdx = typeName.indexOf(':');
-    final modPart =
-        colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
+    final modPart = colonIdx >= 0
+        ? typeName.substring(0, colonIdx)
+        : _currentModule;
 
     // Setter functions are named "TypeName.fieldName=" by convention.
     // Also check without the "=" suffix since some setters share the exact
     // name with their getter (distinguished only by metadata).
     final setterKey = '$modPart.$typeName.$fieldName=';
     final setterKeyNoEq = '$modPart.$typeName.$fieldName';
-    final setterFunc = _setters[setterKey] ?? _setters[setterKeyNoEq] ?? _functions[setterKey];
+    final setterFunc =
+        _setters[setterKey] ?? _setters[setterKeyNoEq] ?? _functions[setterKey];
     if (setterFunc != null && _isSetter(setterFunc)) {
-      return _callFunction(
-        modPart,
-        setterFunc,
-        <String, Object?>{'self': object, 'value': value},
-      );
+      return _callFunction(modPart, setterFunc, <String, Object?>{
+        'self': object,
+        'value': value,
+      });
     }
 
     // Walk __super__ chain for inherited setters.
@@ -783,19 +866,21 @@ if (prefix == typeName) {
       final superType = superMap['__type__'] as String?;
       if (superType != null) {
         final sColonIdx = superType.indexOf(':');
-        final sModPart =
-            sColonIdx >= 0 ? superType.substring(0, sColonIdx) : modPart;
-        final sTypeName =
-            sColonIdx >= 0 ? superType : '$sModPart:$superType';
+        final sModPart = sColonIdx >= 0
+            ? superType.substring(0, sColonIdx)
+            : modPart;
+        final sTypeName = sColonIdx >= 0 ? superType : '$sModPart:$superType';
         final superSetterKey = '$sModPart.$sTypeName.$fieldName=';
         final superSetterKeyNoEq = '$sModPart.$sTypeName.$fieldName';
-        final superSetterFunc = _setters[superSetterKey] ?? _setters[superSetterKeyNoEq] ?? _functions[superSetterKey];
+        final superSetterFunc =
+            _setters[superSetterKey] ??
+            _setters[superSetterKeyNoEq] ??
+            _functions[superSetterKey];
         if (superSetterFunc != null && _isSetter(superSetterFunc)) {
-          return _callFunction(
-            sModPart,
-            superSetterFunc,
-            <String, Object?>{'self': object, 'value': value},
-          );
+          return _callFunction(sModPart, superSetterFunc, <String, Object?>{
+            'self': object,
+            'value': value,
+          });
         }
       }
       superObj = superMap['__super__'];
@@ -834,7 +919,10 @@ if (prefix == typeName) {
 
   // ---- Message Creation ----
 
-  Future<Object?> _evalMessageCreation(MessageCreation msg, _Scope scope) async {
+  Future<Object?> _evalMessageCreation(
+    MessageCreation msg,
+    _Scope scope,
+  ) async {
     final fields = <String, Object?>{};
     // Track which field names appear multiple times (e.g., repeated 'entry'
     // in map_create). When a duplicate is found, convert to a list.
@@ -854,42 +942,117 @@ if (prefix == typeName) {
       }
     }
     if (msg.typeName.isNotEmpty) {
-      // Check if this type has a constructor — if so, invoke it to build
-      // the instance properly (maps arg0/arg1/... to named fields via is_this).
-      final ctorEntry = _constructors[msg.typeName];
-      if (ctorEntry != null) {
-        return _callFunction(ctorEntry.module, ctorEntry.func, fields);
-      }
-
-      fields['__type__'] = msg.typeName;
-
-      // Extract type arguments if generic (e.g., Box<int>).
-      final genMatch = RegExp(r'^(\w+)<(.+)>$').firstMatch(msg.typeName);
-      if (genMatch != null) {
-        fields['__type__'] = genMatch.group(1)!;
-        fields['__type_args__'] = _splitTypeArgs(genMatch.group(2)!);
-      }
-
-      // Check if this type has a superclass (inheritance support).
-      // Resolve from TypeDefinition metadata or DescriptorProto.
       final typeDef = _findTypeDef(msg.typeName);
       if (typeDef != null) {
-        // Initialize fields with default values from metadata if not
-        // already present in the message creation.
-        _initFieldDefaults(msg.typeName, fields);
+        if (scope.has('self') && scope.has('__constructor_type__')) {
+          final self = scope.lookup('self');
+          final constructorType = scope.lookup('__constructor_type__');
+          final selfMap = _asMap(self);
+          if (selfMap != null && constructorType == msg.typeName) {
+            return self;
+          }
+        }
+
+        final instanceFields = <String, Object?>{};
+        final allFieldNames = _collectAllFieldNames(msg.typeName);
+        for (final fieldName in typeDef.fieldNames) {
+          instanceFields[fieldName] = null;
+        }
+
+        for (final entry in fields.entries) {
+          if (!entry.key.startsWith('arg')) {
+            instanceFields[entry.key] = entry.value;
+          }
+        }
+        _initFieldDefaults(msg.typeName, instanceFields);
+
+        final ctorEntry = _lookupConstructor(msg.typeName);
+        final resolvedParams = <String, Object?>{};
+        if (ctorEntry != null && ctorEntry.func.hasMetadata()) {
+          final params = _extractParams(ctorEntry.func.metadata);
+          final paramsMeta = _extractParamsMeta(ctorEntry.func.metadata);
+          for (var i = 0; i < params.length; i++) {
+            final param = params[i];
+            Object? value;
+            if (fields.containsKey(param)) {
+              value = fields[param];
+            } else if (fields.containsKey('arg$i')) {
+              value = fields['arg$i'];
+            }
+            if (value == null &&
+                i < paramsMeta.length &&
+                paramsMeta[i].containsKey('default')) {
+              value = paramsMeta[i]['default'];
+            }
+            resolvedParams[param] = value;
+
+            final isThis =
+                i < paramsMeta.length && paramsMeta[i]['is_this'] == true;
+            if (isThis || allFieldNames.contains(param)) {
+              instanceFields[param] = value;
+            } else if (params.length == 1 && allFieldNames.length == 1) {
+              instanceFields[allFieldNames.first] = value;
+            }
+          }
+        }
 
         final superclass = _getMetaString(typeDef, 'superclass');
+        Object? superObject;
         if (superclass != null && superclass.isNotEmpty) {
-          // Recursively build the __super__ object with inherited fields & methods.
-          fields['__super__'] = _buildSuperObject(superclass, fields);
+          superObject = ctorEntry == null
+              ? null
+              : await _invokeSuperConstructor(
+                  ctorEntry.func,
+                  superclass,
+                  resolvedParams,
+                );
+          superObject ??= _buildSuperObject(superclass, instanceFields);
         }
 
-        // Resolve methods from the type's module (includes inherited methods).
         final methods = _resolveTypeMethodsWithInheritance(msg.typeName);
-        if (methods.isNotEmpty) {
-          fields['__methods__'] = methods;
+        final instance = BallObject(
+          typeName: msg.typeName,
+          superObject: superObject,
+          fields: instanceFields,
+          methods: methods.cast<String, Object?>(),
+        );
+
+        if (ctorEntry != null && ctorEntry.func.hasBody()) {
+          final ctorInput = <String, Object?>{}
+            ..addAll(fields)
+            ..addAll(resolvedParams)
+            ..['self'] = instance;
+          final constructed = await _callFunction(
+            ctorEntry.module,
+            ctorEntry.func,
+            ctorInput,
+          );
+          final constructedMap = _asMap(constructed);
+          if (constructedMap != null &&
+              constructedMap.containsKey('__type__')) {
+            return constructed;
+          }
+          return instance;
         }
+
+        return instance;
       } else {
+        // Check if this type has a constructor — if so, invoke it to build
+        // the instance properly (maps arg0/arg1/... to named fields via is_this).
+        final ctorEntry = _constructors[msg.typeName];
+        if (ctorEntry != null) {
+          return _callFunction(ctorEntry.module, ctorEntry.func, fields);
+        }
+
+        fields['__type__'] = msg.typeName;
+
+        // Extract type arguments if generic (e.g., Box<int>).
+        final genMatch = RegExp(r'^(\w+)<(.+)>$').firstMatch(msg.typeName);
+        if (genMatch != null) {
+          fields['__type__'] = genMatch.group(1)!;
+          fields['__type_args__'] = _splitTypeArgs(genMatch.group(2)!);
+        }
+
         // No typeDef found: the typeName might be a function/method call
         // encoded as messageCreation (common in encoder-generated IR).
         // Try resolving it as a function.
@@ -898,7 +1061,9 @@ if (prefix == typeName) {
         if (fnMatch != null && !fnMatch.isBase && fnMatch.hasBody()) {
           // If self is in scope and the function is a method, call with self.
           if (scope.has('self')) {
-            final kindField = fnMatch.hasMetadata() ? fnMatch.metadata.fields['kind'] : null;
+            final kindField = fnMatch.hasMetadata()
+                ? fnMatch.metadata.fields['kind']
+                : null;
             if (kindField?.stringValue == 'method') {
               final selfObj = scope.lookup('self');
               fields['self'] = selfObj;
@@ -916,7 +1081,9 @@ if (prefix == typeName) {
             if (selfType != null) {
               // Extract method name from typeName (e.g., "main:_gcd" -> "_gcd").
               final colonIdx = msg.typeName.indexOf(':');
-              final methodName = colonIdx >= 0 ? msg.typeName.substring(colonIdx + 1) : msg.typeName;
+              final methodName = colonIdx >= 0
+                  ? msg.typeName.substring(colonIdx + 1)
+                  : msg.typeName;
               final resolved = _resolveMethod(selfType, methodName);
               if (resolved != null) {
                 fields['self'] = selfObj;
@@ -934,7 +1101,10 @@ if (prefix == typeName) {
             if (f.name == msg.typeName && !f.isBase && f.hasBody()) {
               if (f.hasMetadata()) {
                 final k = f.metadata.fields['kind']?.stringValue;
-                if (k == 'constructor' || k == 'top_level_variable' || k == 'static_field') continue;
+                if (k == 'constructor' ||
+                    k == 'top_level_variable' ||
+                    k == 'static_field')
+                  continue;
               }
               return _callFunction(m.name, f, fields);
             }
@@ -942,6 +1112,7 @@ if (prefix == typeName) {
         }
       }
     }
+    _trackMemoryAllocation(fields.length * _ballMapEntryBytes);
     return BallMap(fields);
   }
 
@@ -1044,13 +1215,36 @@ if (prefix == typeName) {
     return null;
   }
 
+  List<String> _collectAllFieldNames(String typeName) {
+    final names = <String>[];
+    final typeDef = _findTypeDef(typeName);
+    if (typeDef == null) return names;
+
+    final colonIdx = typeName.indexOf(':');
+    final modPart = colonIdx >= 0
+        ? typeName.substring(0, colonIdx)
+        : _currentModule;
+    final superclass = typeDef.superclass;
+    if (superclass != null && superclass.isNotEmpty) {
+      final qualifiedSuper = superclass.contains(':')
+          ? superclass
+          : '$modPart:$superclass';
+      names.addAll(_collectAllFieldNames(qualifiedSuper));
+    }
+
+    for (final fieldName in typeDef.fieldNames) {
+      if (!names.contains(fieldName)) names.add(fieldName);
+    }
+    return names;
+  }
+
   /// Build a `__super__` object for the given superclass name.
   ///
   /// Populates the super object with:
   /// - The parent's descriptor fields (defaults from the child if present)
   /// - The parent's methods
   /// - Recursively, the grandparent's `__super__` object
-  Map<String, Object?> _buildSuperObject(
+  BallObject _buildSuperObject(
     String superclass,
     Map<String, Object?> childFields,
   ) {
@@ -1058,7 +1252,7 @@ if (prefix == typeName) {
     final qualifiedSuperclass = superclass.contains(':')
         ? superclass
         : '$_currentModule:$superclass';
-    final superFields = <String, Object?>{'__type__': qualifiedSuperclass};
+    final superFields = <String, Object?>{};
 
     // Copy descriptor fields from the parent type into __super__.
     final parentTypeDef = _findTypeDef(superclass);
@@ -1072,19 +1266,25 @@ if (prefix == typeName) {
       }
 
       // Attach methods belonging to the parent type.
-      final parentMethods = _resolveTypeMethods(superclass);
-      if (parentMethods.isNotEmpty) {
-        superFields['__methods__'] = parentMethods;
-      }
+      final parentMethods = _resolveTypeMethods(qualifiedSuperclass);
+      final parentMethodsMap = parentMethods.cast<String, Object?>();
 
       // Recurse: if the parent itself has a superclass, build its __super__.
       final grandparent = parentTypeDef.superclass;
+      BallObject? grandparentObject;
       if (grandparent != null && grandparent.isNotEmpty) {
-        superFields['__super__'] = _buildSuperObject(grandparent, childFields);
+        grandparentObject = _buildSuperObject(grandparent, childFields);
       }
+
+      return BallObject(
+        typeName: qualifiedSuperclass,
+        superObject: grandparentObject,
+        fields: superFields,
+        methods: parentMethodsMap,
+      );
     }
 
-    return superFields;
+    return BallObject(typeName: qualifiedSuperclass, fields: superFields);
   }
 
   /// Resolve methods associated with a type name from its module.
@@ -1095,13 +1295,22 @@ if (prefix == typeName) {
         // Match by metadata class field.
         if (func.hasMetadata()) {
           final className = func.metadata.fields['class'];
+          final bareTypeName = typeName.contains(':')
+              ? typeName.substring(typeName.indexOf(':') + 1)
+              : typeName;
           if (className != null &&
               className.hasStringValue() &&
-              className.stringValue == typeName &&
-              func.hasBody()) {
-            methods[func.name] = (Object? input) async {
+              (className.stringValue == typeName ||
+                  className.stringValue == bareTypeName) &&
+              func.hasBody() &&
+              !_isGetter(func) &&
+              !_isSetter(func)) {
+            final closure = (Object? input) async {
               return _callFunction(module.name, func, input);
             };
+            methods[func.name] = closure;
+            final dotIdx = func.name.lastIndexOf('.');
+            if (dotIdx >= 0) methods[func.name.substring(dotIdx + 1)] = closure;
             continue;
           }
         }
@@ -1115,12 +1324,17 @@ if (prefix == typeName) {
           final suffix = funcName.substring(dotIdx + 1);
           // Skip constructors (e.g. "Foo.new", "Foo.named").
           if (suffix == 'new') continue;
-          final kindField2 = func.hasMetadata() ? func.metadata.fields['kind'] : null;
+          final kindField2 = func.hasMetadata()
+              ? func.metadata.fields['kind']
+              : null;
           if (kindField2?.stringValue == 'constructor') continue;
+          if (_isGetter(func) || _isSetter(func)) continue;
           if (prefix == typeName && func.hasBody() && !func.isBase) {
-            methods[func.name] = (Object? input) async {
+            final closure = (Object? input) async {
               return _callFunction(module.name, func, input);
             };
+            methods[func.name] = closure;
+            methods[suffix] = closure;
           }
         }
       }
@@ -1138,11 +1352,15 @@ if (prefix == typeName) {
     final methods = <String, Function>{};
 
     final colonIdx = typeName.indexOf(':');
-    final modPart = colonIdx >= 0 ? typeName.substring(0, colonIdx) : _currentModule;
+    final modPart = colonIdx >= 0
+        ? typeName.substring(0, colonIdx)
+        : _currentModule;
 
     // Collect ancestor methods first (so child overrides them).
     final typeDef = _findTypeDef(typeName);
-    if (typeDef != null && typeDef.superclass != null && typeDef.superclass!.isNotEmpty) {
+    if (typeDef != null &&
+        typeDef.superclass != null &&
+        typeDef.superclass!.isNotEmpty) {
       final qualSuper = typeDef.superclass!.contains(':')
           ? typeDef.superclass!
           : '$modPart:${typeDef.superclass!}';
@@ -1214,7 +1432,7 @@ if (prefix == typeName) {
         scope.bind(stmt.let.name, value);
         return null;
       case Statement_Stmt.expression:
-        return _evalExpression(stmt.expression, scope);
+        return await _evalExpression(stmt.expression, scope);
       case Statement_Stmt.notSet:
         return null;
     }
@@ -1235,8 +1453,9 @@ if (prefix == typeName) {
       // named params, the encoder packs the call site into a
       // messageCreation and the input is a map whose keys match param
       // names — that path uses the map loop below.
-      final paramNames =
-          func.hasMetadata() ? _extractParams(func.metadata) : const <String>[];
+      final paramNames = func.hasMetadata()
+          ? _extractParams(func.metadata)
+          : const <String>[];
       final inputMap = _asMap(input);
       if (paramNames.length == 1 && inputMap == null) {
         lambdaScope.bind(paramNames.first, input);
@@ -1272,6 +1491,4 @@ if (prefix == typeName) {
       return result;
     };
   }
-
-
 }

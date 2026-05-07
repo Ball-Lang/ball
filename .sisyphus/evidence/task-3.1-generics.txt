@@ -1,0 +1,34 @@
+Task 3.1 — Dart Engine Reified Generics
+========================================
+Date: 2026-05-06
+
+## Summary
+Successfully implemented reified generics support in Dart engine.
+
+## Changes Made
+Modified `dart/engine/lib/engine_std.dart` in the `_typeMatches` function to handle `__type_args__` stored as a string (e.g., "<int>") in addition to List format.
+
+### Code Change (lines 1492-1510)
+Added logic to parse `__type_args__` when it's a string:
+- Strip angle brackets from strings like "<int>"
+- Split by comma for multiple type args
+- Compare parsed type args with expected type args
+
+## Test Results
+- ✅ 167_generics_reified: PASS
+- ✅ 168_generics_type_check: PASS
+
+### Expected vs Actual Output (Fixture 167)
+```
+Expected: 42\ntrue\nfalse
+Actual:   42\ntrue\nfalse
+Result:   PASS
+```
+
+## Overall Engine Status
+- Total: 191 tests
+- Passing: 190
+- Failing: 1 (169_pattern_destructure - fixture has malformed protobuf structure, unrelated to generics)
+
+## Status
+Task 3.1 COMPLETE

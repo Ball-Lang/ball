@@ -73,3 +73,22 @@ All five runtime gaps (async, OOP, generics, patterns, generators) are classifie
 
 Metadata is "cosmetic" for compilation but the engine reads it for runtime behavior (is_async, superclass, interfaces). This tension is acceptable — metadata affects how code *looks* when compiled, and the engine uses it for *how code runs*. Both are valid uses of the same data.
 
+
+## Task 3.6 - switch_expr pattern semantics (2026-05-06)
+- Implemented exhaustiveness as a runtime `BallRuntimeError('Non-exhaustive switch expression')` for `switch_expr` when no case/default matches; `switch` statements retain no-match/null behavior.
+- Reused the engine's shared pattern matcher for both lazy `switch` and lazy `switch_expr` so structured case semantics stay consistent.
+
+## 2026-05-06 - dart_std list_generate/list_filled
+- Implemented list_generate/list_filled as aliases alongside dart_list_generate/dart_list_filled and routed both through shared helpers to preserve existing List.generate/List.filled behavior while supporting the public dart_std names.
+
+## 2026-05-06 - Task 7.1 recursion depth policy
+- Added `BallEngine.maxRecursionDepth` with default `10000` and enforced it on nested non-base Ball function calls. This keeps std/base dispatch from consuming recursion depth while guarding user/function-body recursion.
+
+- Task 7.2: Added BallEngine.timeoutMs as nullable milliseconds (
+ull = disabled) and record run start with DateTime.now().millisecondsSinceEpoch; exceeded time raises BallRuntimeError('Execution timeout exceeded').
+- Task 7.2: 196_timeout.ball.json is an infinite std.while fixture validated as an expected timeout error rather than stdout conformance.
+
+## Task 7.3 - Memory allocation cap
+- Kept memory tracking approximate and local to allocation-producing engine paths instead of introducing deep object graph traversal; this matches the task note and avoids changing Ball metadata/value semantics.
+- Reused the existing BallRuntimeError message exactly: Memory limit exceeded.
+

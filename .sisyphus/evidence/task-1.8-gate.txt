@@ -1,0 +1,57 @@
+Task 1.8 Wave 1 Gate Verification — 2026-05-06
+
+Fixtures: 160_async_basic, 161_async_chained, 162_generator_sync, 163_generator_async, 171_async_error_propagation, 172_async_nested_await, 173_async_multiple_futures, 174_generator_yield_star, 175_generator_empty_return, 176_generator_early_return
+
+Summary: GATE FAILED
+
+Dart engine:
+Command: dart test --name "160|161|162|163|171|172|173|174|175|176"
+Workdir: dart/engine
+Result: PASS — 10/10 targeted fixtures passed. Output ended with "+10: All tests passed!".
+
+TypeScript handwritten engine:
+Requested command: npm test -- --grep "160|161|162|163|171|172|173|174|175|176"
+Workdir: ts/engine
+Result: The runner ignored --grep and executed the full suite, which failed on unrelated fixtures. The Wave 1 fixture lines in that full output all passed.
+Targeted verification command: inline Node script importing ./ts/engine/src/index.ts and running only the 10 listed fixtures.
+Result: PASS — 10/10 targeted fixtures passed.
+
+TypeScript compiled engine:
+Command: node --experimental-strip-types --test --test-name-pattern "160|161|162|163|171|172|173|174|175|176" test/engine_runtime.test.ts
+Workdir: ts/compiler
+Result: FAIL — 1/10 passed, 9/10 failed.
+Passed: 171_async_error_propagation.
+Failed:
+- 160_async_basic: actual BallFuture(10), expected 15
+- 161_async_chained: actual BallFuture(0), expected 30
+- 162_generator_sync: runtime error reading runtimeType on undefined
+- 163_generator_async: BallRuntimeError: Cannot access field "length" on null
+- 172_async_nested_await: actual BallFuture(15), expected 15
+- 173_async_multiple_futures: actual 0, expected 35
+- 174_generator_yield_star: runtime error reading runtimeType on null
+- 175_generator_empty_return: runtime error reading runtimeType on null
+- 176_generator_early_return: actual stopped letters, expected 1/2
+
+C++ build:
+Command 1: cmake ..
+Workdir: cpp/build
+Result: PASS — configure completed and generated build files.
+Command 2: cmake --build .
+Result: FAIL — protobuf libupb hit MSVC C1041 PDB write conflict, while engine/test executables were produced.
+Command 3: cmake --build . -- /m:1
+Result: FAIL — same libupb C1041 PDB issue persisted; ball_cpp_runner.exe and conformance test executables existed.
+
+C++ engine targeted runner:
+Command: PowerShell loop invoking cpp/build/engine/Debug/ball_cpp_runner.exe for each listed fixture and comparing stdout with expected_output.
+Result: FAIL — 5/10 passed.
+Passed: 161_async_chained, 171_async_error_propagation, 172_async_nested_await, 173_async_multiple_futures, 174_generator_yield_star.
+Failed:
+- 160_async_basic: emitted debug lines and 10, expected 15
+- 162_generator_sync: emitted {__type__: PrintInput, message: null} and 1, expected 1/2/3/3
+- 163_generator_async: emitted 1 and null PrintInput, expected 5/1
+- 175_generator_empty_return: emitted null PrintInput and 1, expected 0
+- 176_generator_early_return: emitted stopped, expected 1/2
+
+Plan update: NOT performed. The Work_Context marks .sisyphus/plans/*.md as read-only, and the gate failed, so Task 1.8 must not be marked complete.
+
+Implementation changes: none made during verification. Existing ts/engine/src/index.ts fix was verified for TS handwritten engine only; compiled-TS and C++ gates still fail independently.

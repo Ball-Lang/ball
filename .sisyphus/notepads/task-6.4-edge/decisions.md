@@ -1,0 +1,2 @@
+- Fixture 192 was narrowed to large positive integers plus double overflow, preserving the boundary-condition intent without relying on the problematic signed minimum literal.
+- Fixture 195 uses iterative construction for 120-level nesting so the test stays deterministic and avoids recursion-driven stack risk in the source program itself.

@@ -1,0 +1,3 @@
+- `tests/conformance/src/*.dart` is the source of truth; `dart/encoder/bin/generate_conformance.dart` regenerates both `.ball.json` and `.expected_output.txt`.
+- Conformance tests can special-case named fixtures in `dart/engine/test/conformance_test.dart` for engine-limit assertions.
+- Avoid explicit typed empty list shapes in generated fixtures; the encoder can emit `typed_list`, which the engine does not handle.

@@ -113,3 +113,99 @@ yield/yield_each, and sync*/async* function handling were all implemented before
 - Test 160_async_basic: print receives raw map instead of extracting message field
 - Tests 164, 166, 167, 168, 169: OOP/generics/pattern features not yet implemented
 - Engine unit tests: BallDouble type cast issues, async BallFuture test, stack overflow on `is` type check
+
+### Task 1.5: Async Conformance Fixtures 171-173 (COMPLETED May 6, 2026)
+
+**Created 3 new async conformance fixtures**:
+1. `171_async_error_propagation.ball.json` - Tests error propagation in async functions using std.try/std.throw
+2. `172_async_nested_await.ball.json` - Tests nested async calls (async calling async)
+3. `173_async_multiple_futures.ball.json` - Tests multiple concurrent async operations
+
+**Pattern learned**:
+- Async functions use `is_async: true` in metadata
+- Error handling via `std.try` with `catches` list containing type + variable + body blocks
+- Throw via `std.throw` with `value` field containing a message with `__type` field
+- Multiple async calls can be stored in variables and combined
+
+**All 3 fixtures PASS on Dart engine** (verified via `dart test test/conformance_test.dart -n "<name>"`)
+
+### Task 1.6: Generator Conformance Fixtures 174-176 (COMPLETED May 6, 2026)
+
+**Created 3 new generator conformance fixtures**:
+1. 174_generator_yield_star.ball.json - Tests yield* (yield_each) with nested generators
+2. 175_generator_empty_return.ball.json - Tests that empty generators return list with length 0
+3. 176_generator_early_return.ball.json - Tests early return inside generator stops further yielding
+
+**Pattern learned**:
+- sync* functions use is_sync_star: true in metadata
+- std.yield adds values to the current generator's values list
+- dart_std.yield_each / std.yield_each delegates to another generator or flattens iterable
+- Generator body executes normally; return inside generator just ends the iteration
+- Empty generator (no yield statements) produces list with length 0
+
+**All 3 fixtures PASS on Dart engine** (verified via dart test test/conformance_test.dart -n "<name>")
+
+## 2026-05-06 — Task 1.8 Wave 1 gate verification
+- Dart engine passed targeted async/generator fixtures 160-163 and 171-176 via `dart test --name ...` from `dart/engine`.
+- `ts/engine` test runner does not implement the requested `--grep`; both npm and direct node invocations ran the full suite. A targeted inline Node verifier against `BallEngine` passed all 10 Wave 1 handwritten fixtures.
+- Compiled TS engine parity (`ts/compiler/test/engine_runtime.test.ts`) failed 9/10 targeted fixtures, mostly returning `BallFuture(...)` values or generator runtime errors; only 171 passed.
+- C++ build configuration passed, but full build fails in protobuf `libupb` with MSVC C1041 PDB conflicts even with `/m:1`; produced runner executables were usable for targeted testing.
+- C++ runner failed 5/10 targeted fixtures: 160, 162, 163, 175, 176. Gate remains failed and plan was not marked complete.
+
+## 2026-05-06 — Task 3.1 Reified Generics Implementation
+- Fixed `_typeMatches` function in `dart/engine/lib/engine_std.dart` to handle `__type_args__` stored as string (e.g., "<int>") in addition to List format.
+- The fixtures 167 and 168 store `__type_args__` as a string with angle brackets, but the engine expected a List.
+- Solution: Parse string format by stripping angle brackets and splitting by comma.
+- Fixtures 167 and 168 now PASS on Dart engine.
+- Dart engine status: 191 passing, 1 failing (fixture 169 has malformed protobuf structure).
+
+### Key Code Pattern for Generic Type Checking
+```dart
+// Handle __type_args__ as a string (e.g., "<int>") or as a List (e.g., ["int"])
+List<String> objTypeArgs = [];
+if (objArgs is String) {
+  final argsStr = objArgs.trim();
+  if (argsStr.startsWith('<') && argsStr.endsWith('>')) {
+    objTypeArgs = argsStr.substring(1, argsStr.length - 1).split(',').map((s) => s.trim()).toList();
+  } else {
+    objTypeArgs = [argsStr];
+  }
+} else if (objArgs is List) {
+  objTypeArgs = objArgs.map((e) => e.toString()).toList();
+}
+```
+
+## Task 3.6 - switch_expr pattern semantics (2026-05-06)
+- `std.switch_expr` must be lazy like `std.switch`; otherwise all case bodies are evaluated while building the base-function input, before pattern selection.
+- Encoder structured patterns arrive at runtime as message maps with `__type__` values such as `ConstPattern`, `VarPattern`, `ListPattern`, and `RestPattern`, not just legacy `__pattern_kind__` maps.
+- Evaluated pattern fields may be `BallList`/`BallMap`; normalize through `_stdAsList`/`_stdAsMap` before matching.
+- Pattern variable bindings should be installed in a child case scope before evaluating guards and bodies.
+
+## 2026-05-06 - Dart dart_std list helpers
+- Dart engine std dispatch is function-name based across std/dart_std/std_collections; adding a public dart_std function usually means adding a dispatch key in engine_std.dart, not a separate module table.
+- Existing List.generate static dispatch used internal dart_list_generate with count/generator; new conformance fixtures use dart_std.list_generate with length/generator, so helper implementations should accept both shapes.
+
+## 2026-05-06 - Task 6.1 conformance coverage audit
+- Conformance fixtures: 171 total across `tests/conformance/*.ball.json`.
+- Base functions in the requested std modules: 187 total (`std` 118, `std_collections` 53, `std_io` 10, `std_convert` 6).
+- Covered function counts by module: `std` 67, `std_collections` 12, `std_io` 1, `std_convert` 6.
+- `std_convert` is fully covered; the largest gaps are in `std` math/regex/string helpers and `std_collections` list/map/set helpers.
+
+## 2026-05-06 - Task 7.1 Dart recursion depth limit
+- Dart engine recursion should be tracked around non-base Ball function execution in `_callFunction`; base functions have no body and should not consume recursion depth.
+- Lazy control-flow branches and expression statements need explicit `await` when returning nested evaluation futures; otherwise active call-depth tracking can unwind too early.
+- Targeted engine tests can use a small configured `maxRecursionDepth` to exercise the guard deterministically while fixture 59 verifies default-depth recursion still works.
+
+- Task 7.2: Dart engine timeout enforcement belongs in _evalExpression, which covers normal expression evaluation plus lazy control-flow loop condition/body checks.
+- Task 7.2: Error-case conformance fixtures can be handled in dart/engine/test/conformance_test.dart before expected-output file filtering.
+
+## Task 7.3 - Memory allocation cap
+- Dart engine already had BallEngine.maxMemoryBytes and _trackMemoryAllocation; completing the task meant wiring more allocation sites rather than adding a duplicate option.
+- Approximate accounting uses 8 bytes per list slot, 16 bytes per map entry, and 2 bytes per string code unit. list_filled/list literals/map/string operations now fail with BallRuntimeError('Memory limit exceeded') before returning oversized values.
+- Special conformance fixtures that expect runtime errors are handled in dart/engine/test/conformance_test.dart like 196_timeout; 197_memory_limit uses maxMemoryBytes: 1000 and expects the memory-limit error.
+
+
+## Task 7.4 input validation - 2026-05-07
+- Dart engine constructor now enforces module count and program JSON-size limits before lookup-table initialization.
+- Expression depth is guarded twice: iterative static preflight prevents abusive static programs from creating deep async chains, while runtime _evalExpression tracking protects evaluation paths.
+- maxProgramSizeBytes: null disables program-size enforcement for targeted depth validation, matching the nullable style of timeout/memory limits.

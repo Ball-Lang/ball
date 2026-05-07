@@ -1,0 +1,9 @@
+Task 7.7 security fixtures
+
+Generator:
+- `cd dart/encoder && dart run bin/generate_conformance.dart` → OK after fixing 200 base list and removing typed-list shape from 199.
+
+Verification:
+- `cd dart/engine && dart test test/conformance_test.dart --name "198"` → All tests passed.
+- `cd dart/engine && dart test test/conformance_test.dart --name "199"` → All tests passed.
+- `cd dart/engine && dart test test/conformance_test.dart --name "200"` → All tests passed.

@@ -1,0 +1,2 @@
+- Initial `200_resource_exhaustion_protection.dart` used `List.filled(...)`; the recursive builder failed because the list was fixed-length.
+- Initial `199_malicious_input_patterns.dart` encoded to `typed_list`, causing the engine to fail with `Unknown std function: "typed_list"`.

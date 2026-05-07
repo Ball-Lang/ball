@@ -1,0 +1,13 @@
+# Task 7.2 timeout verification
+
+## dart test test/engine_test.dart --name timeout
+00:00 +0: loading test/engine_test.dart
+00:00 +0: engine: execution timeout short timeout throws on long-running code
+00:00 +1: engine: execution timeout long timeout allows normal execution
+00:00 +2: All tests passed!
+
+## dart test test/conformance_test.dart --name 196
+00:00 +0: loading test/conformance_test.dart
+00:00 +0: conformance (hand-written IR) 196_timeout
+00:00 +1: All tests passed!
+

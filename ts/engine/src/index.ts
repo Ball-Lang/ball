@@ -736,7 +736,28 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
     }
     return result;
   });
-  _r('dart_list_filled', (i: any) => { const m = _m(i); return Array(Number(m['count'] ?? m['arg0'] ?? 0)).fill(m['value'] ?? m['arg1'] ?? null); });
+  _r('dart_list_filled', (i: any) => {
+    const m = _m(i);
+    const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
+    return Array(Math.max(0, count | 0)).fill(m['value'] ?? m['arg1'] ?? null);
+  });
+  _r('list_filled', (i: any) => {
+    const m = _m(i);
+    const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
+    return Array(Math.max(0, count | 0)).fill(m['value'] ?? m['arg1'] ?? null);
+  });
+  _r('list_generate', (i: any) => {
+    const m = _m(i);
+    const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
+    const fn = m['function'] ?? m['generator'] ?? m['callback'] ?? m['value'];
+    if (typeof fn !== 'function') return [];
+    const out: any[] = [];
+    for (let i2 = 0; i2 < count; i2++) {
+      let r = fn(i2);
+      out.push(r);
+    }
+    return out;
+  });
 
   // std_time
   _r('now', () => Date.now());

@@ -15,11 +15,21 @@
 import {
   BallEngine as CompiledEngine,
   StdModuleHandler,
-  BallFuture,
   BallGenerator,
   _FlowSignal,
   _Scope,
 } from './compiled_engine.ts';
+
+// Compatibility stub: the regenerated compiled engine no longer ships a
+// dedicated BallFuture class — `await` is now backed by native promises
+// and `sleep_ms` uses Future.delayed. Older programs that still wrap
+// return values in `{__ball_future__: true, value: ...}` map markers are
+// handled by the plain-object check below; declaring a phantom class
+// keeps the `instanceof` guards from throwing while always returning
+// false against real values.
+class BallFuture {
+  static readonly _isStub = true;
+}
 
 // ── BallDouble helper ──────────────────────────────────────────────────────
 //
@@ -983,16 +993,28 @@ export class BallEngine {
     });
     const stderrFn = options.stderr ?? (() => {});
 
+    // The roundtripped BallEngine constructor signature (positional):
+    //   (program, stdout, stderr, stdinReader, envGet, args,
+    //    enableProfiling, maxRecursionDepth, timeoutMs, maxMemoryBytes,
+    //    maxModules, maxExpressionDepth, maxProgramSizeBytes, sandbox,
+    //    moduleHandlers, resolver)
     this._compiledEngine = new CompiledEngine(
       normalized,
       stdoutFn,
       stderrFn,
-      null,    // stdinReader
-      null,    // envGet
-      [],      // args
-      false,   // enableProfiling
+      null,                              // stdinReader
+      null,                              // envGet
+      [],                                // args
+      false,                             // enableProfiling
+      10000,                             // maxRecursionDepth
+      null,                              // timeoutMs
+      null,                              // maxMemoryBytes
+      100,                               // maxModules
+      1000,                              // maxExpressionDepth
+      10 * 1024 * 1024,                  // maxProgramSizeBytes
+      false,                             // sandbox
       [methodHandler as any, stdHandler],
-      null,    // resolver
+      null,                              // resolver
     );
 
     // Patch scope bindings to use null-prototype objects (avoids

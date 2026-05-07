@@ -933,6 +933,27 @@ BallValue Engine::call_base_function(const std::string& module,
     if (module == "std_time") {
         return eval_time(function, std::move(input));
     }
+    // Some encoders/programs call std_time helpers (year/month/now/etc.)
+    // through the generic std module. Route those names here so the
+    // dispatch table doesn't have to duplicate every handler — keeps the
+    // Dart engine's flat std namespace working in C++ too.
+    if ((module == "std" || module == "dart_std")) {
+        static const std::set<std::string> time_fns = {
+            "now", "now_micros", "format_timestamp", "parse_timestamp",
+            "duration_add", "duration_subtract",
+            "year", "month", "day", "hour", "minute", "second",
+        };
+        if (time_fns.count(function)) {
+            return eval_time(function, std::move(input));
+        }
+        static const std::set<std::string> convert_fns = {
+            "json_encode", "json_decode", "utf8_encode", "utf8_decode",
+            "base64_encode", "base64_decode",
+        };
+        if (convert_fns.count(function)) {
+            return eval_convert(function, std::move(input));
+        }
+    }
     for (auto& handler : handlers_) {
         if (handler->handles(module)) {
             BallCallable callable = [this](const std::string& m, const std::string& f, BallValue i) {

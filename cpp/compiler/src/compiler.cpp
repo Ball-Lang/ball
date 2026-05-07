@@ -1390,12 +1390,17 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         return "throw";
     }
     if (fn == "throw") {
-        // Best-effort static type extraction: if the throw value is a
-        // messageCreation literal carrying a `__type` string field,
-        // promote it to the BallException type_name so typed catches
-        // can dispatch. Other string-literal fields populate the
-        // exception's `fields` map, so catch-side `e.detail` reads the
-        // original payload.
+        // Static type extraction for typed catches. Two encoder shapes are
+        // produced for `throw <expr>`:
+        //   1. messageCreation with a `__type` string field — used by the
+        //      C++ encoder for typed throw literals.
+        //   2. a constructor call like `FormatException.new(...)` — used by
+        //      the Dart encoder for `throw FormatException("…")`. The
+        //      function name carries the type; arguments become the
+        //      exception message / fields.
+        // Both are lifted into BallException with a real `type_name` so the
+        // catch-side typed dispatch works. Fall back to the generic
+        // "Exception" tag only when neither shape matches.
         auto* val_expr = get_message_field_expr(call, "value");
         std::string type_name = "Exception";
         bool is_msg = val_expr &&
@@ -1419,10 +1424,31 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                    type_name + "\"s, std::map<std::string, std::string>{" +
                    fields_init + "})";
         }
+        // Constructor-call throw: `FormatException.new("bad input")`.
+        // Pull the type name out of the function identifier so a typed
+        // catch on `FormatException` actually matches.
+        if (val_expr && val_expr->expr_case() == ball::v1::Expression::kCall) {
+            const auto& cval = val_expr->call();
+            const auto& fname = cval.function();
+            if (!fname.empty()) {
+                std::string ty = fname;
+                // Strip module prefix `mod:Foo.new` → `Foo.new`.
+                auto colon = ty.find(':');
+                if (colon != std::string::npos) ty = ty.substr(colon + 1);
+                // Strip trailing `.new` / `.<ctor>` so `Foo.new` → `Foo`.
+                auto dot = ty.find('.');
+                if (dot != std::string::npos) ty = ty.substr(0, dot);
+                if (!ty.empty() && (std::isupper(static_cast<unsigned char>(ty.front())) ||
+                                    ty == "Exception")) {
+                    type_name = ty;
+                }
+            }
+        }
         // Non-message value — stringify and pass through as the message
         // with an empty fields map.
         std::string message_expr = get_message_field(call, "value");
-        return "throw BallException(\"Exception\"s, " + message_expr + ")";
+        return "throw BallException(\"" + type_name + "\"s, " + message_expr +
+               ")";
     }
     if (fn == "assert") {
         auto cond = get_message_field(call, "condition");

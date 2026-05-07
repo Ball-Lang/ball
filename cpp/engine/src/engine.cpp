@@ -3962,7 +3962,12 @@ Engine::build_std_dispatch() {
     return {
         {"print", [this](BallValue input) -> BallValue {
             if (is_map(input)) {
+                // Mirrors the Dart engine's _stdPrint key probing:
+                //   message (canonical) → arg0 (positional encoder)
+                //   → value (legacy ts conformance fixtures).
                 auto msg = extract_field(input, "message");
+                if (!msg.has_value()) msg = extract_field(input, "arg0");
+                if (!msg.has_value()) msg = extract_field(input, "value");
                 if (msg.has_value()) { stdout_fn(value_to_string(msg)); return {}; }
             }
             stdout_fn(value_to_string(input)); return {};

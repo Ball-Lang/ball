@@ -107,6 +107,57 @@ if (!Object.prototype.hasOwnProperty.call(Object.prototype, 'toProto3Json')) {
     writable: true,
   });
 }
+// hasX / whichX shims for proto messages. The roundtripped engine calls
+// 'func.hasMetadata()', 'expr.whichExpr()', etc. against plain JSON. Map
+// these onto field-presence and oneof-tag computations.
+const __ball_proto_oneof_groups: Record<string, string[]> = {
+  whichExpr: ['call', 'literal', 'reference', 'fieldAccess', 'messageCreation', 'block', 'lambda'],
+  whichStmt: ['let', 'expression'],
+  whichValue: ['stringValue', 'boolValue', 'numberValue', 'listValue', 'structValue', 'nullValue', 'intValue', 'doubleValue', 'bytesValue'],
+  whichKind: ['stringValue', 'boolValue', 'numberValue', 'listValue', 'structValue', 'nullValue'],
+  whichSource: ['module', 'function'],
+};
+for (const __which of Object.keys(__ball_proto_oneof_groups)) {
+  if (Object.prototype.hasOwnProperty.call(Object.prototype, __which)) continue;
+  const __group = __ball_proto_oneof_groups[__which];
+  Object.defineProperty(Object.prototype, __which, {
+    value: function () {
+      for (const k of __group) {
+        if (this != null && k in (this as any) && (this as any)[k] !== undefined) return k;
+      }
+      return 'notSet';
+    },
+    enumerable: false,
+    configurable: true,
+    writable: true,
+  });
+}
+const __ball_proto_has_fields: string[] = [
+  'body', 'metadata', 'input', 'descriptor', 'result',
+  'call', 'literal', 'reference', 'fieldAccess', 'messageCreation', 'block', 'lambda',
+  'stringValue', 'boolValue', 'numberValue', 'listValue', 'structValue', 'nullValue',
+  'intValue', 'doubleValue', 'bytesValue', 'name', 'module', 'function',
+];
+for (const __key of __ball_proto_has_fields) {
+  const __hasName = 'has' + __key.charAt(0).toUpperCase() + __key.slice(1);
+  if (Object.prototype.hasOwnProperty.call(Object.prototype, __hasName)) continue;
+  Object.defineProperty(Object.prototype, __hasName, {
+    value: function () { return this != null && (__key in (this as any)) && (this as any)[__key] !== undefined; },
+    enumerable: false,
+    configurable: true,
+    writable: true,
+  });
+}
+
+// NOTE: a previous iteration installed Object.prototype getters for
+// 'fields' and 'values' so the engine's metadata.fields['xyz'] access
+// would work against proto3-JSON-shaped programs. That pollutes
+// legitimate '.fields' / '.values' on every object and broke unrelated
+// code (Array.prototype.values, Set/Map/typedef.field, etc.). Lower
+// these on the compiler side instead — the compiler now rewrites
+// metadata.fields[k] to metadata?.[k] and value.values to a
+// listValue helper. Don't reintroduce the prototype shims.
+
 if (!Object.prototype.hasOwnProperty.call(Object.prototype, 'writeToBuffer')) {
   Object.defineProperty(Object.prototype, 'writeToBuffer', {
     value: function () {

@@ -33,7 +33,8 @@ const engine = new BallEngine(
 try {
   await engine.run();
 } catch (e) {
-  console.error('ENGINE_ERROR:', e?.message ?? e);
+  console.error('ENGINE_ERROR:', e);
+  console.error('STACK:', e?.stack);
   process.exit(1);
 }
 process.stdout.write(out.join('\n'));

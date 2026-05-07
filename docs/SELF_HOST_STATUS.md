@@ -25,13 +25,17 @@ Last refreshed: 2026-05-07.
 
 **Parity:** **156 pass / 16 fail / 6 skip** of the 178 conformance fixtures (90.7% pass rate of non-skipped). Baseline before this iteration was 26/178 with the suite hanging on `196_timeout`. The 6 skipped fixtures depend on `BallEngine` constructor knobs that the IR can't express (timeoutMs, maxMemoryBytes, sandbox, etc.) — see Skip-list below.
 
-### C++ self-host
+### C++ engine + compiler
 
-Re-measured on Windows MSVC against the May 5 `engine_rt.cpp` backup: **66 / 170 pass (38.8%)**. Most failures land in three categories:
+`test_conformance` (cpp engine + cpp compiler, every fixture in `tests/conformance/`): **190 / 210 pass (90.5%)** after `cf2ca4b` taught the throw lowering to extract type names from `ClassName.new(...)` constructor calls. Before the fix every typed catch matched the generic "Exception" tag.
+
+### C++ self-host (compiled engine_rt.cpp)
+
+Re-measured on Windows MSVC against the May 5 `engine_rt.cpp` backup: **66 / 170 pass (38.8%)**. Most remaining failures land in three categories:
 
 1. `BallException: Exception type=Exception` — symptomatic of the MSVC `BallDyn`-in-`std::any` wrapping bug from `CLAUDE.md`: MSVC stores `BallDyn` instances inside `std::any` instead of using `operator std::any()`, which breaks every test that catches a typed exception or stores a class instance in a heterogeneous container.
 2. Three skipped tests for infinite loops in memoization with `BallDyn` map keys.
-3. `engine_rt.cpp` regen against the latest `engine.ball.pb` (with the Wave 7 security additions) currently fails to compile: the new `_trackMemoryAllocation` overload set confuses MSVC's overload resolution. Tracked separately — until that's resolved the C++ self-host stays pinned to the older engine snapshot.
+3. `engine_rt.cpp` regen against the latest `engine.ball.pb` (with the Wave 7 security additions) currently fails to compile: the new `_trackMemoryAllocation` overload set confuses MSVC's overload resolution AND `_ballStringCodeUnitBytes` / `_ballPointerBytes` static-const class fields are not being emitted as class members. The May 5 backup remains the live build artifact until both are resolved. Once it can regen, the throw-typename fix above should bring the self-host count up too.
 
 ### TypeScript self-host
 
@@ -85,6 +89,6 @@ Conformance fixtures that depend on `BallEngine` constructor knobs that don't su
 | US-004 Regenerate compiled_engine.ts | partial — regen produces an engine the wrapper can load; the drop-the-wrapper push was reverted to keep 194/220 green |
 | US-005 Drive TS conformance ≥ 90% | ✅ done — 198/216 (91.7%) through wrapper after skip-list + std_time/convert wiring + DateTime polyfill |
 | US-006 Regenerate engine_rt.cpp | partial — `compile_engine_cpp.dart` emits a 9013-line `engine_rt.cpp` from the latest engine.ball.pb, but it doesn't build under MSVC because the Wave 7 `_trackMemoryAllocation` overload set confuses overload resolution. The May 5 backup is the live build artifact. |
-| US-007 Drive C++ conformance ≥ 50% | not started — currently 66/170 (38.8%); blocked on the MSVC `BallDyn`-in-`std::any` issue |
+| US-007 Drive C++ conformance ≥ 50% | partial — `test_conformance` (cpp engine + cpp compiler) at 190/210 (90.5%) after the typed-throw fix in `cf2ca4b`. `test_selfhost_conformance` (compiled engine_rt.cpp) still at 66/170; blocked on the MSVC `BallDyn`-in-`std::any` issue plus the engine_rt regen gap. |
 | US-008 Add new conformance fixtures | not started |
 | US-009 Final self-host status doc | this file ✅ |

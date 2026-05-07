@@ -101,7 +101,20 @@ Future<void> main(List<String> args) async {
   final compileMs = DateTime.now().difference(compileStart).inMilliseconds;
   stdout.writeln('OK (${compileMs}ms, ${compiled.length} bytes)');
 
-  File(outPath).writeAsStringSync(compiled);
+  // Rewrite ball_value.dart relative imports/exports to the engine package
+  // path so the round-tripped file resolves them when placed under
+  // dart/self_host/lib/.
+  final patched = compiled
+      .replaceAll(
+        "import 'ball_value.dart';",
+        "import 'package:ball_engine/ball_value.dart';",
+      )
+      .replaceAll(
+        "export 'ball_value.dart';",
+        "export 'package:ball_engine/ball_value.dart';",
+      );
+
+  File(outPath).writeAsStringSync(patched);
   stdout.writeln('  Wrote → ${outPath.replaceAll('\\', '/')}');
 
   // 3. Analyze.

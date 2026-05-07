@@ -1814,7 +1814,8 @@ class DartCompiler {
       module == 'std_io' ||
       module == 'std_convert' ||
       module == 'std_fs' ||
-      module == 'std_time';
+      module == 'std_time' ||
+      module == 'ball_proto';
 
   bool _isStdCall(Expression expr, String function) =>
       expr.whichExpr() == Expression_Expr.call &&
@@ -1996,11 +1997,15 @@ class DartCompiler {
   }
 
   void _generateFor(Map<String, Expression> fields) {
-    // 'init' may be a string literal (ForPartsWithDeclarations) or an
-    // expression (ForPartsWithExpression — e.g. `numArgs = args.length`).
+    // 'init' may be:
+    //   1. a string literal (legacy human-readable form)
+    //   2. a block of let-bindings (encoder emits this for `for (var i = 0, j = 1; ...)`)
+    //   3. an expression statement (`numArgs = args.length`)
     final initExpr = fields['init'];
     final init = initExpr != null
-        ? (_stringFieldValue(fields, 'init') ?? _e(initExpr))
+        ? (_stringFieldValue(fields, 'init') ??
+              _renderForInit(initExpr) ??
+              _e(initExpr))
         : '';
     final condStr = fields['condition'] != null ? _e(fields['condition']!) : '';
     final updateStr = fields['update'] != null ? _e(fields['update']!) : '';
@@ -2010,6 +2015,49 @@ class DartCompiler {
     if (body != null) _generateBranchBody(body, false);
     _depth--;
     _wl('}');
+  }
+
+  /// Render a Ball for-loop `init` block as a Dart `for` initialiser
+  /// declaration (e.g. `var i = 0, j = 1`). Returns `null` when [initExpr]
+  /// is not the recognised block-of-let-bindings shape, so the caller can
+  /// fall back to the generic expression compiler.
+  String? _renderForInit(Expression initExpr) {
+    if (initExpr.whichExpr() != Expression_Expr.block) return null;
+    final block = initExpr.block;
+    if (block.statements.isEmpty || block.hasResult()) return null;
+
+    final keywords = <String>{};
+    final types = <String>{};
+    final bindings = <String>[];
+    for (final s in block.statements) {
+      if (s.whichStmt() != Statement_Stmt.let) return null;
+      final let = s.let;
+      final meta = let.metadata;
+      String keyword = 'var';
+      String? typeStr;
+      if (meta.fields.containsKey('keyword')) {
+        keyword = meta.fields['keyword']!.stringValue;
+      }
+      if (meta.fields.containsKey('type')) {
+        typeStr = meta.fields['type']!.stringValue;
+      }
+      keywords.add(keyword);
+      if (typeStr != null) types.add(typeStr);
+
+      String binding = let.name;
+      if (let.hasValue() &&
+          !(let.value.whichExpr() == Expression_Expr.reference &&
+              let.value.reference.name == '__no_init__')) {
+        binding = '${let.name} = ${_e(let.value)}';
+      }
+      bindings.add(binding);
+    }
+
+    if (keywords.length != 1) return null;
+    if (types.length > 1) return null;
+    final keyword = keywords.first;
+    final prefix = types.isEmpty ? keyword : types.first;
+    return '$prefix ${bindings.join(', ')}';
   }
 
   void _generateForIn(Map<String, Expression> fields) {
@@ -2340,6 +2388,37 @@ class DartCompiler {
     final op = _stringFieldValue(fields, 'op');
     if (target == null || value == null) return;
     final assignOp = (op != null && op.isNotEmpty) ? op : '=';
+
+    // Encoder wraps `list.add(x)` as `assign(target=list, value=list_push(list=list, value=x))`
+    // so non-mutating runtimes hold the new collection. Dart's
+    // List.add()/.clear()/etc already mutate in place, so emit just the
+    // call (the cascade already evaluates to the receiver) and skip the
+    // re-binding (which would also fail when the variable was declared
+    // `final`). Mirrors the same elision in [_compileAssign].
+    if (assignOp == '=' &&
+        target.whichExpr() == Expression_Expr.reference &&
+        value.whichExpr() == Expression_Expr.call) {
+      final inner = value.call;
+      const inPlaceMutations = <(String, String)>{
+        ('std_collections', 'list_push'),
+        ('std_collections', 'list_clear'),
+        ('std_collections', 'list_sort'),
+        ('std_collections', 'list_insert'),
+        ('std_collections', 'list_remove_at'),
+        ('std_collections', 'list_concat'),
+      };
+      if (inPlaceMutations.contains((inner.module, inner.function))) {
+        final innerFields = _extractFields(inner);
+        final mutated = innerFields['list'];
+        if (mutated != null &&
+            mutated.whichExpr() == Expression_Expr.reference &&
+            mutated.reference.name == target.reference.name) {
+          _wl('${_e(value)};');
+          return;
+        }
+      }
+    }
+
     _wl('${_e(target)} $assignOp ${_e(value)};');
   }
 
@@ -2462,6 +2541,7 @@ class DartCompiler {
     if (call.module == 'std_convert') return _compileConvertCall(call);
     if (call.module == 'std_fs') return _compileFsCall(call);
     if (call.module == 'std_time') return _compileTimeCall(call);
+    if (call.module == 'ball_proto') return _compileBallProtoCall(call);
     final f = _extractFields(call);
     return switch (call.function) {
       'print' => _compileBasePrint(f),
@@ -2602,6 +2682,10 @@ class DartCompiler {
       'math_sign' => _propertyAccess(f, 'sign'),
       'math_gcd' => _methodCall2(f, 'gcd'),
       'math_lcm' => _compileMathLcm(f),
+      // ── Numeric / comparison sugar ─────────────────────────
+      'compare_to' => _methodCall2(f, 'compareTo'),
+      'to_double' => _methodCallExpr(f, 'toDouble()'),
+      'to_int' => _methodCallExpr(f, 'toInt()'),
       // ── Dart-specific ───────────────────────────────────────
       'dart_list_generate' =>
         'List.generate(${_e(f['count']!)}, ${_e(f['generator']!)})',
@@ -2794,6 +2878,20 @@ class DartCompiler {
     return '_ballMemory.getInt64($ptrStr, Endian.little)';
   }
 
+  // ── ball_proto compilation (proto reflection helpers) ─────
+  // The encoder routes calls like `expr.whichExpr()` / `func.hasBody()`
+  // to `ball_proto.whichExpr(obj=expr)` / `ball_proto.hasBody(obj=func)`
+  // so every target language can implement them deterministically. In
+  // Dart these map straight onto the protobuf-generated method on the
+  // receiver.
+  String _compileBallProtoCall(FunctionCall call) {
+    final f = _extractFields(call);
+    final obj = f['obj'] ?? f['value'] ?? f['target'] ?? f['receiver'];
+    if (obj == null) return '/* invalid ball_proto.${call.function}() */';
+    final receiver = _e(obj);
+    return '$receiver.${call.function}()';
+  }
+
   // ── std_collections compilation ────────────────────────────
 
   String _compileCollectionsCall(FunctionCall call) {
@@ -2806,10 +2904,10 @@ class DartCompiler {
     return switch (call.function) {
       // List operations
       'list_push' => '${_e(f['list']!)}..add(${_e(_val())})',
-      'list_pop' => '${_e(f['list']!)}..removeLast()',
+      'list_pop' => '${_e(f['list']!)}.removeLast()',
       'list_insert' =>
         '${_e(f['list']!)}..insert(${_e(f['index'] ?? f['value']!)}, ${_e(f['value'] ?? f['arg1']!)})',
-      'list_remove_at' => '${_e(f['list']!)}..removeAt(${_e(f['index'] ?? f['value']!)})',
+      'list_remove_at' => '${_e(f['list']!)}.removeAt(${_e(f['index'] ?? f['value']!)})',
       'list_get' => '${_e(f['list']!)}[${_e(f['index'] ?? f['value']!)}]',
       'list_set' =>
         '(${_e(f['list']!)}[${_e(f['index']!)}] = ${_e(f['value']!)})',
@@ -2840,7 +2938,9 @@ class DartCompiler {
       'list_concat' => '[...${_e(_left())}, ...${_e(_right())}]',
       'list_flat_map' =>
         '${_e(f['list']!)}.expand(${_e(_cb())}).toList()',
-      'string_join' => f.containsKey('separator')
+      'list_clear' => '${_e(f['list']!)}..clear()',
+      'list_to_list' => '${_e(f['list']!)}.toList()',
+      'string_join' || 'list_join' => f.containsKey('separator')
           ? '${_e(f['list']!)}.join(${_e(f['separator']!)})'
           : '${_e(f['list']!)}.join()',
       // Map operations
@@ -3176,8 +3276,19 @@ class DartCompiler {
   }
 
   String _methodCall2(Map<String, Expression> f, String method) {
-    final l = f['left'] ?? f['target'];
-    final r = f['right'] ?? f['index'];
+    // Encoder produces several field-name conventions for two-arg method
+    // calls. Tolerate all of them so the compiler doesn't drop method
+    // calls into invalid placeholders during round-trip.
+    final l = f['left'] ?? f['target'] ?? f['value'] ?? f['receiver'];
+    final r =
+        f['right'] ??
+        f['index'] ??
+        f['pattern'] ??
+        f['separator'] ??
+        f['from'] ??
+        f['arg'] ??
+        f['other'] ??
+        f['arg0'];
     if (l == null || r == null) return '/* invalid $method() */';
     return _emit(
       _compileExpression(l).property(method).call([_compileExpression(r)]),
@@ -3227,6 +3338,34 @@ class DartCompiler {
     final value = f['value'];
     final op = _stringFieldValue(f, 'op') ?? '=';
     if (target == null || value == null) return '/* invalid assign */';
+
+    // Encoder wraps mutating list/map ops (list_push, list_clear, ...) in
+    // assign(target=x, value=op(list=x, ...)) so non-mutating runtimes can
+    // hold the new collection. Dart's List.add() / .clear() / .sort() / ...
+    // already mutate in place, so emit just the cascade and skip the
+    // re-binding (which would also fail when `x` was declared `final`).
+    if (op == '=' &&
+        target.whichExpr() == Expression_Expr.reference &&
+        value.whichExpr() == Expression_Expr.call) {
+      final inner = value.call;
+      const inPlaceMutations = <(String, String)>{
+        ('std_collections', 'list_push'),
+        ('std_collections', 'list_clear'),
+        ('std_collections', 'list_sort'),
+        ('std_collections', 'list_insert'),
+        ('std_collections', 'list_remove_at'),
+        ('std_collections', 'list_concat'),
+      };
+      if (inPlaceMutations.contains((inner.module, inner.function))) {
+        final innerFields = _extractFields(inner);
+        final mutated = innerFields['list'];
+        if (mutated != null &&
+            mutated.whichExpr() == Expression_Expr.reference &&
+            mutated.reference.name == target.reference.name) {
+          return _e(value);
+        }
+      }
+    }
 
     final targetStr = _compileCascadeAwareTarget(target);
     final ve = _compileExpression(value);

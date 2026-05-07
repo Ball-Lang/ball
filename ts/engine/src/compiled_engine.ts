@@ -7066,7 +7066,7 @@ export class BallEngine {
   async _stdPrint(input: any): Promise<any> {
     let m = this._stdAsMap(input);
     if ((m != null)) {
-      let message = m['message'];
+      let message = ((m['message'] ?? m['arg0']) ?? m['value']);
       if ((message != null)) {
         this.stdout(await this._ballToStringAsync(message));
         return null;

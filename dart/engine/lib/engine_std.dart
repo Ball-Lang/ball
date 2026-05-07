@@ -1396,7 +1396,12 @@ extension BallEngineStd on BallEngine {
   FutureOr<Object?> _stdPrint(Object? input) async {
     final m = _stdAsMap(input);
     if (m != null) {
-      final message = m['message'];
+      // Accept the canonical `message` key first, then fall back to the
+      // generic positional `arg0` and `value` keys that other encoders
+      // use. This keeps the live engine, the round-tripped Dart engine,
+      // and the cross-language conformance harness in sync without
+      // requiring every fixture to pre-rename its print arg.
+      final message = m['message'] ?? m['arg0'] ?? m['value'];
       if (message != null) {
         stdout(await _ballToStringAsync(message));
         return null;

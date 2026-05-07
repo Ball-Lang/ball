@@ -5814,7 +5814,7 @@ class BallEngine {
   FutureOr<Object?> _stdPrint(Object? input) async {
     final m = _stdAsMap(input);
     if ((m != null)) {
-      final message = m['message'];
+      final message = ((m['message'] ?? m['arg0']) ?? m['value']);
       if ((message != null)) {
         stdout(await _ballToStringAsync(message));
         return null;

@@ -2365,30 +2365,6 @@ $1async _resolveAndCallFunction(`,
         prologueParts.push(`this.${p.name} = ${sanitize(p.name)};`);
       }
     }
-
-    // Lower the constructor's initializer list (`x = expr`) into prologue
-    // assignments. The encoder stores each initializer's value as a Dart
-    // source string; for the engine itself those expressions are mostly
-    // TS-compatible (`stdout ?? print`, `args ?? []`, `[StdModuleHandler()]`).
-    // We only need a tiny translator that:
-    //   * adds `new` to bare class-construction calls,
-    //   * rewrites `io.stderr` → `io_stderr` and `io.Platform` → `io_Platform`
-    //     to match the preamble shims,
-    //   * sanitises Dart's `lambda(s) { return ...; }` block bodies into
-    //     TS arrow-bodies if they appear (kept simple — real Dart source
-    //     strings inside the engine constructor are short and well-formed).
-    const initFields = meta && (meta as any)["initializers"];
-    if (Array.isArray(initFields)) {
-      for (const init of initFields) {
-        if (!init || typeof init !== "object") continue;
-        if ((init as any).kind !== "field") continue;
-        const fieldName = (init as any).name;
-        const valueSrc = (init as any).value;
-        if (typeof fieldName !== "string" || typeof valueSrc !== "string") continue;
-        prologueParts.push(`this.${fieldName} = ${translateInitializerExpr(valueSrc)};`);
-      }
-    }
-
     const prologue = prologueParts.join("\n");
     const captured = this.withMethodContext(
       new Set(rawParams.map((p) => p.name)),
@@ -2777,11 +2753,7 @@ $1async _resolveAndCallFunction(`,
     const variable = stringField(call, "variable") ?? "item";
     const iterable = field(call, "iterable")!;
     const body = field(call, "body");
-    // Guard against null/undefined iterables. proto3 JSON omits empty
-    // repeated fields, so e.g. `module.typeDefs` is `undefined` in TS
-    // when the source had no typedefs. Dart's protobuf treats those as
-    // `[]`; we replicate that by `?? []` at every for-of site.
-    this.writeln(`for (const ${variable} of (${this.expr(iterable)} ?? [])) {`);
+    this.writeln(`for (const ${variable} of ${this.expr(iterable)}) {`);
     this.depth++;
     if (body) this.emitStatementOrExpression(unwrapLambda(body), false);
     this.depth--;
@@ -2978,18 +2950,6 @@ $1async _resolveAndCallFunction(`,
     const obj = this.expr(fa.object);
     const f = fa.field;
     if (f === "length") return `${obj}.length`;
-    // Dart proto3 string fields read as empty-string when unset; TS proto3
-    // JSON omits them entirely. Default the receiver to '' so the engine's
-    // `func.inputType.isNotEmpty` style checks don't crash on undefined.
-    if (f === "isEmpty" || f === "isNotEmpty") {
-      return `((${obj}) ?? '').${f}`;
-    }
-    // Dart proto Struct.fields → proto3 JSON: the message itself acts as
-    // its `fields` map (`metadata.fields['k']` ≡ `metadata['k']`). Emit
-    // `(<obj> ?? {})` so `.fields[…]` and `.fields` member access flow
-    // back into the same JSON object. Same trick for ListValue.values.
-    if (f === "fields") return `((${obj}) ?? {})`;
-    if (f === "values") return `((${obj})?.elements ?? (Array.isArray(${obj}) ? (${obj}) : []))`;
     // Positional record field: `.$1` / `.$2` → [0] / [1].
     const recMatch = /^\$(\d+)$/.exec(f);
     if (recMatch) {
@@ -3157,23 +3117,6 @@ $1async _resolveAndCallFunction(`,
       ((call.module === undefined || call.module === "") && emptyModuleStd.has(call.function))
     ) {
       return this.compileStdCall(call);
-    }
-    // ball_proto.<method>(obj=x) → x.<method>().
-    // The encoder routes proto reflection helpers (whichExpr, hasBody,
-    // hasMetadata, …) through the synthetic ball_proto module so every
-    // backend can implement them deterministically. In TS land the
-    // protobuf-shape methods already exist on the JSON program (or via
-    // the preamble's Object.prototype shims for `fields` / `values`),
-    // so a method-call emit is the right lowering.
-    if (call.module === "ball_proto") {
-      const fields = call.input?.messageCreation?.fields ?? [];
-      const objField = fields.find((f) => f.name === "obj") ??
-        fields.find((f) => f.name === "value") ??
-        fields.find((f) => f.name === "target") ??
-        fields.find((f) => f.name === "receiver");
-      if (objField) {
-        return `${this.expr(objField.value)}.${call.function}()`;
-      }
     }
     const fn = sanitize(call.function);
     // Prefix with this. when the function name is a class method OR
@@ -3648,12 +3591,8 @@ $1async _resolveAndCallFunction(`,
         return "[]";
       }
       case "list_pop": {
-        // Mirrors Dart's List.removeLast(): mutates the receiver and
-        // returns the removed element. JS Array.prototype.pop() does
-        // both. The earlier `slice(0, -1)` form returned the array
-        // minus its last item — wrong on both axes.
         const list = f.get("list");
-        return list ? `${this.expr(list)}.pop()` : "undefined";
+        return list ? `${this.expr(list)}.slice(0, -1)` : "[]";
       }
       case "list_length": {
         const list = f.get("list") ?? f.get("value");
@@ -4387,64 +4326,10 @@ function unwrapLambda(e: Expression): Expression {
   return e;
 }
 
-/// Translate a Dart source string used in a constructor initializer-list
-/// expression into TypeScript. Only covers the patterns the round-tripped
-/// engine needs (`x ?? expr`, `[Foo()]`, `io.stderr.writeln(s)`,
-/// `io.Platform.environment[name]`); user code that hits more exotic
-/// shapes will fall through unchanged and surface as a TS compile error
-/// in the regenerated file, which we want — silent corruption is worse.
-function translateInitializerExpr(src: string): string {
-  let out = src;
-  // Dart-typed empty literals: `<String, Object?>{}` and `<int>[]`.
-  // Strip the leading type-arg list — TS doesn't need it on a literal.
-  out = out.replace(/<[^<>]*>\s*\{\}/g, "{}");
-  out = out.replace(/<[^<>]*>\s*\[\]/g, "[]");
-  // `Foo()` (uppercase-leading identifier followed by `(`) → `new Foo()`.
-  // Skip already-prefixed `new Foo(` and Dart `Foo<T>(` generics.
-  out = out.replace(/(^|[^.\w])([A-Z][A-Za-z0-9_]*)\(/g, (m, lead, ident) => {
-    return `${lead}new ${ident}(`;
-  });
-  out = out.replace(/\bnew new\b/g, "new");
-  // Map `io.stderr` and `io.Platform` to the preamble shims.
-  out = out.replace(/\bio\.stderr\b/g, "io_stderr");
-  out = out.replace(/\bio\.Platform\b/g, "io_Platform");
-  return out;
-}
-
 function sanitize(name: string): string {
   let out = name;
   const colon = out.indexOf(":");
   if (colon >= 0) out = out.slice(colon + 1);
-  // Dart operator names (operator []=, operator [], operator ==, etc.) are
-  // valid Ball IR names but invalid TS identifiers — rewrite them to a
-  // JS-safe form so the emitted class compiles.
-  const operatorMap: Record<string, string> = {
-    "[]=": "__op_index_assign",
-    "[]": "__op_index",
-    "==": "__op_eq",
-    "!=": "__op_ne",
-    "<": "__op_lt",
-    "<=": "__op_le",
-    ">": "__op_gt",
-    ">=": "__op_ge",
-    "+": "__op_add",
-    "-": "__op_sub",
-    "*": "__op_mul",
-    "/": "__op_div",
-    "~/": "__op_int_div",
-    "%": "__op_mod",
-    "&": "__op_and",
-    "|": "__op_or",
-    "^": "__op_xor",
-    "<<": "__op_shl",
-    ">>": "__op_shr",
-    ">>>": "__op_shr_unsigned",
-    "~": "__op_bnot",
-    "unary-": "__op_neg",
-  };
-  if (Object.prototype.hasOwnProperty.call(operatorMap, out)) {
-    return operatorMap[out];
-  }
   out = out.replace(/[.-]/g, "_");
   const reserved = new Set([
     "class", "function", "return", "new", "delete", "var", "let", "const",

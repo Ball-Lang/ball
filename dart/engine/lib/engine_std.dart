@@ -302,6 +302,14 @@ extension BallEngineStd on BallEngine {
       'list_generate': _stdListGenerate,
       'dart_list_generate': _stdListGenerate,
       'list_filled': _stdListFilled,
+      'typed_list': (i) {
+        // <T>[a, b, c] — encoder preserves explicit type arguments via this
+        // shim. The engine drops them and returns the underlying list.
+        final m = _stdAsMap(i);
+        if (m == null) return const <Object?>[];
+        final raw = m['elements'];
+        return _stdAsList(raw) ?? const <Object?>[];
+      },
       'dart_list_filled': _stdListFilled,
 
       // Collections

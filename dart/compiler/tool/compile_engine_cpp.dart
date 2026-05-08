@@ -15,6 +15,7 @@ library;
 import 'dart:io';
 
 import 'package:ball_encoder/encoder.dart';
+import 'package:ball_encoder/parts_resolver.dart';
 
 String _findRepoRoot() {
   var dir = Directory.current;
@@ -49,7 +50,10 @@ Future<void> main(List<String> args) async {
   stdout.writeln('Compile engine.dart → C++ via existing cpp/compiler');
   stdout.writeln('=' * 60);
 
-  final src = File('$root/dart/engine/lib/engine.dart').readAsStringSync();
+  final mainPath = '$root/dart/engine/lib/engine.dart';
+  stdout.writeln('Resolving parts + extensions...');
+  final src = resolveDartLibrary(mainPath);
+  stdout.writeln('  merged source: ${src.length} bytes');
   stdout.writeln('Encoding...');
   final prog = DartEncoder().encode(src, name: 'engine');
   stdout.writeln('  ${prog.modules.length} modules, '

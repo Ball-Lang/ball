@@ -130,10 +130,17 @@ class DartEncoder {
   }
 
   /// Encode Dart source into a ball program.
+  ///
+  /// If [partResolver] is provided, the encoder will inline `part 'X.dart';`
+  /// directives by calling the resolver with the URI string and parsing the
+  /// returned source as additional declarations of the same library. Without
+  /// a resolver, parts are recorded as metadata only and their declarations
+  /// are silently dropped — which breaks any encode of a multi-file library.
   Program encode(
     String source, {
     String name = 'encoded',
     String version = '1.0.0',
+    String Function(String uri)? partResolver,
   }) {
     _prefixToModule.clear();
     _importedModules.clear();
@@ -157,7 +164,23 @@ class DartEncoder {
 
     _resolveImports(unit);
 
-    return _buildProgram(unit, name: name, version: version);
+    final partUnits = <ast.CompilationUnit>[];
+    if (partResolver != null) {
+      for (final directive in unit.directives) {
+        if (directive is ast.PartDirective) {
+          final uri = directive.uri.stringValue;
+          if (uri == null) continue;
+          final partSource = partResolver(uri);
+          partUnits.add(parseString(
+            content: partSource,
+            throwIfDiagnostics: false,
+            featureSet: FeatureSet.latestLanguageVersion(),
+          ).unit);
+        }
+      }
+    }
+
+    return _buildProgram(unit, name: name, version: version, partUnits: partUnits);
   }
 
   /// Encode Dart source into a single ball [Module], accumulating used
@@ -386,8 +409,9 @@ class DartEncoder {
     ast.CompilationUnit unit, {
     required String name,
     required String version,
+    List<ast.CompilationUnit> partUnits = const [],
   }) {
-    final (:module, :importStubs) = _buildModule(unit, moduleName: 'main');
+    final (:module, :importStubs) = _buildModule(unit, moduleName: 'main', partUnits: partUnits);
     final stdModule = _buildStdModule();
     final dartStdModule = _buildDartStdModule();
     final collectionsModule = _buildCollectionsModule();
@@ -411,6 +435,7 @@ class DartEncoder {
   ({Module module, List<Module> importStubs}) _buildModule(
     ast.CompilationUnit unit, {
     required String moduleName,
+    List<ast.CompilationUnit> partUnits = const [],
   }) {
     final moduleTypes = <google.DescriptorProto>[];
     final moduleEnums = <google.EnumDescriptorProto>[];
@@ -418,44 +443,51 @@ class DartEncoder {
     final moduleTypeDefs = <TypeDefinition>[];
     final moduleTypeAliases = <TypeAlias>[];
 
-    for (final decl in unit.declarations) {
-      if (decl is ast.ClassDeclaration) {
-        _encodeClassDeclaration(
-          decl,
-          moduleTypes,
-          moduleFunctions,
-          moduleTypeDefs,
-        );
-      } else if (decl is ast.MixinDeclaration) {
-        _encodeMixinDeclaration(
-          decl,
-          moduleTypes,
-          moduleFunctions,
-          moduleTypeDefs,
-        );
-      } else if (decl is ast.EnumDeclaration) {
-        _encodeEnumDeclaration(
-          decl,
-          moduleEnums,
-          moduleFunctions,
-          moduleTypeDefs,
-        );
-      } else if (decl is ast.ExtensionDeclaration) {
-        _encodeExtensionDeclaration(decl, moduleFunctions, moduleTypeDefs);
-      } else if (decl is ast.ExtensionTypeDeclaration) {
-        _encodeExtensionTypeDeclaration(
-          decl,
-          moduleTypes,
-          moduleFunctions,
-          moduleTypeDefs,
-        );
-      } else if (decl is ast.FunctionDeclaration) {
-        moduleFunctions.add(_encodeFunctionDeclaration(decl));
-      } else if (decl is ast.TopLevelVariableDeclaration) {
-        _encodeTopLevelVariable(decl, moduleFunctions);
-      } else if (decl is ast.GenericTypeAlias) {
-        _encodeTypeAlias(decl, moduleFunctions, moduleTypeAliases);
+    void encodeDecls(Iterable<ast.CompilationUnitMember> decls) {
+      for (final decl in decls) {
+        if (decl is ast.ClassDeclaration) {
+          _encodeClassDeclaration(
+            decl,
+            moduleTypes,
+            moduleFunctions,
+            moduleTypeDefs,
+          );
+        } else if (decl is ast.MixinDeclaration) {
+          _encodeMixinDeclaration(
+            decl,
+            moduleTypes,
+            moduleFunctions,
+            moduleTypeDefs,
+          );
+        } else if (decl is ast.EnumDeclaration) {
+          _encodeEnumDeclaration(
+            decl,
+            moduleEnums,
+            moduleFunctions,
+            moduleTypeDefs,
+          );
+        } else if (decl is ast.ExtensionDeclaration) {
+          _encodeExtensionDeclaration(decl, moduleFunctions, moduleTypeDefs);
+        } else if (decl is ast.ExtensionTypeDeclaration) {
+          _encodeExtensionTypeDeclaration(
+            decl,
+            moduleTypes,
+            moduleFunctions,
+            moduleTypeDefs,
+          );
+        } else if (decl is ast.FunctionDeclaration) {
+          moduleFunctions.add(_encodeFunctionDeclaration(decl));
+        } else if (decl is ast.TopLevelVariableDeclaration) {
+          _encodeTopLevelVariable(decl, moduleFunctions);
+        } else if (decl is ast.GenericTypeAlias) {
+          _encodeTypeAlias(decl, moduleFunctions, moduleTypeAliases);
+        }
       }
+    }
+
+    encodeDecls(unit.declarations);
+    for (final partUnit in partUnits) {
+      encodeDecls(partUnit.declarations);
     }
 
     // Stub modules for external imports (not overridden to an in-package module).

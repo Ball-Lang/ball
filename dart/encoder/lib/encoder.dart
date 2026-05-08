@@ -261,6 +261,58 @@ class DartEncoder {
   // Import resolution
   // ============================================================
 
+  /// Map a Dart operator lexeme (`[]=`, `==`, `<`, `unary-`/`-`, …) to a
+  /// canonical Ball method name. The result is a valid identifier in every
+  /// target language Ball compiles to, so compilers don't need to know Dart
+  /// operator syntax. Dart roundtripping reads `metadata['operator']` to
+  /// recover the original lexeme.
+  static String _canonicalOperatorName(String lexeme, {bool unary = false}) {
+    switch (lexeme) {
+      case '[]=':
+        return '__op_set_index__';
+      case '[]':
+        return '__op_get_index__';
+      case '==':
+        return '__op_eq__';
+      case '<':
+        return '__op_lt__';
+      case '<=':
+        return '__op_le__';
+      case '>':
+        return '__op_gt__';
+      case '>=':
+        return '__op_ge__';
+      case '<<':
+        return '__op_shl__';
+      case '>>':
+        return '__op_shr__';
+      case '>>>':
+        return '__op_ushr__';
+      case '+':
+        return '__op_add__';
+      case '-':
+        return unary ? '__op_neg__' : '__op_sub__';
+      case '*':
+        return '__op_mul__';
+      case '/':
+        return '__op_div__';
+      case '~/':
+        return '__op_idiv__';
+      case '%':
+        return '__op_mod__';
+      case '&':
+        return '__op_band__';
+      case '|':
+        return '__op_bor__';
+      case '^':
+        return '__op_bxor__';
+      case '~':
+        return '__op_bnot__';
+      default:
+        return '__op_unknown_${lexeme.codeUnits.join('_')}__';
+    }
+  }
+
   static String uriToModuleName(String uri) {
     if (uri.startsWith('dart:')) {
       return 'dart.${uri.substring(5)}';
@@ -874,7 +926,18 @@ class DartEncoder {
     String className,
     ast.MethodDeclaration member,
   ) {
-    final methodName = member.name.lexeme;
+    final rawName = member.name.lexeme;
+    // Operator methods (`operator []=`, `operator <`, …) carry Dart-specific
+    // syntax in their lexeme. Translate to a canonical, language-agnostic
+    // Ball name so target compilers don't have to know Dart's operator
+    // grammar. The original lexeme is preserved in metadata['operator']
+    // so the Dart compiler can round-trip back to the original syntax.
+    String methodName = rawName;
+    if (member.isOperator) {
+      final isUnaryMinus =
+          rawName == '-' && (member.parameters?.parameters.isEmpty ?? false);
+      methodName = _canonicalOperatorName(rawName, unary: isUnaryMinus);
+    }
     final def = FunctionDefinition()..name = '$className.$methodName';
 
     final returnType = member.returnType?.toSource();

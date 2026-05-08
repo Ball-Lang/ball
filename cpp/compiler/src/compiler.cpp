@@ -3268,15 +3268,12 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                 conv_type = map_type(meta["conversion_type"]);
             }
             out_ << "operator " << conv_type << "(";
-        } else if (is_operator) {
-            // Operator overloading: method_name should be like "operator+"
-            std::string op_name = method_name;
-            // If the name doesn't already start with "operator", prepend it
-            if (op_name.find("operator") != 0) {
-                op_name = "operator" + op_name;
-            }
-            out_ << map_return_type(*func) << " " << op_name << "(";
         } else {
+            // Operator methods now arrive with canonical Ball names
+            // (`__op_set_index__`, `__op_eq__`, …) — emit as a plain C++
+            // method. We no longer try to fabricate a real `operator+` /
+            // `operator []=` overload, since the IR no longer carries Dart
+            // operator syntax.
             out_ << map_return_type(*func) << " " << sanitize_name(method_name) << "(";
         }
         auto params = func->has_metadata() ? extract_params(func->metadata()) : std::vector<std::string>{};
@@ -3335,12 +3332,9 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
             conv_type = map_type(meta["conversion_type"]);
         }
         out_ << "operator " << conv_type << "(";
-    } else if (is_operator) {
-        std::string op_name = name;
-        if (op_name.find("operator") != 0)
-            op_name = "operator" + op_name;
-        out_ << return_type << " " << op_name << "(";
     } else {
+        // Operator methods are emitted as plain identifiers; see the
+        // matching note in emit_struct above.
         out_ << return_type << " " << name << "(";
     }
 

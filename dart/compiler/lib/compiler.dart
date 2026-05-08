@@ -1201,8 +1201,12 @@ class DartCompiler {
     return cb.Method((b) {
       // Operators are emitted by prefixing the name with 'operator '.
       // code_builder MethodType only has getter/setter; there is no operator$ value.
+      // The encoder stores canonical Ball names like `__op_set_index__`
+      // in `func.name` and the original Dart lexeme (`[]=`, `==`, …) in
+      // `meta['operator']` so we can recover the source-form here.
+      final operatorLexeme = meta['operator'] as String?;
       b.name = isOperator
-          ? 'operator $name$typeParamsStr'
+          ? 'operator ${operatorLexeme ?? name}$typeParamsStr'
           : '$name$typeParamsStr';
       if (doc != null) b.docs.add(doc);
       if (annotations != null) {

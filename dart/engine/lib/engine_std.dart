@@ -1,20 +1,24 @@
 part of 'engine.dart';
 
-// Maps std function names to the Dart operator symbol used in the encoder.
+// Maps std function names to the canonical Ball operator method name the
+// encoder produces (`__op_eq__`, `__op_add__`, …). The encoder keeps the
+// original Dart lexeme in metadata['operator'] so the Dart compiler can
+// roundtrip back to source-form operators.
 const _stdFunctionToOperator = <String, String>{
-  'equals': '==',
-  'not_equals': '!=',
-  'add': '+',
-  'subtract': '-',
-  'multiply': '*',
-  'divide': '~/',
-  'divide_double': '/',
-  'modulo': '%',
-  'less_than': '<',
-  'greater_than': '>',
-  'lte': '<=',
-  'gte': '>=',
-  'index': '[]',
+  'equals': '__op_eq__',
+  // Dart has no separate `operator !=` — `==` plus negation. Left here
+  // for completeness; lookup falls through to null.
+  'add': '__op_add__',
+  'subtract': '__op_sub__',
+  'multiply': '__op_mul__',
+  'divide': '__op_idiv__',
+  'divide_double': '__op_div__',
+  'modulo': '__op_mod__',
+  'less_than': '__op_lt__',
+  'greater_than': '__op_gt__',
+  'lte': '__op_le__',
+  'gte': '__op_ge__',
+  'index': '__op_get_index__',
 };
 
 extension BallEngineStd on BallEngine {

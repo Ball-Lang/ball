@@ -79,6 +79,12 @@ String resolveDartLibraryFromSource(
   // main-file class — appended verbatim after the main source.
   final topLevelTail = StringBuffer();
 
+  // Dedupe extension members across part files: when multiple parts
+  // define the same helper (e.g. `_asMap` appears in engine_eval.dart,
+  // engine_invocation.dart, and engine_std.dart with identical bodies),
+  // splicing all copies produces "member function already defined"
+  // errors in the target. Track keyed by `targetClass.memberName`.
+  final seenMembers = <String>{};
   for (final uri in partUris) {
     final partSource = partLoader(uri);
     final partUnit = _parse(partSource);
@@ -87,8 +93,23 @@ String resolveDartLibraryFromSource(
       if (decl is ast.ExtensionDeclaration) {
         final targetType = decl.onClause?.extendedType.toSource();
         if (targetType != null && mainClassNames.contains(targetType)) {
-          // Splice each member into the target class body.
+          // Splice each member into the target class body, deduping
+          // by `class.memberName` so identical helpers from multiple
+          // extensions don't collide.
           for (final member in decl.body.members) {
+            String? memberName;
+            if (member is ast.MethodDeclaration) {
+              memberName = member.name.lexeme;
+            } else if (member is ast.FieldDeclaration) {
+              memberName = member.fields.variables
+                  .map((v) => v.name.lexeme)
+                  .join(',');
+            }
+            if (memberName != null) {
+              final key = '$targetType.$memberName';
+              if (seenMembers.contains(key)) continue;
+              seenMembers.add(key);
+            }
             final memberSrc =
                 partSource.substring(member.offset, member.end);
             final buf = injections[targetType]!;

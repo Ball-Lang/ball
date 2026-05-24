@@ -306,6 +306,18 @@ public:
 
     // BallDyn-keyed access: convert key to string and delegate
     BallDyn operator[](const BallDyn& key) const {
+        // An integer key on a list/string must use positional indexing — the
+        // engine's `list[i]` read passes _toInt(i) as a BallDyn(int64_t), and
+        // stringifying it ("3") would miss list elements entirely. Maps stay
+        // string-keyed (Ball maps are string-keyed; the engine stringifies int
+        // keys before map access). Unwrap to defeat MSVC's BallDyn-in-any wrap.
+        auto& u = _BallDynUnwrapper::unwrap(key._val);
+        if (u.type() == typeid(int64_t) &&
+            (_val.type() == typeid(BallList) ||
+             _val.type() == typeid(std::string) ||
+             _val.type() == typeid(std::vector<std::string>))) {
+            return (*this)[std::any_cast<int64_t>(u)];
+        }
         return (*this)[static_cast<std::string>(key)];
     }
     void set(const BallDyn& key, const BallDyn& value) {

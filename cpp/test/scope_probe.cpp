@@ -168,6 +168,32 @@ int main() {
     check("list[1]=99 via string key", ball_to_string(ld[1]) == "99");
     check("list[0] unchanged", ball_to_string(ld[0]) == "10");
 
+    // ── Full list index-assignment + writeback flow (the sort path) ──
+    // Replicates: var a=[5,3]; a[0]=99;  via lookup(copy)->ball_set->set(scope).
+    std::cout << "--- list[i]=val via lookup+writeback (sort path) ---\n";
+    BallDyn aScope = BallDyn(child(BallDyn(globalEmpty)));
+    bind(aScope, BallDyn(std::string("a")),
+         BallDyn(BallList{std::any((int64_t)5), std::any((int64_t)3)}));
+    // child block (the for-loop body) where the assignment happens:
+    BallDyn blockScope = BallDyn(child(aScope));
+    {
+      BallDyn lst = lookup(blockScope, BallDyn(std::string("a")));   // copy of a
+      ball_set(lst, std::string("0"), std::any((int64_t)99));        // a[0]=99 on copy
+      set(blockScope, BallDyn(std::string("a")), lst);               // writeback
+    }
+    BallDyn aAfter = lookup(blockScope, BallDyn(std::string("a")));
+    check("list a[0]==99 after writeback from child scope",
+          ball_to_string(BallDyn(aAfter)[0LL]) == "99");
+    check("list a[1]==3 unchanged",
+          ball_to_string(BallDyn(aAfter)[1LL]) == "3");
+
+    // ── list[ BallDyn(int) ] read — the std.index path (_toInt returns BallDyn) ──
+    std::cout << "--- list index read with BallDyn(int) key ---\n";
+    BallDyn rlist = BallDyn(BallList{std::any((int64_t)5), std::any((int64_t)3), std::any((int64_t)8)});
+    BallDyn k1 = BallDyn((int64_t)1);
+    check("list[BallDyn(1)] == 3", ball_to_string(rlist[k1]) == "3");
+    check("list[BallDyn(2)] == 8", ball_to_string(rlist[BallDyn((int64_t)2)]) == "8");
+
     std::cout << (g_fail == 0 ? "ALL PASS\n" : ("FAILURES=" + std::to_string(g_fail) + "\n"));
     return g_fail == 0 ? 0 : 1;
 }

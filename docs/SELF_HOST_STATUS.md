@@ -78,7 +78,7 @@ green and `101_simple_class` now PASSES end to end. Count: **59/175**.
 index assignment (`list[i] = val` / `map[k] = val`) via `_cfWritebackIndexed`,
 and taught `BallDyn::set(string, …)` to honour a numeric key on a `BallList`
 (the emitter stringifies all index keys, and the list branch was missing — a
-silent no-op). Raw-map mutation now persists → **61/175**. NOTE: in-place list
+silent no-op). Raw-map mutation now persists → **61/175**. THEN list integer-index reads (list[i]) were returning null because BallDyn::operator[](BallDyn) stringified an int key — fixed to positional-index for list/string receivers → **72/175** (unlocked 27_list_ops, insertion_sort + list-algorithm family). NOTE: in-place list
 mutation (sorts: 80/88/131–134, …) is still broken because the engine stores
 program lists as a `BallList` *wrapper* (`{__type__:"BallList", items:[…]}`,
 `_evalListLiteral` returns `BallList(...)`), and the C++ engine copies `.items`

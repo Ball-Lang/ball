@@ -116,6 +116,25 @@ shared encoder/engine fixes), each verified independently:
   fixes: encoder `replaceAll`→`string_replace_all` (`633ae72`), engine
   `operator+` dispatch (`334fd54`), malformed-fixture repair (`54b2a30`).
 
+**NEXT C++ LEVER — BLOCKED ON DEBUGGER (self-binding gate, ~+5: 164/165/166/177/179):**
+The OOP virtual-dispatch crash was two bugs. The `bad_any_cast` is fixed
+(`bb5b5f1` — unguarded `any_cast<bool>` on filter predicates; safe `_ball_pred_true`
++ recursive `_BallDynUnwrapper::unwrap`). The SECOND bug remains: in a method
+dispatched as `obj.method(self: d)`, the method scope never makes `self` visible
+to the body's `self` lookup. Instrumented tracing confirmed the input map DOES
+carry `self`, the `_evalCall` gate (~4379) and `_callFunction` gate (~3752) both
+pass, but after `bind(scope, "self"s, self)` (engine_rt.cpp ~3754) `lookup(self)`
+returns empty while the inherited field-binds (which pass a `BallDyn` key) take
+effect. Prime suspect: MSVC overload resolution between
+`bind(BallDyn&, const std::any&, …)` and `bind(BallDyn&, const BallDyn&, …)` when
+the key is a `std::string` literal — adding explicit string/`const char*`
+overloads changed behavior but didn't fully fix it, so there's a second layer
+(either `self = inputMap["self"]` reads empty, or a scope-mutation/eval-order
+issue). Pinning it down needs a stepping debugger (cdb/VS) to watch the scope
+object identity + the bind→set at 3754 vs the body eval — not available in the
+agent environment. TS (227/227) and Dart (183/183) pass these, so the engine
+logic is correct; this is purely a C++ self-host compilation/runtime issue.
+
 **Earlier the same day (compiler correctness wave — 72 → 109/175):** Five systemic
 compiler bugs fixed, each verified with a full rebuild + isolated-process tally
 and zero regressions on `test_conformance` (still 194 pass):

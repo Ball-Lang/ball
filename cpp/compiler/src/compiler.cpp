@@ -514,8 +514,10 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
             return "\"" + field + "\"s";
         }
     }
-    // Common virtual properties → C++ equivalents
-    if (field == "length") return "static_cast<int64_t>(" + obj + ".size())";
+    // Common virtual properties → C++ equivalents.
+    // `.length` is UTF-16 code-unit length for strings (Dart parity), element
+    // count for lists/maps; ball_length dispatches on the runtime type.
+    if (field == "length") return "ball_length(" + obj + ")";
     if (field == "isEmpty") return obj + ".empty()";
     if (field == "isNotEmpty") return "!" + obj + ".empty()";
     if (field == "first") return obj + ".front()";
@@ -1366,7 +1368,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                "catch (const std::exception&) { throw BallException(\"FormatException\"s, "
                "\"FormatException: \"s + s); } }(" + v + ")";
     }
-    if (fn == "string_length") return "static_cast<int64_t>(" + get_message_field(call, "value") + ".size())";
+    if (fn == "string_length") return "ball_length(BallDyn(" + get_message_field(call, "value") + "))";
     if (fn == "string_is_empty") return get_message_field(call, "value") + ".empty()";
     if (fn == "string_contains") return "(" + get_message_field(call, "left") + ".find(" +
                                           get_message_field(call, "right") + ") != std::string::npos)";
@@ -1374,8 +1376,9 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         auto v = get_message_field(call, "value");
         auto s = get_message_field(call, "start");
         auto e = get_optional_field(call, "end");
-        if (e.empty()) return v + ".substr(" + s + ")";
-        return v + ".substr(" + s + ", " + e + " - " + s + ")";
+        // UTF-16 code-unit indexing (Dart parity). ASCII strings hit a fast path.
+        if (e.empty()) return "ball_string_substring(BallDyn(" + v + "), " + s + ")";
+        return "ball_string_substring(BallDyn(" + v + "), " + s + ", " + e + ")";
     }
     if (fn == "string_to_upper") {
         auto v = get_message_field(call, "value");
@@ -2166,7 +2169,9 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
         return "[&](auto& _v){ auto _e = _v.back(); _v.pop_back(); return _e; }(" + self + ")";
     }
     if (fn == "length") {
-        return "static_cast<int64_t>(" + self + ".size())";
+        // UTF-16 code-unit length for strings (Dart parity); element count for
+        // lists/maps. ball_length dispatches on the runtime type.
+        return "ball_length(" + self + ")";
     }
     if (fn == "isEmpty") {
         return self + ".empty()";
@@ -2234,10 +2239,11 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
 
     // ── String methods ──
     if (fn == "substring") {
+        // UTF-16 code-unit indexing (Dart parity). ASCII strings hit a fast path.
         if (arg1.empty()) {
-            return self + ".substr(" + arg0 + ")";
+            return "ball_string_substring(BallDyn(" + self + "), " + arg0 + ")";
         }
-        return self + ".substr(" + arg0 + ", " + arg1 + " - " + arg0 + ")";
+        return "ball_string_substring(BallDyn(" + self + "), " + arg0 + ", " + arg1 + ")";
     }
     if (fn == "startsWith") {
         return "(" + self + ".rfind(" + arg0 + ", 0) == 0)";
@@ -2293,7 +2299,8 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
                "}(" + self + ", " + arg0 + ", " + (arg1.empty() ? "\" \"s" : arg1) + ")";
     }
     if (fn == "codeUnitAt") {
-        return "static_cast<int64_t>(static_cast<unsigned char>(" + self + "[" + arg0 + "]))";
+        // UTF-16 code unit at index (Dart parity); ASCII fast path inside helper.
+        return "ball_code_unit_at(BallDyn(" + self + "), " + arg0 + ")";
     }
 
     // ── Number methods ──

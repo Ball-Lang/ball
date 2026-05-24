@@ -1119,6 +1119,31 @@ inline std::string ball_substr(const std::string& s, int64_t pos, const BallDyn&
     return s.substr(pos);
 }
 
+// ── Dart-semantic length / substring / codeUnitAt on a BallDyn ──
+// For STRINGS these use UTF-16 code-unit indexing (Dart parity, ASCII fast path);
+// for lists/maps `ball_length` falls back to element count. The string helpers
+// take a BallDyn so the compiler can emit them uniformly for `s.length` /
+// `s.substring(...)` without first knowing the static type.
+inline int64_t ball_length(const BallDyn& v) {
+    if (v._val.type() == typeid(std::string))
+        return ball_u16_length(std::any_cast<const std::string&>(v._val));
+    return v.size();  // list / map / set / scope element count
+}
+// Overloads for statically-typed receivers so `.length` keeps compiling when the
+// compiler knows the concrete type (raw std::string, or a typed container).
+inline int64_t ball_length(const std::string& s) { return ball_u16_length(s); }
+template<typename T>
+inline int64_t ball_length(const std::vector<T>& v) { return static_cast<int64_t>(v.size()); }
+template<typename K, typename V>
+inline int64_t ball_length(const std::map<K, V>& m) { return static_cast<int64_t>(m.size()); }
+inline std::string ball_string_substring(const BallDyn& v, int64_t start, const BallDyn& end = BallDyn()) {
+    std::string s = static_cast<std::string>(v);
+    return ball_u16_substring(s, start, end.has_value() ? static_cast<int64_t>(end) : -1);
+}
+inline int64_t ball_code_unit_at(const BallDyn& v, int64_t i) {
+    return ball_u16_code_unit_at(static_cast<std::string>(v), i);
+}
+
 // String concatenation
 inline std::string operator+(const std::string& s, const BallDyn& d) {
     return s + static_cast<std::string>(d);

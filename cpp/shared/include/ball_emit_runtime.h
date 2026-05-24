@@ -70,6 +70,88 @@ inline std::string ball_to_string(double d) {
     return s;
 }
 
+// ── UTF-16 string semantics (Dart parity) ──
+// Dart strings are sequences of UTF-16 code units: `.length`, `s[i]`, and
+// `substring(a, b)` index by code unit, NOT by byte. Compiled programs store
+// strings as UTF-8 std::string, so length/substring must convert. ASCII strings
+// (1 byte == 1 code unit) hit a fast path: when every byte is < 0x80 these are
+// no-ops. A BMP char (e.g. CJK 你) is 3 UTF-8 bytes == 1 UTF-16 unit; an astral
+// char (e.g. emoji 😀) is 4 UTF-8 bytes == 2 UTF-16 units (a surrogate pair).
+
+// Number of UTF-16 code units in a UTF-8 string.
+inline int64_t ball_u16_length(const std::string& s) {
+    int64_t units = 0;
+    for (size_t i = 0; i < s.size();) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c < 0x80) { i += 1; units += 1; }
+        else if ((c >> 5) == 0x6) { i += 2; units += 1; }
+        else if ((c >> 4) == 0xE) { i += 3; units += 1; }
+        else if ((c >> 3) == 0x1E) { i += 4; units += 2; }  // astral -> surrogate pair
+        else { i += 1; units += 1; }  // invalid byte: treat as 1
+    }
+    return units;
+}
+
+// Map a UTF-16 code-unit index to a byte offset in the UTF-8 string. An index
+// that lands in the middle of a surrogate pair (astral char) clamps to the start
+// of that char's bytes. An index past the end returns s.size().
+inline size_t ball_u16_to_byte(const std::string& s, int64_t u16idx) {
+    if (u16idx <= 0) return 0;
+    int64_t units = 0;
+    for (size_t i = 0; i < s.size();) {
+        if (units >= u16idx) return i;
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c < 0x80) { i += 1; units += 1; }
+        else if ((c >> 5) == 0x6) { i += 2; units += 1; }
+        else if ((c >> 4) == 0xE) { i += 3; units += 1; }
+        else if ((c >> 3) == 0x1E) { i += 4; units += 2; }
+        else { i += 1; units += 1; }
+    }
+    return s.size();
+}
+
+// Dart `s.substring(start[, end])` indexed by UTF-16 code units, returning UTF-8.
+// end < 0 means "to end of string".
+inline std::string ball_u16_substring(const std::string& s, int64_t start, int64_t end) {
+    size_t bstart = ball_u16_to_byte(s, start);
+    size_t bend = (end < 0) ? s.size() : ball_u16_to_byte(s, end);
+    if (bend < bstart) bend = bstart;
+    return s.substr(bstart, bend - bstart);
+}
+
+// Dart `s.codeUnitAt(i)` — the UTF-16 code unit at index i. For an astral char
+// this returns the high surrogate at its first index and the low surrogate at
+// the next; we compute the full code point then derive the surrogate.
+inline int64_t ball_u16_code_unit_at(const std::string& s, int64_t u16idx) {
+    int64_t units = 0;
+    for (size_t i = 0; i < s.size();) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        int64_t cp; int adv; int nunits;
+        if (c < 0x80) { cp = c; adv = 1; nunits = 1; }
+        else if ((c >> 5) == 0x6 && i + 1 < s.size()) {
+            cp = ((c & 0x1F) << 6) | (static_cast<unsigned char>(s[i+1]) & 0x3F); adv = 2; nunits = 1;
+        } else if ((c >> 4) == 0xE && i + 2 < s.size()) {
+            cp = ((c & 0x0F) << 12) | ((static_cast<unsigned char>(s[i+1]) & 0x3F) << 6) |
+                 (static_cast<unsigned char>(s[i+2]) & 0x3F); adv = 3; nunits = 1;
+        } else if ((c >> 3) == 0x1E && i + 3 < s.size()) {
+            cp = ((c & 0x07) << 18) | ((static_cast<unsigned char>(s[i+1]) & 0x3F) << 12) |
+                 ((static_cast<unsigned char>(s[i+2]) & 0x3F) << 6) |
+                 (static_cast<unsigned char>(s[i+3]) & 0x3F); adv = 4; nunits = 2;
+        } else { cp = c; adv = 1; nunits = 1; }
+        if (nunits == 1) {
+            if (units == u16idx) return cp;
+        } else {
+            // Astral: high surrogate at `units`, low surrogate at `units+1`.
+            int64_t v = cp - 0x10000;
+            if (units == u16idx) return 0xD800 + (v >> 10);
+            if (units + 1 == u16idx) return 0xDC00 + (v & 0x3FF);
+        }
+        units += nunits;
+        i += adv;
+    }
+    return 0;
+}
+
 // Forward declare for vector recursion before the template catch-all.
 template<typename T> inline std::string ball_to_string(const std::vector<T>& v);
 

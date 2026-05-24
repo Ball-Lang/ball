@@ -4,7 +4,7 @@ Tracks the round-trip story for the reference Dart engine across all
 target languages: encode the live engine → Ball IR → compile back to
 each supported language → run conformance.
 
-Last refreshed: 2026-05-24 (parallel multi-track wave — C++ self-host 120, TS 224/227, Dart parity 181, +10 fixtures).
+Last refreshed: 2026-05-24 (parallel multi-track wave — C++ self-host 135, TS 226/227, Dart parity 183, +10 fixtures).
 
 ## Pipeline
 
@@ -93,19 +93,24 @@ field mutation, and the collection-algorithm family at once.
 **2026-05-24 (parallel multi-track wave — final state):** Four tracks run
 concurrently (file-disjoint: cpp/, ts/, dart/compiler, tests/conformance +
 shared encoder/engine fixes), each verified independently:
-- **C++ self-host: 109 → 120** (`test_conformance` native engine steady at 201/221).
+- **C++ self-host: 109 → 135** (`test_conformance` native engine steady at 201/221).
   Adds: reference-semantic program lists (`40ccd74` — shared_ptr-backed BallDyn
   lists; maps stay by-value to avoid self-referential `self` cycles; unblocked
-  sorts 132/133/134 + matrix 83/128/138) and `_stdFunctionToOperator` emitted as
-  a BallMap (`e3aa4ed` — fixed operator-overload dispatch; landed 113).
-- **TS self-host: 198 → 224/227** — zero-wrapper regeneration unblocked
+  sorts 132/133/134 + matrix 83/128/138); `_stdFunctionToOperator` emitted as a
+  BallMap (`e3aa4ed` — operator-overload dispatch, landed 113); then a tail wave
+  (`1691f44` lambda statement-form bodies + list_pop + string-repeat; `9175102`
+  rethrow payload + real JSON codec + Map.keys; `3744c1e` double Infinity/NaN
+  formatting) → +15.
+- **TS self-host: 198 → 226/227** — zero-wrapper regeneration unblocked
   (`BallMap`/`BallList`/`BallObject` preamble base classes), generators deferred
-  to native, virtual-dispatch + map-merge fixes. 3 remaining are deep gaps
-  (int64/BigInt 192, RangeError-on-OOB 199, switch-pattern 169).
-- **Dart parity: 156 → 181/189** — `_generateLocalFunction` honours lambda
-  `has_return` (`176af37`, unblocked 15 OOP fixtures). Round-trip 113/204 remain
-  (Ball→Dart compiler needs the operator-dispatch/replaceAll handling the live
-  engine got).
+  to native, virtual-dispatch + map-merge fixes; then `a83ede6` RangeError-shaped
+  bounds-checked index (199) and `ea5b4f3` int64/BigInt precision (192). Only
+  `169_pattern_destructure` remains — a malformed fixture (non-canonical switch
+  IR violating ball.proto), not engine-fixable.
+- **Dart parity: 156 → 183/183** (all non-skipped pass; 6 host-knob skips).
+  `_generateLocalFunction` honours lambda `has_return` (`176af37`, unblocked 15
+  OOP fixtures); 113/204 fixed by regenerating the stale `engine_roundtrip.dart`
+  artifact (`591ef02` — the Ball→Dart compiler source was already correct).
 - **+10 Dart-validated conformance fixtures** (204–213) and shared-pipeline
   fixes: encoder `replaceAll`→`string_replace_all` (`633ae72`), engine
   `operator+` dispatch (`334fd54`), malformed-fixture repair (`54b2a30`).

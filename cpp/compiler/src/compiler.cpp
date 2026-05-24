@@ -692,6 +692,26 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
         }
     }
 
+    // _Scope is the engine's lexical scope. `_Scope(parent)` must create a
+    // NEW child scope with its own bindings and a __parent__ link — the runtime
+    // `child()` does exactly that (reference semantics). Without this it was
+    // emitted as `BallDyn(BallDyn(parent))` (just wrapping the parent), so
+    // bindings written at function entry weren't visible to the body's reads.
+    {
+        auto bare_scope = sanitize_name(msg.type_name());
+        auto sc = bare_scope.find(':');
+        if (sc != std::string::npos) bare_scope = bare_scope.substr(sc + 1);
+        if (bare_scope == "_Scope") {
+            // Find the first non-metadata field — the parent scope, if any.
+            for (const auto& f : msg.fields()) {
+                if (f.name() == "__type_args__" || f.name() == "__const__") continue;
+                return "child(BallDyn(" + compile_expr(f.value()) + "))";
+            }
+            // _Scope() — a fresh root scope.
+            return "child(BallDyn())";
+        }
+    }
+
     // If all fields are positional (argN), emit a constructor call
     // instead of designated initializers (which require matching field names).
     bool all_positional = !msg.fields().empty();

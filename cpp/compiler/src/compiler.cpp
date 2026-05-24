@@ -1391,10 +1391,57 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         return "[&]() -> BallDyn {if (" + cond + ") {return " + wrap(then, then_expr) + ";} return BallDyn();}()";
     }
     if (fn == "for") {
-        return "([&](){\n" + indent_str() + "    // for loop\n" + indent_str() + "}(), BallDyn())";
+        // Control flow in an EXPRESSION context (e.g. a `for` loop inside a
+        // lambda body that is compiled as an expression). Previously stubbed
+        // out, which silently dropped the loop — that broke multi-param lambda
+        // parameter binding (the arg-N→param-name loop in _evalLambda never
+        // ran), so forEach/comparator/group_by callbacks saw null params.
+        std::string init;
+        auto* init_e = get_message_field_expr(call, "init");
+        if (init_e && init_e->expr_case() == ball::v1::Expression::kBlock &&
+            init_e->block().statements_size() == 1 &&
+            init_e->block().statements(0).stmt_case() == ball::v1::Statement::kLet) {
+            const auto& let_stmt = init_e->block().statements(0).let();
+            init = "auto " + ball_local_var_name(sanitize_name(let_stmt.name())) +
+                   " = " + compile_expr(let_stmt.value());
+        } else if (init_e &&
+                   init_e->expr_case() == ball::v1::Expression::kLiteral &&
+                   init_e->literal().value_case() == ball::v1::Literal::kStringValue) {
+            std::string raw = init_e->literal().string_value();
+            if (raw.rfind("var ", 0) == 0) init = "auto " + raw.substr(4);
+            else if (raw.rfind("final ", 0) == 0) init = "auto " + raw.substr(6);
+            else init = raw;
+        } else {
+            init = get_message_field(call, "init");
+        }
+        auto cond = get_message_field(call, "condition");
+        auto update = get_message_field(call, "update");
+        auto* body_e = get_message_field_expr(call, "body");
+        std::string body;
+        if (body_e && body_e->expr_case() == ball::v1::Expression::kBlock) {
+            body = compile_block(body_e->block());
+        } else if (body_e) {
+            body = compile_expr(*body_e);
+        }
+        std::string r = "([&]() -> BallDyn { for (" + init + "; " + cond +
+                        "; " + update + ") { ";
+        if (!body.empty()) r += "(void)(" + body + "); ";
+        r += "} return BallDyn(); }())";
+        return r;
     }
     if (fn == "while") {
-        return "([&](){\n" + indent_str() + "    // while loop\n" + indent_str() + "}(), BallDyn())";
+        auto cond = get_message_field(call, "condition");
+        auto* body_e = get_message_field_expr(call, "body");
+        std::string body;
+        if (body_e && body_e->expr_case() == ball::v1::Expression::kBlock) {
+            body = compile_block(body_e->block());
+        } else if (body_e) {
+            body = compile_expr(*body_e);
+        }
+        std::string r = "([&]() -> BallDyn { while (" + cond + ") { ";
+        if (!body.empty()) r += "(void)(" + body + "); ";
+        r += "} return BallDyn(); }())";
+        return r;
     }
     if (fn == "return") {
         auto val = get_message_field(call, "value");

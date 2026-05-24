@@ -2791,13 +2791,28 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
             }
             if (std_like &&
                 call.function() == "try") {
-                emit_line("try {");
-                indent_++;
                 auto* body_expr = get_message_field_expr(call, "body");
-                if (body_expr) {
+                auto* catches_expr = get_message_field_expr(call, "catches");
+                auto* finally_expr = get_message_field_expr(call, "finally");
+
+                // A try is "catching" if it has a non-empty list of catch
+                // clauses, or a single non-list catch expression.
+                bool has_catches =
+                    catches_expr &&
+                    ((catches_expr->expr_case() == ball::v1::Expression::kLiteral &&
+                      catches_expr->literal().value_case() == ball::v1::Literal::kListValue &&
+                      catches_expr->literal().list_value().elements_size() > 0) ||
+                     (catches_expr->expr_case() != ball::v1::Expression::kLiteral));
+                bool has_finally = finally_expr != nullptr;
+
+                auto emit_try_body = [&]() {
+                    if (!body_expr) return;
                     if (body_expr->expr_case() == ball::v1::Expression::kBlock) {
                         for (const auto& s : body_expr->block().statements()) {
                             compile_statement(s);
+                        }
+                        if (body_expr->block().has_result()) {
+                            emit_line(compile_expr(body_expr->block().result()) + ";");
                         }
                     } else {
                         // Wrap bare-expression body in a synthetic
@@ -2807,9 +2822,50 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                         *inner.mutable_expression() = *body_expr;
                         compile_statement(inner);
                     }
+                };
+
+                // `finally` → RAII guard so cleanup runs on EVERY exit path
+                // (normal, `return`, or exception). C++ has no `finally`;
+                // emitting the cleanup after the try/catch would skip it on a
+                // `return` inside the body (this silently broke _exitExpression
+                // in the self-hosted engine → expression-depth leak). The guard
+                // is declared before the try so it destructs (runs) AFTER the
+                // catch handlers, matching Dart's finally-after-catch order.
+                if (has_finally) {
+                    emit_line("{");
+                    indent_++;
+                    emit_line("auto __ball_finally = make_ball_finally([&]() {");
+                    indent_++;
+                    if (finally_expr->expr_case() == ball::v1::Expression::kBlock) {
+                        for (const auto& s : finally_expr->block().statements()) {
+                            compile_statement(s);
+                        }
+                        if (finally_expr->block().has_result()) {
+                            emit_line(compile_expr(finally_expr->block().result()) + ";");
+                        }
+                    } else {
+                        emit_line(compile_expr(*finally_expr) + ";");
+                    }
+                    indent_--;
+                    emit_line("});");
                 }
+
+                if (!has_catches) {
+                    // No catch clauses: emit the body directly. The finally
+                    // guard (if any) handles cleanup; exceptions propagate
+                    // instead of being silently swallowed.
+                    emit_try_body();
+                    if (has_finally) {
+                        indent_--;
+                        emit_line("}");
+                    }
+                    return;
+                }
+
+                emit_line("try {");
+                indent_++;
+                emit_try_body();
                 indent_--;
-                auto* catches_expr = get_message_field_expr(call, "catches");
                 if (catches_expr &&
                     catches_expr->expr_case() == ball::v1::Expression::kLiteral &&
                     catches_expr->literal().value_case() == ball::v1::Literal::kListValue) {
@@ -2953,19 +3009,10 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                     indent_--;
                 }
                 emit_line("}");
-                auto* finally_expr = get_message_field_expr(call, "finally");
-                if (finally_expr) {
-                    // C++ has no finally — emit cleanup code unconditionally after try-catch
-                    if (finally_expr->expr_case() == ball::v1::Expression::kBlock) {
-                        for (const auto& s : finally_expr->block().statements()) {
-                            compile_statement(s);
-                        }
-                        if (finally_expr->block().has_result()) {
-                            emit_line(compile_expr(finally_expr->block().result()) + ";");
-                        }
-                    } else {
-                        emit_line(compile_expr(*finally_expr) + ";");
-                    }
+                // Close the finally guard scope (cleanup runs on destruction).
+                if (has_finally) {
+                    indent_--;
+                    emit_line("}");
                 }
                 return;
             }

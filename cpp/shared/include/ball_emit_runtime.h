@@ -183,6 +183,26 @@ inline bool ball_is_function(const std::any& v) {
     return u.has_value() && u.type() == typeid(BallFunc_RT);
 }
 
+// RAII guard implementing Dart `finally` semantics. The cleanup callable runs
+// when the guard leaves scope — on EVERY exit path: normal fall-through, a
+// `return` inside the guarded block, or exception unwinding. C++ has no
+// `finally`, so the compiler wraps try/finally bodies in one of these. Using a
+// guard (rather than emitting the cleanup after the try/catch) is essential:
+// a `return` inside the body would otherwise skip post-block cleanup entirely.
+template <class F>
+struct BallFinallyGuard {
+    F fn;
+    bool active;
+    explicit BallFinallyGuard(F f) : fn(std::move(f)), active(true) {}
+    ~BallFinallyGuard() { if (active) fn(); }
+    BallFinallyGuard(BallFinallyGuard&& o) noexcept
+        : fn(std::move(o.fn)), active(o.active) { o.active = false; }
+    BallFinallyGuard(const BallFinallyGuard&) = delete;
+    BallFinallyGuard& operator=(const BallFinallyGuard&) = delete;
+};
+template <class F>
+BallFinallyGuard<F> make_ball_finally(F f) { return BallFinallyGuard<F>(std::move(f)); }
+
 // Check if a value is a FlowSignal (a map with a "kind" field).
 inline bool ball_is_flow_signal(const std::any& v) {
     auto& u = _BallDynUnwrapper::unwrap(v);

@@ -1,0 +1,98 @@
+{
+  "name": "204_string_operations",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "concat", "isBase": true },
+        { "name": "to_string", "isBase": true },
+        { "name": "string_to_upper", "isBase": true },
+        { "name": "string_to_lower", "isBase": true },
+        { "name": "string_substring", "isBase": true },
+        { "name": "string_repeat", "isBase": true },
+        { "name": "string_index_of", "isBase": true },
+        { "name": "string_pad_left", "isBase": true },
+        { "name": "string_replace_all", "isBase": true },
+        { "name": "string_trim", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "body": {
+            "block": {
+              "statements": [
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                  { "name": "message", "value": { "call": { "module": "std", "function": "string_to_upper", "input": { "messageCreation": { "fields": [
+                    { "name": "value", "value": { "literal": { "stringValue": "hello world" } } }
+                  ] } } } } }
+                ] } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                  { "name": "message", "value": { "call": { "module": "std", "function": "string_to_lower", "input": { "messageCreation": { "fields": [
+                    { "name": "value", "value": { "literal": { "stringValue": "HELLO World" } } }
+                  ] } } } } }
+                ] } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                  { "name": "message", "value": { "call": { "module": "std", "function": "string_substring", "input": { "messageCreation": { "fields": [
+                    { "name": "value", "value": { "literal": { "stringValue": "abcdefgh" } } },
+                    { "name": "start", "value": { "literal": { "intValue": "2" } } },
+                    { "name": "end", "value": { "literal": { "intValue": "5" } } }
+                  ] } } } } }
+                ] } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                  { "name": "message", "value": { "call": { "module": "std", "function": "string_repeat", "input": { "messageCreation": { "fields": [
+                    { "name": "value", "value": { "literal": { "stringValue": "ab" } } },
+                    { "name": "count", "value": { "literal": { "intValue": "3" } } }
+                  ] } } } } }
+                ] } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                  { "name": "message", "value": { "call": { "module": "std", "function": "to_string", "input": { "messageCreation": { "fields": [
+                    { "name": "value", "value": { "call": { "module": "std", "function": "string_index_of", "input": { "messageCreation": { "fields": [
+                      { "name": "left", "value": { "literal": { "stringValue": "find the needle here" } } },
+                      { "name": "right", "value": { "literal": { "stringValue": "needle" } } }
+                    ] } } } } }
+                  ] } } } } }
+                ] } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                  { "name": "message", "value": { "call": { "module": "std", "function": "string_pad_left", "input": { "messageCreation": { "fields": [
+                    { "name": "value", "value": { "literal": { "stringValue": "42" } } },
+                    { "name": "width", "value": { "literal": { "intValue": "5" } } },
+                    { "name": "padding", "value": { "literal": { "stringValue": "0" } } }
+                  ] } } } } }
+                ] } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                  { "name": "message", "value": { "call": { "module": "std", "function": "string_replace_all", "input": { "messageCreation": { "fields": [
+                    { "name": "value", "value": { "literal": { "stringValue": "a-b-c-d" } } },
+                    { "name": "from", "value": { "literal": { "stringValue": "-" } } },
+                    { "name": "to", "value": { "literal": { "stringValue": "_" } } }
+                  ] } } } } }
+                ] } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                  { "name": "message", "value": { "call": { "module": "std", "function": "concat", "input": { "messageCreation": { "fields": [
+                    { "name": "left", "value": { "literal": { "stringValue": "[" } } },
+                    { "name": "right", "value": { "call": { "module": "std", "function": "concat", "input": { "messageCreation": { "fields": [
+                      { "name": "left", "value": { "call": { "module": "std", "function": "string_trim", "input": { "messageCreation": { "fields": [
+                        { "name": "value", "value": { "literal": { "stringValue": "   padded   " } } }
+                      ] } } } } },
+                      { "name": "right", "value": { "literal": { "stringValue": "]" } } }
+                    ] } } } } }
+                  ] } } } } }
+                ] } } } } }
+              ]
+            }
+          }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

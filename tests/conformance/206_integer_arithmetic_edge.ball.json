@@ -1,0 +1,92 @@
+{
+  "name": "206_integer_arithmetic_edge",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "to_string", "isBase": true },
+        { "name": "divide", "isBase": true },
+        { "name": "modulo", "isBase": true },
+        { "name": "negate", "isBase": true },
+        { "name": "bitwise_and", "isBase": true },
+        { "name": "bitwise_or", "isBase": true },
+        { "name": "bitwise_xor", "isBase": true },
+        { "name": "left_shift", "isBase": true },
+        { "name": "right_shift", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "show",
+          "inputType": "int",
+          "body": {
+            "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+              { "name": "message", "value": { "call": { "module": "std", "function": "to_string", "input": { "messageCreation": { "fields": [
+                { "name": "value", "value": { "reference": { "name": "input" } } }
+              ] } } } } }
+            ] } } }
+          },
+          "metadata": { "kind": "function", "params": [ { "name": "input", "type": "int" } ] }
+        },
+        {
+          "name": "main",
+          "body": {
+            "block": {
+              "statements": [
+                { "expression": { "call": { "function": "show", "input": { "call": { "module": "std", "function": "divide", "input": { "messageCreation": { "fields": [
+                  { "name": "left", "value": { "literal": { "intValue": "17" } } },
+                  { "name": "right", "value": { "literal": { "intValue": "5" } } }
+                ] } } } } } } },
+                { "expression": { "call": { "function": "show", "input": { "call": { "module": "std", "function": "divide", "input": { "messageCreation": { "fields": [
+                  { "name": "left", "value": { "literal": { "intValue": "-17" } } },
+                  { "name": "right", "value": { "literal": { "intValue": "5" } } }
+                ] } } } } } } },
+                { "expression": { "call": { "function": "show", "input": { "call": { "module": "std", "function": "modulo", "input": { "messageCreation": { "fields": [
+                  { "name": "left", "value": { "literal": { "intValue": "-17" } } },
+                  { "name": "right", "value": { "literal": { "intValue": "5" } } }
+                ] } } } } } } },
+                { "expression": { "call": { "function": "show", "input": { "call": { "module": "std", "function": "modulo", "input": { "messageCreation": { "fields": [
+                  { "name": "left", "value": { "literal": { "intValue": "17" } } },
+                  { "name": "right", "value": { "literal": { "intValue": "-5" } } }
+                ] } } } } } } },
+                { "expression": { "call": { "function": "show", "input": { "call": { "module": "std", "function": "bitwise_and", "input": { "messageCreation": { "fields": [
+                  { "name": "left", "value": { "literal": { "intValue": "12" } } },
+                  { "name": "right", "value": { "literal": { "intValue": "10" } } }
+                ] } } } } } } },
+                { "expression": { "call": { "function": "show", "input": { "call": { "module": "std", "function": "bitwise_or", "input": { "messageCreation": { "fields": [
+                  { "name": "left", "value": { "literal": { "intValue": "12" } } },
+                  { "name": "right", "value": { "literal": { "intValue": "10" } } }
+                ] } } } } } } },
+                { "expression": { "call": { "function": "show", "input": { "call": { "module": "std", "function": "bitwise_xor", "input": { "messageCreation": { "fields": [
+                  { "name": "left", "value": { "literal": { "intValue": "12" } } },
+                  { "name": "right", "value": { "literal": { "intValue": "10" } } }
+                ] } } } } } } },
+                { "expression": { "call": { "function": "show", "input": { "call": { "module": "std", "function": "left_shift", "input": { "messageCreation": { "fields": [
+                  { "name": "left", "value": { "literal": { "intValue": "1" } } },
+                  { "name": "right", "value": { "literal": { "intValue": "10" } } }
+                ] } } } } } } },
+                { "expression": { "call": { "function": "show", "input": { "call": { "module": "std", "function": "right_shift", "input": { "messageCreation": { "fields": [
+                  { "name": "left", "value": { "literal": { "intValue": "1024" } } },
+                  { "name": "right", "value": { "literal": { "intValue": "3" } } }
+                ] } } } } } } },
+                { "expression": { "call": { "function": "show", "input": { "call": { "module": "std", "function": "negate", "input": { "messageCreation": { "fields": [
+                  { "name": "value", "value": { "literal": { "intValue": "42" } } }
+                ] } } } } } } }
+              ]
+            }
+          }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

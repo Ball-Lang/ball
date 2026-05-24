@@ -1,0 +1,113 @@
+{
+  "name": "205_map_ordering",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "concat", "isBase": true },
+        { "name": "to_string", "isBase": true },
+        { "name": "map_create", "isBase": true },
+        { "name": "string_join", "isBase": true }
+      ]
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        { "name": "map_keys", "isBase": true },
+        { "name": "map_values", "isBase": true },
+        { "name": "map_get", "isBase": true },
+        { "name": "map_set", "isBase": true },
+        { "name": "map_contains_key", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "m",
+                    "value": {
+                      "call": { "module": "std", "function": "map_create", "input": { "messageCreation": { "fields": [
+                        { "name": "entry", "value": { "messageCreation": { "fields": [
+                          { "name": "key", "value": { "literal": { "stringValue": "zeta" } } },
+                          { "name": "value", "value": { "literal": { "intValue": "1" } } }
+                        ] } } },
+                        { "name": "entry", "value": { "messageCreation": { "fields": [
+                          { "name": "key", "value": { "literal": { "stringValue": "alpha" } } },
+                          { "name": "value", "value": { "literal": { "intValue": "2" } } }
+                        ] } } },
+                        { "name": "entry", "value": { "messageCreation": { "fields": [
+                          { "name": "key", "value": { "literal": { "stringValue": "mid" } } },
+                          { "name": "value", "value": { "literal": { "intValue": "3" } } }
+                        ] } } }
+                      ] } } }
+                    },
+                    "metadata": { "keyword": "var" }
+                  }
+                },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                  { "name": "message", "value": { "call": { "module": "std", "function": "string_join", "input": { "messageCreation": { "fields": [
+                    { "name": "list", "value": { "call": { "module": "std_collections", "function": "map_keys", "input": { "messageCreation": { "fields": [
+                      { "name": "map", "value": { "reference": { "name": "m" } } }
+                    ] } } } } },
+                    { "name": "separator", "value": { "literal": { "stringValue": "," } } }
+                  ] } } } } }
+                ] } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                  { "name": "message", "value": { "call": { "module": "std", "function": "string_join", "input": { "messageCreation": { "fields": [
+                    { "name": "list", "value": { "call": { "module": "std_collections", "function": "map_values", "input": { "messageCreation": { "fields": [
+                      { "name": "map", "value": { "reference": { "name": "m" } } }
+                    ] } } } } },
+                    { "name": "separator", "value": { "literal": { "stringValue": "," } } }
+                  ] } } } } }
+                ] } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                  { "name": "message", "value": { "call": { "module": "std", "function": "to_string", "input": { "messageCreation": { "fields": [
+                    { "name": "value", "value": { "call": { "module": "std_collections", "function": "map_get", "input": { "messageCreation": { "fields": [
+                      { "name": "map", "value": { "reference": { "name": "m" } } },
+                      { "name": "key", "value": { "literal": { "stringValue": "alpha" } } }
+                    ] } } } } }
+                  ] } } } } }
+                ] } } } } },
+                { "expression": { "call": { "module": "std_collections", "function": "map_set", "input": { "messageCreation": { "fields": [
+                  { "name": "map", "value": { "reference": { "name": "m" } } },
+                  { "name": "key", "value": { "literal": { "stringValue": "new" } } },
+                  { "name": "value", "value": { "literal": { "intValue": "9" } } }
+                ] } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                  { "name": "message", "value": { "call": { "module": "std", "function": "string_join", "input": { "messageCreation": { "fields": [
+                    { "name": "list", "value": { "call": { "module": "std_collections", "function": "map_keys", "input": { "messageCreation": { "fields": [
+                      { "name": "map", "value": { "reference": { "name": "m" } } }
+                    ] } } } } },
+                    { "name": "separator", "value": { "literal": { "stringValue": "," } } }
+                  ] } } } } }
+                ] } } } } },
+                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                  { "name": "message", "value": { "call": { "module": "std", "function": "to_string", "input": { "messageCreation": { "fields": [
+                    { "name": "value", "value": { "call": { "module": "std_collections", "function": "map_contains_key", "input": { "messageCreation": { "fields": [
+                      { "name": "map", "value": { "reference": { "name": "m" } } },
+                      { "name": "key", "value": { "literal": { "stringValue": "zeta" } } }
+                    ] } } } } }
+                  ] } } } } }
+                ] } } } } }
+              ]
+            }
+          }
+        }
+      ],
+      "moduleImports": [ { "name": "std" }, { "name": "std_collections" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

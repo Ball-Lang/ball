@@ -51,22 +51,33 @@ ctest -R encoder_tests
 NOTE (2026-05-24): the previous list here was STALE — it claimed `string_split`/
 `string_replace`/`switch`/`for_in` were broken, but all are implemented
 (`compiler.cpp:1347`, `1362`, `2679`, `2579`). Below is the audited, verified set
-of real stubs/silent-correctness gaps. C++ self-host conformance is ~75/175.
+of real stubs/silent-correctness gaps. C++ self-host conformance is 105/175
+(2026-05-24, after the FlowSignal-key / try-finally / exception-payload
+compiler fixes — see docs/SELF_HOST_STATUS.md).
+
+**FIXED 2026-05-24 (kept here as history):**
+- FlowSignal early-return loss — was an `arg0` vs `kind` ctor-key mismatch, not
+  an IIFE-propagation gap. Fixed (positional ctor args resolve to param names).
+- try/finally no longer skips cleanup on the return path and no longer swallows
+  exceptions (RAII `make_ball_finally` guard).
+- thrown exception payloads are preserved through throw/catch
+  (`_ball_make_exception` / `_ball_caught_to_dyn`).
 
 **Silent-correctness bugs (wrong result, no error):**
-- `if` without `else` and any non-last statement in an EXPRESSION-context block:
-  control-flow FlowSignals (return/break/continue) are NOT propagated across the
-  block/if IIFE boundary, so an early `return`/`break` is silently swallowed
-  (`compiler.cpp` if-handler ~1432, `compile_block` ~854). Statement-context
-  `if` is correct (`compile_statement` ~2434). This is the biggest self-host gap.
 - `for`/`while` in expression context whose body contains `return` or a labeled
   break/continue → still stubbed (`// for loop`), dropping the loop. Break/
-  continue-only and jump-free bodies now emit real loops (`compiler.cpp` ~1438).
+  continue-only and jump-free bodies emit real loops (`compiler.cpp` ~1438).
+  NOTE: not currently hit by the self-host engine (0 loop stubs in engine_rt.cpp)
+  but a latent limitation for arbitrary programs.
 - Bytes literals → empty `std::vector<uint8_t>{}` (`compiler.cpp:437`).
 - Unknown base functions → emit `/* std.fn */ 0` or a comment (wrong value, no
   error) (`compiler.cpp` module dispatchers ~2018+).
 - Engine `cascade` drops all sections (`engine.cpp:4094`); list `index` has no
   bounds check → UB on out-of-range (`engine.cpp:4084`); `as` cast is a no-op.
+- In-place container mutation (sorts 132–134, OOP setters 104): `BallList`/
+  `BallMap`/`BallObject` are value types stored in `BallDyn._val`, so reads copy
+  them — `list[i]=v` mutates a discarded copy. The real fix is reference-semantic
+  (shared_ptr-backed) containers. This is the largest remaining self-host lever.
 
 **Runtime stubs (compile, produce wrong/fake results):**
 - `jsonEncode`/`toProto3Json` are not real JSON (`ball_emit_runtime.h:1098`).
@@ -75,7 +86,8 @@ of real stubs/silent-correctness gaps. C++ self-host conformance is ~75/175.
 - Generic proto `hasXxx`→false, `whichXxx`→"notSet" fallbacks.
 
 **Other:**
-- `try-catch` → simplified (only std::exception).
+- `rethrow` (22) re-raises a generic BallException, losing the original payload;
+  typed nested catch dispatch (146) still partial.
 - Labeled break/continue → goto-based, dispatch rudimentary.
 - Conformance harness (`cpp/test/test_selfhost_conformance.cpp`) ends `return 0`
   ("don't fail the build") and skip-lists ~9 unpassable fixtures — self-host

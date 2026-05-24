@@ -4,7 +4,7 @@ Tracks the round-trip story for the reference Dart engine across all
 target languages: encode the live engine → Ball IR → compile back to
 each supported language → run conformance.
 
-Last refreshed: 2026-05-07.
+Last refreshed: 2026-05-24 (C++ self-host 105/175 after the compiler-correctness wave).
 
 ## Pipeline
 
@@ -89,6 +89,35 @@ reference-semantic containers: back `BallList`/`BallMap`/`BallObject` instances
 with a shared map/vector (like the scope `BallScope = shared_ptr<BallMap>`) so
 lookups share rather than copy. That single change would unblock sorts, OOP
 field mutation, and the collection-algorithm family at once.
+
+**2026-05-24 (compiler correctness wave — 72 → 105/175):** Three systemic
+compiler bugs fixed, each verified with a full rebuild + isolated-process tally
+and zero regressions on `test_conformance` (still 194 pass):
+- **FlowSignal arg0→kind (72 → 93):** `_FlowSignal('return', value: v)` compiled
+  its positional `kind` arg to map key `"arg0"`, but the runtime
+  (`ball_is_flow_signal` + every `.kind`/`.value` read) keys on the real param
+  name. Every early `return` inside an `if`/loop lost its value. Fix: resolve
+  positional ctor args to param names in the stub-type map path
+  (`lookup_ctor_params`). Unblocked the recursion/early-return cluster.
+- **try/finally (93 → 101):** Dart `try { return X } finally { cleanup }`
+  compiled to `try { return X } catch(std::exception&){} cleanup;` — the return
+  skipped the cleanup and the empty catch swallowed all exceptions. In the
+  engine this leaked `_expressionDepth` (+1 per `_evalExpression`, never
+  decremented) until it exceeded `maxExpressionDepth=1000` (~100 nested calls)
+  → threw → swallowed → null. Fix: `make_ball_finally` RAII guard runs cleanup
+  on every exit; no swallowing catch when there are no catch clauses. Unblocked
+  deep recursion (fibonacci, collatz, sorts).
+- **exception payload (101 → 105):** `throw BallException(typeName, value)`
+  compiled to a hardcoded `BallException("Exception","Exception",{})` —
+  payload discarded. Fix: BallException carries a `std::any value`;
+  `_ball_make_exception` preserves it; `_ball_caught_to_dyn` rebuilds the
+  `{__type__,typeName,value}` shape on catch so `e["value"]`/`e is BallException`
+  work. Unblocked 21/24/53/91.
+
+**Next lever (highest value):** reference-semantic containers (below) — would
+unblock in-place mutation (sorts 132–134, OOP setters 104) and the
+collection-algorithm family at once. rethrow (22) and typed nested catch (146)
+are smaller follow-ups.
 
 **Known remaining (priority order):**
 1. **OOP feature long-tail** — beyond field read/write, each class feature has

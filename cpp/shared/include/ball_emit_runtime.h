@@ -97,6 +97,21 @@ struct _BallDynUnwrapper {
     static inline UnwrapFn _unwrap_fn = nullptr;
 };
 
+// Reference-semantic program lists are stored shared_ptr-backed (BallListRef)
+// inside BallDyn. That handle type is declared only in ball_dyn.h (compiled
+// programs), NOT in the native engine, so this header cannot name it. It instead
+// consults a registered function pointer (populated by ball_dyn.h) that maps a
+// std::any holding a handle to a pointer to the underlying std::vector. In the
+// native engine the pointer stays null and every call is a no-op, so native
+// behavior is identical. Returns nullptr when `v` is not a list handle.
+struct _BallRefDeref {
+    using ListFn = const std::vector<std::any>* (*)(const std::any&);
+    static inline ListFn _list_fn = nullptr;
+    static const std::vector<std::any>* list(const std::any& v) {
+        return _list_fn ? _list_fn(v) : nullptr;
+    }
+};
+
 // std::any — attempt known types, fallback to type name.
 inline std::string ball_to_string(const std::any& v) {
     if (!v.has_value()) return "null";
@@ -110,6 +125,7 @@ inline std::string ball_to_string(const std::any& v) {
     if (v.type() == typeid(std::string)) return std::any_cast<std::string>(v);
     if (v.type() == typeid(const char*)) return std::any_cast<const char*>(v);
     if (v.type() == typeid(BallList_RT)) return ball_to_string(std::any_cast<const BallList_RT&>(v));
+    if (const BallList_RT* lp = _BallRefDeref::list(v)) return ball_to_string(*lp);
     if (v.type() == typeid(BallMap_RT)) {
         auto& m = std::any_cast<const BallMap_RT&>(v);
         std::string out = "{";
@@ -168,7 +184,8 @@ inline bool ball_is_bool(const std::any& v) {
 }
 inline bool ball_is_list(const std::any& v) {
     auto& u = _BallDynUnwrapper::unwrap(v);
-    return u.has_value() && u.type() == typeid(BallList_RT);
+    return u.has_value() &&
+           (u.type() == typeid(BallList_RT) || _BallRefDeref::list(u) != nullptr);
 }
 // BallObject is defined later in this header (it `extends BallMap`). These
 // accessors let the type-predicate helpers below treat a BallObject as the
@@ -455,6 +472,8 @@ inline std::vector<std::any> ball_to_list(const std::vector<T>& v) {
 inline std::vector<std::any> ball_to_list(const std::any& v) {
     if (v.type() == typeid(std::vector<std::any>))
         return std::any_cast<std::vector<std::any>>(v);
+    if (const std::vector<std::any>* lp = _BallRefDeref::list(v))
+        return *lp;
     if (v.type() == typeid(std::vector<std::string>)) {
         auto& sv = std::any_cast<const std::vector<std::string>&>(v);
         std::vector<std::any> r;

@@ -29,6 +29,17 @@ using BallFunc = std::function<std::any(std::any)>;
 // Scopes created via child() use this so parent mutations are visible to children.
 using BallScope = std::shared_ptr<BallMap>;
 
+// Reference-semantic PROGRAM lists. The Dart reference engine wraps lists in a
+// BallList object (a reference type), so `list[i]=v` / push / sort mutate in place
+// and every holder observes it. A by-value std::vector inside BallDyn::_val is
+// copied whenever a BallDyn is copied (e.g. reading a variable out of a scope, or
+// passing a list to a helper function), so in-place mutation is lost. Storing the
+// vector shared_ptr-backed (BallListRef) restores reference semantics — copies of
+// the BallDyn share the underlying vector. Mirrors the BallScope precedent. This is
+// confined to BallDyn (compiled programs); the native C++ engine never produces a
+// BallListRef, so its behavior and the direct-conformance baseline are unaffected.
+using BallListRef = std::shared_ptr<BallList>;
+
 class BallDyn {
 public:
     std::any _val;
@@ -83,11 +94,31 @@ public:
     BallDyn(const char* v) : _val(std::string(v)) {}
     BallDyn(BallMap v) : _val(std::move(v)) {}
     BallDyn(BallUMap v) : _val(std::move(v)) {}
-    BallDyn(BallList v) : _val(std::move(v)) {}
+    // A program LIST is stored shared_ptr-backed: a fresh handle is allocated at
+    // construction; subsequent BallDyn copies share it, so in-place mutation
+    // (sort, push/pop, index-assign) is visible to every holder.
+    BallDyn(BallList v) : _val(BallListRef(std::make_shared<BallList>(std::move(v)))) {}
+    BallDyn(BallListRef v) : _val(std::move(v)) {}
     BallDyn(BallFunc v) : _val(std::move(v)) {}
     // List.filled(length, value) lowers to a List_filled aggregate (defined in
     // ball_emit_runtime.h, always spliced before this header in compiled programs).
-    BallDyn(const List_filled& lf) : _val(std::vector<std::any>(lf)) {}
+    BallDyn(const List_filled& lf)
+        : _val(BallListRef(std::make_shared<BallList>(std::vector<std::any>(lf)))) {}
+
+    // ── Reference-semantic list accessors ──
+    // Return a pointer to the underlying vector whether stored by-value (legacy /
+    // native interop) or shared_ptr-backed (BallListRef). nullptr if not a list.
+    BallList* _listPtr() {
+        if (_val.type() == typeid(BallListRef)) return std::any_cast<BallListRef&>(_val).get();
+        if (_val.type() == typeid(BallList)) return &std::any_cast<BallList&>(_val);
+        return nullptr;
+    }
+    const BallList* _listPtr() const {
+        if (_val.type() == typeid(BallListRef)) return std::any_cast<const BallListRef&>(_val).get();
+        if (_val.type() == typeid(BallList)) return &std::any_cast<const BallList&>(_val);
+        return nullptr;
+    }
+    bool _isList() const { return _val.type() == typeid(BallListRef) || _val.type() == typeid(BallList); }
 
     // Copy/move — BallScope (shared_ptr<BallMap>) deep-copies ONLY when the scope
     // has NO __parent__ key (i.e., it's a root/function scope being copied for a
@@ -159,8 +190,8 @@ public:
         }
         if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) ? "true" : "false";
         // List: Dart-style [a, b, c]
-        if (_val.type() == typeid(BallList)) {
-            auto& v = std::any_cast<const BallList&>(_val);
+        if (const BallList* vp = _listPtr()) {
+            const auto& v = *vp;
             std::string out = "[";
             bool first = true;
             for (const auto& el : v) {
@@ -250,8 +281,8 @@ public:
 
     // Index access for vectors and strings
     BallDyn operator[](int64_t idx) const {
-        if (_val.type() == typeid(BallList)) {
-            auto& v = std::any_cast<const BallList&>(_val);
+        if (const BallList* vp = _listPtr()) {
+            const auto& v = *vp;
             if (idx >= 0 && static_cast<size_t>(idx) < v.size())
                 return BallDyn(v[idx]);
         }
@@ -280,12 +311,12 @@ public:
             std::any_cast<BallMap&>(_val)[key] = value;
         } else if (_val.type() == typeid(BallUMap)) {
             std::any_cast<BallUMap&>(_val)[key] = value;
-        } else if (_val.type() == typeid(BallList)) {
+        } else if (BallList* vp = _listPtr()) {
             // Index assignment `list[i] = val` is emitted with the index
             // stringified (the emitter doesn't distinguish list vs map keys),
             // so a numeric key on a list must set the element in place —
             // otherwise in-place mutations (e.g. sorts) silently no-op.
-            auto& v = std::any_cast<BallList&>(_val);
+            auto& v = *vp;
             try {
                 long long idx = std::stoll(key);
                 if (idx >= 0 && static_cast<size_t>(idx) < v.size())
@@ -297,8 +328,8 @@ public:
         set(key, value._val);
     }
     void set(int64_t idx, const std::any& value) {
-        if (_val.type() == typeid(BallList)) {
-            auto& v = std::any_cast<BallList&>(_val);
+        if (BallList* vp = _listPtr()) {
+            auto& v = *vp;
             if (idx >= 0 && static_cast<size_t>(idx) < v.size())
                 v[idx] = value;
         }
@@ -313,7 +344,7 @@ public:
         // keys before map access). Unwrap to defeat MSVC's BallDyn-in-any wrap.
         auto& u = _BallDynUnwrapper::unwrap(key._val);
         if (u.type() == typeid(int64_t) &&
-            (_val.type() == typeid(BallList) ||
+            (_isList() ||
              _val.type() == typeid(std::string) ||
              _val.type() == typeid(std::vector<std::string>))) {
             return (*this)[std::any_cast<int64_t>(u)];
@@ -341,7 +372,7 @@ public:
     bool empty() const {
         if (!_val.has_value()) return true;
         if (_val.type() == typeid(std::string)) return std::any_cast<const std::string&>(_val).empty();
-        if (_val.type() == typeid(BallList)) return std::any_cast<const BallList&>(_val).empty();
+        if (const BallList* vp = _listPtr()) return vp->empty();
         if (_val.type() == typeid(BallScope)) return std::any_cast<const BallScope&>(_val)->empty();
         if (_val.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(_val).empty();
         if (_val.type() == typeid(BallUMap)) return std::any_cast<const BallUMap&>(_val).empty();
@@ -350,7 +381,7 @@ public:
 
     int64_t size() const {
         if (_val.type() == typeid(std::string)) return std::any_cast<const std::string&>(_val).size();
-        if (_val.type() == typeid(BallList)) return std::any_cast<const BallList&>(_val).size();
+        if (const BallList* vp = _listPtr()) return vp->size();
         if (_val.type() == typeid(BallScope)) return std::any_cast<const BallScope&>(_val)->size();
         if (_val.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(_val).size();
         if (_val.type() == typeid(BallUMap)) return std::any_cast<const BallUMap&>(_val).size();
@@ -358,22 +389,20 @@ public:
     }
 
     void push_back(const BallDyn& v) {
-        if (_val.type() == typeid(BallList)) {
-            std::any_cast<BallList&>(_val).push_back(v._val);
-        }
+        if (BallList* vp = _listPtr()) vp->push_back(v._val);
     }
 
     BallDyn front() const {
-        if (_val.type() == typeid(BallList)) {
-            auto& l = std::any_cast<const BallList&>(_val);
+        if (const BallList* vp = _listPtr()) {
+            const auto& l = *vp;
             return l.empty() ? BallDyn() : BallDyn(l.front());
         }
         return BallDyn();
     }
 
     BallDyn back() const {
-        if (_val.type() == typeid(BallList)) {
-            auto& l = std::any_cast<const BallList&>(_val);
+        if (const BallList* vp = _listPtr()) {
+            const auto& l = *vp;
             return l.empty() ? BallDyn() : BallDyn(l.back());
         }
         return BallDyn();
@@ -388,19 +417,17 @@ public:
             std::any_cast<BallUMap&>(_val).erase(key);
     }
     void push_back(const std::any& val) {
-        if (_val.type() == typeid(BallList)) {
-            std::any_cast<BallList&>(_val).push_back(val);
-        }
+        if (BallList* vp = _listPtr()) vp->push_back(val);
     }
     void pop_back() {
-        if (_val.type() == typeid(BallList)) {
-            auto& v = std::any_cast<BallList&>(_val);
+        if (BallList* vp = _listPtr()) {
+            auto& v = *vp;
             if (!v.empty()) v.pop_back();
         }
     }
     void erase(const BallDyn& val) {
-        if (_val.type() == typeid(BallList)) {
-            auto& v = std::any_cast<BallList&>(_val);
+        if (BallList* vp = _listPtr()) {
+            auto& v = *vp;
             auto s = ball_to_string(val._val);
             v.erase(std::remove_if(v.begin(), v.end(), [&](const std::any& x) {
                 return ball_to_string(x) == s;
@@ -597,8 +624,8 @@ public:
 
     // indexOf: find an element in a BallDyn list, or a substring in a string.
     int64_t indexOf(const BallDyn& needle) const {
-        if (_val.type() == typeid(BallList)) {
-            auto& v = std::any_cast<const BallList&>(_val);
+        if (const BallList* vp = _listPtr()) {
+            const auto& v = *vp;
             for (size_t i = 0; i < v.size(); i++) {
                 BallDyn el(v[i]);
                 if (el == needle) return static_cast<int64_t>(i);
@@ -623,18 +650,12 @@ public:
         bool operator!=(const Iterator& o) const { return idx != o.idx; }
     };
     Iterator begin() const {
-        if (_val.type() == typeid(BallList)) {
-            auto& l = std::any_cast<const BallList&>(_val);
-            return {&l, 0};
-        }
+        if (const BallList* vp = _listPtr()) return {vp, 0};
         static BallList empty;
         return {&empty, 0};
     }
     Iterator end() const {
-        if (_val.type() == typeid(BallList)) {
-            auto& l = std::any_cast<const BallList&>(_val);
-            return {&l, l.size()};
-        }
+        if (const BallList* vp = _listPtr()) return {vp, vp->size()};
         static BallList empty;
         return {&empty, 0};
     }
@@ -666,9 +687,29 @@ struct _BallDynUnwrapRegistrar {
             return nullptr;
         };
         // Registration complete - ball_is_* functions can now detect BallDyn in std::any
+        // Register the reference-semantic list deref hook so helpers in
+        // ball_emit_runtime.h (which can't name BallListRef) reach the underlying
+        // vector of shared_ptr-backed program lists.
+        _BallRefDeref::_list_fn = [](const std::any& v) -> const std::vector<std::any>* {
+            if (v.type() == typeid(BallListRef)) return std::any_cast<const BallListRef&>(v).get();
+            return nullptr;
+        };
     }
 };
 static _BallDynUnwrapRegistrar _ball_dyn_unwrap_registrar;
+}
+
+// Free deref helper: pointer to the underlying vector whether `u` (already an
+// UNWRAPPED std::any) holds the list by-value or shared_ptr-backed. nullptr else.
+inline const BallList* _ballAnyListPtr(const std::any& u) {
+    if (u.type() == typeid(BallListRef)) return std::any_cast<const BallListRef&>(u).get();
+    if (u.type() == typeid(BallList)) return &std::any_cast<const BallList&>(u);
+    return nullptr;
+}
+inline BallList* _ballAnyListPtr(std::any& u) {
+    if (u.type() == typeid(BallListRef)) return std::any_cast<BallListRef&>(u).get();
+    if (u.type() == typeid(BallList)) return &std::any_cast<BallList&>(u);
+    return nullptr;
 }
 
 // Coerce a std::any into a BallMap, unwrapping a BallDyn first if MSVC stored
@@ -701,14 +742,14 @@ inline void ball_add_all(BallDyn& dst, const BallDyn& src) {
         for (const auto& [k, v] : std::any_cast<const BallMap&>(su)) dst.set(k, v);
     } else if (su.type() == typeid(std::unordered_map<std::string, std::any>)) {
         for (const auto& [k, v] : std::any_cast<const std::unordered_map<std::string, std::any>&>(su)) dst.set(k, v);
-    } else if (su.type() == typeid(BallList)) {
-        for (const auto& el : std::any_cast<const BallList&>(su)) dst.push_back(el);
+    } else if (const BallList* lp = _ballAnyListPtr(su)) {
+        for (const auto& el : *lp) dst.push_back(el);
     }
 }
 
 // list.clear() / map.clear() — mutate the receiver in place to empty.
 inline void ball_clear(BallDyn& v) {
-    if (v._val.type() == typeid(BallList)) std::any_cast<BallList&>(v._val).clear();
+    if (BallList* lp = v._listPtr()) lp->clear();
     else if (v._val.type() == typeid(BallMap)) std::any_cast<BallMap&>(v._val).clear();
     else if (v._val.type() == typeid(std::unordered_map<std::string, std::any>))
         std::any_cast<std::unordered_map<std::string, std::any>&>(v._val).clear();
@@ -1052,9 +1093,11 @@ inline void writeAsStringSync(const File& f, const BallDyn& content, const std::
 
 // setAll — Dart's List.setAll(index, iterable): copy elements into list
 inline void setAll(BallDyn& target, int64_t index, const BallDyn& source) {
-    if (target._val.type() == typeid(BallList) && source._val.type() == typeid(BallList)) {
-        auto& dst = std::any_cast<BallList&>(target._val);
-        auto& src = std::any_cast<const BallList&>(source._val);
+    BallList* dstp = target._listPtr();
+    const BallList* srcp = source._listPtr();
+    if (dstp && srcp) {
+        auto& dst = *dstp;
+        const auto& src = *srcp;
         for (size_t i = 0; i < src.size() && (index + i) < dst.size(); i++) {
             dst[index + i] = src[i];
         }
@@ -1080,13 +1123,11 @@ inline std::vector<std::any> encode(const Utf8Codec& c, const BallDyn& s) {
     return c.encode(static_cast<std::string>(s));
 }
 inline std::string decode(const Utf8Codec& c, const BallDyn& bytes) {
-    if (bytes._val.type() == typeid(BallList))
-        return c.decode(std::any_cast<const BallList&>(bytes._val));
+    if (const BallList* lp = bytes._listPtr()) return c.decode(*lp);
     return "";
 }
 inline std::string encode(const Base64Codec& c, const BallDyn& bytes) {
-    if (bytes._val.type() == typeid(BallList))
-        return c.encode(std::any_cast<const BallList&>(bytes._val));
+    if (const BallList* lp = bytes._listPtr()) return c.encode(*lp);
     return "";
 }
 inline std::vector<std::any> decode(const Base64Codec& c, const BallDyn& s) {
@@ -1095,8 +1136,8 @@ inline std::vector<std::any> decode(const Base64Codec& c, const BallDyn& s) {
 
 // ── ball_to_set(BallDyn) ──
 inline BallDyn ball_to_set(const BallDyn& d) {
-    if (d._val.type() == typeid(BallList)) {
-        return BallDyn(ball_to_set(std::any_cast<const BallList&>(d._val)));
+    if (const BallList* lp = d._listPtr()) {
+        return BallDyn(ball_to_set(*lp));
     }
     return d;
 }
@@ -1104,8 +1145,8 @@ inline BallDyn ball_to_set(const BallDyn& d) {
 // ── Set operations on BallDyn ──
 inline BallDyn union_(const BallDyn& a, const BallDyn& b) {
     BallList sa, sb;
-    if (a._val.type() == typeid(BallList)) sa = std::any_cast<const BallList&>(a._val);
-    if (b._val.type() == typeid(BallList)) sb = std::any_cast<const BallList&>(b._val);
+    if (const BallList* lp = a._listPtr()) sa = *lp;
+    if (const BallList* lp = b._listPtr()) sb = *lp;
     for (auto& e : sb) {
         bool found = false;
         for (auto& x : sa) { if (ball_to_string(x) == ball_to_string(e)) { found = true; break; } }
@@ -1115,8 +1156,8 @@ inline BallDyn union_(const BallDyn& a, const BallDyn& b) {
 }
 inline BallDyn intersection(const BallDyn& a, const BallDyn& b) {
     BallList sa, sb;
-    if (a._val.type() == typeid(BallList)) sa = std::any_cast<const BallList&>(a._val);
-    if (b._val.type() == typeid(BallList)) sb = std::any_cast<const BallList&>(b._val);
+    if (const BallList* lp = a._listPtr()) sa = *lp;
+    if (const BallList* lp = b._listPtr()) sb = *lp;
     BallList result;
     for (auto& e : sa) {
         for (auto& x : sb) { if (ball_to_string(x) == ball_to_string(e)) { result.push_back(e); break; } }
@@ -1125,8 +1166,8 @@ inline BallDyn intersection(const BallDyn& a, const BallDyn& b) {
 }
 inline BallDyn difference(const BallDyn& a, const BallDyn& b) {
     BallList sa, sb;
-    if (a._val.type() == typeid(BallList)) sa = std::any_cast<const BallList&>(a._val);
-    if (b._val.type() == typeid(BallList)) sb = std::any_cast<const BallList&>(b._val);
+    if (const BallList* lp = a._listPtr()) sa = *lp;
+    if (const BallList* lp = b._listPtr()) sb = *lp;
     BallList result;
     for (auto& e : sa) {
         bool found = false;
@@ -1177,14 +1218,14 @@ inline BallDyn generate(const std::string& tag, const std::any& count_val, F fn)
 
 // ── ball_take / ball_skip for BallDyn ──
 inline BallDyn ball_take(const BallDyn& v, int64_t n) {
-    if (v._val.type() == typeid(BallList)) {
-        return BallDyn(ball_take(std::any_cast<const BallList&>(v._val), n));
+    if (const BallList* lp = v._listPtr()) {
+        return BallDyn(ball_take(*lp, n));
     }
     return v;
 }
 inline BallDyn ball_skip(const BallDyn& v, int64_t n) {
-    if (v._val.type() == typeid(BallList)) {
-        return BallDyn(ball_skip(std::any_cast<const BallList&>(v._val), n));
+    if (const BallList* lp = v._listPtr()) {
+        return BallDyn(ball_skip(*lp, n));
     }
     return v;
 }

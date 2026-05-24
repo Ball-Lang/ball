@@ -3218,10 +3218,11 @@ inline BallDyn ball_concat(const BallDyn& a, const BallDyn& b) {
     try { auto mb = std::any_cast<BallMap>(ba); for (auto& p : mb) result[p.first] = p.second; } catch(...) {}
     return BallDyn(result);
   }
-  // List concat
+  // List concat — deref shared_ptr-backed (reference-semantic) lists. Builds a
+  // NEW list, matching Dart's `a + b` copy semantics (operands unchanged).
   BallList result;
-  try { auto la = std::any_cast<BallList>(aa); result.insert(result.end(), la.begin(), la.end()); } catch(...) {}
-  try { auto lb = std::any_cast<BallList>(ba); result.insert(result.end(), lb.begin(), lb.end()); } catch(...) {}
+  if (const BallList* la = _ballAnyListPtr(aa)) result.insert(result.end(), la->begin(), la->end());
+  if (const BallList* lb = _ballAnyListPtr(ba)) result.insert(result.end(), lb->begin(), lb->end());
   return BallDyn(result);
 }
 
@@ -3235,7 +3236,10 @@ inline std::map<std::string,std::any> ball_concat(const std::map<std::string,std
 // vector overloads for ball_concat
 inline std::vector<std::any> ball_concat(const std::vector<std::any>& a, const BallDyn& b) {
   auto r = a;
-  try { auto lb = std::any_cast<BallList>(static_cast<std::any>(b)); r.insert(r.end(), lb.begin(), lb.end()); } catch(...) { r.push_back(static_cast<std::any>(b)); }
+  auto b0 = static_cast<std::any>(b);
+  const std::any& bu = _BallDynUnwrapper::unwrap(b0);
+  if (const BallList* lb = _ballAnyListPtr(bu)) { r.insert(r.end(), lb->begin(), lb->end()); }
+  else { r.push_back(bu); }
   return r;
 }
 inline std::vector<std::any> ball_concat(const std::vector<std::any>& a, const std::vector<std::any>& b) {
@@ -3346,27 +3350,27 @@ inline BallDyn lookup(const BallDyn& scope, const BallDyn& name) {
   return BallDyn();
 }
 
-// List manipulation helpers for BallDyn
+// List manipulation helpers for BallDyn. These mutate the shared list in place
+// (reference semantics, matching Dart's `list.insert`/`list.removeAt`) and return
+// the same handle so callers that reassign the result still observe the change.
 inline BallDyn ball_list_insert(BallDyn list, int64_t idx, BallDyn elem) {
-  try {
-    auto v = std::any_cast<BallList>(static_cast<std::any>(list));
-    if (idx >= 0 && idx <= static_cast<int64_t>(v.size())) v.insert(v.begin()+idx, std::any(elem));
-    return BallDyn(v);
-  } catch(...) { return list; }
+  if (BallList* v = list._listPtr()) {
+    if (idx >= 0 && idx <= static_cast<int64_t>(v->size())) v->insert(v->begin()+idx, std::any(elem));
+  }
+  return list;
 }
 inline BallDyn ball_list_remove_at(BallDyn list, int64_t idx) {
-  try {
-    auto v = std::any_cast<BallList>(static_cast<std::any>(list));
-    if (idx >= 0 && idx < static_cast<int64_t>(v.size())) v.erase(v.begin()+idx);
-    return BallDyn(v);
-  } catch(...) { return list; }
+  if (BallList* v = list._listPtr()) {
+    if (idx >= 0 && idx < static_cast<int64_t>(v->size())) v->erase(v->begin()+idx);
+  }
+  return list;
 }
 // Single BallDyn-param overload: int64_t arguments convert via BallDyn(int64_t)
 // implicitly, so a mix of int64_t/BallDyn call arguments stays unambiguous
 // (two overloads — one int64_t, one BallDyn — caused C2666 ambiguity).
 inline BallDyn ball_sublist(const BallDyn& list, const BallDyn& start, const BallDyn& end_val = BallDyn()) {
-  try {
-    auto v = std::any_cast<BallList>(static_cast<std::any>(list));
+  if (const BallList* vp = list._listPtr()) {
+    const auto& v = *vp;
     int64_t size = static_cast<int64_t>(v.size());
     int64_t s = start.has_value() ? static_cast<int64_t>(start) : 0;
     int64_t e = end_val.has_value() ? static_cast<int64_t>(end_val) : size;
@@ -3374,7 +3378,8 @@ inline BallDyn ball_sublist(const BallDyn& list, const BallDyn& start, const Bal
     e = std::max(int64_t(0), std::min(e, size));
     if (s > e) s = e;
     return BallDyn(BallList(v.begin()+s, v.begin()+e));
-  } catch(...) { return BallDyn(BallList{}); }
+  }
+  return BallDyn(BallList{});
 }
 // ball_take / ball_skip defined in ball_dyn.h
 
@@ -3397,8 +3402,8 @@ inline int64_t ball_index_of(const BallDyn& container, const BallDyn& element) {
     auto pos = s.find(needle);
     return pos != std::string::npos ? static_cast<int64_t>(pos) : -1LL;
   }
-  if (c.type() == typeid(BallList)) {
-    auto& list = std::any_cast<const BallList&>(c);
+  if (const BallList* lp = container._listPtr()) {
+    const auto& list = *lp;
     for (size_t i = 0; i < list.size(); i++) {
       if (ball_to_string(BallDyn(list[i])) == ball_to_string(element)) return static_cast<int64_t>(i);
     }
@@ -3408,7 +3413,8 @@ inline int64_t ball_index_of(const BallDyn& container, const BallDyn& element) {
 }
 
 inline BallDyn ball_list_copy(const BallDyn& v) {
-  try { auto a = static_cast<std::any>(v); return BallDyn(BallList(std::any_cast<BallList>(a))); } catch(...) { return v; }
+  if (const BallList* lp = v._listPtr()) return BallDyn(BallList(*lp));
+  return v;
 }
 inline BallDyn ball_map_copy(const BallDyn& v) {
   try { auto a = static_cast<std::any>(v); return BallDyn(BallMap(std::any_cast<BallMap>(a))); } catch(...) { return v; }
@@ -4279,15 +4285,17 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "list_sort") {
         auto list = get_message_field(call, "list");
-        return "[](BallDyn v){auto l=std::any_cast<BallList>(static_cast<std::any>(v));std::sort(l.begin(),l.end(),[](const std::any& a,const std::any& b){return ball_to_string(a)<ball_to_string(b);});return BallDyn(l);}(" + list + ")";
+        // Sort in place on the shared list (reference semantics) and return the
+        // same handle, so `list.sort()` mutates the caller's list.
+        return "[](BallDyn v){if(BallList* l=v._listPtr()){std::sort(l->begin(),l->end(),[](const std::any& a,const std::any& b){return ball_to_string(a)<ball_to_string(b);});}return v;}(" + list + ")";
     }
     if (fn == "list_sort_by") {
         auto list = get_message_field(call, "list");
         auto callback = get_message_field(call, "callback");
-        return "[](BallDyn v, auto fn){auto l=std::any_cast<BallList>(static_cast<std::any>(v));std::sort(l.begin(),l.end(),"
+        return "[](BallDyn v, auto fn){if(BallList* l=v._listPtr()){std::sort(l->begin(),l->end(),"
                "[&](const std::any& a, const std::any& b){"
                "return BallDyn(fn(BallDyn(std::map<std::string,std::any>"
-               "{{\"left\",a},{\"right\",b}})));});return BallDyn(l);}("
+               "{{\"left\",a},{\"right\",b}})));});}return v;}("
                + list + "," + callback + ")";
     }
     if (fn == "list_concat") {
@@ -4328,7 +4336,10 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "list_to_list") {
         auto list = get_message_field(call, "list");
-        return list; // list_to_list just copies — in C++ the value is already copied
+        // Dart's `list.toList()` returns a fresh COPY. With reference-semantic
+        // lists the value is shared, so emit an explicit copy — otherwise mutating
+        // the result would alias the source list.
+        return "ball_list_copy(" + list + ")";
     }
     if (fn == "list_flat_map") {
         auto list = get_message_field(call, "list");

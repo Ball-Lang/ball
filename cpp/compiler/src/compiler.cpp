@@ -999,6 +999,51 @@ std::string CppCompiler::compile_unary_op(const std::string& op,
     return CppExpr("(" + op + val.str() + ")").str();
 }
 
+// Recursively detect break/continue/return/labeled or a nested loop in an
+// expression, WITHOUT descending into nested lambdas (their jumps are their
+// own). Used to decide whether a for/while in EXPRESSION context can be emitted
+// as a real loop IIFE: a body with these constructs can't (break/continue can't
+// cross the lambda-IIFE boundary, and `return` would escape the wrong frame),
+// so it falls back to the stub. A jump-free body (e.g. _evalLambda's arg->param
+// binding loop) is emitted as a real loop.
+static bool _exprHasLoopOrJump(const ball::v1::Expression& e) {
+    using E = ball::v1::Expression;
+    switch (e.expr_case()) {
+        case E::kCall: {
+            const auto& fn = e.call().function();
+            if (fn == "break" || fn == "continue" || fn == "return" ||
+                fn == "labeled" || fn == "for" || fn == "while" ||
+                fn == "for_in" || fn == "for_each" || fn == "collection_for")
+                return true;
+            return e.call().has_input() && _exprHasLoopOrJump(e.call().input());
+        }
+        case E::kLambda:
+            return false;
+        case E::kBlock: {
+            for (const auto& s : e.block().statements()) {
+                if (s.has_let() && _exprHasLoopOrJump(s.let().value())) return true;
+                if (s.has_expression() && _exprHasLoopOrJump(s.expression())) return true;
+            }
+            return e.block().has_result() && _exprHasLoopOrJump(e.block().result());
+        }
+        case E::kMessageCreation: {
+            for (const auto& f : e.message_creation().fields())
+                if (f.has_value() && _exprHasLoopOrJump(f.value())) return true;
+            return false;
+        }
+        case E::kFieldAccess:
+            return e.field_access().has_object() &&
+                   _exprHasLoopOrJump(e.field_access().object());
+        case E::kLiteral:
+            if (e.literal().value_case() == ball::v1::Literal::kListValue)
+                for (const auto& el : e.literal().list_value().elements())
+                    if (_exprHasLoopOrJump(el)) return true;
+            return false;
+        default:
+            return false;
+    }
+}
+
 std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
     std::string mod = call.module();
     const auto& fn = call.function();
@@ -1392,14 +1437,57 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     }
     if (fn == "for") {
         // A `for` in EXPRESSION context (e.g. inside a lambda body compiled as
-        // an expression). Emitting a real loop here is hard: the body can
-        // contain break/continue, which can't cross a lambda-IIFE boundary, and
-        // statements can't be streamed into a string. Left as a stub (drops the
-        // loop) until the compiler can emit statement-context loops here. See
-        // SELF_HOST_STATUS.md — multi-param lambda binding depends on this.
+        // an expression). We can emit a real loop IIFE only when the body has no
+        // break/continue/return/nested-loop (those can't cross the IIFE
+        // boundary); otherwise fall back to the stub. This unblocks
+        // _evalLambda's jump-free arg->param binding loop (multi-param lambda
+        // callbacks) without breaking bodies like the engine's sort (which has
+        // break). See SELF_HOST_STATUS.md.
+        auto* body_e = get_message_field_expr(call, "body");
+        if (body_e && !_exprHasLoopOrJump(*body_e)) {
+            std::string init;
+            auto* init_e = get_message_field_expr(call, "init");
+            if (init_e && init_e->expr_case() == ball::v1::Expression::kBlock &&
+                init_e->block().statements_size() == 1 &&
+                init_e->block().statements(0).stmt_case() == ball::v1::Statement::kLet) {
+                const auto& let_stmt = init_e->block().statements(0).let();
+                init = "auto " + ball_local_var_name(sanitize_name(let_stmt.name())) +
+                       " = " + compile_expr(let_stmt.value());
+            } else if (init_e &&
+                       init_e->expr_case() == ball::v1::Expression::kLiteral &&
+                       init_e->literal().value_case() == ball::v1::Literal::kStringValue) {
+                std::string raw = init_e->literal().string_value();
+                if (raw.rfind("var ", 0) == 0) init = "auto " + raw.substr(4);
+                else if (raw.rfind("final ", 0) == 0) init = "auto " + raw.substr(6);
+                else init = raw;
+            } else {
+                init = get_message_field(call, "init");
+            }
+            auto cond = get_message_field(call, "condition");
+            auto update = get_message_field(call, "update");
+            std::string body = (body_e->expr_case() == ball::v1::Expression::kBlock)
+                                   ? compile_block(body_e->block())
+                                   : compile_expr(*body_e);
+            std::string r = "([&]() -> BallDyn { for (" + init + "; " + cond +
+                            "; " + update + ") { ";
+            if (!body.empty()) r += body + "; ";
+            r += "} return BallDyn(); }())";
+            return r;
+        }
         return "([&](){\n" + indent_str() + "    // for loop\n" + indent_str() + "}(), BallDyn())";
     }
     if (fn == "while") {
+        auto* body_e = get_message_field_expr(call, "body");
+        if (body_e && !_exprHasLoopOrJump(*body_e)) {
+            auto cond = get_message_field(call, "condition");
+            std::string body = (body_e->expr_case() == ball::v1::Expression::kBlock)
+                                   ? compile_block(body_e->block())
+                                   : compile_expr(*body_e);
+            std::string r = "([&]() -> BallDyn { while (" + cond + ") { ";
+            if (!body.empty()) r += body + "; ";
+            r += "} return BallDyn(); }())";
+            return r;
+        }
         return "([&](){\n" + indent_str() + "    // while loop\n" + indent_str() + "}(), BallDyn())";
     }
     if (fn == "return") {

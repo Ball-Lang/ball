@@ -160,6 +160,14 @@ int main() {
     check("raw-map: has x in method body child", has(mbody, BallDyn(std::string("x"))));
     check("raw-map: lookup x in body == 3", ball_to_string(lookup(mbody, BallDyn(std::string("x")))) == "3");
 
+    // ── List index-assignment via stringified key (sorts rely on this) ──
+    std::cout << "--- list index set (stringified key) ---\n";
+    BallList lst{std::any((int64_t)10), std::any((int64_t)20), std::any((int64_t)30)};
+    BallDyn ld = BallDyn(lst);
+    ld.set(std::string("1"), std::any((int64_t)99));  // list[1] = 99 with string key
+    check("list[1]=99 via string key", ball_to_string(ld[1]) == "99");
+    check("list[0] unchanged", ball_to_string(ld[0]) == "10");
+
     std::cout << (g_fail == 0 ? "ALL PASS\n" : ("FAILURES=" + std::to_string(g_fail) + "\n"));
     return g_fail == 0 ? 0 : 1;
 }

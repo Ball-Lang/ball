@@ -37,7 +37,7 @@ Last refreshed: 2026-05-07.
 ### C++ self-host (compiled engine_rt.cpp)
 
 **2026-05-24:** `engine_rt.cpp` now **compiles cleanly under MSVC against the latest
-encoder IR** (commits `861cb5f`, `00a3151`) and passes **59 / 175** conformance
+encoder IR** (commits `861cb5f`, `00a3151`) and passes **61 / 175** conformance
 fixtures (after the `ball_map_entries` unwrap fix below) when each test runs in
 an isolated process (the in-process harness dies
 on the first stack-overflowing fixture, so use a per-test loop with
@@ -73,6 +73,22 @@ is not a `Map` (so it's skipped, no type change; raw-map instances re-set the
 same reference harmlessly), while under C++ it reads as a map and is persisted.
 Cross-target safe: Dart class-range conformance (`dart test --name "10"`) stays
 green and `101_simple_class` now PASSES end to end. Count: **59/175**.
+
+**2026-05-24 (index writeback + list-set):** Extended the same writeback to
+index assignment (`list[i] = val` / `map[k] = val`) via `_cfWritebackIndexed`,
+and taught `BallDyn::set(string, …)` to honour a numeric key on a `BallList`
+(the emitter stringifies all index keys, and the list branch was missing — a
+silent no-op). Raw-map mutation now persists → **61/175**. NOTE: in-place list
+mutation (sorts: 80/88/131–134, …) is still broken because the engine stores
+program lists as a `BallList` *wrapper* (`{__type__:"BallList", items:[…]}`,
+`_evalListLiteral` returns `BallList(...)`), and the C++ engine copies `.items`
+out of the wrapper on read — so `list.items[i] = val` mutates a discarded copy.
+A capture+`BallList(items)`+writeback attempt didn't help (the compiler emits
+`BallList(items)` as the raw vector, and reads still copy). The real fix is
+reference-semantic containers: back `BallList`/`BallMap`/`BallObject` instances
+with a shared map/vector (like the scope `BallScope = shared_ptr<BallMap>`) so
+lookups share rather than copy. That single change would unblock sorts, OOP
+field mutation, and the collection-algorithm family at once.
 
 **Known remaining (priority order):**
 1. **OOP feature long-tail** — beyond field read/write, each class feature has

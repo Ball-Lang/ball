@@ -280,6 +280,17 @@ public:
             std::any_cast<BallMap&>(_val)[key] = value;
         } else if (_val.type() == typeid(BallUMap)) {
             std::any_cast<BallUMap&>(_val)[key] = value;
+        } else if (_val.type() == typeid(BallList)) {
+            // Index assignment `list[i] = val` is emitted with the index
+            // stringified (the emitter doesn't distinguish list vs map keys),
+            // so a numeric key on a list must set the element in place —
+            // otherwise in-place mutations (e.g. sorts) silently no-op.
+            auto& v = std::any_cast<BallList&>(_val);
+            try {
+                long long idx = std::stoll(key);
+                if (idx >= 0 && static_cast<size_t>(idx) < v.size())
+                    v[static_cast<size_t>(idx)] = value;
+            } catch (...) {}
         }
     }
     void set(const std::string& key, const BallDyn& value) {

@@ -705,6 +705,24 @@ extension BallEngineControlFlow on BallEngine {
     if (scope.has(name)) scope.set(name, map);
   }
 
+  /// Writes a mutated container back to its variable after `list[i] = val` /
+  /// `map[k] = val`. Like [_cfWritebackInstance] this only matters for the
+  /// compiled C++ engine, which value-copies containers on every scope lookup
+  /// (so in-place index assignment mutates a discarded copy — e.g. in-place
+  /// sorts produced unsorted output). Under Dart/TS containers are references,
+  /// so re-storing the same object is a harmless no-op. Restricted to a simple
+  /// reference target; nested targets like `m[i][j]` are left to the inner
+  /// container's own reference (not yet handled for C++).
+  void _cfWritebackIndexed(
+    Expression targetExpr,
+    Object? container,
+    _Scope scope,
+  ) {
+    if (targetExpr.whichExpr() != Expression_Expr.reference) return;
+    final name = targetExpr.reference.name;
+    if (scope.has(name)) scope.set(name, container);
+  }
+
   Future<Object?> _evalAssign(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final target = fields['target'];
@@ -806,46 +824,47 @@ extension BallEngineControlFlow on BallEngine {
 
         // Compound assignment on index (e.g. list[i] ??= val, map[k] += val)
         if (op != null && op.isNotEmpty && op != '=') {
+          Object? computed;
+          var didSet = false;
           if (list is BallList && idx is int) {
-            final current = list.items[idx];
-            final computed = _applyCompoundOp(op, current, val);
+            computed = _applyCompoundOp(op, list.items[idx], val);
             list.items[idx] = computed;
-            return computed;
-          }
-          if (list is List && idx is int) {
-            final current = list[idx];
-            final computed = _applyCompoundOp(op, current, val);
+            didSet = true;
+          } else if (list is List && idx is int) {
+            computed = _applyCompoundOp(op, list[idx], val);
             list[idx] = computed;
-            return computed;
-          }
-          if (list is BallMap && idx is String) {
-            final current = list.entries[idx];
-            final computed = _applyCompoundOp(op, current, val);
+            didSet = true;
+          } else if (list is BallMap && idx is String) {
+            computed = _applyCompoundOp(op, list.entries[idx], val);
             list.entries[idx] = computed;
-            return computed;
-          }
-          if (list is Map) {
-            final current = list[idx];
-            final computed = _applyCompoundOp(op, current, val);
+            didSet = true;
+          } else if (list is Map) {
+            computed = _applyCompoundOp(op, list[idx], val);
             list[idx] = computed;
+            didSet = true;
+          }
+          if (didSet) {
+            _cfWritebackIndexed(indexTarget, list, scope);
             return computed;
           }
         }
 
+        var didSet = false;
         if (list is BallList && idx is int) {
           list.items[idx] = val;
-          return val;
-        }
-        if (list is List && idx is int) {
+          didSet = true;
+        } else if (list is List && idx is int) {
           list[idx] = val;
-          return val;
-        }
-        if (list is BallMap && idx is String) {
+          didSet = true;
+        } else if (list is BallMap && idx is String) {
           list.entries[idx] = val;
-          return val;
-        }
-        if (list is Map) {
+          didSet = true;
+        } else if (list is Map) {
           list[idx] = val;
+          didSet = true;
+        }
+        if (didSet) {
+          _cfWritebackIndexed(indexTarget, list, scope);
           return val;
         }
       }

@@ -2960,8 +2960,12 @@ const std::vector<std::string> _builtinTypeNames = {
 
 // concat helper (BallDyn-safe, handles both lists and maps)
 inline BallDyn ball_concat(const BallDyn& a, const BallDyn& b) {
-  auto aa = static_cast<std::any>(a);
-  auto ba = static_cast<std::any>(b);
+  // Unwrap any BallDyn-in-std::any wrapping (MSVC quirk) so the type checks and
+  // any_casts below see the real BallMap/BallList rather than typeid(BallDyn).
+  auto aa0 = static_cast<std::any>(a);
+  auto ba0 = static_cast<std::any>(b);
+  const std::any& aa = _BallDynUnwrapper::unwrap(aa0);
+  const std::any& ba = _BallDynUnwrapper::unwrap(ba0);
   // Map concat: merge maps
   if (aa.type() == typeid(BallMap) || ba.type() == typeid(BallMap)) {
     BallMap result;
@@ -3167,7 +3171,12 @@ inline BallDyn ball_map_copy(const BallDyn& v) {
 inline BallDyn ball_map_entries(const BallDyn& v) {
   std::vector<std::any> r;
   try {
-    auto a = static_cast<std::any>(v);
+    // MSVC wraps a BallDyn into std::any (rather than calling operator std::any)
+    // when static_cast'd, so the raw `a` is often typeid(BallDyn). Unwrap it to
+    // reach the underlying map — otherwise this returns empty and every map
+    // iteration (incl. method-scope field binding) silently sees no entries.
+    auto a0 = static_cast<std::any>(v);
+    const std::any& a = _BallDynUnwrapper::unwrap(a0);
     const BallMap* mp = nullptr;
     BallMap tmp;
     if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }

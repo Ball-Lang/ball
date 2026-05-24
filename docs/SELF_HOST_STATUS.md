@@ -36,7 +36,55 @@ Last refreshed: 2026-05-07.
 
 ### C++ self-host (compiled engine_rt.cpp)
 
-Re-measured on Windows MSVC against the May 5 `engine_rt.cpp` backup: **66 / 170 pass (38.8%)**. Most remaining failures land in three categories:
+**2026-05-24:** `engine_rt.cpp` now **compiles cleanly under MSVC against the latest
+encoder IR** (commits `861cb5f`, `00a3151`) and passes **58 / 175** conformance
+fixtures (after the `ball_map_entries` unwrap fix below) when each test runs in
+an isolated process (the in-process harness dies
+on the first stack-overflowing fixture, so use a per-test loop with
+`BALL_TEST_FILTER` to get a robust count). This is the first time the latest IR
+compiles at all — the old 66/170 figure below was against a stale May-5 backup
+that couldn't compile the current IR.
+
+Getting from 0→56 required: a cascade fix (the compiler was dropping every
+`..addAll()`/`..[]=` op), 17 missing std functions (`string_starts_with`,
+`for_in`, `compare_to`, …, were emitting `0` placeholders), constructor-default
+field initializers, `field_2`→`field` getter mapping, and `_Scope(parent)`→
+`child(parent)`.
+
+**2026-05-24 (later):** Root-caused and fixed the OOP field-visibility bug.
+The method-scope field-binding loop iterates `ball_map_entries(selfMap)`, but
+`ball_map_entries` did `static_cast<std::any>(v)` and checked `a.type()`
+WITHOUT unwrapping — and under MSVC `static_cast<std::any>(BallDyn)` wraps the
+BallDyn (typeid==BallDyn) instead of calling `operator std::any()`, so the
+type checks matched neither `BallMap` nor `BallObject` and it returned an empty
+list. Zero fields bound → method bodies read every instance field as `null`.
+Fix: `_BallDynUnwrapper::unwrap` the value first (same fix applied to
+`ball_concat`). Verified with a standalone `cpp/test/scope_probe` (a fast,
+header-only reproduction of bind/child/has/lookup + ball_map_entries — builds in
+seconds, no 9400-line engine rebuild). `101_simple_class` now prints
+`(3, 4)`/`25`/`(0, 0)`/`0` (field READS work); count is **58/175**.
+
+**Known remaining (priority order):**
+1. **OOP field WRITE (reference semantics)** — `p2.x = 5` mutates a *copy* of
+   the instance, not the stored object, because C++ `BallDyn` value-copies the
+   underlying map on every `lookup`, whereas the Dart engine relies on map
+   reference semantics. `101_simple_class`'s last two lines (`(5, 12)`/`169`)
+   are still wrong for this reason. Fix requires backing user instances with a
+   shared map (`BallScope`/`shared_ptr<BallMap>`) and teaching `ball_is_map`,
+   `ball_object_type_matches`, `ball_map_entries`, `_cfAsMap`/`_asMap`, and the
+   `BallDyn` map ops to treat it as a map. This is the biggest remaining OOP
+   lever (most class tests 100–135 mutate object state).
+2. Crashers are all tests that cannot pass in self-host anyway: host-knob tests
+   `196_timeout`/`197_memory_limit`/`201_input_validation`/`202_sandbox_mode`
+   (need `timeoutMs`/`maxMemoryBytes`/`sandbox` constructor args that the IR
+   can't express — run unbounded and crash), plus known non-terminating
+   recursion `108_class_tostring`, `144_lcm_computation`, `84_exception_chain`,
+   `95_fibonacci_memo` (memoization with BallDyn map keys), `136_string_pattern_match`.
+   These should be skip-listed in the in-process harness (one crash there kills
+   the whole suite — use the per-fixture `cpp/test/run_selfhost_tally.sh`).
+
+---
+Older measurement (stale May-5 backup, pre-latest-IR): **66 / 170 pass (38.8%)**. Most remaining failures land in three categories:
 
 1. `BallException: Exception type=Exception` — symptomatic of the MSVC `BallDyn`-in-`std::any` wrapping bug from `CLAUDE.md`: MSVC stores `BallDyn` instances inside `std::any` instead of using `operator std::any()`, which breaks every test that catches a typed exception or stores a class instance in a heterogeneous container.
 2. Three skipped tests for infinite loops in memoization with `BallDyn` map keys.
@@ -95,5 +143,5 @@ Conformance fixtures that depend on `BallEngine` constructor knobs that don't su
 | US-005 Drive TS conformance ≥ 90% | ✅ done — 198/216 (91.7%) through wrapper after skip-list + std_time/convert wiring + DateTime polyfill |
 | US-006 Regenerate engine_rt.cpp | partial — `compile_engine_cpp.dart` emits a 9013-line `engine_rt.cpp` from the latest engine.ball.pb, but it doesn't build under MSVC because the Wave 7 `_trackMemoryAllocation` overload set confuses overload resolution. The May 5 backup is the live build artifact. |
 | US-007 Drive C++ conformance ≥ 50% | ✅ 92.4% on `test_conformance` (cpp engine + cpp compiler, 194/210); `test_selfhost_conformance` (compiled engine_rt.cpp) still 66/170 pending engine_rt regen + MSVC `BallDyn`-in-`std::any` fix. |
-| US-008 Add new conformance fixtures | not started |
+| US-008 Add new conformance fixtures | partial — 1/5 added (`203_closure_in_loop`) plus a `typed_list` dispatch fix that was blocking it; remaining 4 (record-pattern destructure, async chain rethrow, recursive types, generator state restore) are drafted but blocked on unrelated engine gaps |
 | US-009 Final self-host status doc | this file ✅ |

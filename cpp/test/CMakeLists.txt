@@ -136,6 +136,18 @@ if(EXISTS "${BALL_SELFHOST_CPP}")
     )
 endif()
 
+# Scope-machinery probe — isolates bind/child/has/lookup from the full engine
+# so scope-identity bugs can be debugged in seconds, not minutes.
+add_executable(scope_probe scope_probe.cpp)
+target_include_directories(scope_probe PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
+)
+set_target_properties(scope_probe PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+target_compile_options(scope_probe PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W0 /bigobj>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-w>
+)
+
 # Self-hosted engine conformance tests — runs conformance programs through
 # the compiled Ball engine (engine_rt.cpp). Includes engine_rt.cpp directly
 # and links against protobuf for JSON parsing of Ball programs.

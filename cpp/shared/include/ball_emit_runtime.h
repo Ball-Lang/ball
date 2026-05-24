@@ -164,9 +164,19 @@ inline bool ball_is_list(const std::any& v) {
     auto& u = _BallDynUnwrapper::unwrap(v);
     return u.has_value() && u.type() == typeid(BallList_RT);
 }
+// BallObject is defined later in this header (it `extends BallMap`). These
+// accessors let the type-predicate helpers below treat a BallObject as the
+// map it is, even though they are compiled before BallObject's definition.
+bool _ball_any_is_object(const std::any& u);
+const std::map<std::string, std::any>* _ball_object_base_map(const std::any& u);
+
 inline bool ball_is_map(const std::any& v) {
     auto& u = _BallDynUnwrapper::unwrap(v);
-    return u.has_value() && u.type() == typeid(BallMap_RT);
+    // A BallObject IS-A BallMap (Dart: `class BallObject extends BallMap`), so
+    // the engine's `v is Map<String,Object?>` / `_asMap` paths must see it as a
+    // map. Without this, instance fields never bind into method scopes.
+    return u.has_value() &&
+           (u.type() == typeid(BallMap_RT) || _ball_any_is_object(u));
 }
 inline bool ball_is_function(const std::any& v) {
     auto& u = _BallDynUnwrapper::unwrap(v);
@@ -210,8 +220,20 @@ inline bool ball_object_type_matches(const std::any& value, const std::string& t
     if (u.has_value() && u.type() == typeid(BallGenerator)) {
         return ball_type_name_matches("BallGenerator", type);
     }
-    if (!u.has_value() || u.type() != typeid(BallMap_RT)) return false;
-    const auto& m = std::any_cast<const BallMap_RT&>(u);
+    if (!u.has_value()) return false;
+    // Accept both a raw BallMap and a BallObject (a user class instance) — the
+    // BallObject's base map carries `__type__`/`__super__`, so `x is Point`
+    // resolves through the same walk. We deliberately do NOT report a match for
+    // the literal name "BallMap" here: `_asMap` checks `is BallMap` first and
+    // expects a raw-map shape, which the second (`ball_is_map`) branch supplies.
+    const BallMap_RT* mptr = nullptr;
+    if (u.type() == typeid(BallMap_RT)) {
+        mptr = &std::any_cast<const BallMap_RT&>(u);
+    } else {
+        mptr = _ball_object_base_map(u);
+    }
+    if (!mptr) return false;
+    const auto& m = *mptr;
     auto it = m.find("__type__");
     if (it != m.end() && it->second.has_value()) {
         auto& tv = _BallDynUnwrapper::unwrap(it->second);
@@ -223,8 +245,11 @@ inline bool ball_object_type_matches(const std::any& value, const std::string& t
     std::any super_obj = (sit != m.end()) ? sit->second : std::any{};
     while (super_obj.has_value()) {
         auto& su = _BallDynUnwrapper::unwrap(super_obj);
-        if (su.type() != typeid(BallMap_RT)) break;
-        const auto& sm = std::any_cast<const BallMap_RT&>(su);
+        const BallMap_RT* smptr = (su.type() == typeid(BallMap_RT))
+            ? &std::any_cast<const BallMap_RT&>(su)
+            : _ball_object_base_map(su);
+        if (!smptr) break;
+        const auto& sm = *smptr;
         auto st = sm.find("__type__");
         if (st != sm.end() && st->second.has_value()) {
             auto& stv = _BallDynUnwrapper::unwrap(st->second);
@@ -1225,5 +1250,19 @@ struct BallObject : public BallMap {
         __op_set_index__(ball_to_string(key), value);
     }
 };
+
+// Definitions for the forward-declared accessors used by ball_is_map /
+// ball_object_type_matches above. `u` is already an unwrapped std::any.
+inline bool _ball_any_is_object(const std::any& u) {
+    return u.has_value() && u.type() == typeid(BallObject);
+}
+inline const std::map<std::string, std::any>* _ball_object_base_map(
+    const std::any& u) {
+    if (u.has_value() && u.type() == typeid(BallObject)) {
+        // BallObject's base IS the field map (refreshed with __type__/__super__).
+        return &static_cast<const BallMap&>(std::any_cast<const BallObject&>(u));
+    }
+    return nullptr;
+}
 
 #endif  // BALL_EMIT_RUNTIME_H

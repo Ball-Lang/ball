@@ -2898,7 +2898,27 @@ $1async _resolveAndCallFunction(`,
     const value = field(call, "value");
     if (!target || !value) return;
     const op = stringField(call, "op") || "=";
-    this.writeln(`${this.expr(target)} ${op} ${this.expr(value)};`);
+    this.writeln(`${this.lvalueExpr(target)} ${op} ${this.expr(value)};`);
+  }
+
+  /**
+   * Like {@link expr}, but produces a valid assignment target (lvalue).
+   *
+   * The `index` operator (`a[i]`) normally compiles to the bounds-checked
+   * `__ball_index(a, i)` runtime helper so out-of-bounds list reads throw a
+   * Dart-style RangeError. A function-call expression can't be the left side
+   * of an assignment, so when an `index` call is the target of an `assign`
+   * (e.g. `map[key] = value`) we emit the raw `a[i]` bracket form instead.
+   */
+  private lvalueExpr(e: Expression): string {
+    const c = e.call;
+    if (c && c.function === "index" &&
+        (c.module === "" || c.module === "std" || c.module === "dart_std")) {
+      const t = field(c, "target");
+      const idx = field(c, "index");
+      if (t && idx) return `${this.expr(t)}[${this.expr(idx)}]`;
+    }
+    return this.expr(e);
   }
 
   private typedCatchCondition(type: string): string {
@@ -3302,7 +3322,7 @@ $1async _resolveAndCallFunction(`,
       case "math_pi":    return "Math.PI";
       case "math_e":     return "Math.E";
       case "print":      return `console.log(__ball_to_string(${this.expr(f.get("message")!)}))`;
-      case "index":      return `${this.expr(f.get("target")!)}[${this.expr(f.get("index")!)}]`;
+      case "index":      return `__ball_index(${this.expr(f.get("target")!)}, ${this.expr(f.get("index")!)})`;
       case "null_coalesce": return `(${this.expr(f.get("left")!)} ?? ${this.expr(f.get("right")!)})`;
       case "null_check": return this.expr(f.get("value")!);
       case "is": {
@@ -3338,7 +3358,7 @@ $1async _resolveAndCallFunction(`,
       case "assert":  return `console.assert(${this.expr(f.get("condition")!)})`;
       case "assign": {
         const op = stringField(call, "op") || "=";
-        return `(${this.expr(f.get("target")!)} ${op} ${this.expr(f.get("value")!)})`;
+        return `(${this.lvalueExpr(f.get("target")!)} ${op} ${this.expr(f.get("value")!)})`;
       }
       case "pre_increment":  return `(++${this.expr(f.get("value")!)})`;
       case "pre_decrement":  return `(--${this.expr(f.get("value")!)})`;

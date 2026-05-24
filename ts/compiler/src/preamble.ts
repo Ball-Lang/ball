@@ -212,6 +212,29 @@ function __ball_own(obj: any, key: any): any {
   return Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined;
 }
 
+// Dart-style index access. Dart's List '[]' operator throws RangeError on
+// out-of-bounds access, whereas JS array indexing silently returns undefined.
+// To make 'on RangeError' catch clauses behave like Dart we bounds-check list
+// (array) access here and throw a RangeError-shaped exception. Maps, strings
+// and objects keep their JS semantics (no throw) — Dart Map '[]' returns null
+// for absent keys, and String '[]' is handled by callers.
+function __ball_index(target: any, idx: any): any {
+  if (Array.isArray(target) && typeof idx === 'number' && Number.isInteger(idx)) {
+    if (idx < 0 || idx >= target.length) {
+      throw {
+        __type__: 'RangeError',
+        message: 'RangeError (index): Invalid value: ' +
+          (target.length === 0
+            ? 'Valid value range is empty: ' + idx
+            : 'Not in inclusive range 0..' + (target.length - 1) + ': ' + idx),
+        index: idx,
+      };
+    }
+    return target[idx];
+  }
+  return target[idx];
+}
+
 // Dart type shims — provide static methods for Dart built-in types
 // that don't exist in JS (int, double, num, bool).
 const int = {

@@ -1801,7 +1801,12 @@ class DartCompiler {
       _wl('$sig {');
       _depth++;
       if (func.hasBody()) {
-        _generateFunctionBody(func.body, _hasNonVoidReturn(func));
+        // Honour the encoder's `has_return` flag: a lambda assigned to a
+        // local (`final f = (x) { ... };`) carries no `outputType`, so
+        // `_hasNonVoidReturn` alone would drop the implicit return value of
+        // its final expression. Mirror `_compileLambda` here.
+        final hasReturn = meta['has_return'] == true || _hasNonVoidReturn(func);
+        _generateFunctionBody(func.body, hasReturn);
       }
       _depth--;
       _wl('}');
@@ -3783,7 +3788,10 @@ class DartCompiler {
   }
 
   String _compileStringPad(Map<String, Expression> f, String method) {
-    final v = f['value'], w = f['width'], p = f['padding'];
+    final v = f['value'], w = f['width'];
+    // The encoder names the padding character `fill` (METADATA_SPEC) while
+    // older fixtures use `padding`; accept either so the pad char isn't lost.
+    final p = f['fill'] ?? f['padding'];
     if (v == null || w == null) return '/* invalid $method */';
     final padStr = p != null ? ', ${_e(p)}' : '';
     return '${_e(v)}.$method(${_e(w)}$padStr)';

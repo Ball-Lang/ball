@@ -1968,6 +1968,45 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     // `x?.method()` → call only if x has a value
     if (fn == "null_aware_call") {
         auto target = get_message_field(call, "target");
+        // Encoder shape `{target, method}`: route the method name through
+        // method dispatch (so builtins like toInt/toDouble/round resolve)
+        // rather than compiling the bare name to an empty BallDyn functor.
+        auto method = get_string_field(call, "method");
+        auto* target_expr = get_message_field_expr(call, "target");
+        if (method == "call" && target_expr) {
+            // `x?.call(args)` invokes x as a function (BallDyn::operator()),
+            // NOT a named method — routing it through method dispatch would
+            // emit a nonexistent free function `call(x)`.
+            std::string args;
+            if (call.has_input() &&
+                call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+                for (const auto& f : call.input().message_creation().fields()) {
+                    if (f.name() == "target" || f.name() == "method") continue;
+                    if (!args.empty()) args += ", ";
+                    args += compile_expr(f.value());
+                }
+            }
+            return "(" + target + ".has_value() ? BallDyn(" + target + "(" + args +
+                   ")) : BallDyn())";
+        }
+        if (!method.empty() && target_expr) {
+            ball::v1::FunctionCall synth;
+            synth.set_function(method);
+            auto* mc = synth.mutable_input()->mutable_message_creation();
+            auto* sf = mc->add_fields();
+            sf->set_name("self");
+            *sf->mutable_value() = *target_expr;
+            // Forward any extra argument fields (everything but target/method).
+            if (call.has_input() &&
+                call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+                for (const auto& f : call.input().message_creation().fields()) {
+                    if (f.name() == "target" || f.name() == "method") continue;
+                    *mc->add_fields() = f;
+                }
+            }
+            return "(" + target + ".has_value() ? BallDyn(" +
+                   compile_method_call(method, synth) + ") : BallDyn())";
+        }
         auto callback = get_message_field(call, "callback");
         if (!callback.empty()) {
             return "(" + target + ".has_value() ? " + callback + "(" + target + ") : BallDyn())";

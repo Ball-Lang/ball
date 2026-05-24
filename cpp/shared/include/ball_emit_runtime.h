@@ -234,6 +234,37 @@ BallFinallyGuard<F> make_ball_finally(F f) { return BallFinallyGuard<F>(std::mov
 inline BallException _ball_make_exception(const std::string& type_name,
                                           const std::any& value) {
     const std::any& u = _BallDynUnwrapper::unwrap(value);
+    // `rethrow` (compiled as `throw <caught-var>`) hands us an exception that
+    // was already reconstructed into a DYN map by _ball_exception_to_dyn:
+    // {__type__: "BallException", typeName: ..., value: ...}. Re-wrapping the
+    // whole map would double-nest it (a catch would then see the map as the
+    // thrown value). Detect that shape and re-raise the ORIGINAL typeName +
+    // value so the payload survives an arbitrary number of rethrows.
+    if (u.has_value() && u.type() == typeid(BallMap_RT)) {
+        const auto& m = std::any_cast<const BallMap_RT&>(u);
+        auto tit = m.find("__type__");
+        if (tit != m.end()) {
+            const std::any& tv = _BallDynUnwrapper::unwrap(tit->second);
+            if (tv.type() == typeid(std::string) &&
+                std::any_cast<const std::string&>(tv) == "BallException") {
+                std::string inner_type = type_name;
+                auto nit = m.find("typeName");
+                if (nit != m.end()) {
+                    const std::any& nv = _BallDynUnwrapper::unwrap(nit->second);
+                    if (nv.type() == typeid(std::string))
+                        inner_type = std::any_cast<const std::string&>(nv);
+                }
+                std::any inner_val;
+                bool has_inner = false;
+                auto vit = m.find("value");
+                if (vit != m.end()) { inner_val = _BallDynUnwrapper::unwrap(vit->second); has_inner = true; }
+                BallException e(inner_type, ball_to_string(inner_val));
+                e.value = inner_val;
+                e.has_payload = has_inner;
+                return e;
+            }
+        }
+    }
     BallException e(type_name, ball_to_string(u));
     e.value = u;
     e.has_payload = true;
@@ -687,20 +718,195 @@ struct JsonEncoder {
 struct JsonDecoder {
     bool __const__ = false;
 };
+
+// Escape a string per JSON rules (quotes, backslash, control chars).
+inline std::string _ball_json_escape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 2);
+    out += '"';
+    for (char c : s) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    static const char* hex = "0123456789abcdef";
+                    unsigned char uc = static_cast<unsigned char>(c);
+                    out += "\\u00";
+                    out += hex[(uc >> 4) & 0xF];
+                    out += hex[uc & 0xF];
+                } else {
+                    out += c;
+                }
+        }
+    }
+    out += '"';
+    return out;
+}
+
+// Recursively serialize a (already _toJsonSafe-processed) BallDyn/std::any to
+// JSON. Maps -> {"k":v}, lists -> [..], strings quoted+escaped, ints without a
+// trailing .0, doubles via ball_to_string, bools/null literally. Internal keys
+// (starting with "__" or "type_args") are skipped to match the Dart engine.
+inline std::string _ball_json_encode(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    if (!u.has_value()) return "null";
+    if (u.type() == typeid(bool)) return std::any_cast<bool>(u) ? "true" : "false";
+    if (u.type() == typeid(int64_t)) return std::to_string(std::any_cast<int64_t>(u));
+    if (u.type() == typeid(int)) return std::to_string(std::any_cast<int>(u));
+    if (u.type() == typeid(double)) return ball_to_string(std::any_cast<double>(u));
+    if (u.type() == typeid(std::string)) return _ball_json_escape(std::any_cast<const std::string&>(u));
+    if (u.type() == typeid(const char*)) return _ball_json_escape(std::string(std::any_cast<const char*>(u)));
+    auto encode_list = [](const BallList_RT& list) {
+        std::string out = "[";
+        bool first = true;
+        for (const auto& e : list) {
+            if (!first) out += ",";
+            out += _ball_json_encode(e);
+            first = false;
+        }
+        out += "]";
+        return out;
+    };
+    if (u.type() == typeid(BallList_RT)) return encode_list(std::any_cast<const BallList_RT&>(u));
+    if (const BallList_RT* lp = _BallRefDeref::list(u)) return encode_list(*lp);
+    if (u.type() == typeid(BallMap_RT)) {
+        auto& m = std::any_cast<const BallMap_RT&>(u);
+        std::string out = "{";
+        bool first = true;
+        for (auto it = m.begin(); it != m.end(); ++it) {
+            if (it->first.rfind("__", 0) == 0 || it->first == "type_args") continue;
+            if (!first) out += ",";
+            out += _ball_json_escape(it->first) + ":" + _ball_json_encode(it->second);
+            first = false;
+        }
+        out += "}";
+        return out;
+    }
+    return _ball_json_escape(ball_to_string(u));
+}
+
+// Bounded recursive-descent JSON parser. Produces BallMap_RT for objects,
+// BallList_RT for arrays, int64_t/double/bool/std::string/empty for scalars.
+inline std::any _ball_json_parse(const std::string& s, size_t& i, int depth);
+inline void _ball_json_skip_ws(const std::string& s, size_t& i) {
+    while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) ++i;
+}
+inline std::string _ball_json_parse_string(const std::string& s, size_t& i) {
+    std::string out;
+    ++i;  // opening quote
+    while (i < s.size() && s[i] != '"') {
+        char c = s[i++];
+        if (c == '\\' && i < s.size()) {
+            char e = s[i++];
+            switch (e) {
+                case 'n': out += '\n'; break;
+                case 'r': out += '\r'; break;
+                case 't': out += '\t'; break;
+                case 'b': out += '\b'; break;
+                case 'f': out += '\f'; break;
+                case '/': out += '/'; break;
+                case '"': out += '"'; break;
+                case '\\': out += '\\'; break;
+                case 'u': {
+                    if (i + 4 <= s.size()) {
+                        unsigned code = static_cast<unsigned>(std::stoul(s.substr(i, 4), nullptr, 16));
+                        i += 4;
+                        // Encode as UTF-8 (BMP only; matches the common cases).
+                        if (code < 0x80) out += static_cast<char>(code);
+                        else if (code < 0x800) {
+                            out += static_cast<char>(0xC0 | (code >> 6));
+                            out += static_cast<char>(0x80 | (code & 0x3F));
+                        } else {
+                            out += static_cast<char>(0xE0 | (code >> 12));
+                            out += static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+                            out += static_cast<char>(0x80 | (code & 0x3F));
+                        }
+                    }
+                    break;
+                }
+                default: out += e;
+            }
+        } else {
+            out += c;
+        }
+    }
+    if (i < s.size()) ++i;  // closing quote
+    return out;
+}
+inline std::any _ball_json_parse(const std::string& s, size_t& i, int depth) {
+    if (depth > 256) return std::any{};
+    _ball_json_skip_ws(s, i);
+    if (i >= s.size()) return std::any{};
+    char c = s[i];
+    if (c == '{') {
+        ++i;
+        BallMap_RT obj;
+        _ball_json_skip_ws(s, i);
+        if (i < s.size() && s[i] == '}') { ++i; return std::any(std::move(obj)); }
+        while (i < s.size()) {
+            _ball_json_skip_ws(s, i);
+            std::string key = (i < s.size() && s[i] == '"') ? _ball_json_parse_string(s, i) : std::string();
+            _ball_json_skip_ws(s, i);
+            if (i < s.size() && s[i] == ':') ++i;
+            obj[key] = _ball_json_parse(s, i, depth + 1);
+            _ball_json_skip_ws(s, i);
+            if (i < s.size() && s[i] == ',') { ++i; continue; }
+            if (i < s.size() && s[i] == '}') { ++i; break; }
+            break;
+        }
+        return std::any(std::move(obj));
+    }
+    if (c == '[') {
+        ++i;
+        BallList_RT arr;
+        _ball_json_skip_ws(s, i);
+        if (i < s.size() && s[i] == ']') { ++i; return std::any(std::move(arr)); }
+        while (i < s.size()) {
+            arr.push_back(_ball_json_parse(s, i, depth + 1));
+            _ball_json_skip_ws(s, i);
+            if (i < s.size() && s[i] == ',') { ++i; continue; }
+            if (i < s.size() && s[i] == ']') { ++i; break; }
+            break;
+        }
+        return std::any(std::move(arr));
+    }
+    if (c == '"') return std::any(_ball_json_parse_string(s, i));
+    if (s.compare(i, 4, "true") == 0) { i += 4; return std::any(true); }
+    if (s.compare(i, 5, "false") == 0) { i += 5; return std::any(false); }
+    if (s.compare(i, 4, "null") == 0) { i += 4; return std::any{}; }
+    // Number.
+    size_t start = i;
+    bool is_double = false;
+    if (i < s.size() && (s[i] == '-' || s[i] == '+')) ++i;
+    while (i < s.size() && ((s[i] >= '0' && s[i] <= '9') ||
+                            s[i] == '.' || s[i] == 'e' || s[i] == 'E' ||
+                            s[i] == '+' || s[i] == '-')) {
+        if (s[i] == '.' || s[i] == 'e' || s[i] == 'E') is_double = true;
+        ++i;
+    }
+    std::string num = s.substr(start, i - start);
+    if (num.empty()) { ++i; return std::any{}; }
+    try {
+        if (is_double) return std::any(std::stod(num));
+        return std::any(static_cast<int64_t>(std::stoll(num)));
+    } catch (...) {
+        try { return std::any(std::stod(num)); } catch (...) {}
+    }
+    return std::any{};
+}
+
 inline std::string convert(const JsonEncoder&, const std::any& value) {
-    return ball_to_string(value);
+    return _ball_json_encode(value);
 }
 inline std::any convert(const JsonDecoder&, const std::string& text) {
-    // Minimal JSON decode: try to parse as number, bool, null, or return as string.
-    if (text == "null") return std::any{};
-    if (text == "true") return std::any(true);
-    if (text == "false") return std::any(false);
-    try { return std::any(static_cast<int64_t>(std::stoll(text))); } catch (...) {}
-    try { return std::any(std::stod(text)); } catch (...) {}
-    // Strip surrounding quotes if present
-    if (text.size() >= 2 && text.front() == '"' && text.back() == '"')
-        return std::any(text.substr(1, text.size() - 2));
-    return std::any(text);
+    size_t i = 0;
+    return _ball_json_parse(text, i, 0);
 }
 
 // ── utf8 / base64 codec stubs ──

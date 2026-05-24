@@ -527,7 +527,15 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     if (field == "entries") {
         return "ball_map_entries(BallDyn(" + obj + "))";
     }
-    // NOTE: do NOT blindly map `.keys`/`.values` here — `.values` is overloaded
+    // Dart Map.keys → the map's key collection. Unlike `.values` (which is
+    // overloaded across BallGenerator/enum/ListValue), `.keys` is map-only in
+    // the engine, so a blanket dispatch to ball_map_keys is safe. The bare
+    // getter would otherwise compile to `obj["keys"]` (a key lookup that
+    // returns null), breaking the engine's own std map_keys implementation.
+    if (field == "keys") {
+        return "ball_map_keys(BallDyn(" + obj + "))";
+    }
+    // NOTE: do NOT blindly map `.values` here — `.values` is overloaded
     // (BallGenerator.values, enum .values, proto reflection) and a blanket
     // dispatch to ball_map_values regressed conformance 72->40. The engine's
     // own _evalFieldAccess already handles Map.keys/.values for program maps;
@@ -1736,11 +1744,13 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 }
             }
         }
-        // Non-message value — stringify and pass through as the message
-        // with an empty fields map.
+        // Non-message value — route through _ball_make_exception so the real
+        // thrown value is preserved as the payload (catch reads e["value"]),
+        // and a `rethrow` (throw <caught-var>) re-raises the original exception
+        // instead of double-wrapping the reconstructed DYN map.
         std::string message_expr = get_message_field(call, "value");
-        return "throw BallException(\"" + type_name + "\"s, " + message_expr +
-               ")";
+        return "throw _ball_make_exception(\"" + type_name + "\"s, " +
+               message_expr + ")";
     }
     if (fn == "assert") {
         auto cond = get_message_field(call, "condition");

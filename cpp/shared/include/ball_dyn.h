@@ -183,10 +183,11 @@ public:
         if (_val.type() == typeid(int64_t)) return std::to_string(std::any_cast<int64_t>(_val));
         if (_val.type() == typeid(int)) return std::to_string(std::any_cast<int>(_val));
         if (_val.type() == typeid(double)) {
-            double d = std::any_cast<double>(_val);
-            if (d == static_cast<double>(static_cast<long long>(d)))
-                return std::to_string(static_cast<long long>(d)) + ".0";
-            return std::to_string(d);
+            // Delegate to ball_to_string(double) so NaN/Infinity and Dart-style
+            // formatting (e.g. `6.0`, trailing-zero trimming) are handled in one
+            // place. The naive `static_cast<long long>` guard below mis-handled
+            // Infinity (UB cast) and printed "inf".
+            return ball_to_string(std::any_cast<double>(_val));
         }
         if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) ? "true" : "false";
         // List: Dart-style [a, b, c]

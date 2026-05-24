@@ -402,6 +402,13 @@ const engine = new BallEngine(
   undefined,       // envGet
   [],              // args
   false,           // enableProfiling
+  100000,          // maxRecursionDepth
+  null,            // timeoutMs (null = unbounded)
+  null,            // maxMemoryBytes (null = unbounded)
+  1000000,         // maxModules
+  1000000,         // maxExpressionDepth
+  null,            // maxProgramSizeBytes (null = skip size check)
+  false,           // sandbox
   [methodHandler, stdHandler],  // moduleHandlers
   undefined,       // resolver
 );

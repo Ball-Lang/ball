@@ -168,16 +168,42 @@ using BallFunc_RT = std::function<std::any(std::any)>;
 // std::any's template constructor, wrapping the BallDyn object in std::any
 // instead of extracting BallDyn::_val. This helper detects and unwraps.
 struct _BallDynUnwrapper {
+    // Unwrap a BallDyn stored inside std::any (MSVC's BallDyn-in-any quirk).
+    // RECURSIVE: a value can be wrapped more than once
+    // (std::any(BallDyn(std::any(BallDyn(x))))) when a BallDyn is round-tripped
+    // through std::any multiple times (e.g. bind -> scope -> lookup -> field
+    // access). A single unwrap would leave a still-BallDyn-typed value, so every
+    // typeid check downstream would miss and unguarded any_casts would throw
+    // bad_any_cast. Peel every BallDyn layer until the real underlying value.
     static const std::any& unwrap(const std::any& v) {
-        if (v.has_value() && _unwrap_fn) {
-            auto* result = _unwrap_fn(v);
-            if (result) return *result;
+        const std::any* cur = &v;
+        while (cur->has_value() && _unwrap_fn) {
+            auto* result = _unwrap_fn(*cur);
+            if (!result) break;
+            cur = result;
         }
-        return v;
+        return *cur;
     }
     using UnwrapFn = const std::any* (*)(const std::any&);
     static inline UnwrapFn _unwrap_fn = nullptr;
 };
+
+// Coerce a predicate result (filter/where/any/all callbacks) to bool WITHOUT
+// throwing. The compiled filter lambdas previously did
+// `std::any_cast<bool>(std::any(fn(e)))`, which throws bad_any_cast whenever the
+// predicate returns a non-bool (a BallDyn wrapping a bool, an int, etc.) — a
+// recurring MSVC BallDyn-in-any hazard. This unwraps and accepts bool / int /
+// double / non-empty truthiness, returning false for empty/unknown.
+inline bool _ball_pred_true(const std::any& raw) {
+    const std::any& v = _BallDynUnwrapper::unwrap(raw);
+    if (!v.has_value()) return false;
+    if (v.type() == typeid(bool)) return std::any_cast<bool>(v);
+    if (v.type() == typeid(int64_t)) return std::any_cast<int64_t>(v) != 0;
+    if (v.type() == typeid(int)) return std::any_cast<int>(v) != 0;
+    if (v.type() == typeid(double)) return std::any_cast<double>(v) != 0.0;
+    return true;  // non-null, non-numeric → truthy (matches Dart-ish coercion)
+}
+
 
 // Reference-semantic program lists are stored shared_ptr-backed (BallListRef)
 // inside BallDyn. That handle type is declared only in ball_dyn.h (compiled

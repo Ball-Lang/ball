@@ -4309,7 +4309,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         if (!cb_e) cb_e = get_message_field_expr(call, "function");
         if (!cb_e) cb_e = get_message_field_expr(call, "value");
         auto callback = cb_e ? compile_expr(*cb_e) : "BallDyn()";
-        return "[](const BallDyn& v, auto fn) -> BallDyn {BallList r;for(size_t i=0;i<v.size();i++){auto e=v[static_cast<int64_t>(i)];if(std::any_cast<bool>(std::any(fn(e))))r.push_back(std::any(e));}return BallDyn(r);}("
+        return "[](const BallDyn& v, auto fn) -> BallDyn {BallList r;for(size_t i=0;i<v.size();i++){auto e=v[static_cast<int64_t>(i)];if(_ball_pred_true(std::any(fn(e))))r.push_back(std::any(e));}return BallDyn(r);}("
                + list + "," + callback + ")";
     }
     if (fn == "list_reduce") {
@@ -4326,28 +4326,28 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         auto list = get_message_field(call, "list");
         auto callback = get_message_field(call, "callback");
         return "[](const auto& v, auto fn)->std::any{"
-               "for(const auto& e:v)if(std::any_cast<bool>(fn(e)))return e;return std::any{};}("
+               "for(const auto& e:v)if(_ball_pred_true(fn(e)))return e;return std::any{};}("
                + list + "," + callback + ")";
     }
     if (fn == "list_any") {
         auto list = get_message_field(call, "list");
         auto callback = get_message_field(call, "callback");
         return "[](const auto& v, auto fn){"
-               "for(const auto& e:v)if(std::any_cast<bool>(fn(e)))return true;return false;}("
+               "for(const auto& e:v)if(_ball_pred_true(fn(e)))return true;return false;}("
                + list + "," + callback + ")";
     }
     if (fn == "list_all") {
         auto list = get_message_field(call, "list");
         auto callback = get_message_field(call, "callback");
         return "[](const auto& v, auto fn){"
-               "for(const auto& e:v)if(!std::any_cast<bool>(fn(e)))return false;return true;}("
+               "for(const auto& e:v)if(!_ball_pred_true(fn(e)))return false;return true;}("
                + list + "," + callback + ")";
     }
     if (fn == "list_none") {
         auto list = get_message_field(call, "list");
         auto callback = get_message_field(call, "callback");
         return "[](const auto& v, auto fn){"
-               "for(const auto& e:v)if(std::any_cast<bool>(fn(e)))return false;return true;}("
+               "for(const auto& e:v)if(_ball_pred_true(fn(e)))return false;return true;}("
                + list + "," + callback + ")";
     }
     if (fn == "list_sort") {
@@ -4499,7 +4499,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         return "[](const auto& m, auto fn){std::map<std::string,std::any> r;"
                "for(const auto& [k,v]:m){std::map<std::string,std::any> e;"
                "e[\"key\"]=std::any(k);e[\"value\"]=v;"
-               "if(std::any_cast<bool>(fn(std::any(e))))r[k]=v;}return r;}("
+               "if(_ball_pred_true(fn(std::any(e))))r[k]=v;}return r;}("
                + map + "," + callback + ")";
     }
 

@@ -1652,6 +1652,29 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         std::string type_name = "Exception";
         bool is_msg = val_expr &&
                       val_expr->expr_case() == ball::v1::Expression::kMessageCreation;
+
+        // Engine's own `throw BallException(typeName, value)` — the args are
+        // RUNTIME values (references), not string literals, so the generic
+        // is_msg path below would discard them. Preserve the runtime payload
+        // via _ball_make_exception so a catch handler reads the real thrown
+        // value (e["value"]) instead of the literal "Exception".
+        if (is_msg) {
+            std::string bare_t = sanitize_name(val_expr->message_creation().type_name());
+            auto bc = bare_t.find(':');
+            if (bc != std::string::npos) bare_t = bare_t.substr(bc + 1);
+            if (bare_t == "BallException") {
+                const ball::v1::Expression* tn_e = nullptr;
+                const ball::v1::Expression* vn_e = nullptr;
+                for (const auto& f : val_expr->message_creation().fields()) {
+                    if (f.name() == "arg0" || f.name() == "typeName") tn_e = &f.value();
+                    else if (f.name() == "arg1" || f.name() == "value") vn_e = &f.value();
+                }
+                std::string tn_expr = tn_e ? ("ball_to_string(" + compile_expr(*tn_e) + ")")
+                                           : "std::string(\"Exception\")";
+                std::string vn_expr = vn_e ? compile_expr(*vn_e) : "BallDyn()";
+                return "throw _ball_make_exception(" + tn_expr + ", " + vn_expr + ")";
+            }
+        }
         if (is_msg) {
             std::string fields_init;
             for (const auto& f : val_expr->message_creation().fields()) {
@@ -2984,14 +3007,16 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                     indent_++;
                     if (first_untyped) {
                         auto var = sanitize_name(first_untyped->var);
-                        emit_line("std::string " + var + " = __ball_e.what();");
+                        // Bind the caught value as a BallDyn: a reconstructed
+                        // {__type__, typeName, value} map for a BallException
+                        // (so `e is BallException`, e["value"], e["typeName"]
+                        // work), or the .what() string for a real C++ exception.
+                        emit_line("auto " + var + " = _ball_caught_to_dyn(__ball_e);");
                         if (!first_untyped->stack_var.empty()) {
                             emit_line("std::string " +
                                       sanitize_name(first_untyped->stack_var) +
                                       " = \"<stack trace unavailable>\"s;");
                         }
-                        // Not a BallException — no fields map, so don't
-                        // register as catch-bound for field access.
                         emit_catch_body(*first_untyped);
                     } else {
                         emit_line("throw;");

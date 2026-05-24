@@ -26,6 +26,12 @@
 struct BallException : public std::runtime_error {
     std::string type_name;
     std::map<std::string, std::string> fields;
+    // Arbitrary thrown payload (the engine's `BallException(typeName, value)`),
+    // preserved so a catch handler can read the real thrown value — not just
+    // the stringified message. has_payload distinguishes "no payload" from a
+    // payload that happens to be a null/empty value.
+    std::any value;
+    bool has_payload = false;
     BallException(std::string t, std::string msg)
         : std::runtime_error(msg), type_name(std::move(t)) {}
     BallException(std::string t, std::string msg,
@@ -202,6 +208,20 @@ struct BallFinallyGuard {
 };
 template <class F>
 BallFinallyGuard<F> make_ball_finally(F f) { return BallFinallyGuard<F>(std::move(f)); }
+
+// Construct a BallException carrying an arbitrary payload (the engine's
+// `BallException(typeName, value)`). The payload is unwrapped first so the
+// stored value is the real underlying object (string/map/...), not a BallDyn
+// re-wrapped inside std::any (MSVC's static_cast<std::any>(BallDyn) quirk). A
+// matching catch handler reads the value back via _ball_exception_to_dyn.
+inline BallException _ball_make_exception(const std::string& type_name,
+                                          const std::any& value) {
+    const std::any& u = _BallDynUnwrapper::unwrap(value);
+    BallException e(type_name, ball_to_string(u));
+    e.value = u;
+    e.has_payload = true;
+    return e;
+}
 
 // Check if a value is a FlowSignal (a map with a "kind" field).
 inline bool ball_is_flow_signal(const std::any& v) {

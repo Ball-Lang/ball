@@ -1189,5 +1189,26 @@ inline BallDyn ball_skip(const BallDyn& v, int64_t n) {
     return v;
 }
 
+// ── Caught-exception reconstruction ──
+// Rebuild the engine's BallException value-shape from a thrown C++
+// BallException so catch bodies can read `e["value"]` / `e["typeName"]` and
+// `e is BallException` (ball_object_type_matches(e, "BallException")) works.
+// Defined here (end of ball_dyn.h) because they return a BallDyn; BallException
+// itself is declared earlier in ball_emit_runtime.h (always spliced first).
+inline BallDyn _ball_exception_to_dyn(const BallException& e) {
+    std::map<std::string, std::any> m;
+    m["__type__"] = std::any(std::string("BallException"));
+    m["typeName"] = std::any(e.type_name);
+    m["value"] = e.has_payload ? e.value : std::any(std::string(e.what()));
+    BallDyn d;
+    d._val = std::any(std::move(m));
+    return d;
+}
+inline BallDyn _ball_caught_to_dyn(const std::exception& ex) {
+    if (auto* be = dynamic_cast<const BallException*>(&ex))
+        return _ball_exception_to_dyn(*be);
+    return BallDyn(std::string(ex.what()));
+}
+
 // ================================================================
 #endif  // BALL_DYN_H

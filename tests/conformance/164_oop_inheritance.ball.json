@@ -29,6 +29,10 @@
         {
           "name": "to_string",
           "isBase": true
+        },
+        {
+          "name": "return",
+          "isBase": true
         }
       ]
     },
@@ -141,10 +145,24 @@
                   }
                 },
                 {
-                  "return": {
-                    "value": {
-                      "reference": {
-                        "name": "self"
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "return",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "value",
+                              "value": {
+                                "reference": {
+                                  "name": "self"
+                                }
+                              }
+                            }
+                          ]
+                        }
                       }
                     }
                   }

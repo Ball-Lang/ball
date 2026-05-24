@@ -1,0 +1,94 @@
+{
+  "name": "210_recursive_tree_sum",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "to_string", "isBase": true },
+        { "name": "if", "isBase": true },
+        { "name": "return", "isBase": true },
+        { "name": "equals", "isBase": true },
+        { "name": "add", "isBase": true },
+        { "name": "index", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "sumTree",
+          "inputType": "List",
+          "outputType": "int",
+          "body": {
+            "block": {
+              "statements": [
+                { "expression": { "call": { "module": "std", "function": "if", "input": { "messageCreation": { "fields": [
+                  { "name": "condition", "value": { "call": { "module": "std", "function": "equals", "input": { "messageCreation": { "fields": [
+                    { "name": "left", "value": { "fieldAccess": { "object": { "reference": { "name": "node" } }, "field": "length" } } },
+                    { "name": "right", "value": { "literal": { "intValue": "1" } } }
+                  ] } } } } },
+                  { "name": "then", "value": { "call": { "module": "std", "function": "return", "input": { "messageCreation": { "fields": [
+                    { "name": "value", "value": { "call": { "module": "std", "function": "index", "input": { "messageCreation": { "fields": [
+                      { "name": "target", "value": { "reference": { "name": "node" } } },
+                      { "name": "index", "value": { "literal": { "intValue": "0" } } }
+                    ] } } } } }
+                  ] } } } } }
+                ] } } } } }
+              ],
+              "result": {
+                "call": { "module": "std", "function": "add", "input": { "messageCreation": { "fields": [
+                  { "name": "left", "value": { "call": { "module": "std", "function": "add", "input": { "messageCreation": { "fields": [
+                    { "name": "left", "value": { "call": { "module": "std", "function": "index", "input": { "messageCreation": { "fields": [
+                      { "name": "target", "value": { "reference": { "name": "node" } } },
+                      { "name": "index", "value": { "literal": { "intValue": "0" } } }
+                    ] } } } } },
+                    { "name": "right", "value": { "call": { "function": "sumTree", "input": { "call": { "module": "std", "function": "index", "input": { "messageCreation": { "fields": [
+                      { "name": "target", "value": { "reference": { "name": "node" } } },
+                      { "name": "index", "value": { "literal": { "intValue": "1" } } }
+                    ] } } } } } } }
+                  ] } } } } },
+                  { "name": "right", "value": { "call": { "function": "sumTree", "input": { "call": { "module": "std", "function": "index", "input": { "messageCreation": { "fields": [
+                    { "name": "target", "value": { "reference": { "name": "node" } } },
+                    { "name": "index", "value": { "literal": { "intValue": "2" } } }
+                  ] } } } } } } }
+                ] } } }
+              }
+            }
+          },
+          "metadata": { "kind": "function", "params": [ { "name": "node", "type": "List" } ] }
+        },
+        {
+          "name": "main",
+          "body": {
+            "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+              { "name": "message", "value": { "call": { "module": "std", "function": "to_string", "input": { "messageCreation": { "fields": [
+                { "name": "value", "value": { "call": { "function": "sumTree", "input": { "literal": { "listValue": { "elements": [
+                  { "literal": { "intValue": "1" } },
+                  { "literal": { "listValue": { "elements": [
+                    { "literal": { "intValue": "2" } },
+                    { "literal": { "listValue": { "elements": [ { "literal": { "intValue": "4" } } ] } } },
+                    { "literal": { "listValue": { "elements": [ { "literal": { "intValue": "5" } } ] } } }
+                  ] } } },
+                  { "literal": { "listValue": { "elements": [
+                    { "literal": { "intValue": "3" } },
+                    { "literal": { "listValue": { "elements": [ { "literal": { "intValue": "6" } } ] } } },
+                    { "literal": { "listValue": { "elements": [ { "literal": { "intValue": "7" } } ] } } }
+                  ] } } }
+                ] } } } } } }
+              ] } } } } }
+            ] } } }
+          },
+          "metadata": { "kind": "function" }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

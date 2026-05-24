@@ -37,7 +37,7 @@ Last refreshed: 2026-05-07.
 ### C++ self-host (compiled engine_rt.cpp)
 
 **2026-05-24:** `engine_rt.cpp` now **compiles cleanly under MSVC against the latest
-encoder IR** (commits `861cb5f`, `00a3151`) and passes **58 / 175** conformance
+encoder IR** (commits `861cb5f`, `00a3151`) and passes **59 / 175** conformance
 fixtures (after the `ball_map_entries` unwrap fix below) when each test runs in
 an isolated process (the in-process harness dies
 on the first stack-overflowing fixture, so use a per-test loop with
@@ -61,19 +61,29 @@ list. Zero fields bound → method bodies read every instance field as `null`.
 Fix: `_BallDynUnwrapper::unwrap` the value first (same fix applied to
 `ball_concat`). Verified with a standalone `cpp/test/scope_probe` (a fast,
 header-only reproduction of bind/child/has/lookup + ball_map_entries — builds in
-seconds, no 9400-line engine rebuild). `101_simple_class` now prints
-`(3, 4)`/`25`/`(0, 0)`/`0` (field READS work); count is **58/175**.
+seconds, no 9400-line engine rebuild). Field READS now work.
+
+**2026-05-24 (later still):** Fixed OOP field WRITE (`p2.x = 5`) too. C++
+`BallDyn` value-copies the instance map on every scope `lookup`, so the in-place
+`map[field]=val` mutated a discarded copy. Added `_cfWritebackInstance` in the
+engine's field-assignment path: after the write, re-store the mutated map to the
+variable when the target is a simple reference. The guard
+`obj is! Map || obj is BallMap` adapts per target — under Dart a `BallObject`
+is not a `Map` (so it's skipped, no type change; raw-map instances re-set the
+same reference harmlessly), while under C++ it reads as a map and is persisted.
+Cross-target safe: Dart class-range conformance (`dart test --name "10"`) stays
+green and `101_simple_class` now PASSES end to end. Count: **59/175**.
 
 **Known remaining (priority order):**
-1. **OOP field WRITE (reference semantics)** — `p2.x = 5` mutates a *copy* of
-   the instance, not the stored object, because C++ `BallDyn` value-copies the
-   underlying map on every `lookup`, whereas the Dart engine relies on map
-   reference semantics. `101_simple_class`'s last two lines (`(5, 12)`/`169`)
-   are still wrong for this reason. Fix requires backing user instances with a
-   shared map (`BallScope`/`shared_ptr<BallMap>`) and teaching `ball_is_map`,
-   `ball_object_type_matches`, `ball_map_entries`, `_cfAsMap`/`_asMap`, and the
-   `BallDyn` map ops to treat it as a map. This is the biggest remaining OOP
-   lever (most class tests 100–135 mutate object state).
+1. **OOP feature long-tail** — beyond field read/write, each class feature has
+   its own dispatch path that still needs work: getters/setters (104),
+   static/factory methods (105/106), `super` calls + override (107), operator
+   overloading (113), inheritance/virtual dispatch (114/164–166/177–179),
+   generics (115/168/180–181), and the collection/algorithm tests (116–135).
+   These now fail for per-feature reasons, not the (now-fixed) field-access core.
+   Note: constructor-with-body instances are `BallObject`; the writeback handles
+   them in C++ but a fuller reference-semantic instance model (shared
+   `BallScope`-backed maps) would be more robust for aliasing/identity cases.
 2. Crashers are all tests that cannot pass in self-host anyway: host-knob tests
    `196_timeout`/`197_memory_limit`/`201_input_validation`/`202_sandbox_mode`
    (need `timeoutMs`/`maxMemoryBytes`/`sandbox` constructor args that the IR

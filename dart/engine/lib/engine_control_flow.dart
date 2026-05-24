@@ -682,6 +682,29 @@ extension BallEngineControlFlow on BallEngine {
     return _FlowSignal('continue', label: label);
   }
 
+  /// Writes a mutated instance map back to its variable after `obj.field = val`.
+  ///
+  /// The Dart and TS engines treat maps as references, so the in-place
+  /// `map[field] = val` above already updated the stored object and this re-set
+  /// is a harmless no-op. The compiled C++ engine value-copies maps on every
+  /// scope lookup, so without this the mutated copy is discarded and the write
+  /// is lost. We only re-store when the target object is a *simple reference*
+  /// and the value reads as a map; the guard `obj is! Map || obj is BallMap`
+  /// adapts per target — under Dart a `BallObject` is not a `Map` (so it is
+  /// skipped, avoiding a type change), while under C++ it reads as a map and is
+  /// correctly persisted.
+  void _cfWritebackInstance(
+    Expression objExpr,
+    Object? obj,
+    Map<String, Object?> map,
+    _Scope scope,
+  ) {
+    if (objExpr.whichExpr() != Expression_Expr.reference) return;
+    if (obj is! Map<String, Object?> || obj is BallMap) return;
+    final name = objExpr.reference.name;
+    if (scope.has(name)) scope.set(name, map);
+  }
+
   Future<Object?> _evalAssign(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final target = fields['target'];
@@ -756,6 +779,7 @@ extension BallEngineControlFlow on BallEngine {
           final current = map[fieldName];
           final computed = _applyCompoundOp(op, current, val);
           map[fieldName] = computed;
+          _cfWritebackInstance(target.fieldAccess.object, obj, map, scope);
           return computed;
         }
 
@@ -764,6 +788,7 @@ extension BallEngineControlFlow on BallEngine {
         if (setterResult != _sentinel) return setterResult;
 
         map[fieldName] = val;
+        _cfWritebackInstance(target.fieldAccess.object, obj, map, scope);
         return val;
       }
     }

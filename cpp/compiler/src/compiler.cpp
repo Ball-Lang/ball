@@ -511,6 +511,11 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     if (field == "entries") {
         return "ball_map_entries(BallDyn(" + obj + "))";
     }
+    // NOTE: do NOT blindly map `.keys`/`.values` here — `.values` is overloaded
+    // (BallGenerator.values, enum .values, proto reflection) and a blanket
+    // dispatch to ball_map_values regressed conformance 72->40. The engine's
+    // own _evalFieldAccess already handles Map.keys/.values for program maps;
+    // ball_map_keys/ball_map_values remain available as runtime helpers.
     // Dart positional record field access: `.$1`, `.$2`, ... Lower to
     // `std::get<0>(...)` / `std::get<1>(...)` since records emit as
     // std::tuple<...> (see compile_message_creation below).
@@ -1777,10 +1782,15 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 result += "return __m; }()";
                 return result;
             }
-            // No entry fields: use direct field names as keys
+            // No entry fields: use direct field names as keys. Skip the
+            // generic-type bookkeeping fields — they are metadata, not map data,
+            // and emitting them pollutes the map (off-by-one length, phantom
+            // entries in iteration). The entry-pattern branch above already
+            // skips type_args; do the same here.
             std::string result = "std::map<std::string,std::any>{";
             bool first = true;
             for (const auto& f : call.input().message_creation().fields()) {
+                if (f.name() == "type_args" || f.name() == "__type_args__") continue;
                 if (!first) result += ", ";
                 result += "{\"" + f.name() + "\", std::any(" + compile_expr(f.value()) + ")}";
                 first = false;
@@ -3187,6 +3197,32 @@ inline BallDyn ball_map_entries(const BallDyn& v) {
         r.push_back(std::any(e));
       }
     }
+  } catch(...) {}
+  return BallDyn(BallList(r));
+}
+inline BallDyn ball_map_keys(const BallDyn& v) {
+  std::vector<std::any> r;
+  try {
+    auto a0 = static_cast<std::any>(v);
+    const std::any& a = _BallDynUnwrapper::unwrap(a0);
+    const BallMap* mp = nullptr;
+    BallMap tmp;
+    if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
+    else if (a.type() == typeid(BallObject)) { tmp = std::any_cast<const BallObject&>(a); mp = &tmp; }
+    if (mp) { for (const auto& [k, val] : *mp) r.push_back(std::any(k)); }
+  } catch(...) {}
+  return BallDyn(BallList(r));
+}
+inline BallDyn ball_map_values(const BallDyn& v) {
+  std::vector<std::any> r;
+  try {
+    auto a0 = static_cast<std::any>(v);
+    const std::any& a = _BallDynUnwrapper::unwrap(a0);
+    const BallMap* mp = nullptr;
+    BallMap tmp;
+    if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
+    else if (a.type() == typeid(BallObject)) { tmp = std::any_cast<const BallObject&>(a); mp = &tmp; }
+    if (mp) { for (const auto& [k, val] : *mp) r.push_back(val); }
   } catch(...) {}
   return BallDyn(BallList(r));
 }

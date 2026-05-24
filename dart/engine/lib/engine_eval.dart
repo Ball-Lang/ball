@@ -681,9 +681,12 @@ extension BallEngineEval on BallEngine {
       // Virtual fields on maps / message instances (fallback for plain maps).
       switch (fieldName) {
         case 'keys':
-          return objectMap.keys.toList();
+          // Derive from .entries (which the C++ self-host compiles via
+          // ball_map_entries); the bare .keys/.values getters compile to a
+          // map-index lookup that returns null in the self-host engine.
+          return objectMap.entries.map((e) => e.key).toList();
         case 'values':
-          return objectMap.values.toList();
+          return objectMap.entries.map((e) => e.value).toList();
         case 'length':
           return objectMap.length;
         case 'isEmpty':
@@ -734,9 +737,9 @@ extension BallEngineEval on BallEngine {
       case 'reversed':
         if (rawList != null) return rawList.reversed.toList();
       case 'keys':
-        if (object is Map) return object.keys.toList();
+        if (object is Map) return object.entries.map((e) => e.key).toList();
       case 'values':
-        if (object is Map) return object.values.toList();
+        if (object is Map) return object.entries.map((e) => e.value).toList();
       case 'isNaN':
         if (object is double) return object.isNaN;
       case 'isFinite':

@@ -514,6 +514,14 @@ public:
     BallDyn operator*(const BallDyn& o) const {
         if (_val.type() == typeid(int64_t) && o._val.type() == typeid(int64_t))
             return BallDyn(std::any_cast<int64_t>(_val) * std::any_cast<int64_t>(o._val));
+        // Dart semantics: String * int repeats the string (count<=0 => "").
+        if (_val.type() == typeid(std::string) && o._val.type() == typeid(int64_t)) {
+            const std::string& s = std::any_cast<const std::string&>(_val);
+            int64_t n = std::any_cast<int64_t>(o._val);
+            std::string out;
+            if (n > 0) { out.reserve(s.size() * static_cast<size_t>(n)); for (int64_t k = 0; k < n; ++k) out += s; }
+            return BallDyn(std::move(out));
+        }
         return BallDyn(static_cast<double>(*this) * static_cast<double>(o));
     }
     BallDyn operator/(const BallDyn& o) const {

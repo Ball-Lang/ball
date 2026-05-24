@@ -945,24 +945,46 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
         result += "BallDyn __lambda_input";
     }
     result += ") mutable";
+    // Force an explicit BallDyn return type when the body is emitted via the
+    // statement-aware path: that path can produce several `return` statements
+    // with different deduced C++ types (int64_t, std::vector, BallDyn, ...),
+    // which would otherwise trip MSVC's "all return expressions must deduce to
+    // the same type". An explicit -> BallDyn lets each `return BallDyn(...)`
+    // convert uniformly.
+    const bool body_is_block =
+        func.has_body() &&
+        func.body().expr_case() == ball::v1::Expression::kBlock;
     if (!func.output_type().empty() && func.output_type() != "void") {
         result += " -> " + map_type(func.output_type());
+    } else if (body_is_block) {
+        result += " -> BallDyn";
     }
     result += " {\n";
     indent_++;
     if (func.has_body()) {
-        if (func.body().expr_case() == ball::v1::Expression::kBlock) {
-            for (const auto& stmt : func.body().block().statements()) {
-                result += indent_str();
-                if (stmt.has_let()) {
-                    result += "auto " + ball_local_var_name(sanitize_name(stmt.let().name())) +
-                              " = " + compile_expr(stmt.let().value()) + ";\n";
-                } else if (stmt.has_expression()) {
-                    result += compile_expr(stmt.expression()) + ";\n";
-                }
+        if (body_is_block) {
+            // Emit the body via the statement-aware path (out_-swap) so that
+            // statement-position `if`/`return`/`for`/`while` get their native
+            // statement form. Previously each statement was rendered with
+            // compile_expr, which turned `if (cond) return x;` into a discarded
+            // expression-IIFE — the inner `return` escaped only the IIFE, not the
+            // lambda, silently dropping early returns (e.g. std list_contains).
+            const auto& block = func.body().block();
+            std::ostringstream body_buf;
+            out_.swap(body_buf);
+            for (const auto& stmt : block.statements()) {
+                compile_statement(stmt);
             }
-            if (func.body().block().has_result()) {
-                result += indent_str() + "return " + compile_expr(func.body().block().result()) + ";\n";
+            std::string stmts = out_.str();
+            out_.swap(body_buf);
+            result += stmts;
+            if (block.has_result()) {
+                result += indent_str() + "return BallDyn(" + compile_expr(block.result()) + ");\n";
+            } else {
+                // No tail result: the body may end without a `return` (e.g. a
+                // trailing for/while loop). The explicit -> BallDyn return type
+                // requires every path to return, so plant a default.
+                result += indent_str() + "return BallDyn();\n";
             }
         } else {
             result += indent_str() + "return " + compile_expr(func.body()) + ";\n";
@@ -2506,8 +2528,12 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
             }
             if (std_like &&
                 call.function() == "return") {
+                // Wrap in BallDyn so a function/lambda with multiple `return`
+                // statements (and a possibly differently-typed block result)
+                // deduces a single, consistent return type. All compiled engine
+                // callables ultimately return BallDyn.
                 auto val = get_message_field(call, "value");
-                emit_line("return " + val + ";");
+                emit_line("return BallDyn(" + val + ");");
                 return;
             }
             if (std_like &&
@@ -3367,11 +3393,27 @@ inline BallDyn ball_list_insert(BallDyn list, int64_t idx, BallDyn elem) {
   }
   return list;
 }
+// Dart's List.removeAt returns the REMOVED element (and mutates in place).
 inline BallDyn ball_list_remove_at(BallDyn list, int64_t idx) {
   if (BallList* v = list._listPtr()) {
-    if (idx >= 0 && idx < static_cast<int64_t>(v->size())) v->erase(v->begin()+idx);
+    if (idx >= 0 && idx < static_cast<int64_t>(v->size())) {
+      BallDyn removed = BallDyn((*v)[static_cast<size_t>(idx)]);
+      v->erase(v->begin()+idx);
+      return removed;
+    }
   }
-  return list;
+  return BallDyn();
+}
+// Dart's List.removeLast pops the last element in place and returns it.
+inline BallDyn ball_list_pop(BallDyn list) {
+  if (BallList* v = list._listPtr()) {
+    if (!v->empty()) {
+      BallDyn removed = BallDyn(v->back());
+      v->pop_back();
+      return removed;
+    }
+  }
+  return BallDyn();
 }
 // Single BallDyn-param overload: int64_t arguments convert via BallDyn(int64_t)
 // implicitly, so a mix of int64_t/BallDyn call arguments stays unambiguous
@@ -4178,7 +4220,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "list_pop") {
         auto list = get_message_field(call, "list");
-        return "[](auto v){v.pop_back();return v;}(" + list + ")";
+        return "ball_list_pop(" + list + ")";
     }
     if (fn == "list_get") {
         auto list = get_message_field(call, "list");

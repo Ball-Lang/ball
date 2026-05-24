@@ -4,7 +4,7 @@ Tracks the round-trip story for the reference Dart engine across all
 target languages: encode the live engine → Ball IR → compile back to
 each supported language → run conformance.
 
-Last refreshed: 2026-05-24 (C++ self-host 108/175 after the compiler-correctness wave).
+Last refreshed: 2026-05-24 (C++ self-host 109/175 after the compiler-correctness wave).
 
 ## Pipeline
 
@@ -90,7 +90,7 @@ with a shared map/vector (like the scope `BallScope = shared_ptr<BallMap>`) so
 lookups share rather than copy. That single change would unblock sorts, OOP
 field mutation, and the collection-algorithm family at once.
 
-**2026-05-24 (compiler correctness wave — 72 → 108/175):** Four systemic
+**2026-05-24 (compiler correctness wave — 72 → 109/175):** Five systemic
 compiler bugs fixed, each verified with a full rebuild + isolated-process tally
 and zero regressions on `test_conformance` (still 194 pass):
 - **FlowSignal arg0→kind (72 → 93):** `_FlowSignal('return', value: v)` compiled
@@ -117,6 +117,12 @@ and zero regressions on `test_conformance` (still 194 pass):
   `arg0.type()` directly, but the length is a BallDyn-in-`std::any` under MSVC, so
   the check missed it → `n=0` → empty list. Unwrap arg0/arg1 via
   `_BallDynUnwrapper`. Unblocked 187 + two fixtures that pre-fill arrays.
+- **null_aware_call dispatch (108 → 109):** `x?.toInt()` encodes as
+  `null_aware_call{target, method}`, but the handler read an absent `callback`
+  field (→ `"BallDyn()"`) and invoked it as a functor → `BallDyn()(x)` → null,
+  so `(x as num?)?.toInt() ?? 0` always yielded 0. Route `method` through
+  `compile_method_call` (synthesizing self=target); `?.call()` is special-cased
+  to functor invocation. Unblocked 188_std_time_now.
 
 **Next lever (highest value):** reference-semantic containers (below) — would
 unblock in-place mutation (sorts 132–134, OOP setters 104) and the

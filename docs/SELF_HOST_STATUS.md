@@ -4,7 +4,7 @@ Tracks the round-trip story for the reference Dart engine across all
 target languages: encode the live engine → Ball IR → compile back to
 each supported language → run conformance.
 
-Last refreshed: 2026-05-24 (parallel multi-track wave — C++ self-host 136, TS 227/227 (100%), Dart parity 183, +10 fixtures).
+Last refreshed: 2026-05-24 (parallel multi-track wave — C++ self-host 138, TS 227/227 (100%), Dart parity 183, +10 fixtures).
 
 ## Pipeline
 
@@ -93,7 +93,7 @@ field mutation, and the collection-algorithm family at once.
 **2026-05-24 (parallel multi-track wave — final state):** Four tracks run
 concurrently (file-disjoint: cpp/, ts/, dart/compiler, tests/conformance +
 shared encoder/engine fixes), each verified independently:
-- **C++ self-host: 109 → 136** (`test_conformance` native engine steady at 201/221).
+- **C++ self-host: 109 → 138** (`test_conformance` native engine steady at 201/221).
   Adds: reference-semantic program lists (`40ccd74` — shared_ptr-backed BallDyn
   lists; maps stay by-value to avoid self-referential `self` cycles; unblocked
   sorts 132/133/134 + matrix 83/128/138); `_stdFunctionToOperator` emitted as a

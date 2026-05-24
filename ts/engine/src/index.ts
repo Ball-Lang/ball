@@ -15,11 +15,42 @@
 import {
   BallEngine as CompiledEngine,
   StdModuleHandler,
-  BallFuture,
   BallGenerator,
   _FlowSignal,
   _Scope,
 } from './compiled_engine.ts';
+import * as _compiled from './compiled_engine.ts';
+
+// ── BallFuture compatibility shim ──────────────────────────────────────────
+//
+// Older IR revisions defined a `BallFuture` CLASS in the compiled engine
+// (exported). The current engine.ball.json represents futures as a plain
+// tagged object (`{ __ball_future__: true, value, completed }`) built by the
+// engine's own `_ballFuture(...)` helper — there is no exported class then.
+//
+// To keep the hand-written wrapper working against BOTH shapes we:
+//   - reuse the engine's exported `BallFuture` class when present (so
+//     `new BallFuture(...)` produces instances the compiled engine's own
+//     internal `instanceof BallFuture` checks still recognise);
+//   - otherwise fall back to a local shim that stamps `__ball_future__`.
+//   - detect futures via `_isFutureLike(x)` which matches either shape.
+const _EngineBallFuture: any = (_compiled as any).BallFuture;
+class _ShimBallFuture {
+  value: any;
+  completed: boolean;
+  error?: any;
+  constructor(value: any, completed = true) {
+    this.value = value;
+    this.completed = completed;
+    (this as any).__ball_future__ = true;
+  }
+}
+const BallFuture: any = _EngineBallFuture ?? _ShimBallFuture;
+function _isFutureLike(v: any): boolean {
+  if (v == null || typeof v !== 'object') return false;
+  if (_EngineBallFuture && v instanceof _EngineBallFuture) return true;
+  return (v as any).__ball_future__ === true;
+}
 
 // ── BallDouble helper ──────────────────────────────────────────────────────
 //
@@ -188,7 +219,7 @@ function __bts(v: any): string {
   }
   if (typeof v === 'string') return v;
   // Unwrap BallFuture / BallGenerator before formatting
-  if (BallFuture && v instanceof BallFuture) return __bts(v.value);
+  if (_isFutureLike(v)) return __bts(v.value);
   if (BallGenerator && v instanceof BallGenerator) return __bts(v.values);
   if (v && typeof v === 'object' && v.__ball_future__ === true) return __bts(v.value);
   if (v && typeof v === 'object' && v.__ball_generator__ === true) return __bts(v.values);
@@ -581,7 +612,7 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
   _r('string_substring', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').substring(Number(m['start'] ?? 0), m['end'] != null ? Number(m['end']) : undefined); });
   _r('string_contains', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').includes(String(m['substring'] ?? m['pattern'] ?? m['other'] ?? '')); });
   _r('string_length', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').length; });
-  _r('string_index_of', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').indexOf(String(m['substring'] ?? m['pattern'] ?? '')); });
+  _r('string_index_of', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? m['left'] ?? m['arg0'] ?? '').indexOf(String(m['substring'] ?? m['pattern'] ?? m['right'] ?? m['arg1'] ?? '')); });
   _r('string_to_upper_case', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').toUpperCase(); });
   _r('string_to_lower_case', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').toLowerCase(); });
   _r('string_trim', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').trim(); });
@@ -691,6 +722,34 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
   // Override set operations
   _r('set_create', (i: any) => { const m = _m(i); const elements = m['elements']; if (Array.isArray(elements)) return new Set(elements); return new Set(); });
 
+  // dart_std.typed_list: a typed list literal `<T>[...]`. The type argument is
+  // erased at runtime — the value is just the element array.
+  _r('typed_list', (i: any) => { const m = _m(i); const elements = m['elements']; return Array.isArray(elements) ? elements : []; });
+
+  // List.filled / List.generate encoded as bare std.list_filled /
+  // std.list_generate (the encoder uses the `length` field name; the compiled
+  // engine only registers the `dart_*` variants keyed on `count`).
+  _r('list_filled', (i: any) => {
+    const m = _m(i);
+    const count = Number(m['length'] ?? m['count'] ?? m['arg0'] ?? 0);
+    const value = m['value'] ?? m['arg1'];
+    return new Array(count).fill(value);
+  });
+  _r('list_generate', async (i: any) => {
+    const m = _m(i);
+    const count = Number(m['length'] ?? m['count'] ?? m['arg0'] ?? 0);
+    const gen = m['generator'] ?? m['function'] ?? m['arg1'];
+    const result: any[] = [];
+    if (typeof gen === 'function') {
+      for (let idx = 0; idx < count; idx++) {
+        let v = gen(idx);
+        if (v?.then) v = await v;
+        result.push(v);
+      }
+    }
+    return result;
+  });
+
   // ── Async / Generator ──────────────────────────────────────────────
   //
   // std.await: unwrap BallFuture (simulated async result).
@@ -701,7 +760,7 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
     // Unwrap real JS Promises (from async lambda bodies)
     if (val && typeof val === 'object' && typeof val.then === 'function') val = await val;
     // Unwrap BallFuture (compiled engine's simulation)
-    if (BallFuture && val instanceof BallFuture) return val.value;
+    if (_isFutureLike(val)) return val.value;
     // Unwrap plain-object BallFuture markers
     if (val && typeof val === 'object' && val.__ball_future__ === true) return val.value;
     return val;
@@ -760,8 +819,14 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
   });
 
   // std_time
+  // NOTE: these override the compiled engine's native std_time handlers,
+  // which reference a `DateTime` class that the (stale) committed engine
+  // does not define. Implementing them here keeps std_time working without
+  // depending on a preamble DateTime polyfill.
   _r('now', () => Date.now());
   _r('now_micros', () => Date.now() * 1000);
+  _r('timestamp_ms', () => Date.now());
+  _r('timestamp_micros', () => Date.now() * 1000);
   _r('format_timestamp', (i: any) => {
     const m = _m(i);
     const ms = Number(m['timestamp_ms'] ?? m['arg0'] ?? 0);
@@ -823,7 +888,7 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
 
 /** Unwrap BallFuture/BallGenerator values for display and consumption. */
 function _unwrapBallValue(v: any): any {
-  if (v instanceof BallFuture) return v.value;
+  if (_isFutureLike(v)) return v.value;
   if (v instanceof BallGenerator) return v.values;
   if (v && typeof v === 'object' && v.__ball_future__ === true) return v.value;
   if (v && typeof v === 'object' && v.__ball_generator__ === true) return v.values;
@@ -927,7 +992,7 @@ function patchCompiledEngine(engine: CompiledEngine): void {
         result = result.value;
       }
       // If already a BallFuture, return as-is (compiled engine already wrapped it)
-      if (result instanceof BallFuture) {
+      if (_isFutureLike(result)) {
         return result;
       }
       // Shouldn't happen, but wrap in BallFuture as fallback
@@ -944,7 +1009,7 @@ function patchCompiledEngine(engine: CompiledEngine): void {
   e._evalCall = async function(call: any, scope: any) {
     const result = await origEvalCall(call, scope);
     // Auto-unwrap BallFuture so async functions are transparent to callers.
-    if (result instanceof BallFuture) {
+    if (_isFutureLike(result)) {
       return result.value;
     }
     return result;
@@ -984,11 +1049,59 @@ function patchCompiledEngine(engine: CompiledEngine): void {
     // Handle await — unwrap BallFuture
     if (fn === 'await') {
       const val = e._extractUnaryArg(input);
-      if (val instanceof BallFuture) return val.value;
+      if (_isFutureLike(val)) return val.value;
       return val;
     }
 
     return origCallBaseFunction(moduleName, fn, input);
+  };
+
+  // Patch _evalMessageCreation to avoid Object.prototype getter pollution.
+  //
+  // The preamble installs Dart-flavoured getters (`length`, `keys`, `values`,
+  // `entries`) on Object.prototype so the compiled engine can call
+  // `map.length` etc. The downside is that `('length' in {})` is now `true`,
+  // and the compiled engine's `_evalMessageCreation` uses
+  // `(pair.name in fields)` to detect duplicate field names. A single field
+  // literally named `length` / `keys` / `values` / `entries` therefore trips
+  // the "merge duplicates into a list" path and becomes `[<getterValue>, v]`
+  // (e.g. `List.filled(length: 3, ...)` arrives as `length: [0, 3]`).
+  //
+  // We override the field-collection step to use a null-prototype object plus
+  // hasOwnProperty, then hand the cleaned field map to the original method's
+  // typeName/constructor dispatch by re-binding `_evalExpression` to a no-op
+  // lookup over the already-evaluated values. To keep the heavy dispatch logic
+  // in one place we instead pre-evaluate here and delegate via a synthetic
+  // message whose field values are pre-computed literals.
+  const _POLLUTED_KEYS = new Set(['length', 'keys', 'values', 'entries']);
+  const origEvalMessageCreation = e._evalMessageCreation.bind(e);
+  e._evalMessageCreation = async function(msg: any, scope: any) {
+    const rawFields = msg?.fields ?? [];
+    const typeName = msg?.typeName ?? '';
+    // The bug only bites a typeName-less message (a plain std/base-function
+    // input map) whose field is named with a polluted key. Those never go
+    // through the heavy constructor/dispatch tail — they return the field map
+    // directly — so we can safely build a clean (null-proto) map here.
+    const hasPollutedField = rawFields.some(
+      (p: any) => _POLLUTED_KEYS.has(p?.name),
+    );
+    if (typeName !== '' || !hasPollutedField) {
+      return origEvalMessageCreation(msg, scope);
+    }
+    // Mirror the engine's duplicate-merge rule but with hasOwnProperty so the
+    // inherited Dart getters never produce a false positive.
+    const fields: any = Object.create(null);
+    const hop = Object.prototype.hasOwnProperty;
+    for (const pair of rawFields) {
+      const val = await e._evalExpression(pair.value, scope);
+      if (hop.call(fields, pair.name)) {
+        const existing = fields[pair.name];
+        fields[pair.name] = Array.isArray(existing) ? [...existing, val] : [existing, val];
+      } else {
+        fields[pair.name] = val;
+      }
+    }
+    return fields;
   };
 
   // Fix BallGenerator.yieldAll — the compiled engine's version replaces

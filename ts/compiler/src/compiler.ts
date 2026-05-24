@@ -2977,6 +2977,41 @@ $1async _resolveAndCallFunction(`,
       return `{${entries}}`;
     }
 
+    // Internal call encoded as MessageCreation with a `<module>:<ident>`
+    // typeName. The encoder emits same-module function/method/constructor
+    // invocations this way (e.g. `_ballFuture(values)` →
+    // `messageCreation{typeName:"main:_ballFuture", fields:[arg0,...]}`,
+    // `this._evalExpression(...)` → `"main:_evalExpression"`,
+    // `_Scope(parent)` → `"main:_Scope"`). Resolve the identifier after the
+    // colon to a real constructor / method / free-function call so the
+    // compiled engine actually invokes it instead of building an inert
+    // `{'__type': 'main:...'}` placeholder object.
+    if (tn.includes(":")) {
+      const ident = classTsName(tn); // part after the last ':'
+      // Type/class → constructor call. Checked before method/function so a
+      // class name shadowing a method resolves to `new`.
+      if (
+        this.typeIsUserDefinedClass(tn) ||
+        this.typeIsUserDefinedClass(ident)
+      ) {
+        const args = this.extractPositionalAndNamed(fields);
+        return `new ${classTsName(tn)}(${args})`;
+      }
+      const identShort = memberShortName(ident);
+      // Class method of the class currently being compiled → `this.m(...)`.
+      if (this.currentClassMethodNames.has(identShort)) {
+        const args = this.extractPositionalAndNamed(fields);
+        return `this.${identShort}(${args})`;
+      }
+      // Free top-level function in the entry module → bare call.
+      if (this.allFunctionNames.has(ident) || this.allFunctionNames.has(identShort)) {
+        const args = this.extractPositionalAndNamed(fields);
+        return `${identShort}(${args})`;
+      }
+      // Otherwise fall through to the builtin-ctor / fallback handling
+      // below (so e.g. `main:RegExp` still resolves to `new RegExp`).
+    }
+
     // Function call encoded as MessageCreation: `foo()` / `this.foo()`
     // with no explicit receiver. typeName = function qualified name.
     const shortName = memberShortName(tn);

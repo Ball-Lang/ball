@@ -51,9 +51,9 @@ ctest -R encoder_tests
 NOTE (2026-05-24): the previous list here was STALE — it claimed `string_split`/
 `string_replace`/`switch`/`for_in` were broken, but all are implemented
 (`compiler.cpp:1347`, `1362`, `2679`, `2579`). Below is the audited, verified set
-of real stubs/silent-correctness gaps. C++ self-host conformance is 105/175
-(2026-05-24, after the FlowSignal-key / try-finally / exception-payload
-compiler fixes — see docs/SELF_HOST_STATUS.md).
+of real stubs/silent-correctness gaps. C++ self-host conformance is 108/175
+(2026-05-24, after the FlowSignal-key / try-finally / exception-payload /
+List.filled-unwrap compiler fixes — see docs/SELF_HOST_STATUS.md).
 
 **FIXED 2026-05-24 (kept here as history):**
 - FlowSignal early-return loss — was an `arg0` vs `kind` ctor-key mismatch, not

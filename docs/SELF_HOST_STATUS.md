@@ -4,7 +4,7 @@ Tracks the round-trip story for the reference Dart engine across all
 target languages: encode the live engine → Ball IR → compile back to
 each supported language → run conformance.
 
-Last refreshed: 2026-05-24 (C++ self-host 105/175 after the compiler-correctness wave).
+Last refreshed: 2026-05-24 (C++ self-host 108/175 after the compiler-correctness wave).
 
 ## Pipeline
 
@@ -90,7 +90,7 @@ with a shared map/vector (like the scope `BallScope = shared_ptr<BallMap>`) so
 lookups share rather than copy. That single change would unblock sorts, OOP
 field mutation, and the collection-algorithm family at once.
 
-**2026-05-24 (compiler correctness wave — 72 → 105/175):** Three systemic
+**2026-05-24 (compiler correctness wave — 72 → 108/175):** Four systemic
 compiler bugs fixed, each verified with a full rebuild + isolated-process tally
 and zero regressions on `test_conformance` (still 194 pass):
 - **FlowSignal arg0→kind (72 → 93):** `_FlowSignal('return', value: v)` compiled
@@ -113,6 +113,10 @@ and zero regressions on `test_conformance` (still 194 pass):
   `_ball_make_exception` preserves it; `_ball_caught_to_dyn` rebuilds the
   `{__type__,typeName,value}` shape on catch so `e["value"]`/`e is BallException`
   work. Unblocked 21/24/53/91.
+- **List.filled unwrap (105 → 108):** `List_filled::operator std::vector` checked
+  `arg0.type()` directly, but the length is a BallDyn-in-`std::any` under MSVC, so
+  the check missed it → `n=0` → empty list. Unwrap arg0/arg1 via
+  `_BallDynUnwrapper`. Unblocked 187 + two fixtures that pre-fill arrays.
 
 **Next lever (highest value):** reference-semantic containers (below) — would
 unblock in-place mutation (sorts 132–134, OOP setters 104) and the

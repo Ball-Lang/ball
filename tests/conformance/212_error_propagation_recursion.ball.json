@@ -1,0 +1,84 @@
+{
+  "name": "212_error_propagation_recursion",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "to_string", "isBase": true },
+        { "name": "concat", "isBase": true },
+        { "name": "if", "isBase": true },
+        { "name": "return", "isBase": true },
+        { "name": "lte", "isBase": true },
+        { "name": "subtract", "isBase": true },
+        { "name": "throw", "isBase": true },
+        { "name": "try", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "descend",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "block": {
+              "statements": [
+                { "expression": { "call": { "module": "std", "function": "if", "input": { "messageCreation": { "fields": [
+                  { "name": "condition", "value": { "call": { "module": "std", "function": "lte", "input": { "messageCreation": { "fields": [
+                    { "name": "left", "value": { "reference": { "name": "depth" } } },
+                    { "name": "right", "value": { "literal": { "intValue": "0" } } }
+                  ] } } } } },
+                  { "name": "then", "value": { "call": { "module": "std", "function": "throw", "input": { "messageCreation": { "fields": [
+                    { "name": "value", "value": { "literal": { "stringValue": "hit-bottom" } } }
+                  ] } } } } }
+                ] } } } } }
+              ],
+              "result": {
+                "call": { "function": "descend", "input": { "call": { "module": "std", "function": "subtract", "input": { "messageCreation": { "fields": [
+                  { "name": "left", "value": { "reference": { "name": "depth" } } },
+                  { "name": "right", "value": { "literal": { "intValue": "1" } } }
+                ] } } } } }
+              }
+            }
+          },
+          "metadata": { "kind": "function", "params": [ { "name": "depth", "type": "int" } ] }
+        },
+        {
+          "name": "main",
+          "body": {
+            "call": { "module": "std", "function": "try", "input": { "messageCreation": { "fields": [
+              { "name": "body", "value": { "block": { "statements": [
+                { "expression": { "call": { "function": "descend", "input": { "messageCreation": { "fields": [
+                  { "name": "arg0", "value": { "literal": { "intValue": "5" } } }
+                ] } } } } }
+              ] } } },
+              { "name": "catches", "value": { "literal": { "listValue": { "elements": [
+                { "messageCreation": { "fields": [
+                  { "name": "variable", "value": { "literal": { "stringValue": "e" } } },
+                  { "name": "body", "value": { "block": { "statements": [
+                    { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                      { "name": "message", "value": { "call": { "module": "std", "function": "concat", "input": { "messageCreation": { "fields": [
+                        { "name": "left", "value": { "literal": { "stringValue": "caught after recursion: " } } },
+                        { "name": "right", "value": { "reference": { "name": "e" } } }
+                      ] } } } } }
+                    ] } } } } }
+                  ] } } }
+                ] } }
+              ] } } } }
+            ] } } }
+          },
+          "metadata": { "kind": "function" }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

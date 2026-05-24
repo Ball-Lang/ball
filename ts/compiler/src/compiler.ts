@@ -3260,8 +3260,8 @@ $1async _resolveAndCallFunction(`,
       }
       case "less_than":    return bin("<");
       case "greater_than": return bin(">");
-      case "lte":          case "less_than_or_equal":    return bin("<=");
-      case "gte":          case "greater_than_or_equal": return bin(">=");
+      case "lte":          return bin("<=");
+      case "gte":          return bin(">=");
       // Logical
       case "and":          return bin("&&");
       case "or":           return bin("||");
@@ -3271,8 +3271,8 @@ $1async _resolveAndCallFunction(`,
       case "bitwise_or":   return bin("|");
       case "bitwise_xor":  return bin("^");
       case "bitwise_not":  return un("~");
-      case "left_shift":   case "shift_left":  return bin("<<");
-      case "right_shift":  case "shift_right": return bin(">>");
+      case "left_shift":   return bin("<<");
+      case "right_shift":  return bin(">>");
       case "unsigned_right_shift": return bin(">>>");
       case "integer_divide":
         return `Math.trunc(${this.expr(f.get("left")!)} / ${this.expr(f.get("right")!)})`;

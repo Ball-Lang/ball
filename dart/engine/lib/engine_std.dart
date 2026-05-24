@@ -21,6 +21,25 @@ const _stdFunctionToOperator = <String, String>{
   'index': '__op_get_index__',
 };
 
+// Maps std function names to the literal Dart operator lexeme. Some encoders
+// (and hand-written fixtures) name operator methods with the raw symbol, e.g.
+// `main:Vec2.+`, instead of the canonical `__op_add__` form. Operator dispatch
+// tries both naming conventions.
+const _stdFunctionToOperatorSymbol = <String, String>{
+  'equals': '==',
+  'add': '+',
+  'subtract': '-',
+  'multiply': '*',
+  'divide': '~/',
+  'divide_double': '/',
+  'modulo': '%',
+  'less_than': '<',
+  'greater_than': '>',
+  'lte': '<=',
+  'gte': '>=',
+  'index': '[]',
+};
+
 extension BallEngineStd on BallEngine {
   // ============================================================
   // Base Functions (std + dart_std modules)
@@ -82,8 +101,13 @@ extension BallEngineStd on BallEngine {
             ? curType.substring(0, cColonIdx)
             : modPart;
         final cTypeName = cColonIdx >= 0 ? curType : '$cModPart:$curType';
-        final methodKey = '$cModPart.$cTypeName.$op';
-        final method = _functions[methodKey];
+        // Try the canonical operator method name (`__op_add__`) first, then
+        // fall back to the raw operator lexeme (`+`) used by some fixtures.
+        final opSymbol = _stdFunctionToOperatorSymbol[function];
+        var method = _functions['$cModPart.$cTypeName.$op'];
+        method ??= opSymbol == null
+            ? null
+            : _functions['$cModPart.$cTypeName.$opSymbol'];
         if (method != null) {
           // Build input matching method-call convention: {self, other, arg0, right}.
           // Include arg0 so positional param binding works for any param name.

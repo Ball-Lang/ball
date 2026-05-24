@@ -572,7 +572,12 @@ function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
   });
   _r('map_create', (i: any) => {
     const m = _m(i); const result: any = {};
-    const entries = m['entry'] ?? m['entries'];
+    // Read `entry`/`entries` as OWN properties only. Plain bracket access hits
+    // the Object.prototype `.entries` getter installed by the preamble, which
+    // would (wrongly) treat the input map's own keys (e.g. `type_args`) as
+    // entry records and re-inject them into the result.
+    const hop = Object.prototype.hasOwnProperty;
+    const entries = hop.call(m, 'entry') ? m['entry'] : (hop.call(m, 'entries') ? m['entries'] : undefined);
     if (Array.isArray(entries)) { for (const e of entries) { if (typeof e === 'object' && e !== null) result[e['key'] ?? e['name'] ?? ''] = e['value']; } }
     else if (typeof entries === 'object' && entries !== null) result[entries['key'] ?? entries['name'] ?? ''] = entries['value'];
     return result;

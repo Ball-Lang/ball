@@ -1681,9 +1681,9 @@ class BallEngine {
       }
       switch (fieldName) {
         case 'keys':
-          return objectMap.keys.toList();
+          return objectMap.entries.map((e) => e.key).toList().toList();
         case 'values':
-          return objectMap.values.toList();
+          return objectMap.entries.map((e) => e.value).toList().toList();
         case 'length':
           return objectMap.length;
         case 'isEmpty':
@@ -1776,12 +1776,12 @@ class BallEngine {
         break;
       case 'keys':
         if ((object is Map)) {
-          return object.keys.toList();
+          return object.entries.map((e) => e.key).toList().toList();
         }
         break;
       case 'values':
         if ((object is Map)) {
-          return object.values.toList();
+          return object.entries.map((e) => e.value).toList().toList();
         }
         break;
       case 'isNaN':
@@ -2354,7 +2354,7 @@ class BallEngine {
                   !_isGetter(func)) &&
               !_isSetter(func))) {
             closure(Object? input) async {
-              _callFunction(module.name, func, input);
+              return _callFunction(module.name, func, input);
             }
 
             methods[func.name] = closure;
@@ -2384,7 +2384,7 @@ class BallEngine {
           }
           if ((((prefix == typeName) && func.hasBody()) && !func.isBase)) {
             closure(Object? input) async {
-              _callFunction(module.name, func, input);
+              return _callFunction(module.name, func, input);
             }
 
             methods[func.name] = closure;
@@ -3235,6 +3235,38 @@ class BallEngine {
     return _FlowSignal('continue', label: label);
   }
 
+  void _cfWritebackInstance(
+    Expression objExpr,
+    Object? obj,
+    Map<String, Object?> map,
+    _Scope scope,
+  ) {
+    if ((objExpr.whichExpr() != Expression_Expr.reference)) {
+      return;
+    }
+    if (((obj is! Map<String, Object?>) || (obj is BallMap))) {
+      return;
+    }
+    final name = objExpr.reference.name;
+    if (scope.has(name)) {
+      scope.set(name, map);
+    }
+  }
+
+  void _cfWritebackIndexed(
+    Expression targetExpr,
+    Object? container,
+    _Scope scope,
+  ) {
+    if ((targetExpr.whichExpr() != Expression_Expr.reference)) {
+      return;
+    }
+    final name = targetExpr.reference.name;
+    if (scope.has(name)) {
+      scope.set(name, container);
+    }
+  }
+
   Future<Object?> _evalAssign(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final target = fields['target'];
@@ -3292,6 +3324,7 @@ class BallEngine {
           final current = map[fieldName];
           final computed = _applyCompoundOp(op, current, val);
           map[fieldName] = computed;
+          _cfWritebackInstance(target.fieldAccess.object, obj, map, scope);
           return computed;
         }
         final setterResult = await _trySetterDispatch(map, fieldName, val);
@@ -3299,6 +3332,7 @@ class BallEngine {
           return setterResult;
         }
         map[fieldName] = val;
+        _cfWritebackInstance(target.fieldAccess.object, obj, map, scope);
         return val;
       }
     }
@@ -3312,45 +3346,46 @@ class BallEngine {
         final list = await _evalExpression(indexTarget, scope);
         final idx = await _evalExpression(indexExpr, scope);
         if ((((op != null) && op.isNotEmpty) && (op != '='))) {
+          Object? computed;
+          var didSet = false;
           if (((list is BallList) && (idx is int))) {
-            final current = list.items[idx];
-            final computed = _applyCompoundOp(op, current, val);
+            computed = _applyCompoundOp(op, list.items[idx], val);
             list.items[idx] = computed;
-            return computed;
-          }
-          if (((list is List) && (idx is int))) {
-            final current = list[idx];
-            final computed = _applyCompoundOp(op, current, val);
+            didSet = true;
+          } else if (((list is List) && (idx is int))) {
+            computed = _applyCompoundOp(op, list[idx], val);
             list[idx] = computed;
-            return computed;
-          }
-          if (((list is BallMap) && (idx is String))) {
-            final current = list.entries[idx];
-            final computed = _applyCompoundOp(op, current, val);
+            didSet = true;
+          } else if (((list is BallMap) && (idx is String))) {
+            computed = _applyCompoundOp(op, list.entries[idx], val);
             list.entries[idx] = computed;
-            return computed;
-          }
-          if ((list is Map)) {
-            final current = list[idx];
-            final computed = _applyCompoundOp(op, current, val);
+            didSet = true;
+          } else if ((list is Map)) {
+            computed = _applyCompoundOp(op, list[idx], val);
             list[idx] = computed;
+            didSet = true;
+          }
+          if (didSet) {
+            _cfWritebackIndexed(indexTarget, list, scope);
             return computed;
           }
         }
+        var didSet = false;
         if (((list is BallList) && (idx is int))) {
           list.items[idx] = val;
-          return val;
-        }
-        if (((list is List) && (idx is int))) {
+          didSet = true;
+        } else if (((list is List) && (idx is int))) {
           list[idx] = val;
-          return val;
-        }
-        if (((list is BallMap) && (idx is String))) {
+          didSet = true;
+        } else if (((list is BallMap) && (idx is String))) {
           list.entries[idx] = val;
-          return val;
-        }
-        if ((list is Map)) {
+          didSet = true;
+        } else if ((list is Map)) {
           list[idx] = val;
+          didSet = true;
+        }
+        if (didSet) {
+          _cfWritebackIndexed(indexTarget, list, scope);
           return val;
         }
       }
@@ -4277,7 +4312,7 @@ class BallEngine {
         case 'toLowerCase':
           return self.toLowerCase();
         case 'replaceAll':
-          return self.replaceFirst(
+          return self.replaceAll(
             arg0.toString(),
             ((args['arg1'] ?? '')).toString(),
           );
@@ -4286,9 +4321,9 @@ class BallEngine {
         case 'endsWith':
           return self.endsWith(arg0.toString());
         case 'padLeft':
-          return self.padLeft(_toInt(arg0));
+          return self.padLeft(_toInt(arg0), (args['arg1']?.toString() ?? ' '));
         case 'padRight':
-          return self.padRight(_toInt(arg0));
+          return self.padRight(_toInt(arg0), (args['arg1']?.toString() ?? ' '));
         case 'toString':
           return self;
         case 'codeUnitAt':
@@ -4447,10 +4482,17 @@ class BallEngine {
         final cTypeName = ((cColonIdx >= 0)
             ? curType
             : ((cModPart.toString() + ':') + curType.toString()));
-        final methodKey =
-            ((((cModPart.toString() + '.') + cTypeName.toString()) + '.') +
-            op.toString());
-        final method = _functions[methodKey];
+        final opSymbol = _stdFunctionToOperatorSymbol[function];
+        var method =
+            _functions[((((cModPart.toString() + '.') + cTypeName.toString()) +
+                    '.') +
+                op.toString())];
+        method ??= ((opSymbol == null)
+            ? null
+            : _functions[((((cModPart.toString() + '.') +
+                          cTypeName.toString()) +
+                      '.') +
+                  opSymbol.toString())]);
         if ((method != null)) {
           final methodInput = <String, Object?>{
             'self': left,
@@ -4645,6 +4687,14 @@ class BallEngine {
       'list_generate': _stdListGenerate,
       'dart_list_generate': _stdListGenerate,
       'list_filled': _stdListFilled,
+      'typed_list': (i) {
+        final m = _stdAsMap(i);
+        if ((m == null)) {
+          return <Object?>[];
+        }
+        final raw = m['elements'];
+        return (_stdAsList(raw) ?? <Object?>[]);
+      },
       'dart_list_filled': _stdListFilled,
       'map_create': _stdMapCreate,
       'set_create': _stdSetCreate,
@@ -6976,7 +7026,7 @@ class BallEngine {
     final from = ((m['from'] as String));
     final to = ((m['to'] as String));
     final result = (all
-        ? value.replaceFirst(from, to)
+        ? value.replaceAll(from, to)
         : value.replaceFirst(from, to));
     _trackMemoryAllocation((result.length * _ballStringCodeUnitBytes));
     return result;
@@ -6992,7 +7042,7 @@ class BallEngine {
     final to = ((m['to'] as String));
     final pattern = RegExp(from);
     final result = (all
-        ? value.replaceFirst(pattern, to)
+        ? value.replaceAll(pattern, to)
         : value.replaceFirst(pattern, to));
     _trackMemoryAllocation((result.length * _ballStringCodeUnitBytes));
     return result;
@@ -7018,7 +7068,9 @@ class BallEngine {
     final value = ((m['value'] as String));
     final width = _toInt(m['width']);
     final padding = (((m['padding'] as String?)) ?? ' ');
-    final result = (left ? value.padLeft(width) : value.padRight(width));
+    final result = (left
+        ? value.padLeft(width, padding)
+        : value.padRight(width, padding));
     _trackMemoryAllocation((result.length * _ballStringCodeUnitBytes));
     return result;
   }
@@ -7527,8 +7579,21 @@ const _ballPointerBytes = 8;
 const _ballStringCodeUnitBytes = 2;
 const _ballMapEntryBytes = (_ballPointerBytes * 2);
 const _stdFunctionToOperator = <String, String>{
+  'equals': '__op_eq__',
+  'add': '__op_add__',
+  'subtract': '__op_sub__',
+  'multiply': '__op_mul__',
+  'divide': '__op_idiv__',
+  'divide_double': '__op_div__',
+  'modulo': '__op_mod__',
+  'less_than': '__op_lt__',
+  'greater_than': '__op_gt__',
+  'lte': '__op_le__',
+  'gte': '__op_ge__',
+  'index': '__op_get_index__',
+};
+const _stdFunctionToOperatorSymbol = <String, String>{
   'equals': '==',
-  'not_equals': '!=',
   'add': '+',
   'subtract': '-',
   'multiply': '*',

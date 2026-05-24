@@ -4,7 +4,7 @@ Tracks the round-trip story for the reference Dart engine across all
 target languages: encode the live engine → Ball IR → compile back to
 each supported language → run conformance.
 
-Last refreshed: 2026-05-24 (C++ self-host 109/175 after the compiler-correctness wave).
+Last refreshed: 2026-05-24 (parallel multi-track wave — C++ self-host 120, TS 224/227, Dart parity 181, +10 fixtures).
 
 ## Pipeline
 
@@ -90,7 +90,27 @@ with a shared map/vector (like the scope `BallScope = shared_ptr<BallMap>`) so
 lookups share rather than copy. That single change would unblock sorts, OOP
 field mutation, and the collection-algorithm family at once.
 
-**2026-05-24 (compiler correctness wave — 72 → 109/175):** Five systemic
+**2026-05-24 (parallel multi-track wave — final state):** Four tracks run
+concurrently (file-disjoint: cpp/, ts/, dart/compiler, tests/conformance +
+shared encoder/engine fixes), each verified independently:
+- **C++ self-host: 109 → 120** (`test_conformance` native engine steady at 201/221).
+  Adds: reference-semantic program lists (`40ccd74` — shared_ptr-backed BallDyn
+  lists; maps stay by-value to avoid self-referential `self` cycles; unblocked
+  sorts 132/133/134 + matrix 83/128/138) and `_stdFunctionToOperator` emitted as
+  a BallMap (`e3aa4ed` — fixed operator-overload dispatch; landed 113).
+- **TS self-host: 198 → 224/227** — zero-wrapper regeneration unblocked
+  (`BallMap`/`BallList`/`BallObject` preamble base classes), generators deferred
+  to native, virtual-dispatch + map-merge fixes. 3 remaining are deep gaps
+  (int64/BigInt 192, RangeError-on-OOB 199, switch-pattern 169).
+- **Dart parity: 156 → 181/189** — `_generateLocalFunction` honours lambda
+  `has_return` (`176af37`, unblocked 15 OOP fixtures). Round-trip 113/204 remain
+  (Ball→Dart compiler needs the operator-dispatch/replaceAll handling the live
+  engine got).
+- **+10 Dart-validated conformance fixtures** (204–213) and shared-pipeline
+  fixes: encoder `replaceAll`→`string_replace_all` (`633ae72`), engine
+  `operator+` dispatch (`334fd54`), malformed-fixture repair (`54b2a30`).
+
+**Earlier the same day (compiler correctness wave — 72 → 109/175):** Five systemic
 compiler bugs fixed, each verified with a full rebuild + isolated-process tally
 and zero regressions on `test_conformance` (still 194 pass):
 - **FlowSignal arg0→kind (72 → 93):** `_FlowSignal('return', value: v)` compiled
@@ -159,7 +179,7 @@ Older measurement (stale May-5 backup, pre-latest-IR): **66 / 170 pass (38.8%)**
 
 **Goal:** zero-wrapper engine — `import { BallEngine } from './compiled_engine.ts'` should be enough, no hand-written shim.
 
-**Current:** wrapper-mediated **198 / 216 conformance pass (91.7%)** after `a970c5f` added a host-knob skip-list, std_time/convert wiring in the wrapper, an operator-name sanitiser in the compiler, and a DateTime polyfill in the preamble. The drop-the-wrapper push (commits `b4287e7` → `e165f8b`) broke the wrapper integration and was reverted in `2c67f94` to keep the suite green; the pure-harness file `ts/engine/test/harness_pure.mjs` is kept as groundwork for the next attempt.
+**Current:** zero-wrapper **224 / 227 conformance pass (98.7%)** (regen unblocked via preamble BallMap/BallList/BallObject base classes) after `a970c5f` added a host-knob skip-list, std_time/convert wiring in the wrapper, an operator-name sanitiser in the compiler, and a DateTime polyfill in the preamble. The drop-the-wrapper push (commits `b4287e7` → `e165f8b`) broke the wrapper integration and was reverted in `2c67f94` to keep the suite green; the pure-harness file `ts/engine/test/harness_pure.mjs` is kept as groundwork for the next attempt.
 
 The drop is multi-iteration. Progress so far:
 - Compiler now sanitises Dart operator method names ([]=, [], ==, +, …) into JS-safe identifiers, fixing `BallObject.operator []=` round-trip.
@@ -203,9 +223,9 @@ Conformance fixtures that depend on `BallEngine` constructor knobs that don't su
 |-------|-------|
 | US-001 Regenerate Dart roundtrip | ✅ done — `dart analyze` clean, parity test runs to completion |
 | US-002 Skip-list parity tests | ✅ done — 6 host-knob fixtures skipped, no infinite hangs |
-| US-003 Drive Dart parity ≥ 90% | ✅ done — 156/172 (90.7%) on non-skipped fixtures |
+| US-003 Drive Dart parity ≥ 90% | ✅ 181/189 round-trip parity |
 | US-004 Regenerate compiled_engine.ts | partial — regen produces an engine the wrapper can load; the drop-the-wrapper push was reverted to keep 194/220 green |
-| US-005 Drive TS conformance ≥ 90% | ✅ done — 198/216 (91.7%) through wrapper after skip-list + std_time/convert wiring + DateTime polyfill |
+| US-005 Drive TS conformance ≥ 90% | ✅ 224/227 zero-wrapper (was 198/216 wrappered) after skip-list + std_time/convert wiring + DateTime polyfill |
 | US-006 Regenerate engine_rt.cpp | partial — `compile_engine_cpp.dart` emits a 9013-line `engine_rt.cpp` from the latest engine.ball.pb, but it doesn't build under MSVC because the Wave 7 `_trackMemoryAllocation` overload set confuses overload resolution. The May 5 backup is the live build artifact. |
 | US-007 Drive C++ conformance ≥ 50% | ✅ 92.4% on `test_conformance` (cpp engine + cpp compiler, 194/210); `test_selfhost_conformance` (compiled engine_rt.cpp) still 66/170 pending engine_rt regen + MSVC `BallDyn`-in-`std::any` fix. |
 | US-008 Add new conformance fixtures | partial — 1/5 added (`203_closure_in_loop`) plus a `typed_list` dispatch fix that was blocking it; remaining 4 (record-pattern destructure, async chain rethrow, recursive types, generator state restore) are drafted but blocked on unrelated engine gaps |

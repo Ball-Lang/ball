@@ -51,7 +51,7 @@ ctest -R encoder_tests
 NOTE (2026-05-24): the previous list here was STALE — it claimed `string_split`/
 `string_replace`/`switch`/`for_in` were broken, but all are implemented
 (`compiler.cpp:1347`, `1362`, `2679`, `2579`). Below is the audited, verified set
-of real stubs/silent-correctness gaps. C++ self-host conformance is 109/175
+of real stubs/silent-correctness gaps. C++ self-host conformance is 120/189
 (2026-05-24, after the FlowSignal-key / try-finally / exception-payload /
 List.filled-unwrap compiler fixes — see docs/SELF_HOST_STATUS.md).
 
@@ -74,10 +74,12 @@ List.filled-unwrap compiler fixes — see docs/SELF_HOST_STATUS.md).
   error) (`compiler.cpp` module dispatchers ~2018+).
 - Engine `cascade` drops all sections (`engine.cpp:4094`); list `index` has no
   bounds check → UB on out-of-range (`engine.cpp:4084`); `as` cast is a no-op.
-- In-place container mutation (sorts 132–134, OOP setters 104): `BallList`/
-  `BallMap`/`BallObject` are value types stored in `BallDyn._val`, so reads copy
-  them — `list[i]=v` mutates a discarded copy. The real fix is reference-semantic
-  (shared_ptr-backed) containers. This is the largest remaining self-host lever.
+- In-place container mutation: program LISTS are now reference-semantic
+  (shared_ptr-backed `BallDyn` lists, commit `40ccd74`) — sorts 132–134 + matrix
+  83/128/138 pass. MAPS deliberately stay by-value (a shared map creates
+  self-referential cycles via `self` → bad_alloc on OOP/map tests); raw-map +
+  instance mutation is handled by the existing copy-on-read + writeback. If a
+  future map-aliasing case needs it, make ONLY non-instance maps shared.
 
 **Runtime stubs (compile, produce wrong/fake results):**
 - `jsonEncode`/`toProto3Json` are not real JSON (`ball_emit_runtime.h:1098`).

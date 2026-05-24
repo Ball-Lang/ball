@@ -120,7 +120,15 @@ export class BallCompiler {
     }
 
     // Classes.
+    // BallObject / BallMap / BallList are runtime container types supplied by
+    // the preamble (a Ball instance is a plain-object-like BallObject, a map a
+    // plain object, a list a plain array). Skip emitting their class bodies —
+    // the encoder's versions reference the inherited `entries` field via bare
+    // identifiers and take named ctor args the emitter can't reproduce; the
+    // hand-written preamble versions are the source of truth.
+    const _runtimeContainerTypes = new Set(["BallObject", "BallMap", "BallList"]);
     for (const td of entryMod.typeDefs ?? []) {
+      if (_runtimeContainerTypes.has(classTsName(td.name))) continue;
       this.emitClass(sf, td, classMembers.get(td.name) ?? []);
     }
 

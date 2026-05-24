@@ -17,6 +17,86 @@ export const TS_RUNTIME_PREAMBLE = String.raw`// ── Ball runtime preamble (g
 // Base class for all Ball runtime values.
 class BallValue {}
 
+// ── Ball container runtime types ────────────────────────────────────
+//
+// The self-hosted engine IR models class instances as 'BallObject extends
+// BallMap'. The compiler treats maps/lists transparently (a Ball map is a
+// plain JS object, a Ball list a plain JS array) and _asMap() returns an
+// instance verbatim, reading its data through bracket access (obj of f)
+// and the Object.prototype .entries / .keys / .length getters. To stay
+// compatible we make BallObject a plain-object-like instance: the field data
+// lives as OWN ENUMERABLE properties (so bracket access and .entries see it),
+// while the class bookkeeping (typeName/fields/methods/superObject) is stored
+// non-enumerably so it never leaks into .entries / .keys / .length.
+//
+// BallMap / BallList exist only so 'extends BallMap' resolves and any stray
+// new BallMap(...) / new BallList(...) behaves like the transparent value.
+class BallMap extends BallValue {
+  constructor(entries?: any) {
+    super();
+    if (entries && typeof entries === 'object') {
+      if (entries instanceof Map) {
+        for (const [k, v] of entries) (this as any)[k] = v;
+      } else {
+        for (const k of Object.keys(entries)) (this as any)[k] = entries[k];
+      }
+    }
+  }
+}
+
+class BallList extends Array {
+  constructor(items?: any) {
+    super();
+    if (Array.isArray(items)) for (const it of items) this.push(it);
+  }
+}
+
+class BallObject extends BallMap {
+  constructor(arg0?: any, superObject?: any, fields?: any, methods?: any) {
+    super();
+    // Accept either the named-args object the encoder emits
+    // (new BallObject({typeName, superObject, fields, methods})) or the
+    // positional form, so the class works regardless of how it is invoked.
+    let typeName: any = arg0;
+    if (arg0 && typeof arg0 === 'object' && !Array.isArray(arg0) &&
+        ('typeName' in arg0 || 'fields' in arg0 || 'methods' in arg0 ||
+         'superObject' in arg0)) {
+      typeName = arg0.typeName;
+      superObject = arg0.superObject;
+      fields = arg0.fields;
+      methods = arg0.methods;
+    }
+    const fieldMap = (fields && typeof fields === 'object') ? fields : {};
+    const methodMap = (methods && typeof methods === 'object') ? methods : {};
+    // Field data → own enumerable properties (visible to bracket access and
+    // the Object.prototype map getters).
+    for (const k of Object.keys(fieldMap)) (this as any)[k] = fieldMap[k];
+    // Class bookkeeping → own props the engine reads/writes by bracket name.
+    (this as any)['__type__'] = typeName ?? '';
+    (this as any)['__super__'] = superObject ?? null;
+    (this as any)['__fields__'] = fieldMap;
+    (this as any)['__methods__'] = methodMap;
+    // Mirror the Dart class fields too, but non-enumerably so they never show
+    // up as Ball fields in .entries / .keys / .length.
+    for (const [name, value] of [
+      ['typeName', typeName ?? ''], ['superObject', superObject ?? null],
+      ['fields', fieldMap], ['methods', methodMap],
+    ] as Array<[string, any]>) {
+      Object.defineProperty(this, name, {
+        value, writable: true, configurable: true, enumerable: false,
+      });
+    }
+  }
+
+  setField(name: any, value: any): void {
+    (this as any).fields[name] = value;
+    (this as any)[name] = value;
+  }
+}
+(globalThis as any).BallMap = BallMap;
+(globalThis as any).BallList = BallList;
+(globalThis as any).BallObject = BallObject;
+
 // BallDouble wrapper — tracks that a number should print as a double
 // (e.g. 42.0 not 42). Used by the compiled Dart engine's _toDouble.
 class BallDouble {
@@ -479,6 +559,14 @@ function __ball_cascade(target: any, ops: any[]): any {
         if (this instanceof Map) { const v = this.get(k); this.delete(k); return v; }
         const v = this[k]; delete this[k]; return v;
       },
+    });
+  }
+  // cast — Dart Map.cast<K2,V2>() / List.cast<E2>(). The cast is a static
+  // re-typing only; at runtime it returns the same collection unchanged.
+  if (!op2.cast) {
+    Object.defineProperty(op2, 'cast', {
+      configurable: true, writable: true, enumerable: false,
+      value: function () { return this; },
     });
   }
   // Dart Map has .entries / .keys / .values as GETTERS (no parens).

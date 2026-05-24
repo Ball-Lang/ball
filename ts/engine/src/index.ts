@@ -1173,16 +1173,31 @@ export class BallEngine {
     });
     const stderrFn = options.stderr ?? (() => {});
 
+    // The self-hosted engine constructor takes 16 positional parameters:
+    //   program, stdout, stderr, stdinReader, envGet, args, enableProfiling,
+    //   maxRecursionDepth, timeoutMs, maxMemoryBytes, maxModules,
+    //   maxExpressionDepth, maxProgramSizeBytes, sandbox, moduleHandlers,
+    //   resolver
+    // (older IR revisions only had 9). We pass the security knobs as their
+    // permissive defaults — these are host-only and not expressible through
+    // the round-tripped IR — and put our handler list in slot 15.
     this._compiledEngine = new CompiledEngine(
       normalized,
       stdoutFn,
       stderrFn,
-      null,    // stdinReader
-      null,    // envGet
-      [],      // args
-      false,   // enableProfiling
-      [methodHandler as any, stdHandler],
-      null,    // resolver
+      null,        // stdinReader
+      null,        // envGet
+      [],          // args
+      false,             // enableProfiling
+      100000,            // maxRecursionDepth
+      null,              // timeoutMs (null = unbounded)
+      null,              // maxMemoryBytes (null = unbounded)
+      1000000,           // maxModules (effectively unbounded)
+      1000000,           // maxExpressionDepth (effectively unbounded)
+      null,              // maxProgramSizeBytes (null = skip size check)
+      false,             // sandbox
+      [methodHandler as any, stdHandler],  // moduleHandlers
+      null,              // resolver
     );
 
     // Patch scope bindings to use null-prototype objects (avoids

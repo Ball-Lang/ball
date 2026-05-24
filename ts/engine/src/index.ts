@@ -956,32 +956,17 @@ function patchCompiledEngine(engine: CompiledEngine): void {
     }
     const isGenFunc = isSyncStar || isAsyncStar || isGenerator;
 
-    // For generator functions, create a BallGenerator and set it as the current
-    // generator on the engine instance. The yield/yield_each base function
-    // handlers will push values into it.
-    let generator: any = null;
-    let prevGenerator = e._currentGenerator;
+    // Generator functions are handled natively by the regenerated engine:
+    // it creates a BallGenerator, binds it to scope as `__generator__`, and
+    // `_evalYield`/`_evalYieldEach` walk the scope chain to push values into
+    // it. We must NOT shadow that with our own engine-level `_currentGenerator`
+    // (the old engine's mechanism) — doing so collected zero yields and
+    // returned an empty list. Delegate straight to the native implementation.
     if (isGenFunc) {
-      generator = new BallGenerator();
-      e._currentGenerator = generator;
+      return origCallFunction(moduleName, func, fixedInput, parentScope);
     }
 
     let result = await origCallFunction(moduleName, func, fixedInput, parentScope);
-
-    // Restore previous generator (handles nested generators)
-    e._currentGenerator = prevGenerator;
-
-    // Handle generator results — collect yielded values as a list
-    if (isGenFunc && generator) {
-      generator.completed = true;
-      const values = generator.values;
-      if (isAsyncStar) {
-        // async* → BallFuture of list
-        return new BallFuture(values, true);
-      }
-      // sync* / generator → plain list
-      return values;
-    }
 
     // Handle async function results.
     // The compiled engine already wraps async results in BallFuture (line 1051-1053).

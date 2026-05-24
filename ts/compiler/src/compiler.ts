@@ -3679,9 +3679,13 @@ $1async _resolveAndCallFunction(`,
         return "-1";
       }
       case "list_concat": {
+        // The encoder emits list_concat for both list `+` and Map.addAll
+        // (`m = list_concat(m, other)`), with the second operand carried as
+        // `right` / `other` / `value`. Use the polymorphic __ball_concat so
+        // maps merge by key (child overrides parent) and lists concat.
         const l = f.get("left") ?? f.get("list");
-        const r = f.get("right") ?? f.get("other");
-        if (l && r) return `[...${this.expr(l)}, ...${this.expr(r)}]`;
+        const r = f.get("right") ?? f.get("other") ?? f.get("value");
+        if (l && r) return `__ball_concat(${this.expr(l)}, ${this.expr(r)})`;
         return "[]";
       }
       case "list_reverse": {
@@ -3852,7 +3856,7 @@ $1async _resolveAndCallFunction(`,
           case "list_any": return `${this.expr(f.get("list")!)}.some(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
           case "list_all": return `${this.expr(f.get("list")!)}.every(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
           case "list_to_list": return `[...${this.expr(f.get("list")!)}]`;
-          case "list_concat": return `[...${this.expr(f.get("left")!)}, ...${this.expr(f.get("right")!)}]`;
+          case "list_concat": return `__ball_concat(${this.expr(f.get("left") ?? f.get("list")!)}, ${this.expr(f.get("right") ?? f.get("other") ?? f.get("value")!)})`;
           case "list_reversed": return `[...${this.expr(f.get("list")!)}].reverse()`;
           case "compare_to": {
             const v = this.expr(fg("value", "left", "arg0")!);

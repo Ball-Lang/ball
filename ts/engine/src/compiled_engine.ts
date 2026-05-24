@@ -162,6 +162,25 @@ function __ball_double_to_string(n: number): string {
   return n.toString();
 }
 
+// Polymorphic concat / merge used for std.list_concat. The encoder emits
+// list_concat both for Dart list concat AND for Map.addAll(...) (encoded as
+// m = list_concat(m, other)). Arrays concat positionally; plain objects
+// (Ball maps) merge by key with the right side winning (so child class
+// methods override parent methods).
+function __ball_concat(a: any, b: any): any {
+  const aIsArr = Array.isArray(a);
+  const bIsArr = Array.isArray(b);
+  if (aIsArr || bIsArr) {
+    const al = aIsArr ? a : (a == null ? [] : [a]);
+    const bl = bIsArr ? b : (b == null ? [] : [b]);
+    return [...al, ...bl];
+  }
+  if ((a && typeof a === 'object') || (b && typeof b === 'object')) {
+    return Object.assign({}, a ?? {}, b ?? {});
+  }
+  return [a, b];
+}
+
 // Dart-style Euclidean modulo: result is always non-negative.
 // JS % is remainder (can be negative), Dart % is Euclidean modulo.
 function __dart_mod(a: number, b: number): number {
@@ -3334,7 +3353,7 @@ export class BallEngine {
     let superclass = typeDef.superclass;
     if (((superclass != null) && superclass.isNotEmpty)) {
       let qualifiedSuper = (superclass.includes(':') ? superclass : ((__ball_to_string(modPart) + ':') + __ball_to_string(superclass)));
-      names = [];
+      names = __ball_concat(this._collectAllFieldNames(qualifiedSuper), this._collectAllFieldNames(qualifiedSuper));
     }
     for (const fieldName of typeDef.fieldNames) {
       if (!names.includes(fieldName)) {
@@ -3422,14 +3441,14 @@ export class BallEngine {
     let typeDef = this._findTypeDef(typeName);
     if ((((typeDef != null) && (typeDef.superclass != null)) && typeDef.superclass.isNotEmpty)) {
       let qualSuper = (typeDef.superclass.includes(':') ? typeDef.superclass : ((__ball_to_string(modPart) + ':') + __ball_to_string(typeDef.superclass)));
-      methods = [];
+      methods = __ball_concat(this._resolveTypeMethodsWithInheritance(qualSuper), this._resolveTypeMethodsWithInheritance(qualSuper));
     }
     let mixins = this._getMixins(typeName);
     for (const mixin of mixins) {
       let qualMixin = (mixin.includes(':') ? mixin : ((__ball_to_string(modPart) + ':') + __ball_to_string(mixin)));
-      methods = [];
+      methods = __ball_concat(this._resolveTypeMethods(qualMixin), this._resolveTypeMethods(qualMixin));
     }
-    methods = [];
+    methods = __ball_concat(this._resolveTypeMethods(typeName), this._resolveTypeMethods(typeName));
     return methods;
   }
 
@@ -5081,10 +5100,10 @@ export class BallEngine {
                 r = await r;
               }
               if (false /* BallList is List in TS */) {
-                result = [];
+                result = __ball_concat(r.items, r.items);
               } else {
                 if (Array.isArray(r)) {
-                  result = [];
+                  result = __ball_concat(r, r);
                 } else {
                   result = [...result, r];
                 }
@@ -5129,7 +5148,7 @@ export class BallEngine {
         }
         else if ((__sw === 'addAll')) {
           if (Array.isArray(arg0)) {
-            self = [];
+            self = __ball_concat(arg0, arg0);
           }
           return null;
         }
@@ -5973,7 +5992,7 @@ export class BallEngine {
             r = await r;
           }
           if (Array.isArray(r)) {
-            result = [];
+            result = __ball_concat(r, r);
           } else {
             result = [...result, r];
           }
@@ -7658,7 +7677,7 @@ export class BallEngine {
       else if ((__sw === 'logical_or')) {
         let leftBindings = {};
         if (this._matchPattern(value, pattern['left'], leftBindings)) {
-          bindings = [];
+          bindings = __ball_concat(leftBindings, leftBindings);
           return true;
         }
         return this._matchPattern(value, pattern['right'], bindings);
@@ -7666,7 +7685,7 @@ export class BallEngine {
       else if ((__sw === 'logical_and')) {
         let tempBindings = {};
         if ((this._matchPattern(value, pattern['left'], tempBindings) && this._matchPattern(value, pattern['right'], tempBindings))) {
-          bindings = [];
+          bindings = __ball_concat(tempBindings, tempBindings);
           return true;
         }
         return false;
@@ -8390,7 +8409,7 @@ export class BallGenerator extends BallValue {
 
   yieldAll(items: any): any {
     const input = items;
-    return (this.values = []);
+    return (this.values = __ball_concat(items, items));
   }
 
   toString(): any {

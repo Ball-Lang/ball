@@ -175,6 +175,25 @@ function __ball_double_to_string(n: number): string {
   return n.toString();
 }
 
+// Polymorphic concat / merge used for std.list_concat. The encoder emits
+// list_concat both for Dart list concat AND for Map.addAll(...) (encoded as
+// m = list_concat(m, other)). Arrays concat positionally; plain objects
+// (Ball maps) merge by key with the right side winning (so child class
+// methods override parent methods).
+function __ball_concat(a: any, b: any): any {
+  const aIsArr = Array.isArray(a);
+  const bIsArr = Array.isArray(b);
+  if (aIsArr || bIsArr) {
+    const al = aIsArr ? a : (a == null ? [] : [a]);
+    const bl = bIsArr ? b : (b == null ? [] : [b]);
+    return [...al, ...bl];
+  }
+  if ((a && typeof a === 'object') || (b && typeof b === 'object')) {
+    return Object.assign({}, a ?? {}, b ?? {});
+  }
+  return [a, b];
+}
+
 // Dart-style Euclidean modulo: result is always non-negative.
 // JS % is remainder (can be negative), Dart % is Euclidean modulo.
 function __dart_mod(a: number, b: number): number {

@@ -1,0 +1,99 @@
+{
+  "name": "208_async_chain_rethrow",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
+      ],
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "try", "isBase": true },
+        { "name": "throw", "isBase": true },
+        { "name": "rethrow", "isBase": true },
+        { "name": "await", "isBase": true },
+        { "name": "concat", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "innerFail",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "call": { "module": "std", "function": "throw", "input": { "messageCreation": { "fields": [
+              { "name": "value", "value": { "literal": { "stringValue": "inner-boom" } } }
+            ] } } }
+          },
+          "metadata": { "kind": "function", "is_async": true, "params": [ { "name": "input", "type": "int" } ] }
+        },
+        {
+          "name": "middle",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "call": { "module": "std", "function": "try", "input": { "messageCreation": { "fields": [
+              { "name": "body", "value": { "block": { "statements": [
+                { "expression": { "call": { "module": "std", "function": "await", "input": { "messageCreation": { "fields": [
+                  { "name": "value", "value": { "call": { "function": "innerFail", "input": { "messageCreation": { "fields": [
+                    { "name": "arg0", "value": { "literal": { "intValue": "0" } } }
+                  ] } } } } }
+                ] } } } } }
+              ] } } },
+              { "name": "catches", "value": { "literal": { "listValue": { "elements": [
+                { "messageCreation": { "fields": [
+                  { "name": "variable", "value": { "literal": { "stringValue": "e" } } },
+                  { "name": "body", "value": { "block": { "statements": [
+                    { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                      { "name": "message", "value": { "call": { "module": "std", "function": "concat", "input": { "messageCreation": { "fields": [
+                        { "name": "left", "value": { "literal": { "stringValue": "middle saw: " } } },
+                        { "name": "right", "value": { "reference": { "name": "e" } } }
+                      ] } } } } }
+                    ] } } } } },
+                    { "expression": { "call": { "module": "std", "function": "rethrow", "input": { "messageCreation": { "fields": [] } } } } }
+                  ] } } }
+                ] } }
+              ] } } } }
+            ] } } }
+          },
+          "metadata": { "kind": "function", "is_async": true, "params": [ { "name": "input", "type": "int" } ] }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "call": { "module": "std", "function": "try", "input": { "messageCreation": { "fields": [
+              { "name": "body", "value": { "block": { "statements": [
+                { "expression": { "call": { "module": "std", "function": "await", "input": { "messageCreation": { "fields": [
+                  { "name": "value", "value": { "call": { "function": "middle", "input": { "messageCreation": { "fields": [
+                    { "name": "arg0", "value": { "literal": { "intValue": "0" } } }
+                  ] } } } } }
+                ] } } } } }
+              ] } } },
+              { "name": "catches", "value": { "literal": { "listValue": { "elements": [
+                { "messageCreation": { "fields": [
+                  { "name": "variable", "value": { "literal": { "stringValue": "err" } } },
+                  { "name": "body", "value": { "block": { "statements": [
+                    { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
+                      { "name": "message", "value": { "call": { "module": "std", "function": "concat", "input": { "messageCreation": { "fields": [
+                        { "name": "left", "value": { "literal": { "stringValue": "outer caught: " } } },
+                        { "name": "right", "value": { "reference": { "name": "err" } } }
+                      ] } } } } }
+                    ] } } } } }
+                  ] } } }
+                ] } }
+              ] } } } }
+            ] } } }
+          },
+          "metadata": { "kind": "function" }
+        }
+      ],
+      "moduleImports": [ { "name": "std" } ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

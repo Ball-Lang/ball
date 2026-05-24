@@ -53,6 +53,22 @@ void CppCompiler::build_lookup_tables() {
     }
 }
 
+std::vector<std::string> CppCompiler::lookup_ctor_params(const std::string& type_name) {
+    auto colon = type_name.find(':');
+    auto bare = colon != std::string::npos ? type_name.substr(colon + 1) : type_name;
+    std::string ctor_key = program_.entry_module() + "." + type_name + ".new";
+    auto it = functions_.find(ctor_key);
+    if (it == functions_.end()) {
+        // Try with module prefix in the function name (e.g. main.main:Foo.new).
+        ctor_key = program_.entry_module() + "." +
+                   program_.entry_module() + ":" + bare + ".new";
+        it = functions_.find(ctor_key);
+    }
+    if (it != functions_.end() && it->second->has_metadata())
+        return extract_params(it->second->metadata());
+    return {};
+}
+
 std::vector<std::string> CppCompiler::extract_params(const google::protobuf::Struct& metadata) {
     std::vector<std::string> result;
     auto it = metadata.fields().find("params");
@@ -758,9 +774,23 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
         auto bcc = bare_t.find(':');
         if (bcc != std::string::npos) bare_t = bare_t.substr(bcc + 1);
         if (stub_types.count(bare_t)) {
+            // Resolve positional argN keys to the constructor's real param
+            // names (e.g. _FlowSignal('return', value: v) → {kind, value}).
+            // The runtime (ball_is_flow_signal + all `.kind`/`.value` reads)
+            // keys on the parameter names, so emitting "arg0" silently breaks
+            // flow-signal detection and return-value extraction.
+            std::vector<std::string> ctor_params = lookup_ctor_params(msg.type_name());
             std::string result = "[&]() { std::map<std::string,std::any> __m;";
             for (const auto& f : msg.fields()) {
-                result += " __m[\"" + f.name() + "\"s] = std::any(" + compile_expr(f.value()) + ");";
+                std::string fname = f.name();
+                if (fname.size() >= 4 && fname.substr(0, 3) == "arg") {
+                    try {
+                        int idx = std::stoi(fname.substr(3));
+                        if (idx >= 0 && idx < static_cast<int>(ctor_params.size()))
+                            fname = ctor_params[idx];
+                    } catch (...) {}
+                }
+                result += " __m[\"" + fname + "\"s] = std::any(" + compile_expr(f.value()) + ");";
             }
             result += " return __m; }()";
             return result;
@@ -801,21 +831,8 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
     }
 
     if (has_arg_fields) {
-        // Try to find constructor parameter names
-        auto colon = msg.type_name().find(':');
-        auto bare = colon != std::string::npos ? msg.type_name().substr(colon + 1) : msg.type_name();
-        std::string ctor_key = program_.entry_module() + "." + msg.type_name() + ".new";
-        auto it = functions_.find(ctor_key);
-        if (it == functions_.end()) {
-            // Try with module prefix in the function name
-            ctor_key = program_.entry_module() + "." +
-                       program_.entry_module() + ":" + bare + ".new";
-            it = functions_.find(ctor_key);
-        }
-        std::vector<std::string> ctor_params;
-        if (it != functions_.end() && it->second->has_metadata()) {
-            ctor_params = extract_params(it->second->metadata());
-        }
+        // Resolve argN field names to constructor parameter names.
+        std::vector<std::string> ctor_params = lookup_ctor_params(msg.type_name());
 
         // Build a mapping of actual field values, resolving argN to param names
         std::string result = type + "{";

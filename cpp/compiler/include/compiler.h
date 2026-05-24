@@ -148,6 +148,10 @@ private:
     }
     std::string sanitize_name(const std::string& name);
     std::string indent_str();
+    // Resolve a class's constructor parameter names (in declaration order) so
+    // positional call-site args (`arg0`, `arg1`, ...) can be mapped back to the
+    // real field names. Returns empty if the constructor isn't found.
+    std::vector<std::string> lookup_ctor_params(const std::string& type_name);
 };
 
 }  // namespace ball

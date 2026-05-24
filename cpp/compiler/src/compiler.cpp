@@ -3188,12 +3188,20 @@ inline std::string whichSource(const BallDyn&) { return "notSet"; }
 inline std::string whichXxx(const BallDyn&) { return "notSet"; }
 
 // List/Map copy helpers for List.of / Map.from
-// Std function to operator mapping (used by _tryOperatorOverride)
-const std::map<std::string, std::string> _stdFunctionToOperator = {
-  {"equals","=="}, {"not_equals","!="}, {"add","+"}, {"subtract","-"},
-  {"multiply","*"}, {"divide","~/"}, {"divide_double","/"}, {"modulo","%"},
-  {"less_than","<"}, {"greater_than",">"}, {"lte","<="}, {"gte",">="},
-  {"index","[]"}
+// Std function to operator mapping (used by _tryOperatorOverride).
+// Must be a BallMap (std::map<string, any>) — the engine reads it via
+// `BallDyn(_stdFunctionToOperator)[function]`, and BallDyn::operator[] only
+// recognizes std::map<string, any> (a std::map<string, string> would not be
+// read as a map, so every lookup returned a null BallDyn and the operator
+// override never fired). Values are std::string wrapped in std::any.
+const std::map<std::string, std::any> _stdFunctionToOperator = {
+  {"equals", std::any(std::string("=="))}, {"not_equals", std::any(std::string("!="))},
+  {"add", std::any(std::string("+"))}, {"subtract", std::any(std::string("-"))},
+  {"multiply", std::any(std::string("*"))}, {"divide", std::any(std::string("~/"))},
+  {"divide_double", std::any(std::string("/"))}, {"modulo", std::any(std::string("%"))},
+  {"less_than", std::any(std::string("<"))}, {"greater_than", std::any(std::string(">"))},
+  {"lte", std::any(std::string("<="))}, {"gte", std::any(std::string(">="))},
+  {"index", std::any(std::string("[]"))}
 };
 
 // Built-in type names (used by _evalReference to skip class lookups)

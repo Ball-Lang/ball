@@ -3570,7 +3570,7 @@ $1async _resolveAndCallFunction(`,
       }
       case "to_int": {
         const v = f.get("value");
-        return v ? `Math.trunc(${this.expr(v)})` : "0";
+        return v ? `__ball_to_int(${this.expr(v)})` : "0";
       }
       case "identical": {
         const l = f.get("left") ?? f.get("a");

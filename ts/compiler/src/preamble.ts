@@ -164,6 +164,24 @@ function __ball_parse_int(s: string): number {
   return parseInt(trimmed, 10);
 }
 
+// Dart-style int conversion that preserves int64 precision. JS numbers lose
+// precision above 2^53, so integer literals encoded as decimal strings (the
+// JSON proto3 representation of int64) would round. When the string magnitude
+// exceeds Number.MAX_SAFE_INTEGER we return a BigInt to keep the exact value;
+// otherwise we keep a plain number so the common arithmetic path is unchanged.
+function __ball_to_int(v: any): any {
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'string') {
+    if (/^-?\d+$/.test(v)) {
+      const b = BigInt(v);
+      if (b > 9007199254740991n || b < -9007199254740991n) return b;
+      return Number(b);
+    }
+    return Math.trunc(Number(v));
+  }
+  return Math.trunc(v);
+}
+
 function __ball_parse_double(s: string): number {
   const n = parseFloat(s);
   if (Number.isNaN(n)) throw new Error('FormatException: ' + s);

@@ -151,6 +151,24 @@ function __ball_parse_int(s: string): number {
   return parseInt(trimmed, 10);
 }
 
+// Dart-style int conversion that preserves int64 precision. JS numbers lose
+// precision above 2^53, so integer literals encoded as decimal strings (the
+// JSON proto3 representation of int64) would round. When the string magnitude
+// exceeds Number.MAX_SAFE_INTEGER we return a BigInt to keep the exact value;
+// otherwise we keep a plain number so the common arithmetic path is unchanged.
+function __ball_to_int(v: any): any {
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'string') {
+    if (/^-?\d+$/.test(v)) {
+      const b = BigInt(v);
+      if (b > 9007199254740991n || b < -9007199254740991n) return b;
+      return Number(b);
+    }
+    return Math.trunc(Number(v));
+  }
+  return Math.trunc(v);
+}
+
 function __ball_parse_double(s: string): number {
   const n = parseFloat(s);
   if (Number.isNaN(n)) throw new Error('FormatException: ' + s);
@@ -1595,7 +1613,7 @@ export class BallEngine {
                   } else {
                     if ((num.tryParse(valStr) != null)) {
                       let numVal = num.parse(valStr);
-                      instance[name] = (valStr.includes('.') ? new BallDouble((+(numVal))) : Math.trunc(numVal));
+                      instance[name] = (valStr.includes('.') ? new BallDouble((+(numVal))) : __ball_to_int(numVal));
                     } else {
                       instance[name] = (__ball_index(resolvedParams, valStr) ?? valStr);
                     }
@@ -1605,7 +1623,7 @@ export class BallEngine {
             } else {
               if (((valField != null) && hasNumberValue(valField))) {
                 let n = valField.numberValue;
-                instance[name] = ((n === Math.trunc(n)) ? Math.trunc(n) : n);
+                instance[name] = ((n === __ball_to_int(n)) ? __ball_to_int(n) : n);
               } else {
                 if (((valField != null) && hasBoolValue(valField))) {
                   instance[name] = valField.boolValue;
@@ -1666,7 +1684,7 @@ export class BallEngine {
                 } else {
                   if ((num.tryParse(token) != null)) {
                     let n = num.parse(token);
-                    superInput[('arg' + __ball_to_string(i))] = (token.includes('.') ? (+(n)) : Math.trunc(n));
+                    superInput[('arg' + __ball_to_string(i))] = (token.includes('.') ? (+(n)) : __ball_to_int(n));
                   } else {
                     if ((token === 'true')) {
                       superInput[('arg' + __ball_to_string(i))] = true;
@@ -1765,7 +1783,7 @@ export class BallEngine {
         } else {
           if (hasNumberValue(defaultField)) {
             let n = defaultField.numberValue;
-            result['default'] = ((n === Math.trunc(n)) ? Math.trunc(n) : n);
+            result['default'] = ((n === __ball_to_int(n)) ? __ball_to_int(n) : n);
           } else {
             if (hasBoolValue(defaultField)) {
               result['default'] = defaultField.boolValue;
@@ -2507,7 +2525,7 @@ export class BallEngine {
   }
 
   async _evalLiteral(lit: any, scope: any): Promise<any> {
-    return ((whichValue(lit) === (Literal_Value.intValue)) ? (Math.trunc(lit.intValue)) : ((whichValue(lit) === (Literal_Value.doubleValue)) ? (new BallDouble(lit.doubleValue)) : ((whichValue(lit) === (Literal_Value.stringValue)) ? (this._trackStringAllocation(lit.stringValue)) : ((whichValue(lit) === (Literal_Value.boolValue)) ? (lit.boolValue) : ((whichValue(lit) === (Literal_Value.bytesValue)) ? (this._trackByteListAllocation([...lit.bytesValue])) : ((whichValue(lit) === (Literal_Value.listValue)) ? (await this._evalListLiteral(lit.listValue, scope)) : ((whichValue(lit) === (Literal_Value.notSet)) ? (null) : undefined)))))));
+    return ((whichValue(lit) === (Literal_Value.intValue)) ? (__ball_to_int(lit.intValue)) : ((whichValue(lit) === (Literal_Value.doubleValue)) ? (new BallDouble(lit.doubleValue)) : ((whichValue(lit) === (Literal_Value.stringValue)) ? (this._trackStringAllocation(lit.stringValue)) : ((whichValue(lit) === (Literal_Value.boolValue)) ? (lit.boolValue) : ((whichValue(lit) === (Literal_Value.bytesValue)) ? (this._trackByteListAllocation([...lit.bytesValue])) : ((whichValue(lit) === (Literal_Value.listValue)) ? (await this._evalListLiteral(lit.listValue, scope)) : ((whichValue(lit) === (Literal_Value.notSet)) ? (null) : undefined)))))));
   }
 
   async _evalListLiteral(listVal: any, scope: any): Promise<any> {
@@ -5300,7 +5318,7 @@ export class BallEngine {
           return (+(self));
         }
         else if ((__sw === 'toInt')) {
-          return Math.trunc(self);
+          return __ball_to_int(self);
         }
         else if ((__sw === 'toString')) {
           return this._ballToString(self);
@@ -5666,13 +5684,13 @@ export class BallEngine {
         return (+(this._toNum(this._extractUnaryArg(i))));
       }), 'to_int': ((i) => {
         const input = i;
-        return Math.trunc(this._toNum(this._extractUnaryArg(i)));
+        return __ball_to_int(this._toNum(this._extractUnaryArg(i)));
       }), 'int_to_double': ((i) => {
         const input = i;
         return (+(this._toNum(this._extractUnaryArg(i))));
       }), 'double_to_int': ((i) => {
         const input = i;
-        return Math.trunc(this._toNum(this._extractUnaryArg(i)));
+        return __ball_to_int(this._toNum(this._extractUnaryArg(i)));
       }), 'compare_to': ((i) => {
         const input = i;
         let m = (this._stdAsMap(i) ?? { 'value': i });
@@ -5933,7 +5951,7 @@ export class BallEngine {
             if ((r != null)) {
               r = await r;
             }
-            let cmp = ((typeof r === 'number' && Number.isInteger(r)) ? r : Math.trunc(r));
+            let cmp = ((typeof r === 'number' && Number.isInteger(r)) ? r : __ball_to_int(r));
             if ((cmp <= 0)) {
               break;
             }
@@ -6638,7 +6656,7 @@ export class BallEngine {
         throw new _ExitSignal(1);
       }), 'sleep_ms': (async (i) => {
         const input = i;
-        let ms = ((typeof i === 'number') ? Math.trunc(i) : 0);
+        let ms = ((typeof i === 'number') ? __ball_to_int(i) : 0);
         if ((ms > 0)) {
           await Future.delayed(new Duration({ milliseconds: ms }));
         }
@@ -7963,10 +7981,10 @@ export class BallEngine {
       return v.value;
     }
     if ((typeof v === 'number')) {
-      return Math.trunc(v);
+      return __ball_to_int(v);
     }
     if ((typeof v === 'number' || v instanceof BallDouble)) {
-      return Math.trunc(v.value);
+      return __ball_to_int(v.value);
     }
     if ((typeof v === 'string')) {
       return (int.tryParse(v) ?? 0);

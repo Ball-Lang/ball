@@ -520,6 +520,22 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     if (field == "length") return "ball_length(" + obj + ")";
     if (field == "isEmpty") return obj + ".empty()";
     if (field == "isNotEmpty") return "!" + obj + ".empty()";
+    // Dart `someMap.values.first` / `.values.last`: the `.values` getter yields
+    // the map's value collection, and `.first`/`.last` take an element. A bare
+    // `.values` deliberately falls through to a key lookup (`obj["values"]`,
+    // because `.values` is overloaded across BallGenerator/enum/ListValue — see
+    // the NOTE below), so the chained form would otherwise read a missing
+    // "values" key and yield null. When `.first`/`.last` consumes a `.values`
+    // access, the intent is unambiguous: emit the map-values helper so the
+    // element is taken from the real value collection. (Fixes dart_std.invoke's
+    // `args.values.first` single-positional-argument unwrap, conformance 211.)
+    if ((field == "first" || field == "last") &&
+        access.object().expr_case() == ball::v1::Expression::kFieldAccess &&
+        access.object().field_access().field() == "values") {
+        auto inner = compile_expr(access.object().field_access().object());
+        std::string elem = (field == "first") ? ".front()" : ".back()";
+        return "ball_map_values(BallDyn(" + inner + "))" + elem;
+    }
     if (field == "first") return obj + ".front()";
     if (field == "last") return obj + ".back()";
     if (field == "runtimeType") return "std::string(typeid(" + obj + ").name())";

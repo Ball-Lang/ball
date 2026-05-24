@@ -4,7 +4,7 @@ Tracks the round-trip story for the reference Dart engine across all
 target languages: encode the live engine → Ball IR → compile back to
 each supported language → run conformance.
 
-Last refreshed: 2026-05-25 (C++ self-host 141 — higher-order callback-field fix, +3 incl. 105_static_methods; TS 227/227 (100%), Dart parity 183).
+Last refreshed: 2026-05-25 (C++ self-host 144 — dynamic-invoke callee/arg unwrap + `Map.values.first` emission fix, +3 incl. 85/203/211; TS 227/227 (100%), Dart parity 183).
 
 ## Pipeline
 
@@ -35,6 +35,67 @@ Last refreshed: 2026-05-25 (C++ self-host 141 — higher-order callback-field fi
 - `6d22688` — `list_generate` accepts Dart's `length`/`generator` field names alongside the legacy `count`/`function`.
 
 ### C++ self-host (compiled engine_rt.cpp)
+
+**2026-05-25 (141 → 144): dynamic-invoke closure dispatch.** Two related
+compiler/runtime-emission fixes for `dart_std.invoke` (calling a closure stored
+in a variable/list — the higher-order-function path):
+- **`apply()` callee/arg unwrap (`cpp/shared/include/ball_emit_runtime.h`).** The
+  engine's `_stdInvoke` checks `ball_is_function(callee)` (which unwraps via
+  `_BallDynUnwrapper`) and then calls `apply(Function, callee, args)`. But `apply`
+  matched `callee.type() == typeid(std::function<...>)` WITHOUT unwrapping — and
+  under MSVC a `BallDyn` passed where a `std::any` is expected is stored as
+  `typeid(BallDyn)`, not its inner `std::function`. So every dynamically-stored
+  closure passed `ball_is_function` yet `apply` returned `std::any{}` (null). Fix:
+  unwrap `callee` (and the single argument) before the type check. Unblocked
+  `85_closure_counter` and `203_closure_in_loop` (lambdas pushed into a list and
+  invoked).
+- **`Map.values.first` emission (`cpp/compiler/src/compiler.cpp`,
+  `compile_field_access`).** `_stdInvoke`'s single-positional-argument path reads
+  the Dart `args.values.first` (the `Map.values` getter → first value). The
+  compiler deliberately does NOT blanket-map `.values` (it's overloaded across
+  BallGenerator/enum/ListValue — a blanket `ball_map_values` once regressed
+  72→40), so the bare `.values` fell through to a key lookup `args["values"]`
+  (null), and the invoked lambda received null instead of its argument. Fix:
+  when `.first`/`.last` directly consumes a `.values` field access, emit
+  `ball_map_values(inner).front()`/`.back()` — unambiguous and narrow (only the
+  chained form is rewritten; bare `.values` is untouched). Unblocked
+  `211_nested_closures_currying` (`adder(a)=>(b)=>(c)=>a+b+c`, curried via invoke).
+  Verified +3, zero regressions on the 141 baseline.
+
+**Banked (need reference-semantic instances or ordered maps — architecture-level,
+not mechanical; deferred):**
+- **`106_factory_constructor`** — factory returns a cached instance; the test
+  asserts `identical(l1, l2)` is `true` when both share a name. Two issues: (1)
+  `BallDyn::operator==` (`cpp/shared/include/ball_dyn.h:459`) returns `false` for
+  ALL maps/lists/objects (only int/double/bool/string compare by value), so
+  `identical(BallDyn,BallDyn)` (ball_dyn.h:1092 `return a == b`) can never report
+  identity for two instances; (2) even with a correct identity check, instances
+  are by-value `BallObject`s, so the cached `_cache[name]` copy is not the same
+  object as `l1`. A correct fix needs shared_ptr-backed reference-semantic
+  instances (the documented blocker that causes self-referential `self` cycles →
+  bad_alloc) AND pointer-identity in `operator==`. Output today differs by exactly
+  one line (`false` vs `true`).
+- **`109_enum_values`** — two C++ self-host bugs, both data-fidelity/container:
+  (1) **index null for value 0**: enum values build `index` from `v["number"]`
+  (engine.dart ~327), but `proto_msg_to_any` in the conformance harness omits
+  zero-valued int32 fields (proto3-JSON default-omission, test_selfhost_conformance.cpp
+  ~177), so `red`'s `number:0` is absent → `index` is null. The Dart reference
+  reads the proto object where `v.number` always materializes 0. (2) **ordering**:
+  `_enumValues[name]` is a `BallMap` (`std::map`, key-sorted), and `Color.values`
+  iterates it alphabetically (`blue,green,red,yellow`) instead of declaration
+  order. Needs insertion-ordered maps — a core container change (CLAUDE.md mandates
+  `std::map`); deferred with the map-ordering cluster (155/118/124/125/205).
+- **`110_mixin`** — `doc.label` via direct `fieldAccess` works ("My Report"), but
+  the mixin method `printLabel` referencing the `label` getter through `self`
+  returns null. Both paths funnel into the identical `_tryGetterDispatch(doc,
+  "label")` with the same `doc` BallObject (`__type__`=`main:Document`,
+  getterKey=`main.main:Document.label`); static trace shows no logic divergence
+  (engine_rt.cpp: reference self-fallback ~4623-4645 vs fieldAccess ~4765). This
+  is the documented "self-binding gate" class (same as 164/165/166/177/179) —
+  needs a stepping debugger (cdb/VS) to watch the scope/self object identity
+  through `_callFunction`'s `bind(scope,"self",…)` (engine_rt.cpp ~3731) and the
+  body `label` reference. Not available in the agent environment; TS (227) and
+  Dart (183) pass it, so the engine logic is correct.
 
 **2026-05-25 (138 → 141):** Fixed a higher-order-callback drop in the C++
 compiler. The self-hosted engine resolves bare class names (for static-method

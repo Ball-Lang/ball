@@ -51,12 +51,14 @@ ctest -R encoder_tests
 NOTE (2026-05-24): the previous list here was STALE — it claimed `string_split`/
 `string_replace`/`switch`/`for_in` were broken, but all are implemented
 (`compiler.cpp:1347`, `1362`, `2679`, `2579`). Below is the audited, verified set
-of real stubs/silent-correctness gaps. C++ self-host conformance is 141/189
-(2026-05-25, after the higher-order callback-field fix — `list_any`/`list_all`/
-`list_none`/`list_find`/`list_reduce`/etc. now read the callback from
-`callback`→`function`→`value`, unblocking static-method dispatch; earlier:
-FlowSignal-key / try-finally / exception-payload / List.filled-unwrap fixes —
-see docs/SELF_HOST_STATUS.md).
+of real stubs/silent-correctness gaps. C++ self-host conformance is 144/189
+(2026-05-25, after the dynamic-invoke fixes — `apply()` now unwraps the
+BallDyn-wrapped callee/arg before the `std::function` type check, and
+`Map.values.first` emits `ball_map_values(...).front()` instead of a bogus
+`["values"]` key lookup, unblocking 85/203/211 higher-order closures; earlier:
+higher-order callback-field fix (`list_any`/`list_all`/etc. read the callback
+from `callback`→`function`→`value`); FlowSignal-key / try-finally /
+exception-payload / List.filled-unwrap fixes — see docs/SELF_HOST_STATUS.md).
 
 **FIXED 2026-05-24 (kept here as history):**
 - FlowSignal early-return loss — was an `arg0` vs `kind` ctor-key mismatch, not

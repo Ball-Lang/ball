@@ -1106,9 +1106,18 @@ struct FunctionType {};
 inline FunctionType Function;
 inline std::any apply(const FunctionType&, const std::any& callee, const std::vector<std::any>& args) {
     // Attempt to call the callee as a BallFunc with the first argument (or null).
-    if (callee.type() == typeid(std::function<std::any(std::any)>)) {
-        auto& fn = std::any_cast<const std::function<std::any(std::any)>&>(callee);
-        return fn(args.empty() ? std::any{} : args[0]);
+    // Unwrap first: under MSVC a BallDyn passed where a std::any is expected is
+    // stored as typeid(BallDyn) rather than its inner std::function, so checking
+    // the type directly on `callee` would miss every dynamically-stored closure
+    // (e.g. lambdas pushed into a list and called via dart_std.invoke). The
+    // unwrapper yields the real underlying std::function. Mirror the unwrap on
+    // the arguments too, so the callee receives a clean value rather than a
+    // doubly-wrapped BallDyn.
+    const std::any& fnAny = _BallDynUnwrapper::unwrap(callee);
+    if (fnAny.type() == typeid(std::function<std::any(std::any)>)) {
+        auto& fn = std::any_cast<const std::function<std::any(std::any)>&>(fnAny);
+        if (args.empty()) return fn(std::any{});
+        return fn(_BallDynUnwrapper::unwrap(args[0]));
     }
     return std::any{};
 }

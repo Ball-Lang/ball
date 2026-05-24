@@ -1199,18 +1199,24 @@ struct List_filled {
     std::any arg0;  // length
     std::any arg1;  // fill value
 
-    // Convert to a vector<any> of the requested length filled with arg1
-    operator std::vector<std::any>() const {
-        int64_t n = 0;
-        if (arg0.type() == typeid(int64_t)) n = std::any_cast<int64_t>(arg0);
-        else if (arg0.type() == typeid(double)) n = static_cast<int64_t>(std::any_cast<double>(arg0));
-        return std::vector<std::any>(static_cast<size_t>(n < 0 ? 0 : n), arg1);
+    // Length of arg0, unwrapping the BallDyn-in-std::any case (MSVC stores a
+    // BallDyn inside std::any rather than its underlying int, so a bare
+    // type-check on arg0 misses every int and yields 0 → empty list).
+    int64_t _len() const {
+        const std::any& a0 = _BallDynUnwrapper::unwrap(arg0);
+        if (a0.type() == typeid(int64_t)) return std::any_cast<int64_t>(a0);
+        if (a0.type() == typeid(double)) return static_cast<int64_t>(std::any_cast<double>(a0));
+        return 0;
     }
-    // Size query — needed for _trackMemoryAllocation expressions
+    // Convert to a vector<any> of the requested length filled with arg1.
+    operator std::vector<std::any>() const {
+        int64_t n = _len();
+        return std::vector<std::any>(static_cast<size_t>(n < 0 ? 0 : n),
+                                     _BallDynUnwrapper::unwrap(arg1));
+    }
+    // Size query — needed for _trackMemoryAllocation expressions.
     int64_t size() const {
-        int64_t n = 0;
-        if (arg0.type() == typeid(int64_t)) n = std::any_cast<int64_t>(arg0);
-        else if (arg0.type() == typeid(double)) n = static_cast<int64_t>(std::any_cast<double>(arg0));
+        int64_t n = _len();
         return n < 0 ? 0 : n;
     }
 };

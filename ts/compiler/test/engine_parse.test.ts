@@ -46,7 +46,10 @@ test(
       "emitted TS should be >50 KB for engine.dart",
     );
     assert.ok(ts.includes("export class BallEngine"));
-    assert.ok(ts.includes("export type BallValue"));
+    // BallValue is emitted as the base runtime class (preamble.ts), not a type
+    // alias — the `type BallValue = any` form belonged to the retired
+    // hand-written engine (index.handwritten.ts).
+    assert.ok(ts.includes("class BallValue"));
     assert.ok(ts.includes("async "));
 
     // Smoke-load via Node.

@@ -146,6 +146,17 @@ private:
         auto* e = get_message_field_expr(call, field_name);
         return e ? CppExpr(compile_expr(*e)) : CppExpr("/* missing " + field_name + " */");
     }
+    // Resolve a higher-order callback argument. Different encoders name the
+    // closure field differently ("callback", "function", or "value"); the
+    // self-hosted engine's `.any`/`.every`/`.firstWhere`/`.fold` callbacks
+    // arrive under "value". Try each in turn so the lambda is never dropped
+    // (a dropped lambda compiles to an empty BallDyn() and silently no-ops).
+    std::string get_callback_field(const ball::v1::FunctionCall& call) {
+        auto* e = get_message_field_expr(call, "callback");
+        if (!e) e = get_message_field_expr(call, "function");
+        if (!e) e = get_message_field_expr(call, "value");
+        return e ? compile_expr(*e) : "BallDyn()";
+    }
     std::string sanitize_name(const std::string& name);
     std::string indent_str();
     // Resolve a class's constructor parameter names (in declaration order) so

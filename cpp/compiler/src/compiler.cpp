@@ -4314,7 +4314,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "list_reduce") {
         auto list = get_message_field(call, "list");
-        auto callback = get_message_field(call, "callback");
+        auto callback = get_callback_field(call);
         auto initial = get_message_field(call, "initial");
         return "[](const auto& v, auto fn, auto init){"
                "auto acc=init;for(const auto& e:v){"
@@ -4324,28 +4324,28 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "list_find") {
         auto list = get_message_field(call, "list");
-        auto callback = get_message_field(call, "callback");
+        auto callback = get_callback_field(call);
         return "[](const auto& v, auto fn)->std::any{"
                "for(const auto& e:v)if(_ball_pred_true(fn(e)))return e;return std::any{};}("
                + list + "," + callback + ")";
     }
     if (fn == "list_any") {
         auto list = get_message_field(call, "list");
-        auto callback = get_message_field(call, "callback");
+        auto callback = get_callback_field(call);
         return "[](const auto& v, auto fn){"
                "for(const auto& e:v)if(_ball_pred_true(fn(e)))return true;return false;}("
                + list + "," + callback + ")";
     }
     if (fn == "list_all") {
         auto list = get_message_field(call, "list");
-        auto callback = get_message_field(call, "callback");
+        auto callback = get_callback_field(call);
         return "[](const auto& v, auto fn){"
                "for(const auto& e:v)if(!_ball_pred_true(fn(e)))return false;return true;}("
                + list + "," + callback + ")";
     }
     if (fn == "list_none") {
         auto list = get_message_field(call, "list");
-        auto callback = get_message_field(call, "callback");
+        auto callback = get_callback_field(call);
         return "[](const auto& v, auto fn){"
                "for(const auto& e:v)if(_ball_pred_true(fn(e)))return false;return true;}("
                + list + "," + callback + ")";
@@ -4358,7 +4358,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "list_sort_by") {
         auto list = get_message_field(call, "list");
-        auto callback = get_message_field(call, "callback");
+        auto callback = get_callback_field(call);
         return "[](BallDyn v, auto fn){if(BallList* l=v._listPtr()){std::sort(l->begin(),l->end(),"
                "[&](const std::any& a, const std::any& b){"
                "return BallDyn(fn(BallDyn(std::map<std::string,std::any>"
@@ -4410,7 +4410,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "list_flat_map") {
         auto list = get_message_field(call, "list");
-        auto callback = get_message_field(call, "callback");
+        auto callback = get_callback_field(call);
         return "[](const auto& v, auto fn){std::decay_t<decltype(v)> r;"
                "for(const auto& e:v){auto sub=std::any_cast<decltype(v)>(fn(e));"
                "r.insert(r.end(),sub.begin(),sub.end());}return r;}("
@@ -4485,7 +4485,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "map_map") {
         auto map = get_message_field(call, "map");
-        auto callback = get_message_field(call, "callback");
+        auto callback = get_callback_field(call);
         return "[](const auto& m, auto fn){std::map<std::string,std::any> r;"
                "for(const auto& [k,v]:m){std::map<std::string,std::any> e;"
                "e[\"key\"]=std::any(k);e[\"value\"]=v;"
@@ -4495,7 +4495,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "map_filter") {
         auto map = get_message_field(call, "map");
-        auto callback = get_message_field(call, "callback");
+        auto callback = get_callback_field(call);
         return "[](const auto& m, auto fn){std::map<std::string,std::any> r;"
                "for(const auto& [k,v]:m){std::map<std::string,std::any> e;"
                "e[\"key\"]=std::any(k);e[\"value\"]=v;"

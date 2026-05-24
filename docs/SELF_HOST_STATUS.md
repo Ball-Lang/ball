@@ -4,7 +4,7 @@ Tracks the round-trip story for the reference Dart engine across all
 target languages: encode the live engine → Ball IR → compile back to
 each supported language → run conformance.
 
-Last refreshed: 2026-05-24 (parallel multi-track wave — C++ self-host 138, TS 227/227 (100%), Dart parity 183, +10 fixtures).
+Last refreshed: 2026-05-25 (C++ self-host 141 — higher-order callback-field fix, +3 incl. 105_static_methods; TS 227/227 (100%), Dart parity 183).
 
 ## Pipeline
 
@@ -35,6 +35,51 @@ Last refreshed: 2026-05-24 (parallel multi-track wave — C++ self-host 138, TS 
 - `6d22688` — `list_generate` accepts Dart's `length`/`generator` field names alongside the legacy `count`/`function`.
 
 ### C++ self-host (compiled engine_rt.cpp)
+
+**2026-05-25 (138 → 141):** Fixed a higher-order-callback drop in the C++
+compiler. The self-hosted engine resolves bare class names (for static-method
+dispatch) via `_functions.keys.any((k) => k.startsWith(...))`. The encoder names
+that closure field `value` (not `callback`), but the compiler's `list_any`
+handler (and `list_all`/`list_none`/`list_find`/`list_reduce`/`list_sort_by`/
+`list_flat_map`/`map_map`/`map_filter`) only read the `callback` field — so the
+lambda was dropped and emitted as an empty `BallDyn()`. At runtime `fn(e)` then
+returned null, `hasStaticMethods` was always false, `MathUtils` never resolved to
+a `__class__` ref, the static call fell through to a recursive resolution path,
+and `105_static_methods` died with the empty `BallException` from the
+`maxRecursionDepth` guard. Fix: a `get_callback_field()` helper
+(`cpp/compiler/include/compiler.h`) that tries `callback`→`function`→`value` in
+turn, wired into all the higher-order handlers in `cpp/compiler/src/compiler.cpp`
+(`list_map`/`list_filter` already had this fallback inline). Verified +3 (incl.
+105), zero regressions.
+
+**Still failing — `104_getter_setter` (banked diagnosis, needs a debugger):**
+A setter mutates `self.<field>`, but the mutation is not visible to a later
+getter read. Reference engine path: `_trySetterDispatch` (engine_eval.dart ~838)
+→ `_callFunction({self, value})` → setter body `assign(_celsius, value)` (a
+simple-reference assign) → `_syncFieldToSelf` (engine_eval.dart ~898) mutates
+`self['_celsius']`. Under Dart `self` is the same object reference as the
+caller's `t`, so it persists. Under C++ the mutation is lost across the by-value
+copy chain: in the generated engine_rt.cpp, `_syncFieldToSelf` does
+`auto selfMap = BallDyn(_asMap(self))` then `ball_set(selfMap, ...)`, but
+`_asMap` (and `lookup(scope,"self")` before it, and `_cfAsMap(obj)` in
+`_evalAssign`) each value-copy the map (`ball_map_entries`/`BallDyn(v)`), so the
+write lands on a throwaway local. The non-setter assign path papers over this
+with `_cfWritebackInstance` (re-stores the mutated `map` into the scope var), but
+the setter path returns the setter's value immediately (engine_rt.cpp ~6250) and
+never writes back — and even if it did, `map` was never mutated (the setter
+mutated its own deep copies). A correct fix needs the setter's `self` to share
+storage with the caller's `map` (reference-backed) for the duration of the call,
+then a writeback — but instance maps are deliberately by-value (a shared map
+creates self-referential `self` cycles → bad_alloc). Pinning down exactly which
+copy in the 4-deep chain (`t` → `obj` → `map` → setter `self` → `selfMap`) must
+become reference-backed without re-introducing the cycle crash needs a stepping
+debugger (cdb/VS) to watch object identity through `_evalAssign` → setter
+`_callFunction` → `_syncFieldToSelf`. Curiously the celsius getter immediately
+after the setter reads the new value (100.0) while the fahrenheit getter on the
+same `t` reads stale (32.0), implying the mutation half-persists — a strong sign
+the divergence is per-copy and only a debugger can resolve which lookup retains
+it. Not available in the agent environment; TS (227/227) and Dart pass this, so
+the engine logic is correct.
 
 **2026-05-24:** `engine_rt.cpp` now **compiles cleanly under MSVC against the latest
 encoder IR** (commits `861cb5f`, `00a3151`) and passes **61 / 175** conformance

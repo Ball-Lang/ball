@@ -923,12 +923,17 @@ function patchCompiledEngine(engine: CompiledEngine): void {
     // engine binds 'input' twice — first to the extracted arg0 value (correct),
     // then to the raw input object (overwrites). We extract arg0 here and pass
     // it directly so both bindings get the same correct value.
+    //
+    // CRITICAL: never unwrap when `self` is present — that signals an instance
+    // method call and the native _callFunction needs the full map to bind
+    // `self` plus the instance fields onto the method scope. Unwrapping to the
+    // bare arg0 dropped `self`, so methods saw `Undefined variable: <field>`.
     let fixedInput = input;
     if (func.inputType && func.inputType.isNotEmpty && typeof input === 'object' && input !== null && !Array.isArray(input)) {
       const params = (e._paramCache[((__bts(moduleName) + '.') + __bts(func.name))]) ?? (func.metadata ? e._extractParams(func.metadata) : []);
       if (params.length === 1) {
         const inputMap = e._asMap(input);
-        if (inputMap && 'arg0' in inputMap && !(params[0] in inputMap)) {
+        if (inputMap && 'arg0' in inputMap && !(params[0] in inputMap) && !('self' in inputMap)) {
           fixedInput = inputMap['arg0'];
         }
       }

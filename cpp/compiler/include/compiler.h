@@ -94,6 +94,10 @@ private:
     std::string compile_field_access(const ball::v1::FieldAccess& access);
     std::string compile_message_creation(const ball::v1::MessageCreation& msg);
     std::string compile_block(const ball::v1::Block& block);
+    // Emit a block's statements as real C++ statements (not an IIFE), captured
+    // to a string by diverting out_. Used for expression-context loop bodies so
+    // break/continue work in the enclosing real for/while.
+    std::string compile_block_statements(const ball::v1::Block& block);
     std::string compile_lambda(const ball::v1::FunctionDefinition& func);
 
     // Statement compilation — emits directly

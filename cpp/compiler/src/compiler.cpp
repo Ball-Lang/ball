@@ -884,6 +884,25 @@ std::string CppCompiler::compile_block(const ball::v1::Block& block) {
     return result;
 }
 
+std::string CppCompiler::compile_block_statements(const ball::v1::Block& block) {
+    // Capture the block's statements as real C++ (not an IIFE) by temporarily
+    // diverting out_ to a private buffer. break/continue emitted here are real
+    // C++ statements that act on the enclosing for/while. Restores out_ after.
+    std::ostringstream body_buf;
+    out_.swap(body_buf);  // out_ now empty; body_buf holds prior accumulated output
+    indent_++;
+    for (const auto& s : block.statements()) {
+        compile_statement(s);
+    }
+    if (block.has_result()) {
+        emit_line(compile_expr(block.result()) + ";");
+    }
+    indent_--;
+    std::string body = out_.str();
+    out_.swap(body_buf);  // restore prior output; `body` already captured
+    return body;
+}
+
 std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func) {
     // Capture by value by default. Lambdas that escape the enclosing
     // function (returned as std::function, stored in a variable, etc.)
@@ -999,45 +1018,42 @@ std::string CppCompiler::compile_unary_op(const std::string& op,
     return CppExpr("(" + op + val.str() + ")").str();
 }
 
-// Recursively detect break/continue/return/labeled or a nested loop in an
-// expression, WITHOUT descending into nested lambdas (their jumps are their
-// own). Used to decide whether a for/while in EXPRESSION context can be emitted
-// as a real loop IIFE: a body with these constructs can't (break/continue can't
-// cross the lambda-IIFE boundary, and `return` would escape the wrong frame),
-// so it falls back to the stub. A jump-free body (e.g. _evalLambda's arg->param
-// binding loop) is emitted as a real loop.
-static bool _exprHasLoopOrJump(const ball::v1::Expression& e) {
+// Recursively detect a `return` or labeled break/continue in an expression,
+// WITHOUT descending into nested lambdas (their returns are their own). Used to
+// decide whether a for/while in EXPRESSION context can be emitted as a real
+// loop: a real loop with a real statement body handles break/continue and
+// nested loops natively, but `return` would escape the wrapping IIFE rather
+// than the enclosing function, and labeled break/continue rely on goto labels
+// emitted in statement context. Those two cases fall back to the stub.
+static bool _exprHasReturnOrLabel(const ball::v1::Expression& e) {
     using E = ball::v1::Expression;
     switch (e.expr_case()) {
         case E::kCall: {
             const auto& fn = e.call().function();
-            if (fn == "break" || fn == "continue" || fn == "return" ||
-                fn == "labeled" || fn == "for" || fn == "while" ||
-                fn == "for_in" || fn == "for_each" || fn == "collection_for")
-                return true;
-            return e.call().has_input() && _exprHasLoopOrJump(e.call().input());
+            if (fn == "return" || fn == "labeled") return true;
+            return e.call().has_input() && _exprHasReturnOrLabel(e.call().input());
         }
         case E::kLambda:
             return false;
         case E::kBlock: {
             for (const auto& s : e.block().statements()) {
-                if (s.has_let() && _exprHasLoopOrJump(s.let().value())) return true;
-                if (s.has_expression() && _exprHasLoopOrJump(s.expression())) return true;
+                if (s.has_let() && _exprHasReturnOrLabel(s.let().value())) return true;
+                if (s.has_expression() && _exprHasReturnOrLabel(s.expression())) return true;
             }
-            return e.block().has_result() && _exprHasLoopOrJump(e.block().result());
+            return e.block().has_result() && _exprHasReturnOrLabel(e.block().result());
         }
         case E::kMessageCreation: {
             for (const auto& f : e.message_creation().fields())
-                if (f.has_value() && _exprHasLoopOrJump(f.value())) return true;
+                if (f.has_value() && _exprHasReturnOrLabel(f.value())) return true;
             return false;
         }
         case E::kFieldAccess:
             return e.field_access().has_object() &&
-                   _exprHasLoopOrJump(e.field_access().object());
+                   _exprHasReturnOrLabel(e.field_access().object());
         case E::kLiteral:
             if (e.literal().value_case() == ball::v1::Literal::kListValue)
                 for (const auto& el : e.literal().list_value().elements())
-                    if (_exprHasLoopOrJump(el)) return true;
+                    if (_exprHasReturnOrLabel(el)) return true;
             return false;
         default:
             return false;
@@ -1444,7 +1460,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         // callbacks) without breaking bodies like the engine's sort (which has
         // break). See SELF_HOST_STATUS.md.
         auto* body_e = get_message_field_expr(call, "body");
-        if (body_e && !_exprHasLoopOrJump(*body_e)) {
+        if (body_e && !_exprHasReturnOrLabel(*body_e)) {
             std::string init;
             auto* init_e = get_message_field_expr(call, "init");
             if (init_e && init_e->expr_case() == ball::v1::Expression::kBlock &&
@@ -1465,28 +1481,25 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             }
             auto cond = get_message_field(call, "condition");
             auto update = get_message_field(call, "update");
+            // Real statement body so break/continue act on this for natively.
             std::string body = (body_e->expr_case() == ball::v1::Expression::kBlock)
-                                   ? compile_block(body_e->block())
-                                   : compile_expr(*body_e);
-            std::string r = "([&]() -> BallDyn { for (" + init + "; " + cond +
-                            "; " + update + ") { ";
-            if (!body.empty()) r += body + "; ";
-            r += "} return BallDyn(); }())";
-            return r;
+                                   ? compile_block_statements(body_e->block())
+                                   : (compile_expr(*body_e) + ";\n");
+            return "([&]() -> BallDyn { for (" + init + "; " + cond + "; " +
+                   update + ") {\n" + body + "} return BallDyn(); }())";
         }
-        return "([&](){\n" + indent_str() + "    // for loop\n" + indent_str() + "}(), BallDyn())";
+        // Body has a `return`/labeled jump that can't cross the IIFE boundary.
+        return "([&](){\n" + indent_str() + "    // for loop (return/label body — see SELF_HOST_STATUS.md)\n" + indent_str() + "}(), BallDyn())";
     }
     if (fn == "while") {
         auto* body_e = get_message_field_expr(call, "body");
-        if (body_e && !_exprHasLoopOrJump(*body_e)) {
+        if (body_e && !_exprHasReturnOrLabel(*body_e)) {
             auto cond = get_message_field(call, "condition");
             std::string body = (body_e->expr_case() == ball::v1::Expression::kBlock)
-                                   ? compile_block(body_e->block())
-                                   : compile_expr(*body_e);
-            std::string r = "([&]() -> BallDyn { while (" + cond + ") { ";
-            if (!body.empty()) r += body + "; ";
-            r += "} return BallDyn(); }())";
-            return r;
+                                   ? compile_block_statements(body_e->block())
+                                   : (compile_expr(*body_e) + ";\n");
+            return "([&]() -> BallDyn { while (" + cond + ") {\n" + body +
+                   "} return BallDyn(); }())";
         }
         return "([&](){\n" + indent_str() + "    // while loop\n" + indent_str() + "}(), BallDyn())";
     }

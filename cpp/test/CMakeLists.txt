@@ -155,14 +155,16 @@ set_target_properties(test_selfhost_conformance PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
 )
-# Stack: 32 MB reserve, 4 MB commit for main thread.
-# Worker threads inherit the reserve size but only commit on demand.
+# Stack: 256 MB reserve, 4 MB commit for main thread. The compiled engine is a
+# tree-walking interpreter — each Ball function call expands to many large C++
+# frames (deeply nested BallDyn(...) temporaries), so it needs a stack as large
+# as the encoder's. Worker threads inherit the reserve but commit on demand.
 if(MSVC)
-    target_link_options(test_selfhost_conformance PRIVATE /STACK:33554432,4194304)
+    target_link_options(test_selfhost_conformance PRIVATE /STACK:268435456,4194304)
 elseif(APPLE)
-    target_link_options(test_selfhost_conformance PRIVATE -Wl,-stack_size,0x2000000)
+    target_link_options(test_selfhost_conformance PRIVATE -Wl,-stack_size,0x10000000)
 else()
-    target_link_options(test_selfhost_conformance PRIVATE -Wl,-z,stacksize=33554432)
+    target_link_options(test_selfhost_conformance PRIVATE -Wl,-z,stacksize=268435456)
 endif()
 
 enable_testing()

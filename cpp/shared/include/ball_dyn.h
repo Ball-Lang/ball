@@ -85,6 +85,9 @@ public:
     BallDyn(BallUMap v) : _val(std::move(v)) {}
     BallDyn(BallList v) : _val(std::move(v)) {}
     BallDyn(BallFunc v) : _val(std::move(v)) {}
+    // List.filled(length, value) lowers to a List_filled aggregate (defined in
+    // ball_emit_runtime.h, always spliced before this header in compiled programs).
+    BallDyn(const List_filled& lf) : _val(std::vector<std::any>(lf)) {}
 
     // Copy/move — BallScope (shared_ptr<BallMap>) deep-copies ONLY when the scope
     // has NO __parent__ key (i.e., it's a root/function scope being copied for a
@@ -216,6 +219,18 @@ public:
     // Field/index access via operator[]
     // Returns a copy of the field value. For mutation, use the set() method.
     BallDyn operator[](const std::string& key) const {
+        if (_val.type() == typeid(BallGenerator)) {
+            if (key == "values")
+                return BallDyn(BallList(*std::any_cast<const BallGenerator&>(_val).values));
+            return BallDyn();
+        }
+        if (_val.type() == typeid(BallObject)) {
+            // BallObject IS-A BallMap; its base map holds fields + __type__ etc.
+            const BallMap& m = std::any_cast<const BallObject&>(_val);
+            auto it = m.find(key);
+            if (it != m.end()) return BallDyn(it->second);
+            return BallDyn();
+        }
         if (_val.type() == typeid(BallScope)) {
             auto& sp = std::any_cast<const BallScope&>(_val);
             auto it = sp->find(key);
@@ -259,6 +274,8 @@ public:
     void set(const std::string& key, const std::any& value) {
         if (_val.type() == typeid(BallScope)) {
             (*std::any_cast<BallScope&>(_val))[key] = value;
+        } else if (_val.type() == typeid(BallObject)) {
+            std::any_cast<BallObject&>(_val).__op_set_index__(key, value);
         } else if (_val.type() == typeid(BallMap)) {
             std::any_cast<BallMap&>(_val)[key] = value;
         } else if (_val.type() == typeid(BallUMap)) {
@@ -288,6 +305,8 @@ public:
     size_t count(const std::string& key) const {
         if (_val.type() == typeid(BallScope))
             return std::any_cast<const BallScope&>(_val)->count(key);
+        if (_val.type() == typeid(BallObject))
+            return static_cast<const BallMap&>(std::any_cast<const BallObject&>(_val)).count(key);
         if (_val.type() == typeid(BallMap))
             return std::any_cast<const BallMap&>(_val).count(key);
         if (_val.type() == typeid(BallUMap))
@@ -505,6 +524,10 @@ public:
     friend BallDyn operator/(int64_t v, const BallDyn& d) { return BallDyn(v) / d; }
     friend BallDyn operator/(double v, const BallDyn& d) { return BallDyn(v / static_cast<double>(d)); }
     friend BallDyn operator%(int64_t v, const BallDyn& d) { return BallDyn(v) % d; }
+    // Compound assignment of a BallDyn into an int64_t accumulator (e.g.
+    // `_memoryUsedBytes += bytes` where bytes is a BallDyn). Without this the
+    // built-in += is ambiguous because BallDyn converts to both int64_t and double.
+    friend int64_t& operator+=(int64_t& l, const BallDyn& d) { l += static_cast<int64_t>(d); return l; }
 
     // Comparison with int64_t
     bool operator<(int64_t v) const { return *this < BallDyn(v); }
@@ -623,6 +646,96 @@ struct _BallDynUnwrapRegistrar {
     }
 };
 static _BallDynUnwrapRegistrar _ball_dyn_unwrap_registrar;
+}
+
+// Coerce a std::any into a BallMap, unwrapping a BallDyn first if MSVC stored
+// the BallDyn inside the std::any. Used by BallObject's constructor so that
+// `BallObject(typeName, super, fields, methods)` accepts BallDyn field values.
+inline BallMap _ballAnyToMap(const std::any& v) {
+    const std::any& u = _BallDynUnwrapper::unwrap(v);
+    if (!u.has_value()) return {};
+    if (u.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(u);
+    if (u.type() == typeid(BallObject)) {
+        return static_cast<const BallMap&>(std::any_cast<const BallObject&>(u));
+    }
+    if (u.type() == typeid(std::unordered_map<std::string, std::any>)) {
+        BallMap r;
+        for (const auto& [k, val] : std::any_cast<const std::unordered_map<std::string, std::any>&>(u)) {
+            r[k] = val;
+        }
+        return r;
+    }
+    return {};
+}
+
+// addAll on a BallDyn receiver (e.g. cascade `map..addAll(other)`). Mutates the
+// receiver in place: merges map entries, or appends list elements.
+inline void ball_add_all(BallDyn& dst, const BallDyn& src) {
+    std::any s = static_cast<std::any>(src);
+    const std::any& su = _BallDynUnwrapper::unwrap(s);
+    if (!su.has_value()) return;
+    if (su.type() == typeid(BallMap)) {
+        for (const auto& [k, v] : std::any_cast<const BallMap&>(su)) dst.set(k, v);
+    } else if (su.type() == typeid(std::unordered_map<std::string, std::any>)) {
+        for (const auto& [k, v] : std::any_cast<const std::unordered_map<std::string, std::any>&>(su)) dst.set(k, v);
+    } else if (su.type() == typeid(BallList)) {
+        for (const auto& el : std::any_cast<const BallList&>(su)) dst.push_back(el);
+    }
+}
+
+// list.clear() / map.clear() — mutate the receiver in place to empty.
+inline void ball_clear(BallDyn& v) {
+    if (v._val.type() == typeid(BallList)) std::any_cast<BallList&>(v._val).clear();
+    else if (v._val.type() == typeid(BallMap)) std::any_cast<BallMap&>(v._val).clear();
+    else if (v._val.type() == typeid(std::unordered_map<std::string, std::any>))
+        std::any_cast<std::unordered_map<std::string, std::any>&>(v._val).clear();
+}
+inline void ball_clear(BallDyn&&) {}  // rvalue receiver: nothing to clear
+
+// map.putIfAbsent(key, ifAbsent): Dart's signature takes a factory callable
+// (`V Function()`), not a value, so the third argument is invoked lazily only
+// when the key is absent. Templated to accept either a C++ lambda or a BallDyn
+// function value.
+template <typename F>
+inline BallDyn ball_map_put_if_absent(BallDyn& m, const BallDyn& key, F ifAbsent) {
+    std::string k = static_cast<std::string>(key);
+    if (m.count(k) == 0) m.set(k, static_cast<std::any>(BallDyn(ifAbsent())));
+    return m[k];
+}
+template <typename F>
+inline BallDyn ball_map_put_if_absent(BallDyn&& m, const BallDyn& key, F ifAbsent) {
+    std::string k = static_cast<std::string>(key);
+    return m.count(k) == 0 ? BallDyn(ifAbsent()) : m[k];
+}
+
+// Generator yields — the engine calls `gen.yield_(v)` / `gen.yieldAll(xs)`,
+// which the compiler lowers to free calls `yield_(gen, v)` / `yieldAll(gen, xs)`.
+// gen wraps a BallGenerator (reference type), so pushes mutate the shared list.
+inline BallDyn yield_(const BallDyn& gen, const BallDyn& value) {
+    const std::any& u = _BallDynUnwrapper::unwrap(static_cast<std::any>(gen));
+    if (u.type() == typeid(BallGenerator)) {
+        std::any_cast<const BallGenerator&>(u).values->push_back(static_cast<std::any>(value));
+    }
+    return BallDyn();
+}
+inline BallDyn yieldAll(const BallDyn& gen, const BallDyn& items) {
+    const std::any& u = _BallDynUnwrapper::unwrap(static_cast<std::any>(gen));
+    if (u.type() == typeid(BallGenerator)) {
+        auto& vals = *std::any_cast<const BallGenerator&>(u).values;
+        for (const auto& it : items) vals.push_back(static_cast<std::any>(it));
+    }
+    return BallDyn();
+}
+
+// Dart's Iterable.indexWhere(test) — first index where test(el) is truthy, else -1.
+template <typename Fn>
+inline int64_t indexWhere(const BallDyn& list, Fn pred) {
+    int64_t i = 0;
+    for (const auto& el : list) {
+        if (static_cast<bool>(pred(BallDyn(el)))) return i;
+        ++i;
+    }
+    return -1;
 }
 
 // Stream output
@@ -778,7 +891,8 @@ BALL_DYN_STUB(_FlowSignal);
 BALL_DYN_STUB(_Scope);
 BALL_DYN_STUB(BallRuntimeError);
 BALL_DYN_STUB(BallFuture);
-BALL_DYN_STUB(BallGenerator);
+// BallGenerator is a real runtime struct (ball_emit_runtime.h) with a shared
+// values list — NOT a BallDyn stub — so sync*/async* yields mutate shared state.
 BALL_DYN_STUB(_ExitSignal);
 BALL_DYN_STUB(BallModuleHandler);
 BALL_DYN_STUB(StdModuleHandler);

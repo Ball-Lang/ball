@@ -194,9 +194,22 @@ inline bool ball_type_name_matches(const std::string& obj_type, const std::strin
     return false;
 }
 
+// Generator: sync*/async* functions collect yielded values here. Reference
+// semantics via shared_ptr so that binding the generator into a scope and
+// yielding into it later both mutate the same underlying list (matching the
+// Dart engine's object-reference model). See yield_ / yieldAll in ball_dyn.h.
+struct BallGenerator {
+    std::shared_ptr<std::vector<std::any>> values =
+        std::make_shared<std::vector<std::any>>();
+    bool completed = false;
+};
+
 // Check if a map value's __type__ matches a type name (walks __super__ chain).
 inline bool ball_object_type_matches(const std::any& value, const std::string& type) {
     auto& u = _BallDynUnwrapper::unwrap(value);
+    if (u.has_value() && u.type() == typeid(BallGenerator)) {
+        return ball_type_name_matches("BallGenerator", type);
+    }
     if (!u.has_value() || u.type() != typeid(BallMap_RT)) return false;
     const auto& m = std::any_cast<const BallMap_RT&>(u);
     auto it = m.find("__type__");
@@ -1048,5 +1061,169 @@ inline std::map<std::string, std::any> parse(const DateTimeType&, const std::str
 inline std::map<std::string, std::any> parse(const DateTimeType& dt, const std::any& str_val) {
     return parse(dt, ball_to_string(str_val));
 }
+
+// ── jsonEncode / toProto3Json stubs ──
+// Dart's `jsonEncode(x)` serialises a value to a JSON string.
+// `toProto3Json(program)` converts a proto message to its proto3-JSON shape;
+// since our C++ representation is already in map form, we just return it.
+//
+// jsonEncode is used in _validateProgramLimits to compute the byte size of
+// the serialised program. A best-effort ball_to_string conversion is fine.
+class BallDyn;
+inline std::string jsonEncode(const std::any& value) {
+    return ball_to_string(value);
+}
+inline std::string jsonEncode(const BallDyn& value);  // defined in ball_dyn.h
+inline std::any toProto3Json(const std::any& program) {
+    return program;
+}
+inline std::any toProto3Json(const BallDyn& program);  // defined in ball_dyn.h
+
+// ── fold free function ──
+// Dart's Iterable.fold(initialValue, combine) — reduce over a list.
+// Used in _trackMemoryAllocation for string_split result.
+inline BallDyn ball_fold(const BallDyn& iter, const BallDyn& init, const BallDyn& fn);  // in ball_dyn.h
+// The generated engine code calls it as:
+//   fold(result, "<int>"s, 0LL, lambda)
+// where `result` is a BallDyn wrapping a list and the lambda is
+// (BallDyn acc, BallDyn el) -> BallDyn. We return a BallDyn so the result
+// participates in BallDyn arithmetic (e.g. `fold(...) * _ballStringCodeUnitBytes`).
+class BallDyn;
+template<typename Iter, typename Init, typename Fn>
+inline BallDyn _ballFoldImpl(const Iter& iter, Init init, Fn fn) {
+    BallDyn acc{std::any(init)};
+    try {
+        std::any a = static_cast<std::any>(BallDyn(iter));
+        if (a.type() == typeid(std::vector<std::any>)) {
+            const auto& v = std::any_cast<const std::vector<std::any>&>(a);
+            for (const auto& el : v) acc = fn(acc, BallDyn(el));
+        }
+    } catch (...) {}
+    return acc;
+}
+template<typename Iter, typename Init, typename Fn>
+inline BallDyn fold(const Iter& iter, const std::string& /*type_tag*/, Init init, Fn fn) {
+    return _ballFoldImpl(iter, init, fn);
+}
+// Overload without type_tag for simpler call sites
+template<typename Iter, typename Init, typename Fn>
+inline BallDyn fold(const Iter& iter, Init init, Fn fn) {
+    return _ballFoldImpl(iter, init, fn);
+}
+
+// ── ball_container_size ──
+// Returns the size() of containers; returns 0 for non-container types
+// (e.g., when a stub produces `int(0)` as a placeholder).
+// Used so _trackMemoryAllocation(ball_container_size(result) * N) compiles
+// even when result is an int stub rather than a real string/list.
+template<typename T>
+inline int64_t ball_container_size(const T& v) {
+    if constexpr (requires { v.size(); }) {
+        return static_cast<int64_t>(v.size());
+    } else {
+        return 0LL;
+    }
+}
+
+// ── List_filled struct ──
+// Dart's List.filled(length, value) creates a fixed-length list.
+// The compiler emits: List_filled{.__type_args__=..., .arg0=length, .arg1=fill}
+// We provide a struct that constructs and acts as a BallList.
+struct List_filled {
+    std::string __type_args__;
+    std::any arg0;  // length
+    std::any arg1;  // fill value
+
+    // Convert to a vector<any> of the requested length filled with arg1
+    operator std::vector<std::any>() const {
+        int64_t n = 0;
+        if (arg0.type() == typeid(int64_t)) n = std::any_cast<int64_t>(arg0);
+        else if (arg0.type() == typeid(double)) n = static_cast<int64_t>(std::any_cast<double>(arg0));
+        return std::vector<std::any>(static_cast<size_t>(n < 0 ? 0 : n), arg1);
+    }
+    // Size query — needed for _trackMemoryAllocation expressions
+    int64_t size() const {
+        int64_t n = 0;
+        if (arg0.type() == typeid(int64_t)) n = std::any_cast<int64_t>(arg0);
+        else if (arg0.type() == typeid(double)) n = static_cast<int64_t>(std::any_cast<double>(arg0));
+        return n < 0 ? 0 : n;
+    }
+};
+// BallDyn overload for List_filled — defined in ball_dyn.h after BallDyn class
+
+// ── BallObject ──
+// Dart: class BallObject extends BallMap { ... }
+// BallMap is std::map<std::string, std::any>.  We provide a correct C++
+// version where `entries` refers to the base std::map storage via `*this`.
+// The compiler skips generating this type (it's in runtime_types).
+using BallMap = std::map<std::string, std::any>;
+// Coerces a std::any (possibly a BallDyn wrapping a map, due to MSVC's
+// BallDyn-in-std::any quirk) into a BallMap. Forward-declared here; defined in
+// ball_dyn.h after BallDyn / _BallDynUnwrapper are complete.
+BallMap _ballAnyToMap(const std::any& v);
+struct BallObject : public BallMap {
+    std::string typeName;
+    std::any superObject;
+    BallMap fields;
+    BallMap methods;
+
+    BallObject() = default;
+    // Accept std::any for every field so the compiler can pass BallDyn values
+    // (which carry maps/strings) without needing per-field BallDyn conversions.
+    BallObject(std::any tn,
+               std::any super_obj = std::any{},
+               std::any flds = std::any{},
+               std::any meths = std::any{})
+        : typeName(ball_to_string(tn)),
+          superObject(std::move(super_obj)),
+          fields(_ballAnyToMap(flds)),
+          methods(_ballAnyToMap(meths))
+    {
+        _refreshEntries();
+    }
+
+    // `entries` in Dart refers to the Map's own entries (i.e., *this in C++).
+    // Methods that set entries do so via (*this)[key] = value.
+    BallMap& _refreshEntries() {
+        this->clear();
+        this->insert(fields.begin(), fields.end());
+        (*this)["__type__"] = std::any(typeName);
+        (*this)["__super__"] = superObject;
+        (*this)["__fields__"] = std::any(fields);
+        (*this)["__methods__"] = std::any(methods);
+        return *this;
+    }
+
+    void setField(const std::string& name, const std::any& value) {
+        fields[name] = value;
+        (*this)[name] = value;
+    }
+    void setField(const std::any& name, const std::any& value) {
+        setField(ball_to_string(name), value);
+    }
+
+    void __op_set_index__(const std::string& key, const std::any& value) {
+        if (key == "__super__") {
+            superObject = value;
+            (*this)[key] = value;
+            return;
+        }
+        if (key == "__methods__") {
+            methods.clear();
+            if (value.type() == typeid(BallMap)) {
+                methods = std::any_cast<const BallMap&>(value);
+            }
+            (*this)[key] = std::any(methods);
+            return;
+        }
+        if (!key.empty() && !(key.size() >= 2 && key[0] == '_' && key[1] == '_')) {
+            fields[key] = value;
+        }
+        (*this)[key] = value;
+    }
+    void __op_set_index__(const std::any& key, const std::any& value) {
+        __op_set_index__(ball_to_string(key), value);
+    }
+};
 
 #endif  // BALL_EMIT_RUNTIME_H

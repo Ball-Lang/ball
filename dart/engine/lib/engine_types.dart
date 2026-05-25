@@ -69,6 +69,41 @@ class BallObject extends BallMap {
   }
 }
 
+/// Write [fieldName] on a live instance map (BallObject or __type__ map).
+/// Emitted as a call to preamble `ball_object_set_field` in C++ self-host.
+void ballObjectSetField(Object? target, String fieldName, Object? val) {
+  if (target is BallObject) {
+    target.setField(fieldName, val);
+    return;
+  }
+  if (target is BallMap) {
+    if (target.entries.containsKey('__type__')) {
+      target[fieldName] = val;
+    }
+    return;
+  }
+  if (target is Map<String, Object?> && target.containsKey('__type__')) {
+    target[fieldName] = val;
+  }
+}
+
+/// Read a protobuf-Struct bool metadata field.
+///
+/// Handles native [structpb.Value] (Dart engine) and map-shaped proto3-JSON
+/// Value objects (`{boolValue: true}`) used by the C++ self-host loader.
+bool _metadataBool(Object? field) {
+  if (field == null) return false;
+  if (field is bool) return field;
+  if (field is structpb.Value) {
+    return field.hasBoolValue() && field.boolValue;
+  }
+  if (field is Map) {
+    final bv = field['boolValue'];
+    if (bv is bool) return bv;
+  }
+  return false;
+}
+
 /// A scope contains variable bindings. Scopes are chained for lexical nesting.
 class _Scope {
   final Map<String, Object?> _bindings = {};

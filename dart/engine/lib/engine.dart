@@ -60,6 +60,23 @@ class BallEngine {
   /// Eliminates O(n) linear scans through all modules on repeated calls.
   final Map<String, ({String module, FunctionDefinition func})> _callCache = {};
 
+  /// Pre-built instance-method dispatch keyed by "typePrefix\0methodName".
+  /// Covers cross-module definitions; inheritance resolved at lookup time.
+  final Map<String, ({String module, FunctionDefinition func})>
+  _typeMethodDispatch = {};
+
+  /// Inline cache for (typeName, methodName) instance-method resolution.
+  final Map<String, ({String module, FunctionDefinition func})?>
+  _instanceMethodCache = {};
+
+  /// Pre-built top-level reference bindings keyed by bare function name.
+  final Map<String, ({String module, FunctionDefinition func, String kind})>
+  _topLevelRefs = {};
+
+  /// Pre-built static-field bindings keyed by bare field name.
+  final Map<String, ({String module, FunctionDefinition func, String fullName})>
+  _staticFieldRefs = {};
+
   /// Enum type registry: maps enum type names (both qualified "module:Enum"
   /// and bare "Enum") to a map of value name → enum value object.
   /// Each enum value is a Map with __type__, name, index.
@@ -94,8 +111,8 @@ class BallEngine {
   /// Maximum nested expression evaluation depth.
   final int maxExpressionDepth;
 
-  /// Maximum approximate UTF-8 JSON size accepted for the program.
-  /// `null` disables program size enforcement.
+  /// Maximum protobuf binary size accepted for the program.
+  /// `null` disables program size enforcement (default — opt-in for trusted runs).
   final int? maxProgramSizeBytes;
 
   /// When true, blocks all I/O / process-affecting base functions
@@ -166,7 +183,7 @@ class BallEngine {
     this.maxMemoryBytes,
     this.maxModules = 100,
     this.maxExpressionDepth = 1000,
-    this.maxProgramSizeBytes = 10 * 1024 * 1024,
+    this.maxProgramSizeBytes,
     this.sandbox = false,
     List<BallModuleHandler>? moduleHandlers,
     ModuleResolver? resolver,
@@ -204,9 +221,7 @@ class BallEngine {
 
     final maxProgramBytes = maxProgramSizeBytes;
     if (maxProgramBytes != null) {
-      final programSizeBytes = utf8
-          .encode(jsonEncode(program.toProto3Json()))
-          .length;
+      final programSizeBytes = program.writeToBuffer().length;
       if (programSizeBytes > maxProgramBytes) {
         throw BallRuntimeError(
           'Program too large: $programSizeBytes bytes (max $maxProgramBytes)',
@@ -337,13 +352,13 @@ class BallEngine {
         if (func.hasMetadata()) {
           final isGetterField = func.metadata.fields['is_getter'];
           final isSetterField = func.metadata.fields['is_setter'];
-          if (isGetterField != null && isGetterField.boolValue) {
+          if (_metadataBool(isGetterField)) {
             _getters[key] = func;
-          } else if (isSetterField != null && isSetterField.boolValue) {
+          } else if (_metadataBool(isSetterField)) {
             _setters[key] = func;
             _setters['$key='] = func;
           }
-          if (isSetterField != null && isSetterField.boolValue) {
+          if (_metadataBool(isSetterField)) {
             _functions.putIfAbsent(key, () => func);
           } else {
             _functions[key] = func;
@@ -370,8 +385,131 @@ class BallEngine {
             }
           }
         }
+        _registerFunctionDispatchTables(module, func);
       }
     }
+  }
+
+  static String _typeMethodKey(String typePrefix, String methodName) =>
+      '$typePrefix\x00$methodName';
+
+  void _registerFunctionDispatchTables(
+    Module module,
+    FunctionDefinition func,
+  ) {
+    if (func.isBase || !func.hasBody()) return;
+
+    if (func.hasMetadata()) {
+      final kind = func.metadata.fields['kind']?.stringValue;
+      if (kind == 'top_level_variable' || kind == 'function') {
+        _topLevelRefs.putIfAbsent(
+          func.name,
+          () => (module: module.name, func: func, kind: kind!),
+        );
+      }
+      if (kind == 'static_field') {
+        final dotIdx = func.name.lastIndexOf('.');
+        if (dotIdx >= 0) {
+          final bareName = func.name.substring(dotIdx + 1);
+          _staticFieldRefs.putIfAbsent(
+            bareName,
+            () => (module: module.name, func: func, fullName: func.name),
+          );
+        }
+      }
+    }
+
+    final funcName = func.name;
+    final dotIdx = funcName.lastIndexOf('.');
+    if (dotIdx < 0) return;
+
+    final methodName = funcName.substring(dotIdx + 1);
+    if (methodName == 'new') return;
+    if (_isGetter(func) || _isSetter(func)) return;
+    final kindField = func.hasMetadata()
+        ? func.metadata.fields['kind']
+        : null;
+    if (kindField?.stringValue == 'constructor') return;
+
+    final entry = (module: module.name, func: func);
+    final typePrefix = funcName.substring(0, dotIdx);
+    _typeMethodDispatch[_typeMethodKey(typePrefix, methodName)] = entry;
+
+    if (func.hasMetadata()) {
+      final className = func.metadata.fields['class'];
+      if (className != null && className.hasStringValue()) {
+        _typeMethodDispatch[_typeMethodKey(className.stringValue, methodName)] =
+            entry;
+      }
+    }
+  }
+
+  /// Resolve an instance method using pre-built dispatch tables and inheritance.
+  /// Returns null when no matching method exists on the type hierarchy.
+  ({String module, FunctionDefinition func})? _resolveInstanceMethodDispatch(
+    String typeName,
+    String methodName,
+  ) {
+    final cacheKey = _typeMethodKey(typeName, methodName);
+    if (_instanceMethodCache.containsKey(cacheKey)) {
+      return _instanceMethodCache[cacheKey];
+    }
+
+    final resolved = _resolveMethod(typeName, methodName) ??
+        _lookupTypeMethodWithInheritance(typeName, methodName);
+    _instanceMethodCache[cacheKey] = resolved;
+    return resolved;
+  }
+
+  ({String module, FunctionDefinition func})? _lookupTypeMethodWithInheritance(
+    String typeName,
+    String methodName,
+  ) {
+    final colonIdx = typeName.indexOf(':');
+    final modPart = colonIdx >= 0
+        ? typeName.substring(0, colonIdx)
+        : _currentModule;
+
+    var current = typeName;
+    while (current.isNotEmpty) {
+      final direct = _typeMethodDispatch[_typeMethodKey(current, methodName)];
+      if (direct != null) return direct;
+
+      final currentColon = current.indexOf(':');
+      if (currentColon >= 0) {
+        final bare = current.substring(currentColon + 1);
+        final bareHit = _typeMethodDispatch[_typeMethodKey(bare, methodName)];
+        if (bareHit != null) return bareHit;
+      }
+
+      final typeDef = _findTypeDef(current);
+      if (typeDef == null ||
+          typeDef.superclass == null ||
+          typeDef.superclass!.isEmpty) {
+        break;
+      }
+      final superclass = typeDef.superclass!;
+      current = superclass.contains(':')
+          ? superclass
+          : '$modPart:$superclass';
+    }
+
+    final mixins = _getMixins(typeName);
+    for (final mixin in mixins) {
+      final qualMixin = mixin.contains(':') ? mixin : '$modPart:$mixin';
+      final mixinHit =
+          _typeMethodDispatch[_typeMethodKey(qualMixin, methodName)];
+      if (mixinHit != null) return mixinHit;
+      final mixinColon = qualMixin.indexOf(':');
+      if (mixinColon >= 0) {
+        final bareMixin = qualMixin.substring(mixinColon + 1);
+        final bareMixinHit =
+            _typeMethodDispatch[_typeMethodKey(bareMixin, methodName)];
+        if (bareMixinHit != null) return bareMixinHit;
+      }
+    }
+
+    return null;
   }
 
   /// Initialize top-level variables by evaluating their body expressions.

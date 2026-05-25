@@ -700,6 +700,7 @@ extension BallEngineInvocation on BallEngine {
           }
         }
       }
+      _registerFunctionDispatchTables(module, func);
     }
   }
 }

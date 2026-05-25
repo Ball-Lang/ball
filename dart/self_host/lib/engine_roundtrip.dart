@@ -34,7 +34,7 @@ class BallEngine {
     this.maxMemoryBytes,
     this.maxModules = 100,
     this.maxExpressionDepth = 1000,
-    this.maxProgramSizeBytes = 10 * 1024 * 1024,
+    this.maxProgramSizeBytes,
     this.sandbox = false,
     List<BallModuleHandler>? moduleHandlers,
     ModuleResolver? resolver,
@@ -74,6 +74,18 @@ class BallEngine {
   final Map<String, List<String>> _paramCache = {};
 
   final Map<String, ({String module, FunctionDefinition func})> _callCache = {};
+
+  final Map<String, ({String module, FunctionDefinition func})>
+  _typeMethodDispatch = {};
+
+  final Map<String, ({String module, FunctionDefinition func})?>
+  _instanceMethodCache = {};
+
+  final Map<String, ({String module, FunctionDefinition func, String kind})>
+  _topLevelRefs = {};
+
+  final Map<String, ({String module, FunctionDefinition func, String fullName})>
+  _staticFieldRefs = {};
 
   final Map<String, Map<String, Map<String, Object?>>> _enumValues = {};
 
@@ -140,9 +152,7 @@ class BallEngine {
     }
     final maxProgramBytes = maxProgramSizeBytes;
     if ((maxProgramBytes != null)) {
-      final programSizeBytes = utf8
-          .encode(jsonEncode(program.toProto3Json()))
-          .length;
+      final programSizeBytes = program.writeToBuffer().length;
       if ((programSizeBytes > maxProgramBytes)) {
         throw BallRuntimeError(
           (((('Program too large: ' + programSizeBytes.toString()) +
@@ -294,13 +304,13 @@ class BallEngine {
         if (func.hasMetadata()) {
           final isGetterField = func.metadata.fields['is_getter'];
           final isSetterField = func.metadata.fields['is_setter'];
-          if (((isGetterField != null) && isGetterField.boolValue)) {
+          if (_metadataBool(isGetterField)) {
             _getters[key] = func;
-          } else if (((isSetterField != null) && isSetterField.boolValue)) {
+          } else if (_metadataBool(isSetterField)) {
             _setters[key] = func;
             _setters[(key.toString() + '=')] = func;
           }
-          if (((isSetterField != null) && isSetterField.boolValue)) {
+          if (_metadataBool(isSetterField)) {
             _functions.putIfAbsent(key, () => func);
           } else {
             _functions[key] = func;
@@ -330,8 +340,135 @@ class BallEngine {
             }
           }
         }
+        _registerFunctionDispatchTables(module, func);
       }
     }
+  }
+
+  static String _typeMethodKey(String typePrefix, String methodName) =>
+      ((typePrefix.toString() + '\x00') + methodName.toString());
+
+  void _registerFunctionDispatchTables(Module module, FunctionDefinition func) {
+    if ((func.isBase || !func.hasBody())) {
+      return;
+    }
+    if (func.hasMetadata()) {
+      final kind = func.metadata.fields['kind']?.stringValue;
+      if (((kind == 'top_level_variable') || (kind == 'function'))) {
+        _topLevelRefs.putIfAbsent(
+          func.name,
+          () => (module: module.name, func: func, kind: kind!),
+        );
+      }
+      if ((kind == 'static_field')) {
+        final dotIdx = func.name.lastIndexOf('.');
+        if ((dotIdx >= 0)) {
+          final bareName = func.name.substring((dotIdx + 1));
+          _staticFieldRefs.putIfAbsent(
+            bareName,
+            () => (module: module.name, func: func, fullName: func.name),
+          );
+        }
+      }
+    }
+    final funcName = func.name;
+    final dotIdx = funcName.lastIndexOf('.');
+    if ((dotIdx < 0)) {
+      return;
+    }
+    final methodName = funcName.substring((dotIdx + 1));
+    if ((methodName == 'new')) {
+      return;
+    }
+    if ((_isGetter(func) || _isSetter(func))) {
+      return;
+    }
+    final kindField = (func.hasMetadata()
+        ? func.metadata.fields['kind']
+        : null);
+    if ((kindField?.stringValue == 'constructor')) {
+      return;
+    }
+    final entry = (module: module.name, func: func);
+    final typePrefix = funcName.substring(0, dotIdx);
+    _typeMethodDispatch[_typeMethodKey(typePrefix, methodName)] = entry;
+    if (func.hasMetadata()) {
+      final className = func.metadata.fields['class'];
+      if (((className != null) && className.hasStringValue())) {
+        _typeMethodDispatch[_typeMethodKey(className.stringValue, methodName)] =
+            entry;
+      }
+    }
+  }
+
+  ({String module, FunctionDefinition func})? _resolveInstanceMethodDispatch(
+    String typeName,
+    String methodName,
+  ) {
+    final cacheKey = _typeMethodKey(typeName, methodName);
+    if (_instanceMethodCache.containsKey(cacheKey)) {
+      return _instanceMethodCache[cacheKey];
+    }
+    final resolved =
+        (_resolveMethod(typeName, methodName) ??
+        _lookupTypeMethodWithInheritance(typeName, methodName));
+    _instanceMethodCache[cacheKey] = resolved;
+    return resolved;
+  }
+
+  ({String module, FunctionDefinition func})? _lookupTypeMethodWithInheritance(
+    String typeName,
+    String methodName,
+  ) {
+    final colonIdx = typeName.indexOf(':');
+    final modPart = ((colonIdx >= 0)
+        ? typeName.substring(0, colonIdx)
+        : _currentModule);
+    var current = typeName;
+    while (current.isNotEmpty) {
+      final direct = _typeMethodDispatch[_typeMethodKey(current, methodName)];
+      if ((direct != null)) {
+        return direct;
+      }
+      final currentColon = current.indexOf(':');
+      if ((currentColon >= 0)) {
+        final bare = current.substring((currentColon + 1));
+        final bareHit = _typeMethodDispatch[_typeMethodKey(bare, methodName)];
+        if ((bareHit != null)) {
+          return bareHit;
+        }
+      }
+      final typeDef = _findTypeDef(current);
+      if ((((typeDef == null) || (typeDef.superclass == null)) ||
+          typeDef.superclass!.isEmpty)) {
+        break;
+      }
+      final superclass = typeDef.superclass!;
+      current = (superclass.contains(':')
+          ? superclass
+          : ((modPart.toString() + ':') + superclass.toString()));
+    }
+    final mixins = _getMixins(typeName);
+    for (final mixin in mixins) {
+      final qualMixin = (mixin.contains(':')
+          ? mixin
+          : ((modPart.toString() + ':') + mixin.toString()));
+      final mixinHit =
+          _typeMethodDispatch[_typeMethodKey(qualMixin, methodName)];
+      if ((mixinHit != null)) {
+        return mixinHit;
+      }
+      final mixinColon = qualMixin.indexOf(':');
+      if ((mixinColon >= 0)) {
+        final bareMixin = qualMixin.substring((mixinColon + 1));
+        final bareMixinHit =
+            _typeMethodDispatch[_typeMethodKey(bareMixin, methodName)];
+        if ((bareMixinHit != null)) {
+          return bareMixinHit;
+        }
+      }
+    }
+    return null;
   }
 
   Future<void> _initTopLevelVariables() async {
@@ -1074,6 +1211,7 @@ class BallEngine {
           }
         }
       }
+      _registerFunctionDispatchTables(module, func);
     }
   }
 
@@ -1297,46 +1435,14 @@ class BallEngine {
       if ((selfFallbackMap != null)) {
         final typeName = ((selfFallbackMap['__type__'] as String?));
         if ((typeName != null)) {
-          for (final m in program.modules) {
-            for (final f in m.functions) {
-              if ((!f.isBase && f.hasBody())) {
-                final dotIdx = f.name.lastIndexOf('.');
-                if (((dotIdx >= 0) &&
-                    (f.name.substring((dotIdx + 1)) == call.function))) {
-                  final prefix = f.name.substring(0, dotIdx);
-                  if ((prefix == typeName)) {
-                    return _unwrapFuture(await _callFunction(m.name, f, input));
-                  }
-                }
-              }
-            }
-            var superType = _findTypeDef(typeName)?.superclass;
-            while (((superType != null) && superType.isNotEmpty)) {
-              final colonIdx = typeName.indexOf(':');
-              final modPart = ((colonIdx >= 0)
-                  ? typeName.substring(0, colonIdx)
-                  : _currentModule);
-              final qualSuper = (superType.contains(':')
-                  ? superType
-                  : ((modPart.toString() + ':') + superType.toString()));
-              for (final m in program.modules) {
-                for (final f in m.functions) {
-                  if ((!f.isBase && f.hasBody())) {
-                    final dotIdx = f.name.lastIndexOf('.');
-                    if (((dotIdx >= 0) &&
-                        (f.name.substring((dotIdx + 1)) == call.function))) {
-                      final prefix = f.name.substring(0, dotIdx);
-                      if (((prefix == qualSuper) || (prefix == superType))) {
-                        return _unwrapFuture(
-                          await _callFunction(m.name, f, input),
-                        );
-                      }
-                    }
-                  }
-                }
-              }
-              superType = _findTypeDef(qualSuper)?.superclass;
-            }
+          final resolved = _resolveInstanceMethodDispatch(
+            typeName,
+            call.function,
+          );
+          if ((resolved != null)) {
+            return _unwrapFuture(
+              await _callFunction(resolved.module, resolved.func, input),
+            );
           }
         }
       }
@@ -1542,43 +1648,25 @@ class BallEngine {
         }
       }
     }
-    for (final m in program.modules) {
-      for (final f in m.functions) {
-        if ((((f.name == name) && !f.isBase) && f.hasBody())) {
-          if (f.hasMetadata()) {
-            final kindField = f.metadata.fields['kind'];
-            final kind = kindField?.stringValue;
-            if ((kind == 'top_level_variable')) {
-              if (_globalScope.has(name)) {
-                return _globalScope.lookup(name);
-              }
-              return _callFunction(m.name, f, null);
-            }
-            if ((kind == 'function')) {
-              final modName = m.name;
-              return (Object? input) async {
-                return _callFunction(modName, f, input);
-              };
-            }
-          }
+    final topLevel = _topLevelRefs[name];
+    if ((topLevel != null)) {
+      if ((topLevel.kind == 'top_level_variable')) {
+        if (_globalScope.has(name)) {
+          return _globalScope.lookup(name);
         }
+        return _callFunction(topLevel.module, topLevel.func, null);
       }
+      final modName = topLevel.module;
+      return (Object? input) async {
+        return _callFunction(modName, topLevel.func, input);
+      };
     }
-    for (final m in program.modules) {
-      for (final f in m.functions) {
-        if (f.hasMetadata()) {
-          final kind = f.metadata.fields['kind']?.stringValue;
-          if ((kind == 'static_field')) {
-            final dotIdx = f.name.lastIndexOf('.');
-            if (((dotIdx >= 0) && (f.name.substring((dotIdx + 1)) == name))) {
-              if (_globalScope.has(f.name)) {
-                return _globalScope.lookup(f.name);
-              }
-              return _callFunction(m.name, f, null);
-            }
-          }
-        }
+    final staticField = _staticFieldRefs[name];
+    if ((staticField != null)) {
+      if (_globalScope.has(staticField.fullName)) {
+        return _globalScope.lookup(staticField.fullName);
       }
+      return _callFunction(staticField.module, staticField.func, null);
     }
     return scope.lookup(name);
   }
@@ -1881,7 +1969,7 @@ class BallEngine {
       return false;
     }
     final field = func.metadata.fields['is_getter'];
-    if (((field != null) && field.boolValue)) {
+    if (_metadataBool(field)) {
       return true;
     }
     final kind = func.metadata.fields['kind'];
@@ -1897,7 +1985,7 @@ class BallEngine {
       return false;
     }
     final field = func.metadata.fields['is_setter'];
-    if (((field != null) && field.boolValue)) {
+    if (_metadataBool(field)) {
       return true;
     }
     final kind = func.metadata.fields['kind'];
@@ -7606,6 +7694,26 @@ const _stdFunctionToOperatorSymbol = <String, String>{
   'gte': '>=',
   'index': '[]',
 };
+bool _metadataBool(Object? input) {
+  Object? field = input;
+  if ((field == null)) {
+    return false;
+  }
+  if ((field is bool)) {
+    return field;
+  }
+  if ((field is structpb.Value)) {
+    return (field.hasBoolValue() && field.boolValue);
+  }
+  if ((field is Map)) {
+    final bv = field['boolValue'];
+    if ((bv is bool)) {
+      return bv;
+    }
+  }
+  return false;
+}
+
 Map<String, Object?> _ballFuture(Object? input) {
   Object? value = input;
   return {'__ball_future__': true, 'value': value, 'completed': true};

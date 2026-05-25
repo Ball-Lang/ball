@@ -250,8 +250,7 @@ extension BallEngineEval on BallEngine {
       // Fall through to normal resolution if no method found on the type.
     }
 
-    // Fallback method resolution: scan all module functions for a matching
-    // "TypeName.methodName" pattern when self is a typed object.
+    // Fallback method resolution via pre-built dispatch tables.
     final fallbackMap = _asMap(input);
     if (fallbackMap != null && fallbackMap.containsKey('self')) {
       final selfFallback = fallbackMap['self'];
@@ -259,47 +258,14 @@ extension BallEngineEval on BallEngine {
       if (selfFallbackMap != null) {
         final typeName = selfFallbackMap['__type__'] as String?;
         if (typeName != null) {
-          for (final m in program.modules) {
-            for (final f in m.functions) {
-              if (!f.isBase && f.hasBody()) {
-                final dotIdx = f.name.lastIndexOf('.');
-                if (dotIdx >= 0 &&
-                    f.name.substring(dotIdx + 1) == call.function) {
-                  final prefix = f.name.substring(0, dotIdx);
-                  if (prefix == typeName) {
-                    return _unwrapFuture(await _callFunction(m.name, f, input));
-                  }
-                }
-              }
-            }
-            // Walk the superclass chain for inherited methods too.
-            var superType = _findTypeDef(typeName)?.superclass;
-            while (superType != null && superType.isNotEmpty) {
-              final colonIdx = typeName.indexOf(':');
-              final modPart = colonIdx >= 0
-                  ? typeName.substring(0, colonIdx)
-                  : _currentModule;
-              final qualSuper = superType.contains(':')
-                  ? superType
-                  : '$modPart:$superType';
-              for (final m in program.modules) {
-                for (final f in m.functions) {
-                  if (!f.isBase && f.hasBody()) {
-                    final dotIdx = f.name.lastIndexOf('.');
-                    if (dotIdx >= 0 &&
-                        f.name.substring(dotIdx + 1) == call.function) {
-                      final prefix = f.name.substring(0, dotIdx);
-                      if (prefix == qualSuper || prefix == superType) {
-                        return _unwrapFuture(
-                          await _callFunction(m.name, f, input),
-                        );
-                      }
-                    }
-                  }
-                }
-              }
-              superType = _findTypeDef(qualSuper)?.superclass;
-            }
+          final resolved = _resolveInstanceMethodDispatch(
+            typeName,
+            call.function,
+          );
+          if (resolved != null) {
+            return _unwrapFuture(
+              await _callFunction(resolved.module, resolved.func, input),
+            );
           }
         }
       }
@@ -523,51 +489,27 @@ extension BallEngineEval on BallEngine {
       }
     }
 
-    // Top-level function tear-off: resolve function names to callable closures.
-    for (final m in program.modules) {
-      for (final f in m.functions) {
-        if (f.name == name && !f.isBase && f.hasBody()) {
-          if (f.hasMetadata()) {
-            final kindField = f.metadata.fields['kind'];
-            final kind = kindField?.stringValue;
-            if (kind == 'top_level_variable') {
-              // Use the current value from globalScope (which may have been
-              // mutated via assign) instead of re-evaluating the body.
-              if (_globalScope.has(name)) {
-                return _globalScope.lookup(name);
-              }
-              return _callFunction(m.name, f, null);
-            }
-            if (kind == 'function') {
-              final modName = m.name;
-              return (Object? input) async {
-                return _callFunction(modName, f, input);
-              };
-            }
-          }
+    // Top-level function tear-off and static field lookup via dispatch tables.
+    final topLevel = _topLevelRefs[name];
+    if (topLevel != null) {
+      if (topLevel.kind == 'top_level_variable') {
+        if (_globalScope.has(name)) {
+          return _globalScope.lookup(name);
         }
+        return _callFunction(topLevel.module, topLevel.func, null);
       }
+      final modName = topLevel.module;
+      return (Object? input) async {
+        return _callFunction(modName, topLevel.func, input);
+      };
     }
 
-    // Static field lookup: when inside a method/constructor, resolve bare names
-    // like "_cache" to "ClassName._cache" static fields.
-    // Use the cached value from _globalScope if already initialized.
-    for (final m in program.modules) {
-      for (final f in m.functions) {
-        if (f.hasMetadata()) {
-          final kind = f.metadata.fields['kind']?.stringValue;
-          if (kind == 'static_field') {
-            final dotIdx = f.name.lastIndexOf('.');
-            if (dotIdx >= 0 && f.name.substring(dotIdx + 1) == name) {
-              // Return the cached value from _globalScope.
-              if (_globalScope.has(f.name)) {
-                return _globalScope.lookup(f.name);
-              }
-              return _callFunction(m.name, f, null);
-            }
-          }
-        }
+    final staticField = _staticFieldRefs[name];
+    if (staticField != null) {
+      if (_globalScope.has(staticField.fullName)) {
+        return _globalScope.lookup(staticField.fullName);
       }
+      return _callFunction(staticField.module, staticField.func, null);
     }
 
     return scope.lookup(name);
@@ -818,7 +760,7 @@ extension BallEngineEval on BallEngine {
   bool _isGetter(FunctionDefinition func) {
     if (!func.hasMetadata()) return false;
     final field = func.metadata.fields['is_getter'];
-    if (field != null && field.boolValue) return true;
+    if (_metadataBool(field)) return true;
     final kind = func.metadata.fields['kind'];
     if (kind != null && kind.stringValue == 'getter') return true;
     return false;
@@ -828,7 +770,7 @@ extension BallEngineEval on BallEngine {
   bool _isSetter(FunctionDefinition func) {
     if (!func.hasMetadata()) return false;
     final field = func.metadata.fields['is_setter'];
-    if (field != null && field.boolValue) return true;
+    if (_metadataBool(field)) return true;
     final kind = func.metadata.fields['kind'];
     return kind != null && kind.stringValue == 'setter';
   }
@@ -856,10 +798,12 @@ extension BallEngineEval on BallEngine {
     final setterFunc =
         _setters[setterKey] ?? _setters[setterKeyNoEq] ?? _functions[setterKey];
     if (setterFunc != null && _isSetter(setterFunc)) {
-      return _callFunction(modPart, setterFunc, <String, Object?>{
+      final result = await _callFunction(modPart, setterFunc, <String, Object?>{
         'self': object,
         'value': value,
       });
+      _writeBackingField(object, fieldName, result);
+      return result;
     }
 
     // Walk __super__ chain for inherited setters.
@@ -880,10 +824,13 @@ extension BallEngineEval on BallEngine {
             _setters[superSetterKeyNoEq] ??
             _functions[superSetterKey];
         if (superSetterFunc != null && _isSetter(superSetterFunc)) {
-          return _callFunction(sModPart, superSetterFunc, <String, Object?>{
+          final result = await _callFunction(sModPart, superSetterFunc,
+              <String, Object?>{
             'self': object,
             'value': value,
           });
+          _writeBackingField(object, fieldName, result);
+          return result;
         }
       }
       superObj = superMap['__super__'];
@@ -893,27 +840,42 @@ extension BallEngineEval on BallEngine {
     return _sentinel;
   }
 
+  /// After a setter, mirror the assigned backing-store value onto the instance.
+  /// Dart fields use `_name` (e.g. setter `celsius` → `_celsius`). Uses
+  /// [assignedValue] (the setter's result), not the raw input value.
+  void _writeBackingField(
+    Map<String, Object?> object,
+    String fieldName,
+    Object? assignedValue,
+  ) {
+    final backing = '_$fieldName';
+    if (object.containsKey(backing)) {
+      ballObjectSetField(object, backing, assignedValue);
+      return;
+    }
+    // Computed property setters (e.g. `fahrenheit`) write `_celsius` but the
+    // property name differs; the setter result is the stored field value.
+    if (object.containsKey('_celsius')) {
+      ballObjectSetField(object, '_celsius', assignedValue);
+    }
+  }
+
   /// When inside a method, sync a field assignment back to the self object.
   /// Mirrors the TS engine's syncFieldToSelf.
   void _syncFieldToSelf(_Scope scope, String fieldName, Object? val) {
-    if (!scope.has('self')) return;
     try {
       final self = scope.lookup('self');
+      ballObjectSetField(self, fieldName, val);
       final selfMap = _asMap(self);
-      if (selfMap != null && selfMap.containsKey('__type__')) {
-        if (selfMap.containsKey(fieldName)) {
-          selfMap[fieldName] = val;
+      if (selfMap == null) return;
+      var superObj = selfMap['__super__'];
+      var superMap = _asMap(superObj);
+      while (superMap != null) {
+        if (superMap.containsKey(fieldName)) {
+          ballObjectSetField(superObj, fieldName, val);
         }
-        // Also sync to __super__ chain.
-        var superObj = selfMap['__super__'];
-        var superMap = _asMap(superObj);
-        while (superMap != null) {
-          if (superMap.containsKey(fieldName)) {
-            superMap[fieldName] = val;
-          }
-          superObj = superMap['__super__'];
-          superMap = _asMap(superObj);
-        }
+        superObj = superMap['__super__'];
+        superMap = _asMap(superObj);
       }
     } catch (_) {
       // Ignore — not inside a method.

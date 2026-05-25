@@ -174,7 +174,14 @@ public:
     build_std_dispatch();
 
 private:
-    ball::v1::Program program_;
+    // Borrowed, not owned: the engine holds a const reference to the caller's
+    // Program rather than deep-copying the entire protobuf message (all
+    // modules, functions and expression trees) on every construction. Every
+    // call site keeps the Program alive for the engine's lifetime, and the
+    // lookup tables already store const FunctionDefinition* into it, so a
+    // borrowed program is consistent. (Previously: `ball::v1::Program program_;`
+    // copy-constructed from the ctor arg.)
+    const ball::v1::Program& program_;
     std::vector<std::string> output_;
 
     // Lookup tables

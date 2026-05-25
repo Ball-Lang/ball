@@ -56,6 +56,7 @@ inline std::string ball_to_string(const char* s) { return s; }
 inline std::string ball_to_string(double d) {
     if (d != d) return "NaN";
     if (d > 1e308 || d < -1e308) return d < 0 ? "-Infinity" : "Infinity";
+    if (d == 0.0 && std::signbit(d)) return "-0.0";
     if (d == static_cast<double>(static_cast<long long>(d)) && d < 1e16 && d > -1e16) {
         return std::to_string(static_cast<long long>(d)) + ".0";
     }
@@ -831,22 +832,15 @@ inline std::string ball_to_string(const BallDyn& d);
 // Dart's `JsonEncoder` / `JsonDecoder` classes with a `convert()`
 // method. In compiled C++ we stub them to do basic
 // ball_to_string / passthrough.
-// GCC defines __const__ as a macro alias for `const`, which breaks the
-// Dart-emitted field name. Undef it locally so designated initializers like
-// `JsonEncoder{.__const__ = true}` compile on Linux too.
-#if defined(__GNUC__)
-#pragma push_macro("__const__")
-#undef __const__
-#endif
+// GCC defines __const__ as a macro alias for `const`, which breaks a field
+// literally named __const__. Use json_const instead; self-host init sites use
+// designated initializers with .json_const = true.
 struct JsonEncoder {
-    bool __const__ = false;
+    bool json_const = false;
 };
 struct JsonDecoder {
-    bool __const__ = false;
+    bool json_const = false;
 };
-#if defined(__GNUC__)
-#pragma pop_macro("__const__")
-#endif
 
 // Escape a string per JSON rules (quotes, backslash, control chars).
 inline std::string _ball_json_escape(const std::string& s) {

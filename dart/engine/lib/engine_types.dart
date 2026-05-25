@@ -71,7 +71,7 @@ class BallObject extends BallMap {
 
 /// Insertion-ordered map for runtime containers (Dart LinkedHashMap semantics).
 /// Emitted as `BallOrderedMap{}` in C++ self-host — NOT `std::map` (key-sorted).
-Map<String, Object?> _ballUserMap() => LinkedHashMap<String, Object?>();
+Map<Object?, Object?> _ballUserMap() => LinkedHashMap<Object?, Object?>();
 
 /// Map values in insertion order — emitted as `ball_map_values(BallDyn(...))` in C++.
 List<Object?> _ballMapValues(Map map) => map.values.toList();

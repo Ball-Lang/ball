@@ -118,7 +118,7 @@ extension BallEngineInvocation on BallEngine {
         if (selfMap != null) {
           // Bind direct fields. Use temporary debug to trace.
           for (final entry in selfMap.entries) {
-            if (!entry.key.startsWith('__') && entry.value != null) {
+            if (!entry.key.startsWith('__')) {
               scope.bind(entry.key, entry.value);
             }
           }

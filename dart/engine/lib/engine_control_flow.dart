@@ -1542,7 +1542,7 @@ extension BallEngineControlFlow on BallEngine {
             self.setAll(0, sorted);
             return null;
           }
-          final defaultSorted = List<Object?>.of(self);
+          final defaultSorted = self.toList();
           defaultSorted.sort((a, b) => (a as Comparable).compareTo(b));
           self.setAll(0, defaultSorted);
           return null;
@@ -1635,7 +1635,21 @@ extension BallEngineControlFlow on BallEngine {
           final other = arg0 is BallList
               ? arg0.items
               : (arg0 is List ? arg0 : <Object?>[]);
-          return _wrapList({...self, ...other}.toList());
+          final seen = <Object?, Object?>{};
+          final result = <Object?>[];
+          for (final item in self) {
+            if (!seen.containsKey(item)) {
+              seen[item] = item;
+              result.add(item);
+            }
+          }
+          for (final item in other) {
+            if (!seen.containsKey(item)) {
+              seen[item] = item;
+              result.add(item);
+            }
+          }
+          return _wrapList(result);
         case 'intersection':
           final otherSet =
               (arg0 is BallList

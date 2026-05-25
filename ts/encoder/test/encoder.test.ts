@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { encode } from "../src/index.ts";
+import { encode, encodeWithWarnings, EncodeError } from "../src/index.ts";
 import type { Program } from "../src/index.ts";
 
 describe("TsEncoder", () => {
@@ -343,7 +343,25 @@ describe("TsEncoder", () => {
     const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
     const val = mainFn.body!.block!.statements[0].let!.value!;
     assert.ok(val.literal);
-    assert.equal(val.literal!.stringValue, "");
+    // Null is an EMPTY literal (matches the Dart encoder), not stringValue "".
+    assert.equal(val.literal!.stringValue, undefined);
+    assert.equal(val.literal!.intValue, undefined);
+    assert.equal(val.literal!.boolValue, undefined);
+  });
+
+  test("encodes null/undefined as empty literal (matches Dart encoder)", () => {
+    const program = encode(`function main() { const a = null; const b = undefined; }`);
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    const stmts = mainFn.body!.block!.statements;
+    for (const idx of [0, 1]) {
+      const val = stmts[idx].let!.value!;
+      assert.ok(val.literal, `stmt ${idx} should be a literal`);
+      // Empty oneof: no value field set => engine reads it as null.
+      assert.equal(val.literal!.stringValue, undefined);
+      assert.equal(val.literal!.reference, undefined);
+    }
+    // `undefined` must NOT round-trip to an unbound reference.
+    assert.equal(stmts[1].let!.value!.reference, undefined);
   });
 
   test("encodes destructuring with defaults", () => {
@@ -381,6 +399,156 @@ describe("TsEncoder", () => {
     const lambda = mainFn.body!.block!.statements[0].let!.value!.lambda!;
     assert.ok(lambda.metadata!.param_defaults);
     assert.equal((lambda.metadata!.param_defaults as Record<string, string>).x, "5");
+  });
+
+  test("encodes call of a non-identifier callee as __invoke", () => {
+    // The callee is a call expression result, so neither identifier nor
+    // property-access — must route through __invoke with a `callee` field.
+    const program = encode(`function main() { getFn()(1, 2); }`);
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    const call = mainFn.body!.block!.statements[0].expression!.call!;
+    assert.equal(call.function, "__invoke");
+    const fields = call.input!.messageCreation!.fields;
+    const callee = fields.find(f => f.name === "callee");
+    assert.ok(callee, "should carry callee field");
+    assert.equal(callee!.value.call!.function, "getFn");
+    assert.ok(fields.find(f => f.name === "arg0"));
+    assert.ok(fields.find(f => f.name === "arg1"));
+  });
+
+  test("encodes C-style for loop with init/condition/update", () => {
+    const program = encode(`function main() { for (let i = 0; i < 10; i++) { x(); } }`);
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    const forCall = mainFn.body!.block!.statements[0].expression!.call!;
+    assert.equal(forCall.function, "for");
+    const fields = forCall.input!.messageCreation!.fields;
+    assert.equal(fields.find(f => f.name === "variable")!.value.literal!.stringValue, "i");
+    assert.ok(fields.find(f => f.name === "start"));
+    // condition/update/body are lazily-evaluated lambdas.
+    assert.ok(fields.find(f => f.name === "condition")!.value.lambda);
+    assert.ok(fields.find(f => f.name === "update")!.value.lambda);
+    assert.ok(fields.find(f => f.name === "body")!.value.lambda);
+  });
+
+  test("encodes C-style for loop with expression initializer (non-decl)", () => {
+    const program = encode(`function main() { let i; for (i = 0; i < 3; i++) {} }`);
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    const forCall = mainFn.body!.block!.statements[1].expression!.call!;
+    assert.equal(forCall.function, "for");
+    const fields = forCall.input!.messageCreation!.fields;
+    // No variable declaration => `init` lambda instead of `variable`/`start`.
+    assert.ok(fields.find(f => f.name === "init")!.value.lambda);
+  });
+
+  test("encodes do/while loop as do_while with lazy condition", () => {
+    const program = encode(`function main() { do { x(); } while (cond); }`);
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    const doCall = mainFn.body!.block!.statements[0].expression!.call!;
+    assert.equal(doCall.function, "do_while");
+    const fields = doCall.input!.messageCreation!.fields;
+    assert.ok(fields.find(f => f.name === "condition")!.value.lambda, "condition is lazy");
+    assert.ok(fields.find(f => f.name === "body")!.value.lambda);
+  });
+
+  test("encodes labeled break and continue", () => {
+    const program = encode(`
+      function main() {
+        outer: for (const a of xs) {
+          for (const b of ys) {
+            if (a) break outer;
+            if (b) continue outer;
+          }
+        }
+      }
+    `);
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    const labeled = mainFn.body!.block!.statements[0].expression!.call!;
+    assert.equal(labeled.function, "labeled");
+    const labFields = labeled.input!.messageCreation!.fields;
+    assert.equal(labFields.find(f => f.name === "label")!.value.literal!.stringValue, "outer");
+    // Find the break/continue deeper in the tree by serializing.
+    const json = JSON.stringify(program);
+    assert.ok(json.includes('"break"'));
+    assert.ok(json.includes('"continue"'));
+    // The labeled break/continue carry a `label` literal of "outer".
+    const labelCount = (json.match(/"outer"/g) ?? []).length;
+    assert.ok(labelCount >= 3, `expected outer label on the labeled stmt + break + continue, got ${labelCount}`);
+  });
+
+  test("encodes plain break/continue without a label field", () => {
+    const program = encode(`function main() { while (true) { break; } for (const x of xs) { continue; } }`);
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    // break is the result of the while body's block.
+    const json = JSON.stringify(program);
+    assert.ok(json.includes('"break"'));
+    assert.ok(json.includes('"continue"'));
+  });
+
+  test("encodes new Foo(args) as messageCreation", () => {
+    const program = encode(`function main() { const p = new Point(1, 2); }`);
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    const val = mainFn.body!.block!.statements[0].let!.value!;
+    assert.ok(val.messageCreation);
+    assert.equal(val.messageCreation!.typeName, "Point");
+    assert.equal(val.messageCreation!.fields.length, 2);
+    assert.equal(val.messageCreation!.fields[0].name, "arg0");
+    assert.equal(val.messageCreation!.fields[1].name, "arg1");
+  });
+
+  test("encodes new Foo() with no args", () => {
+    const program = encode(`function main() { const p = new Empty(); }`);
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    const val = mainFn.body!.block!.statements[0].let!.value!;
+    assert.ok(val.messageCreation);
+    assert.equal(val.messageCreation!.typeName, "Empty");
+    assert.equal(val.messageCreation!.fields.length, 0);
+  });
+
+  test("does not emit numeric add for provably-string concat (literal)", () => {
+    const program = encode(`function main() { const s = "a" + b; }`);
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    const call = mainFn.body!.block!.statements[0].let!.value!.call!;
+    assert.equal(call.function, "concat");
+  });
+
+  test("emits polymorphic add for string-var + string-var (engine coerces)", () => {
+    // Neither operand is provably a string => fall through to std.add, which
+    // the engine resolves polymorphically. Must NOT guess concat or numeric.
+    const program = encode(`function main() { const s = a + b; }`);
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    const call = mainFn.body!.block!.statements[0].let!.value!.call!;
+    assert.equal(call.function, "add");
+    assert.equal(call.module, "std");
+  });
+
+  test("nested provable concat propagates: (a + 'x') + b", () => {
+    const program = encode(`function main() { const s = (a + "x") + b; }`);
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    const call = mainFn.body!.block!.statements[0].let!.value!.call!;
+    assert.equal(call.function, "concat");
+  });
+
+  test("strict mode throws EncodeError on unhandled construct", () => {
+    // A `with` statement has no Ball mapping => warn() => throws in strict.
+    assert.throws(
+      () => encode(`function main() { with (obj) { x; } }`, { strict: true }),
+      (err: unknown) => {
+        assert.ok(err instanceof EncodeError);
+        assert.ok((err as EncodeError).warnings.length > 0);
+        return true;
+      },
+    );
+  });
+
+  test("non-strict mode collects warnings without throwing", () => {
+    const { program, warnings } = encodeWithWarnings(`function main() { with (obj) { x; } }`);
+    assert.ok(program.modules.length >= 1);
+    assert.ok(warnings.length > 0, "should accumulate warnings for unhandled `with`");
+  });
+
+  test("clean source produces no warnings", () => {
+    const { warnings } = encodeWithWarnings(`function main() { const x = 1 + 2; return x; }`);
+    assert.equal(warnings.length, 0);
   });
 
   test("full encode produces valid Program structure", () => {

@@ -55,10 +55,12 @@ const COMPOUND_OPS: Record<number, string> = {
 export class TsEncoder {
   private stdFunctions = new Set<string>();
   private warnings: string[] = [];
+  private strict = false;
 
   encode(source: string, options: EncodeOptions = {}): Program {
     const modName = options.moduleName ?? "main";
     const entryFn = options.entryFunction ?? "main";
+    this.strict = options.strict ?? false;
 
     const sourceFile = ts.createSourceFile(
       "input.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS
@@ -85,7 +87,7 @@ export class TsEncoder {
           if (ts.isIdentifier(decl.name)) {
             functions.push({
               name: decl.name.text,
-              body: decl.initializer ? this.encodeExpr(decl.initializer) : { literal: { stringValue: "" } },
+              body: decl.initializer ? this.encodeExpr(decl.initializer) : this.nullLiteral(),
               metadata: { kind: "top_level_variable" },
             });
           } else if (ts.isObjectBindingPattern(decl.name) && decl.initializer) {
@@ -328,9 +330,16 @@ export class TsEncoder {
       return { literal: { boolValue: false } };
     }
     if (node.kind === ts.SyntaxKind.NullKeyword || node.kind === ts.SyntaxKind.UndefinedKeyword) {
-      return { literal: { stringValue: "" } };
+      return this.nullLiteral();
     }
     if (ts.isIdentifier(node)) {
+      // `undefined` is parsed as an identifier in expression position, not as
+      // a keyword. Encode it as the canonical null literal so it round-trips
+      // to `null` rather than an unbound reference. (NaN/Infinity stay as
+      // references — they resolve to real globals.)
+      if (node.text === "undefined") {
+        return this.nullLiteral();
+      }
       return { reference: { name: node.text } };
     }
     if (ts.isBinaryExpression(node)) {
@@ -448,7 +457,10 @@ export class TsEncoder {
       ], "ts_std");
     }
     if (ts.isVoidExpression(node)) {
-      return { literal: { stringValue: "" } };
+      // `void <expr>` always evaluates to `undefined`; encode as null.
+      // (The operand's side effects are dropped — matching how the engine
+      // treats a discarded value; this mirrors the prior behaviour.)
+      return this.nullLiteral();
     }
     if (ts.isTaggedTemplateExpression(node)) {
       return this.encodeTaggedTemplate(node);
@@ -476,7 +488,7 @@ export class TsEncoder {
       ]);
     }
 
-    if (op === ts.SyntaxKind.PlusToken && this.looksLikeStringConcat(node)) {
+    if (op === ts.SyntaxKind.PlusToken && this.isProvablyString(node.left, node.right)) {
       return this.stdCall("concat", [
         { name: "left", value: this.encodeExpr(node.left) },
         { name: "right", value: this.encodeExpr(node.right) },
@@ -502,9 +514,35 @@ export class TsEncoder {
     return { literal: { stringValue: `/* binary: ${ts.SyntaxKind[op]} */` } };
   }
 
-  private looksLikeStringConcat(node: ts.BinaryExpression): boolean {
-    return ts.isStringLiteral(node.left) || ts.isStringLiteral(node.right) ||
-           ts.isTemplateExpression(node.left) || ts.isNoSubstitutionTemplateLiteral(node.left);
+  /// Decide how to encode a `+` whose operands aren't both provable strings.
+  ///
+  /// `std.add` is runtime-polymorphic — the engine concatenates when either
+  /// operand is a string and adds numerically otherwise (see
+  /// `compiled_engine.ts:_stdAdd`). `std.concat`, by contrast, *always*
+  /// stringifies both sides, so emitting it for `1 + 2` would yield `"12"`.
+  ///
+  /// We therefore only emit the dedicated `concat` when at least one operand
+  /// is *provably* a string (a string literal/template, or a nested `+` that
+  /// is itself provably a concat). For every other shape — including
+  /// `strVar + strVar`, where the static type is unknown — we fall through to
+  /// the polymorphic `std.add`, letting the engine coerce at runtime instead
+  /// of guessing from literal shape. This avoids both the false-numeric and
+  /// false-concat hazards.
+  private isProvablyString(left: ts.Expression, right: ts.Expression): boolean {
+    return this.isStringExpr(left) || this.isStringExpr(right);
+  }
+
+  private isStringExpr(node: ts.Expression): boolean {
+    if (ts.isParenthesizedExpression(node)) return this.isStringExpr(node.expression);
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ||
+        ts.isTemplateExpression(node)) {
+      return true;
+    }
+    // A nested `a + b` that is itself a provable concat produces a string.
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      return this.isProvablyString(node.left, node.right);
+    }
+    return false;
   }
 
   private encodePrefixUnary(node: ts.PrefixUnaryExpression): Expression {
@@ -955,8 +993,27 @@ export class TsEncoder {
     return { name: "std", functions };
   }
 
+  /// The canonical encoding of `null`/`undefined`/`void`.
+  ///
+  /// The Dart encoder represents a null literal as an *empty* `Literal`
+  /// message with no `value` oneof field set (see
+  /// `dart/encoder/lib/encoder.dart`: `Expression()..literal = Literal()`).
+  /// We match that exactly: `{ literal: {} }`. Both engines treat an empty
+  /// literal as `null` (the TS compiler's `compileLiteral` falls through to
+  /// `return "null"` when no value field is present), so this round-trips
+  /// correctly and is no longer conflated with the empty string `""`.
+  private nullLiteral(): Expression {
+    return { literal: {} };
+  }
+
   private warn(msg: string): void {
     this.warnings.push(msg);
+    // In strict mode an unhandled node is a hard error: the encoder cannot
+    // faithfully represent the construct and would otherwise emit a
+    // `/* unhandled */` placeholder literal that silently changes semantics.
+    if (this.strict) {
+      throw new EncodeError(msg, this.getWarnings());
+    }
   }
 
   getWarnings(): string[] {
@@ -964,6 +1021,36 @@ export class TsEncoder {
   }
 }
 
+/// Thrown by `encode(..., { strict: true })` when the encoder hits a TS
+/// construct it cannot represent. Carries the full accumulated warning list.
+export class EncodeError extends Error {
+  readonly warnings: string[];
+  constructor(message: string, warnings: string[]) {
+    super(message);
+    this.name = "EncodeError";
+    this.warnings = warnings;
+  }
+}
+
+export interface EncodeResult {
+  program: Program;
+  warnings: string[];
+}
+
+/// Encode `source` to a Ball `Program`.
+///
+/// The simple overload returns just the `Program` for backwards
+/// compatibility. Pass `{ strict: true }` to throw an `EncodeError` on any
+/// unhandled construct. To inspect non-fatal warnings without strict mode,
+/// use `encodeWithWarnings`.
 export function encode(source: string, options: EncodeOptions = {}): Program {
   return new TsEncoder().encode(source, options);
+}
+
+/// Like `encode`, but also surfaces the accumulated warnings (e.g. unhandled
+/// statement/expression kinds). Honors `options.strict` the same way.
+export function encodeWithWarnings(source: string, options: EncodeOptions = {}): EncodeResult {
+  const encoder = new TsEncoder();
+  const program = encoder.encode(source, options);
+  return { program, warnings: encoder.getWarnings() };
 }

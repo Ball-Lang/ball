@@ -174,12 +174,12 @@ static std::any proto_msg_to_any(const google::protobuf::Message& msg) {
                 }
                 case google::protobuf::FieldDescriptor::TYPE_INT32: {
                     auto v = ref->GetInt32(msg, field);
-                    if (v != 0 || force_store) result[key] = std::any(static_cast<int64_t>(v));
+                    result[key] = std::any(static_cast<int64_t>(v));
                     break;
                 }
                 case google::protobuf::FieldDescriptor::TYPE_INT64: {
                     auto v = ref->GetInt64(msg, field);
-                    if (v != 0 || force_store) result[key] = std::any(v);
+                    result[key] = std::any(v);
                     break;
                 }
                 case google::protobuf::FieldDescriptor::TYPE_BOOL: {
@@ -199,7 +199,7 @@ static std::any proto_msg_to_any(const google::protobuf::Message& msg) {
                 }
                 case google::protobuf::FieldDescriptor::TYPE_ENUM: {
                     auto v = ref->GetEnumValue(msg, field);
-                    if (v != 0 || force_store) result[key] = std::any(static_cast<int64_t>(v));
+                    result[key] = std::any(static_cast<int64_t>(v));
                     break;
                 }
                 case google::protobuf::FieldDescriptor::TYPE_BYTES: {

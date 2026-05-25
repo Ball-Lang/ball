@@ -1,0 +1,532 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        },
+        {
+          "name": "BinaryInput",
+          "field": [
+            {
+              "name": "left",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            },
+            {
+              "name": "right",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "dart_std",
+      "functions": [
+        {
+          "name": "invoke",
+          "isBase": true
+        }
+      ],
+      "description": "Dart-specific standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "curryAdd",
+          "outputType": "int Function(int) Function(int)",
+          "body": {
+            "lambda": {
+              "name": "",
+              "body": {
+                "lambda": {
+                  "name": "",
+                  "body": {
+                    "call": {
+                      "module": "std",
+                      "function": "add",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "left",
+                              "value": {
+                                "reference": {
+                                  "name": "a"
+                                }
+                              }
+                            },
+                            {
+                              "name": "right",
+                              "value": {
+                                "reference": {
+                                  "name": "b"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "metadata": {
+                    "kind": "lambda",
+                    "expression_body": true,
+                    "has_return": true,
+                    "params": [
+                      {
+                        "name": "b",
+                        "type": "int"
+                      }
+                    ]
+                  }
+                }
+              },
+              "metadata": {
+                "kind": "lambda",
+                "has_return": true,
+                "params": [
+                  {
+                    "name": "a",
+                    "type": "int"
+                  }
+                ]
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        },
+        {
+          "name": "partialApply",
+          "inputType": "int Function(int, int)",
+          "outputType": "int Function(int)",
+          "body": {
+            "lambda": {
+              "name": "",
+              "body": {
+                "call": {
+                  "function": "fn",
+                  "input": {
+                    "messageCreation": {
+                      "fields": [
+                        {
+                          "name": "arg0",
+                          "value": {
+                            "reference": {
+                              "name": "first"
+                            }
+                          }
+                        },
+                        {
+                          "name": "arg1",
+                          "value": {
+                            "reference": {
+                              "name": "second"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              "metadata": {
+                "kind": "lambda",
+                "expression_body": true,
+                "has_return": true,
+                "params": [
+                  {
+                    "name": "second",
+                    "type": "int"
+                  }
+                ]
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "params": [
+              {
+                "name": "fn",
+                "type": "int Function(int, int)"
+              },
+              {
+                "name": "first",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "add2",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "add",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "a"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "reference": {
+                          "name": "b"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "expression_body": true,
+            "params": [
+              {
+                "name": "a",
+                "type": "int"
+              },
+              {
+                "name": "b",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "add10",
+                    "value": {
+                      "call": {
+                        "module": "dart_std",
+                        "function": "invoke",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "",
+                            "fields": [
+                              {
+                                "name": "callee",
+                                "value": {
+                                  "call": {
+                                    "function": "curryAdd"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "10"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "add10",
+                                  "input": {
+                                    "literal": {
+                                      "intValue": "5"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "dart_std",
+                                  "function": "invoke",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "callee",
+                                          "value": {
+                                            "call": {
+                                              "module": "dart_std",
+                                              "function": "invoke",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "callee",
+                                                      "value": {
+                                                        "call": {
+                                                          "function": "curryAdd"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "arg0",
+                                                      "value": {
+                                                        "literal": {
+                                                          "intValue": "3"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "7"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "add5",
+                    "value": {
+                      "call": {
+                        "function": "partialApply",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "reference": {
+                                    "name": "add2"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "arg1",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "5"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "add5",
+                                  "input": {
+                                    "literal": {
+                                      "intValue": "12"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "dart_std",
+                                  "function": "invoke",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "callee",
+                                          "value": {
+                                            "call": {
+                                              "function": "partialApply",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "arg0",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "add2"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "arg1",
+                                                      "value": {
+                                                        "literal": {
+                                                          "intValue": "0"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "0"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        },
+        {
+          "name": "dart_std"
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

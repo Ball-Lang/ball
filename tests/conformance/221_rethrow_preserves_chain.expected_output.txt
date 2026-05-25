@@ -1,0 +1,2 @@
+middle caught: inner-error
+outer caught: inner-error

@@ -1,0 +1,366 @@
+{
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "types": [
+        {
+          "name": "PrintInput",
+          "field": [
+            {
+              "name": "message",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING"
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "identity",
+          "inputType": "T",
+          "outputType": "T",
+          "body": {
+            "reference": {
+              "name": "value"
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "expression_body": true,
+            "params": [
+              {
+                "name": "value",
+                "type": "T"
+              }
+            ],
+            "type_params": [
+              "T"
+            ]
+          }
+        },
+        {
+          "name": "singleton",
+          "inputType": "T",
+          "outputType": "List<T>",
+          "body": {
+            "literal": {
+              "listValue": {
+                "elements": [
+                  {
+                    "reference": {
+                      "name": "value"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "expression_body": true,
+            "params": [
+              {
+                "name": "value",
+                "type": "T"
+              }
+            ],
+            "type_params": [
+              "T"
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "identity",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "__type_args__",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "<int>"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "42"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "identity",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "__type_args__",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "<String>"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "hi"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "call": {
+                                      "function": "singleton",
+                                      "input": {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "__type_args__",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "<double>"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "arg0",
+                                              "value": {
+                                                "literal": {
+                                                  "doubleValue": 3.5
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "field": "first"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "call": {
+                                      "function": "singleton",
+                                      "input": {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "__type_args__",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "<bool>"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "arg0",
+                                              "value": {
+                                                "literal": {
+                                                  "boolValue": true
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "field": "first"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "fieldAccess": {
+                                      "object": {
+                                        "call": {
+                                          "function": "singleton",
+                                          "input": {
+                                            "messageCreation": {
+                                              "fields": [
+                                                {
+                                                  "name": "__type_args__",
+                                                  "value": {
+                                                    "literal": {
+                                                      "stringValue": "<List<int>>"
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "arg0",
+                                                  "value": {
+                                                    "literal": {
+                                                      "listValue": {
+                                                        "elements": [
+                                                          {
+                                                            "literal": {
+                                                              "intValue": "1"
+                                                            }
+                                                          },
+                                                          {
+                                                            "literal": {
+                                                              "intValue": "2"
+                                                            }
+                                                          }
+                                                        ]
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      },
+                                      "field": "first"
+                                    }
+                                  },
+                                  "field": "length"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

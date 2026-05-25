@@ -1,0 +1,8 @@
+0:zero
+1:small
+2:small
+5:other
+-1:other
+:empty
+a:short
+hello:long

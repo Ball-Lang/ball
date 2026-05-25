@@ -841,9 +841,9 @@ BallValue Engine::call_function_internal(const std::string& module_name,
     // Generator functions: collect yielded values as a list.
     if (is_generator_fn) {
         if (is_generator(result)) {
-            result = BallList{std::move(std::any_cast<BallGenerator>(result).values)};
+            result = ball_list_value(BallList(*std::any_cast<BallGenerator>(result).values));
         } else if (!is_list(result)) {
-            result = BallList{result};
+            result = ball_list_value(BallList{result});
         }
     }
 
@@ -1297,9 +1297,10 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                 auto super_it = self.find("__super__");
                 BallValue super_obj = (super_it != self.end()) ? super_it->second : BallValue{};
                 while (is_map(super_obj)) {
-                    const auto& sm = std::any_cast<const BallMap&>(super_obj);
-                    auto st = sm.find("__type__");
-                    if (st != sm.end() && is_string(st->second)) {
+                    const BallMap* sm = ball_map_ptr(super_obj);
+                    if (!sm) break;
+                    auto st = sm->find("__type__");
+                    if (st != sm->end() && is_string(st->second)) {
                         const auto& super_type = std::any_cast<const std::string&>(st->second);
                         auto s_colon = super_type.find(':');
                         std::string s_mod = (s_colon != std::string::npos)
@@ -1317,8 +1318,8 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                             return call_function_internal(s_mod, *sfit->second, std::move(input));
                         }
                     }
-                    auto ss = sm.find("__super__");
-                    super_obj = (ss != sm.end()) ? ss->second : BallValue{};
+                    auto ss = sm->find("__super__");
+                    super_obj = (ss != sm->end()) ? ss->second : BallValue{};
                 }
                 // Walk mixins: check TypeDef metadata for mixin list.
                 for (const auto& mod_iter : program_.modules()) {
@@ -2081,11 +2082,12 @@ BallValue Engine::eval_field_access(const ball::v1::FieldAccess& access, std::sh
         if (super_it != m.end() && is_map(super_it->second)) {
             BallValue cur = super_it->second;
             while (is_map(cur)) {
-                const auto& sm = std::any_cast<const BallMap&>(cur);
-                auto sit = sm.find(field);
-                if (sit != sm.end()) return sit->second;
-                auto next = sm.find("__super__");
-                if (next == sm.end()) break;
+                const BallMap* sm = ball_map_ptr(cur);
+                if (!sm) break;
+                auto sit = sm->find(field);
+                if (sit != sm->end()) return sit->second;
+                auto next = sm->find("__super__");
+                if (next == sm->end()) break;
                 cur = next->second;
             }
         }
@@ -2093,24 +2095,29 @@ BallValue Engine::eval_field_access(const ball::v1::FieldAccess& access, std::sh
         // Look up __methods__ on the object.
         auto meth_it = m.find("__methods__");
         if (meth_it != m.end() && is_map(meth_it->second)) {
-            const auto& methods = std::any_cast<const BallMap&>(meth_it->second);
-            auto mit = methods.find(field);
-            if (mit != methods.end()) return mit->second;
+            const BallMap* methods = ball_map_ptr(meth_it->second);
+            if (methods) {
+                auto mit = methods->find(field);
+                if (mit != methods->end()) return mit->second;
+            }
         }
 
         // Walk __super__ chain for methods.
         if (super_it != m.end() && is_map(super_it->second)) {
             BallValue cur = super_it->second;
             while (is_map(cur)) {
-                const auto& sm = std::any_cast<const BallMap&>(cur);
-                auto sm_meth = sm.find("__methods__");
-                if (sm_meth != sm.end() && is_map(sm_meth->second)) {
-                    const auto& smethods = std::any_cast<const BallMap&>(sm_meth->second);
-                    auto smit = smethods.find(field);
-                    if (smit != smethods.end()) return smit->second;
+                const BallMap* sm = ball_map_ptr(cur);
+                if (!sm) break;
+                auto sm_meth = sm->find("__methods__");
+                if (sm_meth != sm->end() && is_map(sm_meth->second)) {
+                    const BallMap* smethods = ball_map_ptr(sm_meth->second);
+                    if (smethods) {
+                        auto smit = smethods->find(field);
+                        if (smit != smethods->end()) return smit->second;
+                    }
                 }
-                auto next = sm.find("__super__");
-                if (next == sm.end()) break;
+                auto next = sm->find("__super__");
+                if (next == sm->end()) break;
                 cur = next->second;
             }
         }
@@ -2162,7 +2169,7 @@ BallValue Engine::eval_field_access(const ball::v1::FieldAccess& access, std::sh
     }
     if (is_string(object)) {
         const auto& s = std::any_cast<const std::string&>(object);
-        if (field == "length") return static_cast<int64_t>(s.size());
+        if (field == "length") return ball_u16_length(s);
         if (field == "isEmpty") return s.empty();
         if (field == "isNotEmpty") return !s.empty();
     }
@@ -2484,16 +2491,22 @@ BallValue Engine::eval_block(const ball::v1::Block& block, std::shared_ptr<Scope
         if (has_yields && is_flow(result_val) && as_flow(result_val).kind == "yield") {
             yields.push_back(as_flow(result_val).value);
             run_scope_exits(block_scope);
-            return BallGenerator{std::move(yields)};
+            BallGenerator gen;
+            *gen.values = std::move(yields);
+            return gen;
         }
         if (has_yields) {
             run_scope_exits(block_scope);
-            return BallGenerator{std::move(yields)};
+            BallGenerator gen;
+            *gen.values = std::move(yields);
+            return gen;
         }
     }
     if (has_yields) {
         run_scope_exits(block_scope);
-        return BallGenerator{std::move(yields)};
+        BallGenerator gen;
+        *gen.values = std::move(yields);
+        return gen;
     }
     run_scope_exits(block_scope);
     return result_val;
@@ -3230,6 +3243,11 @@ bool Engine::match_structured_pattern(const BallValue& value, const BallMap& pat
             else if (type_name == "MapPattern") kind = "map";
             else if (type_name == "RecordPattern") kind = "record";
             else if (type_name == "ObjectPattern") kind = "object";
+            else if (type_name == "LogicalOrPattern") kind = "logical_or";
+            else if (type_name == "LogicalAndPattern") kind = "logical_and";
+            else if (type_name == "RelationalPattern") kind = "relational";
+            else if (type_name == "RestPattern") kind = "rest";
+            else if (type_name == "CastPattern") kind = "cast";
         }
     }
     if (kind.empty()) return false;
@@ -3275,6 +3293,55 @@ bool Engine::match_structured_pattern(const BallValue& value, const BallMap& pat
         return false;
     }
 
+    if (kind == "relational") {
+        auto op_it = pattern.find("operator");
+        auto val_it = pattern.find("operand");
+        if (op_it == pattern.end() || val_it == pattern.end()) return false;
+        if (!is_string(op_it->second)) return false;
+        auto op = std::any_cast<std::string>(op_it->second);
+        if (!(is_int(value) || is_double(value))) return false;
+        double lhs = to_num(value);
+        double rhs = to_num(val_it->second);
+        if (op == "==") return lhs == rhs;
+        if (op == "!=") return lhs != rhs;
+        if (op == ">") return lhs > rhs;
+        if (op == "<") return lhs < rhs;
+        if (op == ">=") return lhs >= rhs;
+        if (op == "<=") return lhs <= rhs;
+        return false;
+    }
+
+    if (kind == "logical_or") {
+        BallMap left_bindings;
+        auto left_it = pattern.find("left");
+        if (left_it != pattern.end() && match_pattern(value, left_it->second, left_bindings)) {
+            for (auto& [k, v] : left_bindings) bindings[k] = v;
+            return true;
+        }
+        auto right_it = pattern.find("right");
+        if (right_it != pattern.end()) return match_pattern(value, right_it->second, bindings);
+        return false;
+    }
+
+    if (kind == "logical_and") {
+        BallMap temp_bindings;
+        auto left_it = pattern.find("left");
+        auto right_it = pattern.find("right");
+        if (left_it == pattern.end() || right_it == pattern.end()) return false;
+        if (match_pattern(value, left_it->second, temp_bindings) &&
+            match_pattern(value, right_it->second, temp_bindings)) {
+            for (auto& [k, v] : temp_bindings) bindings[k] = v;
+            return true;
+        }
+        return false;
+    }
+
+    if (kind == "rest") {
+        auto sub_it = pattern.find("subpattern");
+        if (sub_it != pattern.end()) return match_pattern(value, sub_it->second, bindings);
+        return true;
+    }
+
     if (kind == "list") {
         if (!is_list(value)) return false;
         const BallList& lst = *ball_list_ptr(value);
@@ -3282,18 +3349,49 @@ bool Engine::match_structured_pattern(const BallValue& value, const BallMap& pat
         auto rest_it = pattern.find("rest");
         BallList elements;
         if (elem_it != pattern.end() && is_list(elem_it->second))
-            elements = *ball_list_ptr(elem_it->second);
-        std::string rest;
-        if (rest_it != pattern.end() && is_string(rest_it->second))
-            rest = std::any_cast<std::string>(rest_it->second);
-        if (rest.empty() && lst.size() != elements.size()) return false;
-        if (!rest.empty() && lst.size() < elements.size()) return false;
-        for (size_t i = 0; i < elements.size(); i++) {
-            if (!match_pattern(lst[i], elements[i], bindings)) return false;
+            elements = ball_list_copy(elem_it->second);
+        int rest_index = -1;
+        for (size_t i = 0; i < elements.size(); ++i) {
+            if (is_map(elements[i])) {
+                if (const BallMap* em = ball_map_ptr(elements[i])) {
+                    auto kind_elem = em->find("__pattern_kind__");
+                    if (kind_elem != em->end() && is_string(kind_elem->second) &&
+                        std::any_cast<std::string>(kind_elem->second) == "rest") {
+                        rest_index = static_cast<int>(i);
+                        break;
+                    }
+                    auto type_elem = em->find("__type__");
+                    if (type_elem != em->end() && is_string(type_elem->second) &&
+                        std::any_cast<std::string>(type_elem->second) == "RestPattern") {
+                        rest_index = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
         }
-        if (!rest.empty()) {
-            BallList remaining(lst.begin() + elements.size(), lst.end());
-            bindings[rest] = remaining;
+        size_t fixed_count = rest_index == -1 ? elements.size() : elements.size() - 1;
+        if (rest_index == -1 && lst.size() != fixed_count) return false;
+        if (rest_index != -1 && lst.size() < fixed_count) return false;
+        for (size_t i = 0; i < elements.size(); ++i) {
+            if (static_cast<int>(i) == rest_index) {
+                size_t tail_count = elements.size() - static_cast<size_t>(rest_index) - 1;
+                BallList rest_values(lst.begin() + static_cast<std::ptrdiff_t>(i),
+                                     lst.end() - static_cast<std::ptrdiff_t>(tail_count));
+                if (const BallMap* em = ball_map_ptr(elements[i])) {
+                    auto sub_it = em->find("subpattern");
+                    if (sub_it != em->end() && !match_pattern(ball_list_value(rest_values), sub_it->second, bindings))
+                        return false;
+                }
+                continue;
+            }
+            size_t value_index = (rest_index == -1 || static_cast<int>(i) < rest_index)
+                ? i
+                : lst.size() - (elements.size() - i);
+            if (!match_pattern(lst[value_index], elements[i], bindings)) return false;
+        }
+        if (rest_it != pattern.end() && is_string(rest_it->second)) {
+            bindings[std::any_cast<std::string>(rest_it->second)] =
+                BallList(lst.begin() + static_cast<std::ptrdiff_t>(fixed_count), lst.end());
         }
         return true;
     }
@@ -4062,13 +4160,11 @@ Engine::build_std_dispatch() {
     return {
         {"print", [this](BallValue input) -> BallValue {
             if (is_map(input)) {
-                // Mirrors the Dart engine's _stdPrint key probing:
-                //   message (canonical) → arg0 (positional encoder)
-                //   → value (legacy ts conformance fixtures).
                 auto msg = extract_field(input, "message");
                 if (!msg.has_value()) msg = extract_field(input, "arg0");
                 if (!msg.has_value()) msg = extract_field(input, "value");
-                if (msg.has_value()) { stdout_fn(value_to_string(msg)); return {}; }
+                stdout_fn(msg.has_value() ? value_to_string(msg) : std::string("null"));
+                return {};
             }
             stdout_fn(value_to_string(input)); return {};
         }},
@@ -4084,8 +4180,8 @@ Engine::build_std_dispatch() {
         {"divide_double", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return to_double(l)/to_double(r); }},
         {"modulo", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); if(is_double(l)||is_double(r)) { auto a=to_double(l),b=to_double(r); auto m=std::fmod(a,b); return m<0?m+(b<0?-b:b):m; } auto a=to_int(l),b=to_int(r); auto m=a%b; return m<0?m+(b<0?-b:b):m; }},
         {"negate", [](BallValue i) -> BallValue { auto v=extract_unary(i); if(is_double(v)) return -to_double(v); return -to_int(v); }},
-        {"equals", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return ball::to_string(l)==ball::to_string(r); }},
-        {"not_equals", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return ball::to_string(l)!=ball::to_string(r); }},
+        {"equals", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return values_equal(l,r); }},
+        {"not_equals", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return !values_equal(l,r); }},
         {"less_than", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return to_double(l)<to_double(r); }},
         {"greater_than", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return to_double(l)>to_double(r); }},
         {"lte", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return to_double(l)<=to_double(r); }},
@@ -4110,7 +4206,7 @@ Engine::build_std_dispatch() {
         {"to_double", [](BallValue i) -> BallValue { return to_double(extract_unary(i)); }},
         {"length", [](BallValue i) -> BallValue {
             auto v=extract_unary(i);
-            if(is_string(v)) return static_cast<int64_t>(std::any_cast<std::string>(v).size());
+            if(is_string(v)) return ball_u16_length(std::any_cast<std::string>(v));
             if(is_list(v)) return ball_list_length(v);
             return static_cast<int64_t>(0);
         }},
@@ -4182,7 +4278,10 @@ Engine::build_std_dispatch() {
         {"index", [](BallValue i) -> BallValue {
             auto tgt=extract_field(i,"target"); auto idx=extract_field(i,"index");
             if(is_list(tgt)&&(is_int(idx)||is_double(idx))) return (*ball_list_ptr(tgt))[to_int(idx)];
-            if(is_string(tgt)&&(is_int(idx)||is_double(idx))){auto s=std::any_cast<std::string>(tgt);return std::string(1,s[to_int(idx)]);}
+            if(is_string(tgt)&&(is_int(idx)||is_double(idx))) {
+                auto s=std::any_cast<std::string>(tgt);
+                return ball_u16_substring(s, to_int(idx), to_int(idx) + 1);
+            }
             if(is_map(tgt)) {
                 auto key = ball::to_string(idx);
                 const BallMap& m = *ball_map_ptr(tgt);
@@ -4252,7 +4351,7 @@ Engine::build_std_dispatch() {
             sig.value = extract_unary(i);
             return sig;
         }},
-        {"string_length", [](BallValue i) -> BallValue { return static_cast<int64_t>(ball::to_string(extract_unary(i)).size()); }},
+        {"string_length", [](BallValue i) -> BallValue { return ball_u16_length(ball::to_string(extract_unary(i))); }},
         {"string_is_empty", [](BallValue i) -> BallValue { return ball::to_string(extract_unary(i)).empty(); }},
         {"string_concat", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return ball::to_string(l)+ball::to_string(r); }},
         {"string_contains", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return ball::to_string(l).find(ball::to_string(r))!=std::string::npos; }},
@@ -4262,16 +4361,22 @@ Engine::build_std_dispatch() {
         {"string_last_index_of", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); auto p=ball::to_string(l).rfind(ball::to_string(r)); return static_cast<int64_t>(p==std::string::npos?-1:p); }},
         {"string_substring", [](BallValue i) -> BallValue {
             auto s=ball::to_string(extract_field(i,"value")); auto st=to_int(extract_field(i,"start"));
-            auto ev=extract_field(i,"end"); size_t en=ev.has_value()?to_int(ev):s.size();
-            return s.substr(st,en-st);
+            auto ev=extract_field(i,"end");
+            int64_t en = ev.has_value() ? to_int(ev) : -1;
+            return ball_u16_substring(s, st, en);
         }},
-        {"string_char_at", [](BallValue i) -> BallValue { auto s=ball::to_string(extract_field(i,"target")); return std::string(1,s[to_int(extract_field(i,"index"))]); }},
-        {"string_char_code_at", [](BallValue i) -> BallValue { auto s=ball::to_string(extract_field(i,"target")); return static_cast<int64_t>(static_cast<unsigned char>(s[to_int(extract_field(i,"index"))])); }},
+        {"string_char_at", [](BallValue i) -> BallValue {
+            auto s=ball::to_string(extract_field(i,"target"));
+            auto idx=to_int(extract_field(i,"index"));
+            return ball_u16_substring(s, idx, idx + 1);
+        }},
+        {"string_char_code_at", [](BallValue i) -> BallValue {
+            auto s=ball::to_string(extract_field(i,"target"));
+            return ball_u16_code_unit_at(s, to_int(extract_field(i,"index")));
+        }},
         {"string_code_unit_at", [](BallValue i) -> BallValue {
             auto s=ball::to_string(extract_field(i,"value"));
-            auto idx=to_int(extract_field(i,"index"));
-            if (idx < 0 || idx >= static_cast<int64_t>(s.size())) return BallValue{};
-            return static_cast<int64_t>(static_cast<unsigned char>(s[idx]));
+            return ball_u16_code_unit_at(s, to_int(extract_field(i,"index")));
         }},
         {"string_from_char_code", [](BallValue i) -> BallValue { return std::string(1,static_cast<char>(to_int(extract_unary(i)))); }},
         {"string_to_upper", [](BallValue i) -> BallValue { auto s=ball::to_string(extract_unary(i)); std::transform(s.begin(),s.end(),s.begin(),::toupper); return s; }},
@@ -4630,7 +4735,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
         auto acc = extract_field(input, "initial");
         for (const auto& item : list) {
-            acc = func(BallValue(BallMap{{"accumulator", acc}, {"value", item}}));
+            acc = func(BallValue(ball_map_make({{"accumulator", acc}, {"value", item}})));
         }
         return acc;
     };
@@ -4681,7 +4786,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         if (comp_val.has_value() && is_function(comp_val)) {
             auto comp_fn = std::any_cast<BallFunction>(comp_val);
             std::stable_sort(list.begin(), list.end(), [&comp_fn](const BallValue& a, const BallValue& b) {
-                auto result = comp_fn(BallValue(BallMap{{"left", a}, {"right", b}}));
+                auto result = comp_fn(BallValue(ball_map_make({{"left", a}, {"right", b}})));
                 return to_int(result) < 0;
             });
         } else {
@@ -4853,7 +4958,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         const BallMap& map = *ball_map_ptr(extract_field(input, "map"));
         BallList entries;
         for (const auto& [k, v] : map) {
-            entries.push_back(BallMap{{"key", std::string(k)}, {"value", v}});
+            entries.push_back(ball_map_make({{"key", std::string(k)}, {"value", v}}));
         }
         return entries;
     };
@@ -4896,7 +5001,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
         BallMap result;
         for (const auto& [k, v] : map) {
-            auto mapped = func(BallValue(BallMap{{"key", std::string(k)}, {"value", v}}));
+            auto mapped = func(BallValue(ball_map_make({{"key", std::string(k)}, {"value", v}})));
             if (is_map(mapped)) {
                 const auto& m = std::any_cast<const BallMap&>(mapped);
                 auto ki = m.find("key");
@@ -4914,7 +5019,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
         BallMap result;
         for (const auto& [k, v] : map) {
-            if (to_bool(func(BallValue(BallMap{{"key", std::string(k)}, {"value", v}})))) {
+            if (to_bool(func(BallValue(ball_map_make({{"key", std::string(k)}, {"value", v}}))))) {
                 result[k] = v;
             }
         }
@@ -4960,7 +5065,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
             // Iterate over map entries as {key, value} pairs.
             const BallMap& m = *ball_map_ptr(list_val);
             for (const auto& [k, v] : m) {
-                func(BallValue(BallMap{{"key", std::string(k)}, {"value", v}}));
+                func(BallValue(ball_map_make({{"key", std::string(k)}, {"value", v}})));
             }
         }
         return {};
@@ -5005,6 +5110,13 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
             result.push_back(value);
         }
         return result;
+    };
+
+    dispatch_["typed_list"] = [](BallValue input, BallCallable) -> BallValue {
+        auto elements = extract_field(input, "elements");
+        if (!elements.has_value()) elements = extract_field(input, "arg0");
+        if (is_list(elements)) return ball_list_value(ball_list_copy(elements));
+        return ball_list_value(BallList{});
     };
 
     // ── Set operations (using sorted BallList as backing store) ──
@@ -5295,20 +5407,29 @@ std::string Engine::json_encode_value(const BallValue& val) {
 }
 
 BallValue Engine::json_decode_string(const std::string& str) {
-    // Minimal JSON decoder for primitives and strings
-    auto trimmed = str;
-    while (!trimmed.empty() && std::isspace(trimmed.front())) trimmed.erase(trimmed.begin());
-    while (!trimmed.empty() && std::isspace(trimmed.back())) trimmed.pop_back();
-    if (trimmed == "null") return BallValue{};
-    if (trimmed == "true") return true;
-    if (trimmed == "false") return false;
-    if (!trimmed.empty() && trimmed.front() == '"' && trimmed.back() == '"') {
-        return trimmed.substr(1, trimmed.size() - 2);
-    }
-    // Try int then double
-    try { return static_cast<int64_t>(std::stoll(trimmed)); } catch (...) {}
-    try { return std::stod(trimmed); } catch (...) {}
-    return BallValue(trimmed);
+    std::function<BallValue(const std::any&)> from_any;
+    from_any = [&](const std::any& v) -> BallValue {
+        if (!v.has_value()) return {};
+        if (v.type() == typeid(bool)) return std::any_cast<bool>(v);
+        if (v.type() == typeid(int64_t)) return std::any_cast<int64_t>(v);
+        if (v.type() == typeid(int)) return static_cast<int64_t>(std::any_cast<int>(v));
+        if (v.type() == typeid(double)) return std::any_cast<double>(v);
+        if (v.type() == typeid(std::string)) return std::any_cast<std::string>(v);
+        if (v.type() == typeid(std::vector<std::any>)) {
+            BallList list;
+            for (const auto& e : std::any_cast<const std::vector<std::any>&>(v))
+                list.push_back(from_any(e));
+            return ball_list_value(std::move(list));
+        }
+        if (v.type() == typeid(std::map<std::string, std::any>)) {
+            BallMap map;
+            for (const auto& [k, val] : std::any_cast<const std::map<std::string, std::any>&>(v))
+                map[k] = from_any(val);
+            return ball_map_value(std::move(map));
+        }
+        return {};
+    };
+    return from_any(convert(JsonDecoder{}, str));
 }
 
 // ================================================================

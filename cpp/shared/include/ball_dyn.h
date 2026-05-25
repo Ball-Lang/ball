@@ -108,6 +108,10 @@ using BallScope = std::shared_ptr<BallMap>;
 // BallListRef, so its behavior and the direct-conformance baseline are unaffected.
 using BallListRef = std::shared_ptr<BallList>;
 
+// Unique marker for Dart engine `_sentinel` (dispatch not found). Must not
+// compare equal to null/empty BallDyn() returned by void builtin methods.
+struct BallDispatchNotFound {};
+
 class BallDyn {
 public:
     std::any _val;
@@ -649,6 +653,25 @@ public:
         }
         if (o._objPtr() != nullptr) return false;
         if (_val.type() != o._val.type()) return false;
+        if (_val.type() == typeid(BallDispatchNotFound)) return true;
+        if (_val.type() == typeid(BallListRef) && o._val.type() == typeid(BallListRef)) {
+            return std::any_cast<const BallListRef&>(_val) ==
+                   std::any_cast<const BallListRef&>(o._val);
+        }
+        if (_val.type() == typeid(BallList) && o._val.type() == typeid(BallList)) {
+            return std::any_cast<const BallList&>(_val) ==
+                   std::any_cast<const BallList&>(o._val);
+        }
+        if (const BallList* ap = _listPtr()) {
+            const BallList* bp = o._listPtr();
+            if (!bp) return false;
+            if (ap == bp) return true;
+            if (ap->size() != bp->size()) return false;
+            for (size_t i = 0; i < ap->size(); ++i) {
+                if (BallDyn((*ap)[i]) != BallDyn((*bp)[i])) return false;
+            }
+            return true;
+        }
         if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val) == std::any_cast<int64_t>(o._val);
         if (_val.type() == typeid(double)) return std::any_cast<double>(_val) == std::any_cast<double>(o._val);
         if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) == std::any_cast<bool>(o._val);
@@ -872,6 +895,13 @@ public:
         return BallDyn();
     }
 };
+
+inline BallDyn ball_dispatch_not_found() {
+    return BallDyn(std::any(BallDispatchNotFound{}));
+}
+inline bool ball_is_dispatch_not_found(const BallDyn& v) {
+    return v._val.has_value() && v._val.type() == typeid(BallDispatchNotFound);
+}
 
 // Register BallDyn unwrapper so ball_is_* functions can detect BallDyn
 // stored inside std::any (MSVC implicit conversion issue).

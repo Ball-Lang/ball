@@ -104,6 +104,13 @@ public:
     // ball_emit_runtime.h, always spliced before this header in compiled programs).
     BallDyn(const List_filled& lf)
         : _val(BallListRef(std::make_shared<BallList>(std::vector<std::any>(lf)))) {}
+    // A user-class INSTANCE is stored shared_ptr-backed (BallObjectRef): a fresh
+    // handle is allocated at construction; subsequent BallDyn copies share it, so
+    // a setter mutating `self._field` is visible to every holder (caller's var,
+    // aliases). Mirrors BallListRef. Maps stay by-value (a shared instance map
+    // would create self-referential `self` cycles).
+    BallDyn(BallObject v) : _val(BallObjectRef(std::make_shared<BallObject>(std::move(v)))) {}
+    BallDyn(BallObjectRef v) : _val(std::move(v)) {}
 
     // ── Reference-semantic list accessors ──
     // Return a pointer to the underlying vector whether stored by-value (legacy /
@@ -119,6 +126,18 @@ public:
         return nullptr;
     }
     bool _isList() const { return _val.type() == typeid(BallListRef) || _val.type() == typeid(BallList); }
+
+    // ── Reference-semantic instance accessors ──
+    BallObject* _objPtr() {
+        if (_val.type() == typeid(BallObjectRef)) return std::any_cast<BallObjectRef&>(_val).get();
+        if (_val.type() == typeid(BallObject)) return &std::any_cast<BallObject&>(_val);
+        return nullptr;
+    }
+    const BallObject* _objPtr() const {
+        if (_val.type() == typeid(BallObjectRef)) return std::any_cast<const BallObjectRef&>(_val).get();
+        if (_val.type() == typeid(BallObject)) return &std::any_cast<const BallObject&>(_val);
+        return nullptr;
+    }
 
     // Copy/move — BallScope (shared_ptr<BallMap>) deep-copies ONLY when the scope
     // has NO __parent__ key (i.e., it's a root/function scope being copied for a
@@ -256,9 +275,9 @@ public:
                 return BallDyn(BallList(*std::any_cast<const BallGenerator&>(_val).values));
             return BallDyn();
         }
-        if (_val.type() == typeid(BallObject)) {
+        if (const BallObject* op = _objPtr()) {
             // BallObject IS-A BallMap; its base map holds fields + __type__ etc.
-            const BallMap& m = std::any_cast<const BallObject&>(_val);
+            const BallMap& m = static_cast<const BallMap&>(*op);
             auto it = m.find(key);
             if (it != m.end()) return BallDyn(it->second);
             return BallDyn();
@@ -306,12 +325,17 @@ public:
     void set(const std::string& key, const std::any& value) {
         if (_val.type() == typeid(BallScope)) {
             (*std::any_cast<BallScope&>(_val))[key] = value;
-        } else if (_val.type() == typeid(BallObject)) {
-            std::any_cast<BallObject&>(_val).__op_set_index__(key, value);
+        } else if (BallObject* op = _objPtr()) {
+            // Mutate through the shared handle so all holders observe the write.
+            op->__op_set_index__(key, value);
         } else if (_val.type() == typeid(BallMap)) {
             std::any_cast<BallMap&>(_val)[key] = value;
         } else if (_val.type() == typeid(BallUMap)) {
             std::any_cast<BallUMap&>(_val)[key] = value;
+        } else if (!_val.has_value()) {
+            // Dart `final _setters = {}` compiles to default-empty BallDyn; lazily
+            // allocate a map so ball_set/_buildLookupTables can populate it.
+            _val = BallMap{{key, value}};
         } else if (BallList* vp = _listPtr()) {
             // Index assignment `list[i] = val` is emitted with the index
             // stringified (the emitter doesn't distinguish list vs map keys),
@@ -360,13 +384,34 @@ public:
     size_t count(const std::string& key) const {
         if (_val.type() == typeid(BallScope))
             return std::any_cast<const BallScope&>(_val)->count(key);
-        if (_val.type() == typeid(BallObject))
-            return static_cast<const BallMap&>(std::any_cast<const BallObject&>(_val)).count(key);
+        if (const BallObject* op = _objPtr())
+            return static_cast<const BallMap&>(*op).count(key);
         if (_val.type() == typeid(BallMap))
             return std::any_cast<const BallMap&>(_val).count(key);
         if (_val.type() == typeid(BallUMap))
             return std::any_cast<const BallUMap&>(_val).count(key);
         return 0;
+    }
+    // BallDyn-keyed count — compiled programs pass dynamic keys to containsKey.
+    size_t count(const BallDyn& key) const {
+        return count(static_cast<std::string>(key));
+    }
+
+    // Instance field write — routes through BallObject::setField when [this]
+    // holds a BallObjectRef, otherwise falls back to map set().
+    void setField(const std::string& field, const BallDyn& val) {
+        if (BallObject* op = _objPtr()) {
+            op->setField(field, val._val);
+            return;
+        }
+        set(field, val._val);
+    }
+    void setField(const std::string& field, const std::any& val) {
+        if (BallObject* op = _objPtr()) {
+            op->setField(field, val);
+            return;
+        }
+        set(field, val);
     }
 
     // Collection operations
@@ -459,6 +504,14 @@ public:
     bool operator==(const BallDyn& o) const {
         if (!_val.has_value() && !o._val.has_value()) return true;
         if (!_val.has_value() || !o._val.has_value()) return false;
+        // Reference-semantic instances compare by pointer identity (Dart
+        // `identical` / default `==`): two BallDyns are equal iff they share the
+        // same underlying BallObject handle.
+        if (const BallObject* a = _objPtr()) {
+            const BallObject* b = o._objPtr();
+            return a == b;
+        }
+        if (o._objPtr() != nullptr) return false;
         if (_val.type() != o._val.type()) return false;
         if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val) == std::any_cast<int64_t>(o._val);
         if (_val.type() == typeid(double)) return std::any_cast<double>(_val) == std::any_cast<double>(o._val);
@@ -703,6 +756,13 @@ struct _BallDynUnwrapRegistrar {
             if (v.type() == typeid(BallListRef)) return std::any_cast<const BallListRef&>(v).get();
             return nullptr;
         };
+        _BallRefDeref::_obj_map_fn = [](const std::any& v) -> const std::map<std::string, std::any>* {
+            if (v.type() == typeid(BallObjectRef)) {
+                const BallObjectRef& ref = std::any_cast<const BallObjectRef&>(v);
+                if (ref) return &static_cast<const BallMap&>(*ref);
+            }
+            return nullptr;
+        };
     }
 };
 static _BallDynUnwrapRegistrar _ball_dyn_unwrap_registrar;
@@ -730,6 +790,11 @@ inline BallMap _ballAnyToMap(const std::any& v) {
     if (u.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(u);
     if (u.type() == typeid(BallObject)) {
         return static_cast<const BallMap&>(std::any_cast<const BallObject&>(u));
+    }
+    if (u.type() == typeid(BallObjectRef)) {
+        const BallObjectRef& ref = std::any_cast<const BallObjectRef&>(u);
+        if (ref) return static_cast<const BallMap&>(*ref);
+        return {};
     }
     if (u.type() == typeid(std::unordered_map<std::string, std::any>)) {
         BallMap r;
@@ -847,13 +912,31 @@ inline std::string ball_group(const BallDyn& match, int64_t idx) {
     return ball_group(match._val, idx);
 }
 
-// bind/child/resolve overloads for BallDyn
+// bind/child/resolve overloads for BallDyn.
+// Exact-match string-key overloads beat std::bind (ADL template) for emitted
+// `bind(scope, "self"s, self)` — fixes the self-binding gate in method bodies.
 inline BallDyn bind(BallDyn& scope, const std::any& name, const std::any& value) {
     scope.set(ball_to_string(name), value);
     return BallDyn();
 }
 inline BallDyn bind(BallDyn& scope, const BallDyn& name, const BallDyn& value) {
     scope.set(static_cast<std::string>(name), value._val);
+    return BallDyn();
+}
+inline BallDyn bind(BallDyn& scope, const std::string& name, const BallDyn& value) {
+    scope.set(name, value._val);
+    return BallDyn();
+}
+inline BallDyn bind(BallDyn& scope, const std::string& name, const std::any& value) {
+    scope.set(name, value);
+    return BallDyn();
+}
+inline BallDyn bind(BallDyn& scope, const char* name, const BallDyn& value) {
+    scope.set(std::string(name), value._val);
+    return BallDyn();
+}
+inline BallDyn bind(BallDyn& scope, const char* name, const std::any& value) {
+    scope.set(std::string(name), value);
     return BallDyn();
 }
 // child() creates a new scope linked to the parent with reference semantics.

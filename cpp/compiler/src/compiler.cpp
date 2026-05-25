@@ -2247,7 +2247,7 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
 
     // ── Map methods ──
     if (fn == "containsKey") {
-        return "(" + self + ".count(" + arg0 + ") > 0)";
+        return "(" + self + ".count(ball_to_string(BallDyn(" + arg0 + "))) > 0)";
     }
     if (fn == "remove") {
         return self + ".erase(" + arg0 + ")";
@@ -3246,6 +3246,17 @@ inline std::string whichKind(const BallDyn& o) {
 inline std::string whichSource(const BallDyn&) { return "notSet"; }
 inline std::string whichXxx(const BallDyn&) { return "notSet"; }
 
+// Dart protobuf Program.writeToBuffer() — approximate byte size for limit checks.
+inline std::string writeToBuffer(const BallDyn& program) {
+  return jsonEncode(program);
+}
+
+// Instance field write for compiled engine helpers (_syncFieldToSelf, etc.).
+inline void ball_object_set_field(BallDyn obj, const std::string& field,
+                                    const BallDyn& val) {
+  obj.setField(field, val);
+}
+
 // List/Map copy helpers for List.of / Map.from
 // Std function to operator mapping (used by _tryOperatorOverride).
 // Must be a BallMap (std::map<string, any>) — the engine reads it via
@@ -3512,9 +3523,8 @@ inline BallDyn ball_map_entries(const BallDyn& v) {
     auto a0 = static_cast<std::any>(v);
     const std::any& a = _BallDynUnwrapper::unwrap(a0);
     const BallMap* mp = nullptr;
-    BallMap tmp;
     if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
-    else if (a.type() == typeid(BallObject)) { tmp = std::any_cast<const BallObject&>(a); mp = &tmp; }
+    else { mp = _ball_object_base_map(a); }  // BallObject / BallObjectRef
     if (mp) {
       for (const auto& [k, val] : *mp) {
         BallMap e; e["key"] = std::any(k); e["value"] = val;
@@ -3530,9 +3540,8 @@ inline BallDyn ball_map_keys(const BallDyn& v) {
     auto a0 = static_cast<std::any>(v);
     const std::any& a = _BallDynUnwrapper::unwrap(a0);
     const BallMap* mp = nullptr;
-    BallMap tmp;
     if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
-    else if (a.type() == typeid(BallObject)) { tmp = std::any_cast<const BallObject&>(a); mp = &tmp; }
+    else { mp = _ball_object_base_map(a); }  // BallObject / BallObjectRef
     if (mp) { for (const auto& [k, val] : *mp) r.push_back(std::any(k)); }
   } catch(...) {}
   return BallDyn(BallList(r));
@@ -3543,9 +3552,8 @@ inline BallDyn ball_map_values(const BallDyn& v) {
     auto a0 = static_cast<std::any>(v);
     const std::any& a = _BallDynUnwrapper::unwrap(a0);
     const BallMap* mp = nullptr;
-    BallMap tmp;
     if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
-    else if (a.type() == typeid(BallObject)) { tmp = std::any_cast<const BallObject&>(a); mp = &tmp; }
+    else { mp = _ball_object_base_map(a); }  // BallObject / BallObjectRef
     if (mp) { for (const auto& [k, val] : *mp) r.push_back(val); }
   } catch(...) {}
   return BallDyn(BallList(r));
@@ -3993,6 +4001,18 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     }
     out_ << ") {\n";
     indent_++;
+
+    // Runtime intrinsic: Dart helper compiled to preamble C++ for BallObjectRef
+    // field writes in the self-hosted engine (_syncFieldToSelf path).
+    if (name == "ballObjectSetField") {
+        emit_line("ball_object_set_field(BallDyn(target), "
+                  "ball_to_string(BallDyn(fieldName)), BallDyn(val));");
+        emit_line("return BallDyn();");
+        indent_--;
+        emit_line("}");
+        emit_newline();
+        return;
+    }
 
     // Legacy alias: hand-written ball.json fixtures often reference
     // `input` in the body even when metadata.params declares real

@@ -218,6 +218,17 @@ struct _BallRefDeref {
     static const std::vector<std::any>* list(const std::any& v) {
         return _list_fn ? _list_fn(v) : nullptr;
     }
+    // Reference-semantic OOP instances. A BallObjectRef (shared_ptr<BallObject>)
+    // lets every holder of a copied BallDyn observe in-place field mutations
+    // (e.g. a setter writing `self._celsius`). The deref function maps a std::any
+    // holding a BallObjectRef handle to its underlying field map (the BallObject's
+    // base BallMap, refreshed with __type__/__super__). Registered by ball_dyn.h;
+    // null and a no-op in the native engine.
+    using ObjMapFn = const std::map<std::string, std::any>* (*)(const std::any&);
+    static inline ObjMapFn _obj_map_fn = nullptr;
+    static const std::map<std::string, std::any>* obj_map(const std::any& v) {
+        return _obj_map_fn ? _obj_map_fn(v) : nullptr;
+    }
 };
 
 // std::any — attempt known types, fallback to type name.
@@ -1639,10 +1650,20 @@ struct BallObject : public BallMap {
     }
 };
 
+// Reference-semantic OOP instance handle. Mirrors BallListRef: a copied BallDyn
+// shares the underlying BallObject, so a setter mutating `self._celsius` is
+// visible to every other holder of the instance (the caller's variable, etc.).
+// `self` is bound only in the method SCOPE (never as an owning instance-map
+// entry), so there is no self-referential cycle.
+using BallObjectRef = std::shared_ptr<BallObject>;
+
 // Definitions for the forward-declared accessors used by ball_is_map /
 // ball_object_type_matches above. `u` is already an unwrapped std::any.
 inline bool _ball_any_is_object(const std::any& u) {
-    return u.has_value() && u.type() == typeid(BallObject);
+    return u.has_value() &&
+           (u.type() == typeid(BallObject) ||
+            u.type() == typeid(BallObjectRef) ||
+            _BallRefDeref::obj_map(u) != nullptr);
 }
 inline const std::map<std::string, std::any>* _ball_object_base_map(
     const std::any& u) {
@@ -1650,6 +1671,12 @@ inline const std::map<std::string, std::any>* _ball_object_base_map(
         // BallObject's base IS the field map (refreshed with __type__/__super__).
         return &static_cast<const BallMap&>(std::any_cast<const BallObject&>(u));
     }
+    if (u.has_value() && u.type() == typeid(BallObjectRef)) {
+        const BallObjectRef& ref = std::any_cast<const BallObjectRef&>(u);
+        if (ref) return &static_cast<const BallMap&>(*ref);
+    }
+    if (const std::map<std::string, std::any>* m = _BallRefDeref::obj_map(u))
+        return m;
     return nullptr;
 }
 

@@ -271,6 +271,8 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
         engine.program = BallDyn(programAny);
         engine._types = BallDyn(BallMap{});
         engine._functions = BallDyn(BallMap{});
+        engine._getters = BallDyn(BallMap{});
+        engine._setters = BallDyn(BallMap{});
         engine._globalScope = BallDyn(BallMap{});
         engine._currentModule = "";
         engine._paramCache = BallDyn(BallMap{});

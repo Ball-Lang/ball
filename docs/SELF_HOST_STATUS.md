@@ -142,6 +142,46 @@ the divergence is per-copy and only a debugger can resolve which lookup retains
 it. Not available in the agent environment; TS (227/227) and Dart pass this, so
 the engine logic is correct.
 
+**2026-05-25 — reference-semantic instances built + REFUTED the by-value
+hypothesis above (reverted, banked diagnosis).** Implemented shared_ptr-backed
+OOP instances (`BallObjectRef = std::shared_ptr<BallObject>`, mirroring the
+`BallListRef` precedent): `BallDyn(BallObject)` ctor allocates a shared handle;
+`_objPtr()`/`_isObject()` deref both by-value and ref; `operator==` compares
+pointer identity for two `BallObjectRef` (fixes `identical` + guards the
+`__super__` cycle); deref hooks (`_BallRefDeref::_obj_fn`/`_obj_id_fn`) let
+`ball_is_map`/`ball_object_type_matches`/`_ball_object_base_map` recognise the
+handle from `ball_emit_runtime.h`; `self` is bound in the method SCOPE (never as
+an owning instance-map entry), so there is NO self-cycle. **It compiled cleanly
+under MSVC, was VERIFIED CORRECT in isolation** (a header-only `inst_probe`:
+instance/obj/scope-var all observe a setter writeback = 100.0, and
+`identical(instance,obj)==1`), and was **ZERO-REGRESSION (144→144)**.
+
+But it flipped NOTHING, because the real 104 blocker is NOT the by-value copy
+chain — it is **setter dispatch falling through to a spurious raw-field write**.
+Env-gated `[SET]`/`[BIND self]` tracing of the live engine showed: for
+`assign(t.celsius = 100)`, `_evalAssign`'s fieldAccess path calls
+`_trySetterDispatch(map, "celsius", 100)` which **returns null** → the
+fall-through `ball_set(map, "celsius", 100)` runs (confirmed landing on the
+shared instance, objPtr stable across both setters). `_evalFieldAccess`
+(engine_rt.cpp ~4867) reads a present RAW field BEFORE attempting getter
+dispatch, so `t.celsius` then returns the spurious raw `celsius`=100 (right
+answer, WRONG mechanism — the getter never ran), while `t.fahrenheit` has no raw
+field, dispatches its getter, and reads the never-mutated `_celsius`=0 → 32. That
+is the exact `100.0 / 32.0` split, not "half-persisted mutation." The fixture's
+metadata DOES carry `is_setter:true` (under `metadata.fields.is_setter.boolValue`
+in the harness's Struct→`{fields:{...}}` shape), and registration + `_isSetter`
+read that key, so by static analysis `_trySetterDispatch` SHOULD recognise the
+setter — yet the trace proves it returns null. The deciding condition (the
+`_setters[key]`/`_setters[key=]` lookup vs the `object["__type__"]`-derived
+`setterKey`, or the `_isSetter` boolValue read) needs a stepping debugger to
+watch; this is the same self-binding/dispatch gate as 164/165/166/177/179.
+Reference-semantic instances are a NECESSARY foundation (they make the eventual
+writeback land on the live object and give `identical` pointer identity) but are
+INSUFFICIENT alone — reverted to protect the clean 144 until the setter-dispatch
+null-return is root-caused with a debugger. The full diff (ball_dyn.h /
+ball_emit_runtime.h / compiler.cpp `ball_map_entries`/keys/values) is small and
+re-appliable once the dispatch gate is fixed.
+
 **2026-05-24:** `engine_rt.cpp` now **compiles cleanly under MSVC against the latest
 encoder IR** (commits `861cb5f`, `00a3151`) and passes **61 / 175** conformance
 fixtures (after the `ball_map_entries` unwrap fix below) when each test runs in

@@ -1,0 +1,3 @@
+empty
+single:1
+head:1,tail:3

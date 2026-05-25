@@ -1,0 +1,7 @@
+null:null
+0:zero
+3:small-pos
+12:large-pos
+-5:negative
+1.5:double:1.5
+99:other

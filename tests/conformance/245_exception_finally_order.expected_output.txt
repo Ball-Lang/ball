@@ -1,0 +1,6 @@
+try-body
+catch:boom
+finally-1
+outer-finally
+recovered:inner
+x-after:2

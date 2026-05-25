@@ -1,0 +1,8 @@
+0:zero
+1:small
+2:small
+3:small
+5:other
+-1:neg
+-2:neg
+-3:other

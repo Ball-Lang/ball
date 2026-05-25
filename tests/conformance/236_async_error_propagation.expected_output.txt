@@ -1,0 +1,3 @@
+ok-before-fail
+caught:async-failure
+7

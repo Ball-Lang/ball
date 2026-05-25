@@ -1,0 +1,8 @@
+😀
+2
+false
+say "hi"
+one\two
+a
+b
+a	b

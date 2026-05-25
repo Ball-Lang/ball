@@ -1,0 +1,6 @@
+Infinity
+-Infinity
+-0.0
+false
+true
+false

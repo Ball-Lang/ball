@@ -1,0 +1,3 @@
+B-caught:A
+outer-1:B-wrapped
+outer-2:B-wrapped

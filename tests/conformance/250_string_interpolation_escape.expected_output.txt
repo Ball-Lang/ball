@@ -1,0 +1,6 @@
+line1
+line2	world
+0x10
+u=❤
+world\backslash
+nested

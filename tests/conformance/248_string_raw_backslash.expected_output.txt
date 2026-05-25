@@ -1,0 +1,6 @@
+path\to\file
+path\to\file
+$not-interpolated ${still literal}
+2
+true
+1

@@ -1,0 +1,6 @@
+even-int:4
+odd-int:5
+empty-str
+str:hi
+bool:true
+other

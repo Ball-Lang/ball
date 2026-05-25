@@ -61,6 +61,74 @@ export function createEngineSetup(mod: EngineModule) {
     return v;
   }
 
+  const _INT64_MAX_B = 9223372036854775807n;
+  const _INT64_MIN_B = -9223372036854775808n;
+
+  function _extractNumericArg(v: any): any {
+    if (typeof v === 'bigint' || typeof v === 'number') return v;
+    const BD = (globalThis as any).BallDouble;
+    if (BD && v instanceof BD) return v.value;
+    if (typeof v === 'object' && v !== null) {
+      const raw = v['value'] ?? v['arg0'] ?? v;
+      if (typeof raw === 'bigint' || typeof raw === 'number') return raw;
+      if (BD && raw instanceof BD) return raw.value;
+      return Number(raw);
+    }
+    return Number(v);
+  }
+
+  function _toIntValue(v: any): any {
+    const n = _extractNumericArg(v);
+    if (typeof n === 'bigint') {
+      if (n > _INT64_MAX_B) return _INT64_MAX_B;
+      if (n < _INT64_MIN_B) return _INT64_MIN_B;
+      const asNum = Number(n);
+      return Number.isSafeInteger(asNum) ? asNum : n;
+    }
+    const tb = BigInt(Math.trunc(n));
+    if (tb > _INT64_MAX_B) return _INT64_MAX_B;
+    if (tb < _INT64_MIN_B) return _INT64_MIN_B;
+    return Number(tb);
+  }
+
+  function _toDoubleValue(v: any): any {
+    const n = _extractNumericArg(v);
+    if (typeof n === 'bigint') return _makeBallDouble(Number(n));
+    return _makeBallDouble(typeof n === 'number' && !Number.isNaN(n) ? n : 0);
+  }
+
+  function _numFieldAccess(object: any, fieldName: string): any {
+    let n: number | undefined;
+    if (typeof object === 'number') n = object;
+    else {
+      const BD = (globalThis as any).BallDouble;
+      if (BD && object instanceof BD) n = object.value;
+    }
+    if (n === undefined) return undefined;
+    switch (fieldName) {
+      case 'isNaN': return Number.isNaN(n);
+      case 'isFinite': return Number.isFinite(n);
+      case 'isInfinite': return !Number.isFinite(n) && !Number.isNaN(n);
+      case 'isNegative': return n < 0;
+      case 'sign': return n > 0 ? 1 : n < 0 ? -1 : 0;
+      default: return undefined;
+    }
+  }
+
+  // Dart List.indexWhere — used by compiled-engine list-pattern matching.
+  if (!(Array.prototype as any).indexWhere) {
+    Object.defineProperty(Array.prototype, 'indexWhere', {
+      value(pred: (e: any, i: number) => boolean) {
+        for (let i = 0; i < this.length; i++) {
+          if (pred(this[i], i)) return i;
+        }
+        return -1;
+      },
+      writable: true,
+      configurable: true,
+    });
+  }
+
   // ── Proto3 JSON normalization ──────────────────────────────────────────────
   //
   // The compiled engine is a transpilation of the Dart reference engine and
@@ -206,6 +274,7 @@ export function createEngineSetup(mod: EngineModule) {
       const s = v.toString();
       return s.includes('.') || s.includes('e') ? s : s + '.0';
     }
+    if (typeof v === 'bigint') return v.toString();
     if (typeof v === 'string') return v;
     // Unwrap BallFuture / BallGenerator before formatting
     if (_isFutureLike(v)) return __bts(v.value);
@@ -624,18 +693,43 @@ export function createEngineSetup(mod: EngineModule) {
     _r('write', (i: any) => { const m = _m(i); const self = m['self']; if (typeof self === 'object' && self !== null) { self['__buffer__'] = (self['__buffer__'] ?? '') + String(m['arg0'] ?? m['value'] ?? ''); } return null; });
   
     // ── Conversion ─────────────────────────────────────────────────────
-    const _toDouble = (i: any) => {
-      let v: any;
-      if (typeof i === 'number') v = i;
-      else if (typeof i === 'object' && i !== null) { const raw = i['value'] ?? i; v = typeof raw === 'number' ? raw : Number(raw); }
-      else v = Number(i);
-      // Return a BallDouble-like object that prints as "X.0" for integers.
-      return _makeBallDouble(isNaN(v) ? 0 : v);
-    };
-    _r('to_double', _toDouble);
-    _r('int_to_double', _toDouble);
-    _r('to_int', (i: any) => { if (typeof i === 'number') return Math.trunc(i); if (typeof i === 'object' && i !== null) return Math.trunc(Number(i['value'] ?? i)); return Math.trunc(Number(i)); });
+    _r('to_double', (i: any) => _toDoubleValue(_m(i)['value'] ?? _m(i)['arg0'] ?? i));
+    _r('int_to_double', (i: any) => _toDoubleValue(_m(i)['value'] ?? _m(i)['arg0'] ?? i));
+    _r('to_int', (i: any) => _toIntValue(_m(i)['value'] ?? _m(i)['arg0'] ?? i));
+    _r('double_to_int', (i: any) => _toIntValue(_m(i)['value'] ?? _m(i)['arg0'] ?? i));
     _r('to_string', (i: any) => { const m = _m(i); return __bts(m['value'] ?? i); });
+    _r('equals', (i: any) => {
+      const m = _m(i);
+      const a = m['left'] ?? m['value'] ?? m['arg0'];
+      const b = m['right'] ?? m['other'] ?? m['arg1'];
+      const BD = (globalThis as any).BallDouble;
+      const unwrap = (v: any) => (BD && v instanceof BD) ? v.value : v;
+      const av = unwrap(a);
+      const bv = unwrap(b);
+      if (typeof av === 'number' && typeof bv === 'number') {
+        if (Number.isNaN(av) || Number.isNaN(bv)) return false;
+        return av === bv;
+      }
+      if (av === bv) return true;
+      if (av != null && bv != null) return __bts(av) === __bts(bv);
+      return false;
+    });
+    _r('not_equals', (i: any) => {
+      const m = _m(i);
+      const a = m['left'] ?? m['value'] ?? m['arg0'];
+      const b = m['right'] ?? m['other'] ?? m['arg1'];
+      const BD = (globalThis as any).BallDouble;
+      const unwrap = (v: any) => (BD && v instanceof BD) ? v.value : v;
+      const av = unwrap(a);
+      const bv = unwrap(b);
+      if (typeof av === 'number' && typeof bv === 'number') {
+        if (Number.isNaN(av) || Number.isNaN(bv)) return true;
+        return av !== bv;
+      }
+      if (av === bv) return false;
+      if (av != null && bv != null) return __bts(av) !== __bts(bv);
+      return true;
+    });
     _r('concat', (i: any) => { const m = _m(i); return String(m['left'] ?? '') + String(m['right'] ?? ''); });
     _r('null_check', (i: any) => { const m = _m(i); const v = m['value'] ?? i; if (v == null) throw new Error('Null check operator used on a null value'); return v; });
     _r('compare_to', (i: any) => {
@@ -893,7 +987,32 @@ export function createEngineSetup(mod: EngineModule) {
   
   function patchCompiledEngine(engine: CompiledEngine): void {
     const e = engine as any;
-  
+
+    const origEvalFieldAccess = e._evalFieldAccess.bind(e);
+    e._evalFieldAccess = async function(access: any, scope: any) {
+      const object = await e._evalExpression(access.object, scope);
+      const fieldName = access.field_2;
+      const numResult = _numFieldAccess(object, fieldName);
+      if (numResult !== undefined) return numResult;
+      return origEvalFieldAccess(access, scope);
+    };
+
+    const origBallEquals = e._ballEquals.bind(e);
+    e._ballEquals = function(a: any, b: any) {
+      const unwrap = (v: any) => {
+        const BD = (globalThis as any).BallDouble;
+        if (BD && v instanceof BD) return v.value;
+        return v;
+      };
+      const av = unwrap(a);
+      const bv = unwrap(b);
+      if (typeof av === 'number' && typeof bv === 'number') {
+        if (Number.isNaN(av) || Number.isNaN(bv)) return false;
+        return av === bv;
+      }
+      return origBallEquals(a, b);
+    };
+
     // Store the current generator on the engine instance so yield/yield_each
     // base functions can push values into it. This avoids scope-chain walking
     // since _callBaseFunction doesn't receive a scope parameter.

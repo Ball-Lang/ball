@@ -32,6 +32,16 @@ export function createEngineSetup(mod: EngineModule) {
   const BallGenerator = mod.BallGenerator;
   const _FlowSignal = mod._FlowSignal;
 
+  const _EngineBallDouble: any = (globalThis as any).BallDouble;
+  if (_EngineBallDouble?.prototype) {
+    const _origBallDoubleToString = _EngineBallDouble.prototype.toString;
+    _EngineBallDouble.prototype.toString = function () {
+      const v = this.value;
+      if (Object.is(v, -0)) return '-0.0';
+      return _origBallDoubleToString.call(this);
+    };
+  }
+
   const _EngineBallFuture: any = (mod as any).BallFuture;
   class _ShimBallFuture {
     value: any;
@@ -97,6 +107,183 @@ export function createEngineSetup(mod: EngineModule) {
     const n = _extractNumericArg(v);
     if (typeof n === 'bigint') return _makeBallDouble(Number(n));
     return _makeBallDouble(typeof n === 'number' && !Number.isNaN(n) ? n : 0);
+  }
+
+  function _coerceInt(v: any): any {
+    if (v == null) return 0;
+    if (typeof v === 'bigint') return v;
+    const BD = (globalThis as any).BallDouble;
+    if (BD && v instanceof BD) return _coerceInt(v.value);
+    if (typeof v === 'number') return Number.isInteger(v) ? v : Math.trunc(v);
+    if (typeof v === 'string') {
+      const s = v.trim();
+      if (/^-?\d+$/.test(s)) {
+        const b = BigInt(s);
+        if (b > 9007199254740991n || b < -9007199254740991n) return b;
+        return Number(b);
+      }
+      const n = parseInt(s, 10);
+      return Number.isNaN(n) ? 0 : n;
+    }
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    return 0;
+  }
+
+  function _coerceNum(v: any): any {
+    if (v == null) return 0;
+    if (typeof v === 'bigint') return _toIntValue(v);
+    const BD = (globalThis as any).BallDouble;
+    if (BD && v instanceof BD) return v.value;
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string') {
+      const s = v.trim();
+      if (/^-?\d+$/.test(s)) {
+        const b = BigInt(s);
+        if (b > 9007199254740991n || b < -9007199254740991n) {
+          return _toIntValue(b);
+        }
+        return Number(b);
+      }
+      const n = Number(s);
+      return Number.isNaN(n) ? 0 : n;
+    }
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    return 0;
+  }
+
+  function _coerceNumPair(a: any, b: any): [any, any] {
+    const left = _coerceNum(a);
+    const right = _coerceNum(b);
+    if (typeof left === 'bigint' || typeof right === 'bigint') {
+      const lb = typeof left === 'bigint' ? left : BigInt(Math.trunc(Number(left)));
+      const rb = typeof right === 'bigint' ? right : BigInt(Math.trunc(Number(right)));
+      return [lb, rb];
+    }
+    return [left, right];
+  }
+
+  function _coerceIntPair(a: any, b: any): [any, any] {
+    const left = _coerceInt(a);
+    const right = _coerceInt(b);
+    if (typeof left === 'bigint' || typeof right === 'bigint') {
+      const lb = typeof left === 'bigint' ? left : BigInt(Math.trunc(Number(left)));
+      const rb = typeof right === 'bigint' ? right : BigInt(Math.trunc(Number(right)));
+      return [lb, rb];
+    }
+    return [left, right];
+  }
+
+  function _asInt64(v: any): bigint {
+    if (typeof v === 'bigint') return BigInt.asIntN(64, v);
+    return BigInt.asIntN(64, BigInt(Math.trunc(Number(v))));
+  }
+
+  function _int64Result(v: bigint): any {
+    const masked = BigInt.asIntN(64, v);
+    const asNum = Number(masked);
+    return Number.isSafeInteger(asNum) ? asNum : masked;
+  }
+
+  function _int64Binary(op: (l: bigint, r: bigint) => bigint, a: any, b: any): any {
+    return _int64Result(op(_asInt64(a), _asInt64(b)));
+  }
+
+  function _int64Unary(op: (v: bigint) => bigint, v: any): any {
+    return _int64Result(op(_asInt64(v)));
+  }
+
+  function _int64ShiftLeft(a: any, b: any): any {
+    const shift = Number(_asInt64(b) & 63n);
+    return _int64Result(_asInt64(a) << BigInt(shift));
+  }
+
+  function _int64ShiftRight(a: any, b: any): any {
+    const shift = Number(_asInt64(b) & 63n);
+    return _int64Result(_asInt64(a) >> BigInt(shift));
+  }
+
+  function _int64UnsignedShiftRight(a: any, b: any): any {
+    const shift = Number(_asInt64(b) & 63n);
+    return _int64Result(BigInt.asUintN(64, _asInt64(a)) >> BigInt(shift));
+  }
+
+  function _int64Divide(a: any, b: any): any {
+    const [l, r] = _coerceIntPair(a, b);
+    if (typeof l === 'bigint' || typeof r === 'bigint') {
+      const lb = typeof l === 'bigint' ? l : BigInt(l);
+      const rb = typeof r === 'bigint' ? r : BigInt(r);
+      return _int64Result(lb / rb);
+    }
+    return Math.trunc(l / r);
+  }
+
+  function _int64Modulo(a: any, b: any): any {
+    const [l, r] = _coerceIntPair(a, b);
+    if (typeof l === 'bigint' || typeof r === 'bigint') {
+      const lb = typeof l === 'bigint' ? l : BigInt(l);
+      const rb = typeof r === 'bigint' ? r : BigInt(r);
+      let rem = lb % rb;
+      if (rem < 0n) rem += (rb < 0n ? -rb : rb);
+      return _int64Result(rem);
+    }
+    const rem = l % r;
+    return rem < 0 ? rem + Math.abs(r) : rem;
+  }
+
+  function _mathAbs(v: any): any {
+    const coerced = _coerceInt(v);
+    if (typeof coerced === 'bigint') {
+      return _int64Result(coerced < 0n ? -coerced : coerced);
+    }
+    return Math.abs(coerced);
+  }
+
+  function _int64Add(a: any, b: any): any {
+    const [l, r] = _coerceIntPair(a, b);
+    if (typeof l === 'bigint' || typeof r === 'bigint') {
+      const lb = typeof l === 'bigint' ? l : BigInt(l);
+      const rb = typeof r === 'bigint' ? r : BigInt(r);
+      return _int64Result(lb + rb);
+    }
+    return l + r;
+  }
+
+  function _int64Subtract(a: any, b: any): any {
+    const [l, r] = _coerceIntPair(a, b);
+    if (typeof l === 'bigint' || typeof r === 'bigint') {
+      const lb = typeof l === 'bigint' ? l : BigInt(l);
+      const rb = typeof r === 'bigint' ? r : BigInt(r);
+      return _int64Result(lb - rb);
+    }
+    return l - r;
+  }
+
+  function _int64Multiply(a: any, b: any): any {
+    const [l, r] = _coerceIntPair(a, b);
+    if (typeof l === 'bigint' || typeof r === 'bigint') {
+      const lb = typeof l === 'bigint' ? l : BigInt(l);
+      const rb = typeof r === 'bigint' ? r : BigInt(r);
+      return _int64Result(lb * rb);
+    }
+    return l * r;
+  }
+
+  function _int64Negate(v: any): any {
+    const coerced = _coerceInt(v);
+    if (typeof coerced === 'bigint') return _int64Result(-coerced);
+    return -coerced;
+  }
+
+  function _collectionFieldAccess(object: any, fieldName: string): any {
+    if (object == null || typeof object !== 'object' || Array.isArray(object)) return undefined;
+    if (object instanceof Set || object instanceof Map) return undefined;
+    const keys = Object.keys(object).filter((k: string) => !k.startsWith('__'));
+    switch (fieldName) {
+      case 'isEmpty': return keys.length === 0;
+      case 'isNotEmpty': return keys.length > 0;
+      case 'length': return keys.length;
+      default: return undefined;
+    }
   }
 
   function _numFieldAccess(object: any, fieldName: string): any {
@@ -271,12 +458,17 @@ export function createEngineSetup(mod: EngineModule) {
   function __bts(v: any): string {
     if (v === null || v === undefined) return 'null';
     if (typeof v === 'boolean') return v ? 'true' : 'false';
+    const BD = (globalThis as any).BallDouble;
+    if (BD && v instanceof BD) return v.toString();
+    if (typeof v === 'bigint') return v.toString();
     if (typeof v === 'number') {
+      if (Number.isNaN(v)) return 'NaN';
+      if (!Number.isFinite(v)) return v.toString();
+      if (Object.is(v, -0)) return '-0.0';
       if (Number.isInteger(v)) return v.toString();
       const s = v.toString();
       return s.includes('.') || s.includes('e') ? s : s + '.0';
     }
-    if (typeof v === 'bigint') return v.toString();
     if (typeof v === 'string') return v;
     // Unwrap BallFuture / BallGenerator before formatting
     if (_isFutureLike(v)) return __bts(v.value);
@@ -699,7 +891,21 @@ export function createEngineSetup(mod: EngineModule) {
     _r('int_to_double', (i: any) => _toDoubleValue(_m(i)['value'] ?? _m(i)['arg0'] ?? i));
     _r('to_int', (i: any) => _toIntValue(_m(i)['value'] ?? _m(i)['arg0'] ?? i));
     _r('double_to_int', (i: any) => _toIntValue(_m(i)['value'] ?? _m(i)['arg0'] ?? i));
-    _r('to_string', (i: any) => { const m = _m(i); return __bts(m['value'] ?? i); });
+    _r('to_string', (i: any) => {
+      const m = _m(i);
+      let v = Object.prototype.hasOwnProperty.call(m, 'value') ? m['value'] : i;
+      const BD = (globalThis as any).BallDouble;
+      while (v != null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Set) && !(v instanceof Map)) {
+        if (BD && v instanceof BD) break;
+        const keys = Object.keys(v).filter((k: string) => !k.startsWith('__'));
+        if (keys.length === 1 && keys[0] === 'value' && Object.prototype.hasOwnProperty.call(v, 'value')) {
+          v = v['value'];
+          continue;
+        }
+        break;
+      }
+      return __bts(v);
+    });
     _r('equals', (i: any) => {
       const m = _m(i);
       const a = m['left'] ?? m['value'] ?? m['arg0'];
@@ -737,7 +943,8 @@ export function createEngineSetup(mod: EngineModule) {
     _r('compare_to', (i: any) => {
       const m = _m(i); const l = m['left'] ?? m['value'] ?? m['self'] ?? m['a'] ?? 0; const r = m['right'] ?? m['other'] ?? m['arg0'] ?? m['b'] ?? 0;
       if (typeof l === 'string' && typeof r === 'string') return l < r ? -1 : l > r ? 1 : 0;
-      return Number(l) < Number(r) ? -1 : Number(l) > Number(r) ? 1 : 0;
+      const [lv, rv] = _coerceNumPair(l, r);
+      return lv < rv ? -1 : lv > rv ? 1 : 0;
     });
   
     // Dart / always returns double — wrap result in BallDouble
@@ -749,7 +956,7 @@ export function createEngineSetup(mod: EngineModule) {
     });
   
     // ── Math ───────────────────────────────────────────────────────────
-    _r('math_abs', (i: any) => Math.abs(Number(_m(i)['value'] ?? 0)));
+    _r('math_abs', (i: any) => _mathAbs(_m(i)['value'] ?? 0));
     _r('math_max', (i: any) => { const m = _m(i); return Math.max(Number(m['left'] ?? m['a'] ?? 0), Number(m['right'] ?? m['b'] ?? 0)); });
     _r('math_min', (i: any) => { const m = _m(i); return Math.min(Number(m['left'] ?? m['a'] ?? 0), Number(m['right'] ?? m['b'] ?? 0)); });
     _r('math_sqrt', (i: any) => Math.sqrt(Number(_m(i)['value'] ?? 0)));
@@ -996,7 +1203,162 @@ export function createEngineSetup(mod: EngineModule) {
       const fieldName = access.field_2;
       const numResult = _numFieldAccess(object, fieldName);
       if (numResult !== undefined) return numResult;
+      const collectionResult = _collectionFieldAccess(object, fieldName);
+      if (collectionResult !== undefined) return collectionResult;
       return origEvalFieldAccess(access, scope);
+    };
+
+    e._toInt = function(v: any) { return _coerceInt(v); };
+    e._toNum = function(v: any) { return _coerceNum(v); };
+
+    const origStdBinary = e._stdBinary.bind(e);
+    e._stdBinary = function(input: any, op: any) {
+      const rec = e._extractBinaryArgs(input);
+      const left = rec[0];
+      const right = rec[1];
+      const BD = (globalThis as any).BallDouble;
+      const lBD = BD && left instanceof BD;
+      const rBD = BD && right instanceof BD;
+      const [l, r] = _coerceNumPair(left, right);
+      const result = op(l, r);
+      if ((lBD || rBD) && typeof result === 'number') return new BD(result);
+      return result;
+    };
+
+    const origStdBinaryInt = e._stdBinaryInt.bind(e);
+    e._stdBinaryInt = function(input: any, op: any) {
+      const rec = e._extractBinaryArgs(input);
+      const [l, r] = _coerceIntPair(rec[0], rec[1]);
+      return op(l, r);
+    };
+
+    e._stdUnaryNum = function(input: any, op: any) {
+      return op(_coerceNum(e._extractUnaryArg(input)));
+    };
+
+    e._stdBinaryComp = function(input: any, op: any) {
+      const rec = e._extractBinaryArgs(input);
+      const [l, r] = _coerceNumPair(rec[0], rec[1]);
+      return op(l, r);
+    };
+
+    e._stdAdd = function(input: any) {
+      const rec = e._extractBinaryArgs(input);
+      const left = rec[0];
+      const right = rec[1];
+      if ((typeof left === 'string') || (typeof right === 'string')) {
+        return (__bts(left ?? '') + __bts(right ?? ''));
+      }
+      const BD = (globalThis as any).BallDouble;
+      const lBD = BD && left instanceof BD;
+      const rBD = BD && right instanceof BD;
+      if (typeof left === 'bigint' || typeof right === 'bigint' ||
+          (typeof _coerceInt(left) === 'bigint') || (typeof _coerceInt(right) === 'bigint')) {
+        const result = _int64Add(left, right);
+        return (lBD || rBD) ? new BD(Number(result)) : result;
+      }
+      const [l, r] = _coerceNumPair(left, right);
+      const result = l + r;
+      if (lBD || rBD) {
+        if (typeof result === 'bigint') return new BD(Number(result));
+        return new BD(result);
+      }
+      return result;
+    };
+
+    const origPatternKind = e._patternKind?.bind(e);
+    e._patternKind = function(pattern: any): any {
+      const explicit = pattern?.['__pattern_kind__'];
+      if (explicit != null) return explicit;
+      const type = pattern?.['__type__'] ?? pattern?.typeName;
+      switch (type) {
+        case 'VarPattern': return 'var';
+        case 'WildcardPattern': return 'wildcard';
+        case 'ConstPattern': return 'const';
+        case 'ListPattern': return 'list';
+        case 'MapPattern': return 'map';
+        case 'RecordPattern': return 'record';
+        case 'ObjectPattern': return 'object';
+        case 'LogicalAndPattern': return 'logical_and';
+        case 'LogicalOrPattern': return 'logical_or';
+        case 'CastPattern': return 'cast';
+        case 'NullCheckPattern': return 'null_check';
+        case 'NullAssertPattern': return 'null_assert';
+        case 'RelationalPattern': return 'relational';
+        case 'RestPattern': return 'rest';
+        default: return origPatternKind ? origPatternKind(pattern) : null;
+      }
+    };
+
+    const origMatchPattern = e._matchPattern.bind(e);
+    e._matchPattern = function(value: any, pattern: any, bindings: any) {
+      if (pattern != null && typeof pattern === 'object') {
+        const kind = e._patternKind(pattern);
+        if (kind === 'map') {
+          const entries = pattern.entries;
+          if (Array.isArray(entries) && entries.some((entry: any) => Array.isArray(entry))) {
+            pattern = { ...pattern, entries: entries.flat() };
+          }
+        }
+      }
+      return origMatchPattern(value, pattern, bindings);
+    };
+
+    e._matchesTypePattern = function(value: any, pattern: any): boolean {
+      const BD = (globalThis as any).BallDouble;
+      switch (pattern) {
+        case 'int':
+          return typeof value === 'bigint' || (typeof value === 'number' && Number.isInteger(value));
+        case 'double':
+          return BD != null && value instanceof BD;
+        case 'num':
+          return typeof value === 'bigint' || typeof value === 'number' || (BD != null && value instanceof BD);
+        case 'String':
+          return typeof value === 'string';
+        case 'bool':
+          return typeof value === 'boolean';
+        case 'List':
+          return Array.isArray(value);
+        case 'Map':
+          return typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Set);
+        case 'Set':
+          return value instanceof Set;
+        case 'Null':
+        case 'null':
+          return value == null;
+        default:
+          return false;
+      }
+    };
+
+    const origScopeWithPatternBindings = e._scopeWithPatternBindings.bind(e);
+    e._scopeWithPatternBindings = function(parent: any, bindings: any) {
+      if (bindings == null || typeof bindings !== 'object') return parent;
+      const entries = Object.entries(bindings).filter(([k]) => !k.startsWith('__'));
+      if (entries.length === 0) return parent;
+      const child = parent.child();
+      for (const [k, v] of entries) child.bind(k, v);
+      return child;
+    };
+
+    e._stdMapCreate = function(input: any) {
+      const m = e._stdAsMap(input);
+      if (m == null) return {};
+      const hop = Object.prototype.hasOwnProperty;
+      const entries = hop.call(m, 'entries') ? m['entries'] : (hop.call(m, 'entry') ? m['entry'] : undefined);
+      const result: any = {};
+      const ingest = (entry: any) => {
+        const entryMap = e._stdAsMap(entry);
+        if (entryMap == null) return;
+        const key = entryMap['key'] ?? entryMap['name'] ?? entryMap['arg0'] ?? '';
+        result[String(key)] = entryMap['value'] ?? entryMap['arg1'];
+      };
+      if (Array.isArray(entries)) {
+        for (const entry of entries) ingest(entry);
+      } else if (entries != null && typeof entries === 'object') {
+        ingest(entries);
+      }
+      return result;
     };
 
     const origBallEquals = e._ballEquals.bind(e);
@@ -1233,6 +1595,57 @@ export function createEngineSetup(mod: EngineModule) {
         if (unwrapped !== v) return origBts(unwrapped);
         return origBts(v);
       };
+    }
+
+    for (const handler of (e.moduleHandlers ?? [])) {
+      if (handler == null || typeof handler.register !== 'function') continue;
+      handler.register('add', (i: any) => e._stdAdd(i));
+      handler.register('subtract', (i: any) => {
+        const rec = e._extractBinaryArgs(i);
+        const left = rec[0];
+        const right = rec[1];
+        const BD = (globalThis as any).BallDouble;
+        const lBD = BD && left instanceof BD;
+        const rBD = BD && right instanceof BD;
+        if (!lBD && !rBD && (typeof _coerceInt(left) === 'bigint' || typeof _coerceInt(right) === 'bigint')) {
+          return _int64Subtract(left, right);
+        }
+        return e._stdBinary(i, (a: any, b: any) => a - b);
+      });
+      handler.register('multiply', (i: any) => {
+        const rec = e._extractBinaryArgs(i);
+        const left = rec[0];
+        const right = rec[1];
+        const BD = (globalThis as any).BallDouble;
+        const lBD = BD && left instanceof BD;
+        const rBD = BD && right instanceof BD;
+        if (!lBD && !rBD && (typeof _coerceInt(left) === 'bigint' || typeof _coerceInt(right) === 'bigint')) {
+          return _int64Multiply(left, right);
+        }
+        return e._stdBinary(i, (a: any, b: any) => a * b);
+      });
+      handler.register('divide', (i: any) => {
+        const rec = e._extractBinaryArgs(i);
+        return _int64Divide(rec[0], rec[1]);
+      });
+      handler.register('modulo', (i: any) => {
+        const rec = e._extractBinaryArgs(i);
+        return _int64Modulo(rec[0], rec[1]);
+      });
+      handler.register('negate', (i: any) => _int64Negate(e._extractUnaryArg(i)));
+      handler.register('bitwise_and', (i: any) => e._stdBinaryInt(i, (a: any, b: any) => _int64Binary((l, r) => l & r, a, b)));
+      handler.register('bitwise_or', (i: any) => e._stdBinaryInt(i, (a: any, b: any) => _int64Binary((l, r) => l | r, a, b)));
+      handler.register('bitwise_xor', (i: any) => e._stdBinaryInt(i, (a: any, b: any) => _int64Binary((l, r) => l ^ r, a, b)));
+      handler.register('bitwise_not', (i: any) => e._stdUnaryNum(i, (v: any) => _int64Unary((x) => ~x, v)));
+      handler.register('left_shift', (i: any) => e._stdBinaryInt(i, (a: any, b: any) => _int64ShiftLeft(a, b)));
+      handler.register('right_shift', (i: any) => e._stdBinaryInt(i, (a: any, b: any) => _int64ShiftRight(a, b)));
+      handler.register('unsigned_right_shift', (i: any) => e._stdBinaryInt(i, (a: any, b: any) => _int64UnsignedShiftRight(a, b)));
+      handler.register('math_abs', (i: any) => _mathAbs(e._extractUnaryArg(i)));
+      handler.register('less_than', (i: any) => e._stdBinaryComp(i, (a: any, b: any) => a < b));
+      handler.register('greater_than', (i: any) => e._stdBinaryComp(i, (a: any, b: any) => a > b));
+      handler.register('lte', (i: any) => e._stdBinaryComp(i, (a: any, b: any) => a <= b));
+      handler.register('gte', (i: any) => e._stdBinaryComp(i, (a: any, b: any) => a >= b));
+      handler.register('map_create', (i: any) => e._stdMapCreate(i));
     }
   }
 

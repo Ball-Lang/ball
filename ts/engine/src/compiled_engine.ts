@@ -92,6 +92,7 @@ class BallDouble {
   valueOf(): number { return this.value; }
   toString(): string {
     const v = this.value;
+    if (Object.is(v, -0)) return '-0.0';
     if (!isFinite(v)) return v.toString();
     if (Number.isInteger(v)) return v.toFixed(1);
     return v.toString();
@@ -108,7 +109,11 @@ function __ball_to_string(v: any): string {
   if (v === null || v === undefined) return 'null';
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (v instanceof BallDouble) return v.toString();
+  if (typeof v === 'bigint') return v.toString();
   if (typeof v === 'number') {
+    if (Number.isNaN(v)) return 'NaN';
+    if (!Number.isFinite(v)) return v.toString();
+    if (Object.is(v, -0)) return '-0.0';
     if (Number.isInteger(v)) return v.toString();
     const s = v.toString();
     return s.includes('.') || s.includes('e') ? s : s + '.0';
@@ -243,8 +248,20 @@ function __ball_index(target: any, idx: any): any {
 // Dart type shims — provide static methods for Dart built-in types
 // that don't exist in JS (int, double, num, bool).
 const int = {
-  parse: (s: any) => { const n = parseInt(String(s), 10); if (isNaN(n)) throw new Error('FormatException: ' + s); return n; },
-  tryParse: (s: any) => { const n = parseInt(String(s), 10); return isNaN(n) ? null : n; },
+  parse: (s: any) => {
+    const str = String(s).trim();
+    if (!/^-?\d+$/.test(str)) throw new Error('FormatException: ' + s);
+    const b = BigInt(str);
+    if (b > 9007199254740991n || b < -9007199254740991n) return b;
+    return Number(b);
+  },
+  tryParse: (s: any) => {
+    const str = String(s).trim();
+    if (!/^-?\d+$/.test(str)) return null;
+    const b = BigInt(str);
+    if (b > 9007199254740991n || b < -9007199254740991n) return b;
+    return Number(b);
+  },
 };
 const double = {
   parse: (s: any) => { const n = parseFloat(String(s)); if (isNaN(n)) throw new Error('FormatException: ' + s); return n; },
@@ -2980,10 +2997,16 @@ export class BallEngine {
       if (fieldName === 'isEmpty') {
         if (typeof object === 'string') return object.length === 0;
         if (Array.isArray(object)) return object.length === 0;
+        if (typeof object === 'object') {
+          return Object.keys(object).filter((k: string) => !k.startsWith('__')).length === 0;
+        }
       }
       if (fieldName === 'isNotEmpty') {
         if (typeof object === 'string') return object.length > 0;
         if (Array.isArray(object)) return object.length > 0;
+        if (typeof object === 'object') {
+          return Object.keys(object).filter((k: string) => !k.startsWith('__')).length > 0;
+        }
       }
       if (fieldName === 'abs' && typeof object === 'number') return Math.abs(object);
       if (fieldName === 'sign' && typeof object === 'number') return Math.sign(object);
@@ -3125,7 +3148,7 @@ export class BallEngine {
     let fields = {};
     for (const pair of msg.fields) {
       let val = await this._evalExpression(pair.value, scope);
-      if ((pair.name in fields)) {
+      if (Object.prototype.hasOwnProperty.call(fields, pair.name)) {
         let existing = __ball_index(fields, pair.name);
         if (Array.isArray(existing)) {
           let merged = ([...existing]);
@@ -6958,6 +6981,9 @@ export class BallEngine {
     if (((v == null) || (v == null))) {
       return 'null';
     }
+    if ((typeof v === 'bigint')) {
+      return __ball_to_string(v);
+    }
     if ((typeof v === 'string')) {
       return v;
     }
@@ -7469,7 +7495,7 @@ export class BallEngine {
     if ((entriesMap != null)) {
       this._trackMemoryAllocation(_ballMapEntryBytes);
       let key = (__ball_index(entriesMap, 'key') ?? __ball_index(entriesMap, 'name'));
-      return { key: __ball_index(entriesMap, 'value') };
+      return { [key]: __ball_index(entriesMap, 'value') };
     }
     return {};
   }
@@ -7559,7 +7585,7 @@ export class BallEngine {
     if ((patternMap != null)) {
       return this._matchStructuredPattern(value, patternMap, bindings);
     }
-    return ((pattern === value) || (__ball_to_string(pattern) === value?.toString()));
+    return ((pattern === value) || (__ball_to_string(pattern) === __ball_to_string(value)));
   }
 
   _matchStringPattern(value: any, pattern: any, bindings: any): any {
@@ -7598,7 +7624,7 @@ export class BallEngine {
     if (this._matchesTypePattern(value, trimmed)) {
       return true;
     }
-    if ((trimmed === value?.toString())) {
+    if ((__ball_to_string(trimmed) === __ball_to_string(value))) {
       return true;
     }
     return false;
@@ -7693,7 +7719,7 @@ export class BallEngine {
             return false;
           }
           let key = __ball_index(entryMap, 'key');
-          if (!(key in rawMap)) {
+          if (!Object.prototype.hasOwnProperty.call(rawMap, key)) {
             return false;
           }
           if (!this._matchPattern(__ball_index(rawMap, key), __ball_index(entryMap, 'value'), bindings)) {
@@ -7841,7 +7867,7 @@ export class BallEngine {
   }
 
   _matchesTypePattern(value: any, pattern: any): any {
-    return ((pattern === 'int') ? (((typeof value === 'number' && Number.isInteger(value)) || (typeof value === 'number' && Number.isInteger(value)))) : ((pattern === 'double') ? (((typeof value === 'number') || (typeof value === 'number' || value instanceof BallDouble))) : ((pattern === 'num') ? ((((typeof value === 'number') || (typeof value === 'number' && Number.isInteger(value))) || (typeof value === 'number' || value instanceof BallDouble))) : ((pattern === 'String') ? (((typeof value === 'string') || (typeof value === 'string'))) : ((pattern === 'bool') ? (((typeof value === 'boolean') || (typeof value === 'boolean'))) : ((pattern === 'List') ? ((Array.isArray(value) || false /* BallList is List in TS */)) : ((pattern === 'Map') ? (((typeof value === 'object' && value !== null && !Array.isArray(value)) || false /* BallMap is Map in TS */)) : ((pattern === 'Set') ? ((value instanceof Set)) : (((pattern === 'Null') || (pattern === 'null')) ? (((value == null) || (value == null))) : false)))))))));
+    return ((pattern === 'int') ? ((typeof value === 'bigint') || (typeof value === 'number' && Number.isInteger(value))) : ((pattern === 'double') ? (value instanceof BallDouble) : ((pattern === 'num') ? ((typeof value === 'bigint') || (typeof value === 'number') || (value instanceof BallDouble)) : ((pattern === 'String') ? (typeof value === 'string') : ((pattern === 'bool') ? (typeof value === 'boolean') : ((pattern === 'List') ? (Array.isArray(value)) : ((pattern === 'Map') ? ((typeof value === 'object' && value !== null && !Array.isArray(value))) : ((pattern === 'Set') ? (value instanceof Set) : (((pattern === 'Null') || (pattern === 'null')) ? (value == null) : false)))))))));
   }
 
   _stdAssert(input: any): any {
@@ -7865,8 +7891,17 @@ export class BallEngine {
     }
     const __ladd = left instanceof BallDouble;
     const __radd = right instanceof BallDouble;
-    const __addR = this._toNum(left) + this._toNum(right);
-    return (__ladd || __radd) ? new BallDouble(__addR) : __addR;
+    const ln = this._toNum(left);
+    const rn = this._toNum(right);
+    let __addR: any;
+    if (typeof ln === 'bigint' || typeof rn === 'bigint') {
+      const lb = typeof ln === 'bigint' ? ln : BigInt(Math.trunc(Number(ln)));
+      const rb = typeof rn === 'bigint' ? rn : BigInt(Math.trunc(Number(rn)));
+      __addR = lb + rb;
+    } else {
+      __addR = ln + rn;
+    }
+    return (__ladd || __radd) ? new BallDouble(Number(__addR)) : __addR;
   }
 
   _stdBinary(input: any, op: any): any {
@@ -7875,7 +7910,16 @@ export class BallEngine {
     let right = __ball_rec_1[1];
     const __lBD = left instanceof BallDouble;
     const __rBD = right instanceof BallDouble;
-    const __result = op(this._toNum(left), this._toNum(right));
+    const ln = this._toNum(left);
+    const rn = this._toNum(right);
+    let __result: any;
+    if (typeof ln === 'bigint' || typeof rn === 'bigint') {
+      const lb = typeof ln === 'bigint' ? ln : BigInt(Math.trunc(Number(ln)));
+      const rb = typeof rn === 'bigint' ? rn : BigInt(Math.trunc(Number(rn)));
+      __result = op(lb, rb);
+    } else {
+      __result = op(ln, rn);
+    }
     if ((__lBD || __rBD) && typeof __result === 'number') return new BallDouble(__result);
     return __result;
   }
@@ -7884,7 +7928,14 @@ export class BallEngine {
     let __ball_rec_2 = this._extractBinaryArgs(input);
     let left = __ball_rec_2[0];
     let right = __ball_rec_2[1];
-    return op(this._toInt(left), this._toInt(right));
+    const li = this._toInt(left);
+    const ri = this._toInt(right);
+    if (typeof li === 'bigint' || typeof ri === 'bigint') {
+      const lb = typeof li === 'bigint' ? li : BigInt(Math.trunc(Number(li)));
+      const rb = typeof ri === 'bigint' ? ri : BigInt(Math.trunc(Number(ri)));
+      return op(lb, rb);
+    }
+    return op(li, ri);
   }
 
   _stdBinaryDouble(input: any, op: any): any {
@@ -7919,7 +7970,7 @@ export class BallEngine {
 
   _stdUnaryNum(input: any, op: any): any {
     let value = this._extractUnaryArg(input);
-    return op(value);
+    return op(this._toNum(value));
   }
 
   _stdNot(input: any): any {
@@ -7991,6 +8042,9 @@ export class BallEngine {
 
   _toInt(v: any): any {
     const input = v;
+    if ((typeof v === 'bigint')) {
+      return v;
+    }
     if ((typeof v === 'number' && Number.isInteger(v))) {
       return v;
     }
@@ -8046,6 +8100,12 @@ export class BallEngine {
 
   _toNum(v: any): any {
     const input = v;
+    if ((typeof v === 'bigint')) {
+      if (v > 9223372036854775807n) return 9223372036854775807n;
+      if (v < -9223372036854775808n) return -9223372036854775808n;
+      const asNum = Number(v);
+      return Number.isSafeInteger(asNum) ? asNum : v;
+    }
     if ((typeof v === 'number')) {
       return v;
     }

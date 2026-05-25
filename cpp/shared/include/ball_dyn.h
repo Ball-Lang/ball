@@ -429,17 +429,28 @@ public:
     // Mutation: set a field in the underlying map/list.
     // `obj.set("key", value)` modifies the map entry in-place.
     void set(const std::string& key, const std::any& value) {
+        const std::any& u = _BallDynUnwrapper::unwrap(value);
         if (_val.type() == typeid(BallScope)) {
-            (*std::any_cast<BallScope&>(_val))[key] = value;
+            (*std::any_cast<BallScope&>(_val))[key] = u;
         } else if (BallObject* op = _objPtr()) {
             // Mutate through the shared handle so all holders observe the write.
-            op->__op_set_index__(key, value);
+            op->__op_set_index__(key, u);
         } else if (_val.type() == typeid(BallMap)) {
-            std::any_cast<BallMap&>(_val)[key] = value;
+            if (u.type() == typeid(BallObject)) {
+                std::any_cast<BallMap&>(_val)[key] = std::any(BallObjectRef(
+                    std::make_shared<BallObject>(std::any_cast<const BallObject&>(u))));
+            } else {
+                std::any_cast<BallMap&>(_val)[key] = u;
+            }
         } else if (BallOrderedMap* omp = _orderedMapPtr()) {
-            (*omp)[key] = value;
+            if (u.type() == typeid(BallObject)) {
+                (*omp)[key] = std::any(BallObjectRef(
+                    std::make_shared<BallObject>(std::any_cast<const BallObject&>(u))));
+            } else {
+                (*omp)[key] = u;
+            }
         } else if (_val.type() == typeid(BallUMap)) {
-            std::any_cast<BallUMap&>(_val)[key] = value;
+            std::any_cast<BallUMap&>(_val)[key] = u;
         } else if (!_val.has_value()) {
             // Dart `final _setters = {}` compiles to default-empty BallDyn; lazily
             // allocate a map so ball_set/_buildLookupTables can populate it.
@@ -620,12 +631,21 @@ public:
     bool operator==(const BallDyn& o) const {
         if (!_val.has_value() && !o._val.has_value()) return true;
         if (!_val.has_value() || !o._val.has_value()) return false;
+        const std::any& ua = _BallDynUnwrapper::unwrap(_val);
+        const std::any& ub = _BallDynUnwrapper::unwrap(o._val);
+        if (ua.type() == typeid(BallObjectRef) && ub.type() == typeid(BallObjectRef)) {
+            return std::any_cast<const BallObjectRef&>(ua) ==
+                   std::any_cast<const BallObjectRef&>(ub);
+        }
+        if (ua.type() == typeid(BallObjectRef) || ub.type() == typeid(BallObjectRef)) {
+            return false;
+        }
         // Reference-semantic instances compare by pointer identity (Dart
         // `identical` / default `==`): two BallDyns are equal iff they share the
         // same underlying BallObject handle.
         if (const BallObject* a = _objPtr()) {
             const BallObject* b = o._objPtr();
-            return a == b;
+            return b != nullptr && a == b;
         }
         if (o._objPtr() != nullptr) return false;
         if (_val.type() != o._val.type()) return false;

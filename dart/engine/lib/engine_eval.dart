@@ -540,7 +540,14 @@ extension BallEngineEval on BallEngine {
       if (_globalScope.has(staticField.fullName)) {
         return _globalScope.lookup(staticField.fullName);
       }
-      return _callFunction(staticField.module, staticField.func, null);
+      final func = staticField.func;
+      var value = await _callFunction(staticField.module, func, null);
+      if (func.outputType.startsWith('Map')) {
+        if (value is Set && value.isEmpty) value = _ballUserMap();
+        if (value is List && value.isEmpty) value = _ballUserMap();
+      }
+      _globalScope.bind(staticField.fullName, value);
+      return value;
     }
 
     return scope.lookup(name);
@@ -1050,6 +1057,21 @@ extension BallEngineEval on BallEngine {
         );
 
         if (ctorEntry != null && ctorEntry.func.hasBody()) {
+          final isFactory = ctorEntry.func.hasMetadata() &&
+              _metadataBool(ctorEntry.func.metadata.fields['is_factory']);
+          if (isFactory) {
+            // Factory constructors choose their own return value; do not
+            // preallocate a shell or pass `self` (which makes the compiled
+            // engine fall back to the shell when return flow is mishandled).
+            final ctorInput = <String, Object?>{}
+              ..addAll(fields)
+              ..addAll(resolvedParams);
+            return _callFunction(
+              ctorEntry.module,
+              ctorEntry.func,
+              ctorInput,
+            );
+          }
           final ctorInput = <String, Object?>{}
             ..addAll(fields)
             ..addAll(resolvedParams)
@@ -1457,8 +1479,8 @@ extension BallEngineEval on BallEngine {
         if (stmt.let.hasMetadata()) {
           final letType = stmt.let.metadata.fields['type']?.stringValue;
           if (letType != null && letType.startsWith('Map')) {
-            if (value is Set && value.isEmpty) value = <Object?, Object?>{};
-            if (value is List && value.isEmpty) value = <Object?, Object?>{};
+            if (value is Set && value.isEmpty) value = _ballUserMap();
+            if (value is List && value.isEmpty) value = _ballUserMap();
           }
         }
         scope.bind(stmt.let.name, value);

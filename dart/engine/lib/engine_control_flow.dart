@@ -723,7 +723,18 @@ extension BallEngineControlFlow on BallEngine {
   ) {
     if (targetExpr.whichExpr() != Expression_Expr.reference) return;
     final name = targetExpr.reference.name;
-    if (scope.has(name)) scope.set(name, container);
+    // Static field (e.g. factory `_cache`): always write back to the global
+    // binding. The compiled C++ scope.has() walks the parent chain, so a bare
+    // `_cache` reference can appear "in scope" via a parent snapshot while the
+    // live static lives on _globalScope under its fullName.
+    final staticField = _staticFieldRefs[name];
+    if (staticField != null) {
+      _globalScope.set(staticField.fullName, container);
+      return;
+    }
+    if (scope.has(name)) {
+      scope.set(name, container);
+    }
   }
 
   Future<Object?> _evalAssign(FunctionCall call, _Scope scope) async {

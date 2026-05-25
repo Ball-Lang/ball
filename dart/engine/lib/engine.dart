@@ -527,8 +527,8 @@ class BallEngine {
             ? await _evalExpression(func.body, _globalScope)
             : null;
         if (func.outputType.startsWith('Map')) {
-          if (value is Set && value.isEmpty) value = <Object?, Object?>{};
-          if (value is List && value.isEmpty) value = <Object?, Object?>{};
+          if (value is Set && value.isEmpty) value = _ballUserMap();
+          if (value is List && value.isEmpty) value = _ballUserMap();
         }
         _globalScope.bind(func.name, value);
       }

@@ -47,7 +47,10 @@ extension BallEngineInvocation on BallEngine {
         final typeName = dotIdx >= 0
             ? func.name.substring(0, dotIdx)
             : func.name;
-        if ((constructorInput == null ||
+        final isFactory = func.hasMetadata() &&
+            _metadataBool(func.metadata.fields['is_factory']);
+        if (!isFactory &&
+            (constructorInput == null ||
                 !constructorInput.containsKey('self')) &&
             _findTypeDef(typeName) != null) {
           return _callObjectConstructor(moduleName, func, input);
@@ -77,7 +80,9 @@ extension BallEngineInvocation on BallEngine {
           // Single parameter — bind the input directly (but not for instance
           // methods where `self` is mixed in; those use the map extraction path).
           // If input is a map with positional args (arg0), extract the value.
-          if (inputMap != null &&
+          if (inputMap != null && inputMap.containsKey(params[0])) {
+            scope.bind(params[0], inputMap[params[0]]);
+          } else if (inputMap != null &&
               inputMap.containsKey('arg0') &&
               !inputMap.containsKey(params[0])) {
             scope.bind(params[0], inputMap['arg0']);
@@ -192,10 +197,16 @@ extension BallEngineInvocation on BallEngine {
         if (kind == 'constructor' &&
             inputMap != null &&
             inputMap.containsKey('self')) {
+          final isFactory = func.hasMetadata() &&
+              _metadataBool(func.metadata.fields['is_factory']);
           if (result is _FlowSignal && result.kind == 'return') {
             finalResult = result.value;
-          } else {
+          } else if (!isFactory) {
             finalResult = inputMap['self'];
+          } else if (result is _FlowSignal) {
+            finalResult = result.value;
+          } else {
+            finalResult = result;
           }
         } else if (result is _FlowSignal && result.kind == 'return') {
           // Early return in a generator: stop yielding immediately.
@@ -453,7 +464,18 @@ extension BallEngineInvocation on BallEngine {
       }
     }
 
-    return BallMap(instance);
+    final fields = <String, Object?>{};
+    for (final entry in instance.entries) {
+      if (!entry.key.startsWith('__')) {
+        fields[entry.key] = entry.value;
+      }
+    }
+    return BallObject(
+      typeName: typeName,
+      superObject: instance['__super__'],
+      fields: fields,
+      methods: (instance['__methods__'] as Map<String, Object?>?) ?? {},
+    );
   }
 
   /// Invoke the super constructor for a child class.

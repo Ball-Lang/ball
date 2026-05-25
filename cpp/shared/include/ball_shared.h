@@ -64,6 +64,10 @@ using BallList = std::vector<BallValue>;
 // use BallListRef; legacy by-value BallList remains for interop copies.
 using BallListRef = std::shared_ptr<BallList>;
 using BallMap = std::map<std::string, BallValue>;
+// Reference-semantic ordered maps: copies of a BallValue share the underlying map
+// (Dart Map / BallDyn BallOrderedMapRef parity). Literal and scope-bound maps use
+// BallOrderedMapRef; legacy by-value BallMap remains for message/OOP interop.
+using BallOrderedMapRef = std::shared_ptr<BallMap>;
 using BallFunction = std::function<BallValue(BallValue)>;
 
 // Callable signature: (module, function, input) → result
@@ -147,6 +151,32 @@ inline bool is_list(const BallValue& v) {
     return v.type() == typeid(BallListRef) || v.type() == typeid(BallList);
 }
 
+inline BallMap* ball_map_ptr(BallValue& v) {
+    if (v.type() == typeid(BallOrderedMapRef)) return std::any_cast<BallOrderedMapRef&>(v).get();
+    if (v.type() == typeid(BallMap)) return &std::any_cast<BallMap&>(v);
+    return nullptr;
+}
+inline const BallMap* ball_map_ptr(const BallValue& v) {
+    if (v.type() == typeid(BallOrderedMapRef)) return std::any_cast<const BallOrderedMapRef&>(v).get();
+    if (v.type() == typeid(BallMap)) return &std::any_cast<const BallMap&>(v);
+    return nullptr;
+}
+inline BallMap ball_map_copy(const BallValue& v) {
+    if (const BallMap* mp = ball_map_ptr(v)) return *mp;
+    return {};
+}
+inline BallValue ball_map_value(BallMap map) {
+    return BallValue(BallOrderedMapRef(std::make_shared<BallMap>(std::move(map))));
+}
+inline int64_t ball_map_length(const BallValue& v) {
+    if (const BallMap* mp = ball_map_ptr(v)) return static_cast<int64_t>(mp->size());
+    return 0;
+}
+inline bool ball_map_contains_key(const BallValue& v, const std::string& key) {
+    if (const BallMap* mp = ball_map_ptr(v)) return mp->count(key) > 0;
+    return false;
+}
+
 inline std::string to_string(const BallValue& v) {
     if (v.type() == typeid(std::string)) return std::any_cast<std::string>(v);
     if (v.type() == typeid(int64_t)) return std::to_string(std::any_cast<int64_t>(v));
@@ -173,11 +203,10 @@ inline std::string to_string(const BallValue& v) {
         result += "]";
         return result;
     }
-    if (v.type() == typeid(BallMap)) {
-        const auto& m = std::any_cast<const BallMap&>(v);
+    if (const BallMap* mp = ball_map_ptr(v)) {
         std::string result = "{";
         bool first = true;
-        for (const auto& [k, val] : m) {
+        for (const auto& [k, val] : *mp) {
             if (!first) result += ", ";
             first = false;
             result += k + ": " + to_string(val);
@@ -200,7 +229,9 @@ inline bool is_double(const BallValue& v) { return v.type() == typeid(double); }
 inline bool is_string(const BallValue& v) { return v.type() == typeid(std::string); }
 inline bool is_bool(const BallValue& v) { return v.type() == typeid(bool); }
 inline bool is_null(const BallValue& v) { return !v.has_value(); }
-inline bool is_map(const BallValue& v) { return v.type() == typeid(BallMap); }
+inline bool is_map(const BallValue& v) {
+    return v.type() == typeid(BallOrderedMapRef) || v.type() == typeid(BallMap);
+}
 inline bool is_function(const BallValue& v) { return v.type() == typeid(BallFunction); }
 inline bool is_future(const BallValue& v) { return v.type() == typeid(BallFuture); }
 inline bool is_generator(const BallValue& v) { return v.type() == typeid(BallGenerator); }
@@ -230,14 +261,14 @@ inline bool values_equal(const BallValue& a, const BallValue& b) {
         return std::any_cast<std::string>(a) == std::any_cast<std::string>(b);
     if (a.type() == typeid(bool) && b.type() == typeid(bool))
         return std::any_cast<bool>(a) == std::any_cast<bool>(b);
-    // Map equality: compare all key-value pairs recursively
-    if (a.type() == typeid(BallMap) && b.type() == typeid(BallMap)) {
-        const auto& ma = std::any_cast<const BallMap&>(a);
-        const auto& mb = std::any_cast<const BallMap&>(b);
-        if (ma.size() != mb.size()) return false;
-        for (const auto& [k, v] : ma) {
-            auto it = mb.find(k);
-            if (it == mb.end()) return false;
+    // Map equality: compare all key-value pairs recursively (by value, not pointer identity)
+    if (is_map(a) && is_map(b)) {
+        const BallMap* ma = ball_map_ptr(a);
+        const BallMap* mb = ball_map_ptr(b);
+        if (!ma || !mb || ma->size() != mb->size()) return false;
+        for (const auto& [k, v] : *ma) {
+            auto it = mb->find(k);
+            if (it == mb->end()) return false;
             if (!values_equal(v, it->second)) return false;
         }
         return true;
@@ -268,10 +299,11 @@ inline bool values_equal(const BallValue& a, const BallValue& b) {
 inline BallValue extract_field(const BallValue& input, const std::string& name) {
     BallValue val = input;
     if (val.type() == typeid(BallFuture)) val = std::any_cast<const BallFuture&>(val).value;
-    if (val.type() != typeid(BallMap)) return {};
-    const auto& m = std::any_cast<const BallMap&>(val);
-    auto it = m.find(name);
-    return it != m.end() ? it->second : BallValue{};
+    if (!is_map(val)) return {};
+    const BallMap* mp = ball_map_ptr(val);
+    if (!mp) return {};
+    auto it = mp->find(name);
+    return it != mp->end() ? it->second : BallValue{};
 }
 
 // Extract the "value" field from a UnaryInput

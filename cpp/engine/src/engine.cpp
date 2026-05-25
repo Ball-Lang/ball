@@ -629,7 +629,7 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                 scope->bind(params[0], input);
             }
         } else if (is_map(input)) {
-            const auto& m = std::any_cast<const BallMap&>(input);
+            const BallMap& m = *ball_map_ptr(input);
             for (size_t i = 0; i < params.size(); ++i) {
                 auto fit = m.find(params[i]);
                 if (fit != m.end()) {
@@ -658,13 +658,13 @@ BallValue Engine::call_function_internal(const std::string& module_name,
 
     // Bind 'self' for instance method calls so `this` references resolve.
     if (is_map(input)) {
-        const auto& inp_map = std::any_cast<const BallMap&>(input);
+        const BallMap& inp_map = *ball_map_ptr(input);
         auto self_it = inp_map.find("self");
         if (self_it != inp_map.end()) {
             scope->bind("self", self_it->second);
             // Only unpack fields and bind 'this'/'super' for class instance methods.
             if (is_map(self_it->second)) {
-                const auto& self_map = std::any_cast<const BallMap&>(self_it->second);
+                const BallMap& self_map = *ball_map_ptr(self_it->second);
                 auto type_it2 = self_map.find("__type__");
 #if BALL_ENGINE_DEBUG_TRACE
                 // DEBUG: log field binding for describe
@@ -859,14 +859,14 @@ BallValue Engine::resolve_and_call(const std::string& module,
     }
     // Method dispatch: if input has self with __type__, try ClassName.method
     if (is_map(input)) {
-        const auto& inp = std::any_cast<const BallMap&>(input);
+        const BallMap& inp = *ball_map_ptr(input);
         auto si = inp.find("self");
         if (si != inp.end() && is_map(si->second)) {
-            const auto& sm = std::any_cast<const BallMap&>(si->second);
+            const BallMap& sm = *ball_map_ptr(si->second);
             // Walk type chain (self + __super__) to find method
             BallValue cur = si->second;
             while (is_map(cur)) {
-                const auto& cm = std::any_cast<const BallMap&>(cur);
+                const BallMap& cm = *ball_map_ptr(cur);
                 auto ti = cm.find("__type__");
                 if (ti != cm.end() && is_string(ti->second)) {
                     auto type_name = std::any_cast<std::string>(ti->second);
@@ -1118,7 +1118,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                     auto push_val = eval_expr(*value_expr, scope);
                     auto container = scope->lookup(container_name);
                     if (is_map(container)) {
-                        auto& m = std::any_cast<BallMap&>(container);
+                        BallMap& m = *ball_map_ptr(container);
                         auto key = ball::to_string(idx_val);
                         BallList lst;
                         auto it = m.find(key);
@@ -1180,7 +1180,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                     }
                 }
             }
-            return result;
+            return ball_map_value(std::move(result));
         }
         // Fallthrough for non-message-creation inputs
     }
@@ -1270,10 +1270,10 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
 
     // Method call on object (has 'self' field) — instance method dispatch.
     if (is_map(input)) {
-        const auto& inp_map = std::any_cast<const BallMap&>(input);
+        const BallMap& inp_map = *ball_map_ptr(input);
         auto self_it = inp_map.find("self");
         if (self_it != inp_map.end() && is_map(self_it->second)) {
-            const auto& self = std::any_cast<const BallMap&>(self_it->second);
+            const BallMap& self = *ball_map_ptr(self_it->second);
             auto type_it = self.find("__type__");
             if (type_it != self.end() && is_string(type_it->second)) {
                 const auto& type_name = std::any_cast<const std::string&>(type_it->second);
@@ -1450,7 +1450,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
         const auto& inp_map = std::any_cast<const BallMap&>(input);
         auto self_it = inp_map.find("self");
         if (self_it != inp_map.end()) {
-            const auto& self_val = self_it->second;
+            BallValue self_val = self_it->second;
             const auto& fn_name = call.function();
 
             // Helper: find the variable name for 'self' from the input expression tree.
@@ -1680,7 +1680,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
 
             // ── Map methods ──
             if (is_map(self_val)) {
-                auto m = std::any_cast<BallMap>(self_val);
+                BallMap& m = *ball_map_ptr(self_val);
                 // Skip typed objects (they have __type__ and use class dispatch above)
                 auto type_it = m.find("__type__");
                 if (type_it == m.end() || !is_string(type_it->second)) {
@@ -1703,7 +1703,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                             removed = it->second;
                             m.erase(it);
                         }
-                        write_back(BallValue(m));
+                        write_back(self_val);
                         return removed;
                     }
                     if (fn_name == "putIfAbsent") {
@@ -1712,7 +1712,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                         auto it = m.find(key);
                         if (it == m.end()) {
                             m[key] = val;
-                            write_back(BallValue(m));
+                            write_back(self_val);
                             return val;
                         }
                         return it->second;
@@ -1898,7 +1898,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                                     r[ball::to_string(ki->second)] = vi->second;
                             }
                         }
-                        return r;
+                        return ball_map_value(std::move(r));
                     }
                 }
             }
@@ -2072,7 +2072,7 @@ BallValue Engine::eval_field_access(const ball::v1::FieldAccess& access, std::sh
     object = unwrap(object);
 
     if (is_map(object)) {
-        const auto& m = std::any_cast<const BallMap&>(object);
+        const BallMap& m = *ball_map_ptr(object);
         auto it = m.find(field);
         if (it != m.end()) return it->second;
 
@@ -2643,7 +2643,7 @@ BallValue Engine::eval_init_string_expr(const std::string& expr, std::shared_ptr
                     if (i >= 0 && static_cast<size_t>(i) < lst.size()) return lst[i];
                 }
                 if (is_map(container)) {
-                    const auto& m = std::any_cast<const BallMap&>(container);
+                    const BallMap& m = *ball_map_ptr(container);
                     auto key = ball::to_string(idx_val);
                     auto it = m.find(key);
                     if (it != m.end()) return it->second;
@@ -2665,7 +2665,7 @@ BallValue Engine::eval_init_string_expr(const std::string& expr, std::shared_ptr
             if (is_list(obj) && field == "length")
                 return ball_list_length(obj);
             if (is_map(obj)) {
-                const auto& m = std::any_cast<const BallMap&>(obj);
+                const BallMap& m = *ball_map_ptr(obj);
                 auto it = m.find(field);
                 if (it != m.end()) return it->second;
             }
@@ -3477,7 +3477,7 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
     if (ti->second.expr_case() == ball::v1::Expression::kFieldAccess) {
         auto obj = eval_expr(ti->second.field_access().object(), scope);
         if (is_map(obj)) {
-            auto m = std::any_cast<BallMap>(obj);
+            BallMap& m = *ball_map_ptr(obj);
             const auto& field_name = ti->second.field_access().field();
 
             if (!op.empty() && op != "=") {
@@ -3491,17 +3491,17 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
             if (setter_result.has_value()) {
                 // The setter may return an updated object
                 if (is_map(*setter_result)) {
-                    m = std::any_cast<BallMap>(*setter_result);
+                    m = ball_map_copy(*setter_result);
                 }
                 if (ti->second.field_access().object().expr_case() == ball::v1::Expression::kReference) {
-                    scope->set(ti->second.field_access().object().reference().name(), BallValue(m));
+                    scope->set(ti->second.field_access().object().reference().name(), obj);
                 }
                 return val;
             }
 
             m[field_name] = val;
             if (ti->second.field_access().object().expr_case() == ball::v1::Expression::kReference) {
-                scope->set(ti->second.field_access().object().reference().name(), BallValue(m));
+                scope->set(ti->second.field_access().object().reference().name(), obj);
             }
             return val;
         }
@@ -3528,7 +3528,7 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
                     return val;
                 }
                 if (is_map(container)) {
-                    auto& m = std::any_cast<BallMap&>(container);
+                    BallMap& m = *ball_map_ptr(container);
                     auto key = ball::to_string(idx);
                     if (!op.empty() && op != "=") {
                         auto fit = m.find(key);
@@ -3573,7 +3573,7 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
                 (*ball_list_ptr(container))[to_int(idx)] = val;
             }
             if (is_map(container) && is_string(idx)) {
-                std::any_cast<BallMap&>(container)[std::any_cast<const std::string&>(idx)] = val;
+                (*ball_map_ptr(container))[std::any_cast<const std::string&>(idx)] = val;
             }
         }
     }
@@ -3617,13 +3617,13 @@ BallValue Engine::eval_inc_dec(const ball::v1::FunctionCall& call, std::shared_p
                 }
             }
             if (is_map(container)) {
-                auto m = std::any_cast<BallMap>(container);
+                BallMap& m = *ball_map_ptr(container);
                 auto key = ball::to_string(idx);
                 auto it = m.find(key);
                 int64_t current = (it != m.end()) ? to_int(it->second) : 0;
                 int64_t updated = is_inc ? current + 1 : current - 1;
                 m[key] = BallValue(updated);
-                scope->set(var_name, BallValue(m));
+                scope->set(var_name, container);
                 return is_pre ? updated : current;
             }
         }
@@ -3632,14 +3632,14 @@ BallValue Engine::eval_inc_dec(const ball::v1::FunctionCall& call, std::shared_p
     if (vi->second.expr_case() == ball::v1::Expression::kFieldAccess) {
         auto obj = eval_expr(vi->second.field_access().object(), scope);
         if (is_map(obj)) {
-            auto m = std::any_cast<BallMap>(obj);
+            BallMap& m = *ball_map_ptr(obj);
             const auto& field_name = vi->second.field_access().field();
             auto it = m.find(field_name);
             int64_t current = (it != m.end()) ? to_int(it->second) : 0;
             int64_t updated = is_inc ? current + 1 : current - 1;
             m[field_name] = BallValue(updated);
             if (vi->second.field_access().object().expr_case() == ball::v1::Expression::kReference) {
-                scope->set(vi->second.field_access().object().reference().name(), BallValue(m));
+                scope->set(vi->second.field_access().object().reference().name(), obj);
             }
             return is_pre ? updated : current;
         }
@@ -3831,7 +3831,7 @@ std::optional<BallValue> Engine::try_operator_override(const std::string& functi
     auto op_it = table.find(function);
     if (op_it == table.end()) return std::nullopt;
     if (!is_map(input)) return std::nullopt;
-    const auto& m = std::any_cast<const BallMap&>(input);
+    const BallMap& m = *ball_map_ptr(input);
 
     // For "index": operands are in target/index; for others, left/right.
     BallValue left, right;
@@ -3848,7 +3848,7 @@ std::optional<BallValue> Engine::try_operator_override(const std::string& functi
     }
 
     if (!is_map(left)) return std::nullopt;
-    const auto& left_map = std::any_cast<const BallMap&>(left);
+    const BallMap& left_map = *ball_map_ptr(left);
     auto type_it = left_map.find("__type__");
     if (type_it == left_map.end() || !is_string(type_it->second)) return std::nullopt;
 
@@ -3862,7 +3862,7 @@ std::optional<BallValue> Engine::try_operator_override(const std::string& functi
     // Walk type hierarchy: current type, then __super__ chain.
     BallValue current = left;
     while (is_map(current)) {
-        const auto& cur_map = std::any_cast<const BallMap&>(current);
+        const BallMap& cur_map = *ball_map_ptr(current);
         auto cur_type_it = cur_map.find("__type__");
         if (cur_type_it != cur_map.end() && is_string(cur_type_it->second)) {
             const auto& cur_type = std::any_cast<const std::string&>(cur_type_it->second);
@@ -3898,7 +3898,7 @@ std::optional<BallValue> Engine::try_operator_override(const std::string& functi
 std::string Engine::value_to_string(const BallValue& val) {
     // Check for user-defined toString on typed objects
     if (is_map(val)) {
-        const auto& m = std::any_cast<const BallMap&>(val);
+        const BallMap& m = *ball_map_ptr(val);
         auto type_it = m.find("__type__");
         if (type_it != m.end() && is_string(type_it->second)) {
             const auto& type_name = std::any_cast<const std::string&>(type_it->second);
@@ -4112,7 +4112,7 @@ Engine::build_std_dispatch() {
             if(is_string(tgt)&&(is_int(idx)||is_double(idx))){auto s=std::any_cast<std::string>(tgt);return std::string(1,s[to_int(idx)]);}
             if(is_map(tgt)) {
                 auto key = ball::to_string(idx);
-                auto& m = std::any_cast<const BallMap&>(tgt);
+                const BallMap& m = *ball_map_ptr(tgt);
                 auto it = m.find(key);
                 return (it != m.end()) ? it->second : BallValue{};
             }
@@ -4322,7 +4322,7 @@ Engine::build_std_dispatch() {
         {"math_sign", [](BallValue i) -> BallValue { auto v=to_double(extract_unary(i)); return v<0.0?-1.0:(v>0.0?1.0:0.0); }},
         {"math_gcd", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return static_cast<int64_t>(std::gcd(to_int(l),to_int(r))); }},
         {"math_lcm", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); auto a=to_int(l),b=to_int(r); return static_cast<int64_t>(std::abs(a*b)/std::gcd(a,b)); }},
-        {"map_create", [](BallValue) -> BallValue { return BallMap{}; }},
+        {"map_create", [](BallValue) -> BallValue { return ball_map_value(BallMap{}); }},
         {"set_create", [](BallValue i) -> BallValue {
             // Empty {} in Dart is a Map literal. Return BallMap for empty sets.
             auto elems = extract_field(i, "elements");
@@ -4735,48 +4735,49 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     // ── Map operations ──
 
     dispatch_["map_get"] = [](BallValue input, BallCallable) -> BallValue {
-        auto map = std::any_cast<BallMap>(extract_field(input, "map"));
+        auto map_val = extract_field(input, "map");
         auto key = to_string(extract_field(input, "key"));
+        const BallMap& map = *ball_map_ptr(map_val);
         auto it = map.find(key);
         return it != map.end() ? it->second : BallValue{};
     };
 
     dispatch_["map_set"] = [](BallValue input, BallCallable) -> BallValue {
-        auto map = std::any_cast<BallMap>(extract_field(input, "map"));
+        auto map_val = extract_field(input, "map");
         auto key = to_string(extract_field(input, "key"));
-        map[key] = extract_field(input, "value");
-        return map;
+        (*ball_map_ptr(map_val))[key] = extract_field(input, "value");
+        return map_val;
     };
 
     dispatch_["map_delete"] = [](BallValue input, BallCallable) -> BallValue {
-        auto map = std::any_cast<BallMap>(extract_field(input, "map"));
+        auto map_val = extract_field(input, "map");
         auto key = to_string(extract_field(input, "key"));
-        map.erase(key);
-        return map;
+        ball_map_ptr(map_val)->erase(key);
+        return map_val;
     };
 
     dispatch_["map_contains_key"] = [](BallValue input, BallCallable) -> BallValue {
-        auto map = std::any_cast<BallMap>(extract_field(input, "map"));
+        auto map_val = extract_field(input, "map");
         auto key = to_string(extract_field(input, "key"));
-        return map.count(key) > 0;
+        return ball_map_contains_key(map_val, key);
     };
 
     dispatch_["map_keys"] = [](BallValue input, BallCallable) -> BallValue {
-        auto map = std::any_cast<BallMap>(extract_field(input, "map"));
+        const BallMap& map = *ball_map_ptr(extract_field(input, "map"));
         BallList keys;
         for (const auto& [k, v] : map) keys.push_back(std::string(k));
         return keys;
     };
 
     dispatch_["map_values"] = [](BallValue input, BallCallable) -> BallValue {
-        auto map = std::any_cast<BallMap>(extract_field(input, "map"));
+        const BallMap& map = *ball_map_ptr(extract_field(input, "map"));
         BallList values;
         for (const auto& [k, v] : map) values.push_back(v);
         return values;
     };
 
     dispatch_["map_entries"] = [](BallValue input, BallCallable) -> BallValue {
-        auto map = std::any_cast<BallMap>(extract_field(input, "map"));
+        const BallMap& map = *ball_map_ptr(extract_field(input, "map"));
         BallList entries;
         for (const auto& [k, v] : map) {
             entries.push_back(BallMap{{"key", std::string(k)}, {"value", v}});
@@ -4787,7 +4788,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     dispatch_["map_from_entries"] = [](BallValue input, BallCallable) -> BallValue {
         auto entries_val = extract_field(input, "entries");
         if (!is_list(entries_val)) entries_val = extract_field(input, "arg0");
-        if (!is_list(entries_val)) return BallMap{};
+        if (!is_list(entries_val)) return ball_map_value(BallMap{});
         auto entries = ball_list_copy(entries_val);
         BallMap result;
         for (const auto& entry : entries) {
@@ -4803,18 +4804,23 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
                 }
             }
         }
-        return result;
+        return ball_map_value(std::move(result));
     };
 
     dispatch_["map_merge"] = [](BallValue input, BallCallable) -> BallValue {
-        auto a = std::any_cast<BallMap>(extract_field(input, "left"));
-        auto b = std::any_cast<BallMap>(extract_field(input, "right"));
-        for (const auto& [k, v] : b) a[k] = v;
-        return a;
+        auto left_val = extract_field(input, "left");
+        auto right = ball_map_copy(extract_field(input, "right"));
+        BallMap merged = ball_map_copy(left_val);
+        for (const auto& [k, v] : right) merged[k] = v;
+        if (BallMap* mp = ball_map_ptr(left_val)) {
+            *mp = std::move(merged);
+            return left_val;
+        }
+        return ball_map_value(std::move(merged));
     };
 
     dispatch_["map_map"] = [](BallValue input, BallCallable engine) -> BallValue {
-        auto map = std::any_cast<BallMap>(extract_field(input, "map"));
+        const BallMap& map = *ball_map_ptr(extract_field(input, "map"));
         auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
         BallMap result;
         for (const auto& [k, v] : map) {
@@ -4828,11 +4834,11 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
                 }
             }
         }
-        return result;
+        return ball_map_value(std::move(result));
     };
 
     dispatch_["map_filter"] = [](BallValue input, BallCallable engine) -> BallValue {
-        auto map = std::any_cast<BallMap>(extract_field(input, "map"));
+        const BallMap& map = *ball_map_ptr(extract_field(input, "map"));
         auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
         BallMap result;
         for (const auto& [k, v] : map) {
@@ -4840,21 +4846,19 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
                 result[k] = v;
             }
         }
-        return result;
+        return ball_map_value(std::move(result));
     };
 
     dispatch_["map_is_empty"] = [](BallValue input, BallCallable) -> BallValue {
-        auto map = std::any_cast<BallMap>(extract_field(input, "map"));
-        return map.empty();
+        return ball_map_ptr(extract_field(input, "map"))->empty();
     };
 
     dispatch_["map_length"] = [](BallValue input, BallCallable) -> BallValue {
-        auto map = std::any_cast<BallMap>(extract_field(input, "map"));
-        return static_cast<int64_t>(map.size());
+        return ball_map_length(extract_field(input, "map"));
     };
 
     // Also support the stubs that were in std dispatch
-    dispatch_["map_create"] = [](BallValue, BallCallable) -> BallValue { return BallMap{}; };
+    dispatch_["map_create"] = [](BallValue, BallCallable) -> BallValue { return ball_map_value(BallMap{}); };
     dispatch_["set_create"] = [](BallValue input, BallCallable) -> BallValue {
         auto elems = extract_field(input, "elements");
         if (is_list(elems)) {
@@ -4865,7 +4869,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         // Empty `{}` in Dart is a Map literal, not a Set literal.
         // When elements is empty, return BallMap so that map operations
         // (index, containsKey, assign-via-index) work correctly.
-        return BallMap{};
+        return ball_map_value(BallMap{});
     };
 
     dispatch_["list_foreach"] = [](BallValue input, BallCallable engine) -> BallValue {
@@ -4882,7 +4886,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
             }
         } else if (is_map(list_val)) {
             // Iterate over map entries as {key, value} pairs.
-            const auto& m = std::any_cast<const BallMap&>(list_val);
+            const BallMap& m = *ball_map_ptr(list_val);
             for (const auto& [k, v] : m) {
                 func(BallValue(BallMap{{"key", std::string(k)}, {"value", v}}));
             }
@@ -5203,7 +5207,7 @@ std::string Engine::json_encode_value(const BallValue& val) {
         return r;
     }
     if (is_map(val)) {
-        auto m = std::any_cast<BallMap>(val);
+        const BallMap& m = *ball_map_ptr(val);
         std::string r = "{";
         bool first = true;
         for (const auto& [k, v] : m) {

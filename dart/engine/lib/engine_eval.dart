@@ -398,11 +398,20 @@ extension BallEngineEval on BallEngine {
     final name = ref.name;
 
     // Handle 'super' keyword: resolve to the __super__ of self.
-    if (name == 'super' && scope.has('self')) {
-      final self = scope.lookup('self');
-      final selfMap = _asMap(self);
-      if (selfMap != null) {
-        return selfMap['__super__'] ?? self;
+    // Use lookup (not has) — has() can diverge from lookup on BallScope edges
+    // after bind(scope, "self", …) in the compiled C++ self-host engine.
+    if (name == 'super') {
+      Object? selfRef;
+      try {
+        selfRef = scope.lookup('self');
+      } catch (_) {
+        selfRef = null;
+      }
+      if (selfRef != null) {
+        final selfMap = _asMap(selfRef);
+        if (selfMap != null) {
+          return selfMap['__super__'] ?? selfRef;
+        }
       }
     }
 

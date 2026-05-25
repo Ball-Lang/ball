@@ -8,8 +8,11 @@ extension BallEngineEval on BallEngine {
   /// Unwrap a value to its underlying [Map<String, Object?>] if it is a
   /// [BallMap] or already a raw map.  Returns `null` otherwise.
   Map<String, Object?>? _asMap(Object? v) {
+    if (v is Map && v is! BallMap) {
+      if (v is Map<String, Object?>) return v;
+      return v.cast<String, Object?>();
+    }
     if (v is BallMap) return v.entries;
-    if (v is Map<String, Object?>) return v;
     return null;
   }
 
@@ -143,7 +146,9 @@ extension BallEngineEval on BallEngine {
     // and the _functions map probe — go straight to the module handler.
     // Only fires when call.module is set explicitly (empty-module calls
     // still flow through the scope-closure check below).
-    if (call.module == 'std' || call.module == 'dart_std') {
+    if (call.module == 'std' ||
+        call.module == 'dart_std' ||
+        call.module == 'std_collections') {
       return _unwrapFuture(
         await _callBaseFunction(call.module, call.function, input),
       );
@@ -651,7 +656,21 @@ extension BallEngineEval on BallEngine {
           // map-index lookup that returns null in the self-host engine.
           return objectMap.entries.map((e) => e.key).toList();
         case 'values':
-          return objectMap.entries.map((e) => e.value).toList();
+          final vals = objectMap.entries.map((e) => e.value).toList();
+          if (vals.isNotEmpty &&
+              vals.every(
+                (v) =>
+                    v is Map &&
+                    v.containsKey('index') &&
+                    v.containsKey('__type__'),
+              )) {
+            vals.sort(
+              (a, b) => ((a as Map)['index'] as num).compareTo(
+                (b as Map)['index'] as num,
+              ),
+            );
+          }
+          return vals;
         case 'length':
           return objectMap.length;
         case 'isEmpty':
@@ -704,7 +723,23 @@ extension BallEngineEval on BallEngine {
       case 'keys':
         if (object is Map) return object.entries.map((e) => e.key).toList();
       case 'values':
-        if (object is Map) return object.entries.map((e) => e.value).toList();
+        if (object is Map) {
+          final vals = object.entries.map((e) => e.value).toList();
+          if (vals.isNotEmpty &&
+              vals.every(
+                (v) =>
+                    v is Map &&
+                    v.containsKey('index') &&
+                    v.containsKey('__type__'),
+              )) {
+            vals.sort(
+              (a, b) => ((a as Map)['index'] as num).compareTo(
+                (b as Map)['index'] as num,
+              ),
+            );
+          }
+          return vals;
+        }
       case 'isNaN':
         if (object is double) return object.isNaN;
       case 'isFinite':

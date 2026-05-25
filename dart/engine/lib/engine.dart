@@ -335,20 +335,21 @@ class BallEngine {
       }
       for (final enumDesc in module.enums) {
         final enumName = enumDesc.name;
-        final values = _ballUserMap();
-        for (final v in enumDesc.value) {
-          values[v.name] = <String, Object?>{
+        final enumMap = <String, Map<String, Object?>>{};
+        final enumValueList = enumDesc.value;
+        for (var vi = 0; vi < enumValueList.length; vi++) {
+          final v = enumValueList[vi];
+          final entry = <String, Object?>{
             '__type__': enumName,
             'name': v.name,
             'index': v.number,
           };
+          enumMap[v.name] = entry;
         }
-        _enumValues[enumName] =
-            values.map((k, v) => MapEntry(k, v as Map<String, Object?>));
+        _enumValues[enumName] = enumMap;
         final ec = enumName.indexOf(':');
         if (ec >= 0) {
-          _enumValues[enumName.substring(ec + 1)] =
-              values.map((k, v) => MapEntry(k, v as Map<String, Object?>));
+          _enumValues[enumName.substring(ec + 1)] = enumMap;
         }
       }
 

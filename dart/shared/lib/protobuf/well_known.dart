@@ -140,9 +140,7 @@ Map<String, Object?> nativeToValue(Object? value) {
   }
   if (value is List) {
     return {
-      'listValue': {
-        'values': value.map((e) => nativeToValue(e)).toList(),
-      },
+      'listValue': {'values': value.map((e) => nativeToValue(e)).toList()},
     };
   }
   throw ArgumentError(
@@ -166,10 +164,7 @@ String timestampToRfc3339(Map<String, Object?> timestamp) {
   final seconds = _toInt(timestamp['seconds'] ?? 0);
   final nanos = _toInt(timestamp['nanos'] ?? 0);
 
-  final dt = DateTime.fromMillisecondsSinceEpoch(
-    seconds * 1000,
-    isUtc: true,
-  );
+  final dt = DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true);
 
   final datePart = '${_pad4(dt.year)}-${_pad2(dt.month)}-${_pad2(dt.day)}';
   final timePart = '${_pad2(dt.hour)}:${_pad2(dt.minute)}:${_pad2(dt.second)}';
@@ -268,9 +263,7 @@ String durationToString(Map<String, Object?> duration) {
 /// Throws [FormatException] if the string does not end with `'s'`.
 Map<String, Object?> stringToDuration(String durationStr) {
   if (!durationStr.endsWith('s')) {
-    throw FormatException(
-      'Duration string must end with "s": $durationStr',
-    );
+    throw FormatException('Duration string must end with "s": $durationStr');
   }
 
   final body = durationStr.substring(0, durationStr.length - 1);

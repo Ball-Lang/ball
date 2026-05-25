@@ -23,12 +23,15 @@ Future<void> main() async {
     exit(1);
   }
 
-  final dartFiles = srcDir
-      .listSync()
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.dart') && !f.path.contains('generate_'))
-      .toList()
-    ..sort((a, b) => a.path.compareTo(b.path));
+  final dartFiles =
+      srcDir
+          .listSync()
+          .whereType<File>()
+          .where(
+            (f) => f.path.endsWith('.dart') && !f.path.contains('generate_'),
+          )
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
 
   stdout.writeln('Found ${dartFiles.length} Dart source files to process.');
 
@@ -36,8 +39,7 @@ Future<void> main() async {
   var failed = 0;
 
   for (final dartFile in dartFiles) {
-    final baseName =
-        dartFile.uri.pathSegments.last.replaceAll('.dart', '');
+    final baseName = dartFile.uri.pathSegments.last.replaceAll('.dart', '');
     stdout.write('  $baseName ... ');
 
     // Step 1: Run the Dart source to get expected output
@@ -62,8 +64,9 @@ Future<void> main() async {
       final source = dartFile.readAsStringSync();
       final encoder = DartEncoder();
       final program = encoder.encode(source);
-      final jsonStr =
-          const JsonEncoder.withIndent('  ').convert(program.toProto3Json());
+      final jsonStr = const JsonEncoder.withIndent(
+        '  ',
+      ).convert(program.toProto3Json());
 
       // Step 3: Write output files
       final ballFile = File('${outDir.path}/$baseName.ball.json');

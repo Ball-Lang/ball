@@ -141,10 +141,9 @@ List<int> marshal(
             field['messageDescriptor'] as List<Map<String, Object?>>?;
         for (final item in list) {
           if (item == null) continue;
-          final subBytes =
-              msgDescriptor != null
-                  ? marshal(item as Map<String, Object?>, msgDescriptor)
-                  : item as List<int>;
+          final subBytes = msgDescriptor != null
+              ? marshal(item as Map<String, Object?>, msgDescriptor)
+              : item as List<int>;
           encodeMessageField(buffer, fieldNumber, subBytes);
         }
       } else if (type == 'TYPE_STRING') {
@@ -169,8 +168,13 @@ List<int> marshal(
     // Singular field.
     final msgDescriptor =
         field['messageDescriptor'] as List<Map<String, Object?>>?;
-    marshalField(buffer, fieldNumber, type, value,
-        messageDescriptor: msgDescriptor);
+    marshalField(
+      buffer,
+      fieldNumber,
+      type,
+      value,
+      messageDescriptor: msgDescriptor,
+    );
   }
 
   return buffer;
@@ -470,9 +474,7 @@ int _toInt(Object? value) {
 double _toDouble(Object? value) {
   if (value is double) return value;
   if (value is num) return value.toDouble();
-  throw ArgumentError(
-    'Cannot convert $value (${value.runtimeType}) to double',
-  );
+  throw ArgumentError('Cannot convert $value (${value.runtimeType}) to double');
 }
 
 /// Coerces a map key string into the appropriate Dart type for the given

@@ -891,11 +891,11 @@ extension BallEngineEval on BallEngine {
             _setters[superSetterKeyNoEq] ??
             _functions[superSetterKey];
         if (superSetterFunc != null && _isSetter(superSetterFunc)) {
-          final result = await _callFunction(sModPart, superSetterFunc,
-              <String, Object?>{
-            'self': object,
-            'value': value,
-          });
+          final result = await _callFunction(
+            sModPart,
+            superSetterFunc,
+            <String, Object?>{'self': object, 'value': value},
+          );
           _writeBackingField(object, fieldName, result);
           return result;
         }

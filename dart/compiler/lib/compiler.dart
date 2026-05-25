@@ -25,8 +25,7 @@ class DartCompiler {
   static Future<Program> resolveImports(
     Program program,
     ModuleResolver resolver,
-  ) =>
-      resolver.resolveAll(program);
+  ) => resolver.resolveAll(program);
 
   /// When `true`, the compiler skips the `dart_style` formatting step and
   /// returns raw (unformatted) Dart source.  Use this when the compiled output
@@ -1324,9 +1323,7 @@ class DartCompiler {
           b.body = _compileExpression(func.body).code;
         } else {
           b.body = cb.Code(
-            _captureBody(
-              () => _generateFunctionBody(func.body, isFactory),
-            ),
+            _captureBody(() => _generateFunctionBody(func.body, isFactory)),
           );
         }
       } else {
@@ -1375,8 +1372,7 @@ class DartCompiler {
     // param to `input` would leave those references dangling (e.g.
     // `MyClass(Foo input) : _foo = foo` where `foo` is undefined).
     // Skip the rename entirely when initializers or redirects are present.
-    final hasInitializers =
-        (meta['initializers'] as List?)?.isNotEmpty == true;
+    final hasInitializers = (meta['initializers'] as List?)?.isNotEmpty == true;
     final hasRedirect = meta['redirects_to'] != null;
 
     // Count positional (non-named, non-optional) params. If there's
@@ -1386,7 +1382,8 @@ class DartCompiler {
     int positionalCount = 0;
     for (final p in params) {
       if (p is! Map) continue;
-      final isNamed = p['is_named'] == true ||
+      final isNamed =
+          p['is_named'] == true ||
           p['is_required_named'] == true ||
           p['is_optional_named'] == true;
       final isOptional = p['is_optional'] == true;
@@ -2216,10 +2213,7 @@ class DartCompiler {
     }
     if (last.whichExpr() != Expression_Expr.call) return false;
     final fn = last.call.function;
-    return fn == 'return' ||
-        fn == 'throw' ||
-        fn == 'continue' ||
-        fn == 'break';
+    return fn == 'return' || fn == 'throw' || fn == 'continue' || fn == 'break';
   }
 
   /// Common Dart exception class names. When a typed catch's `type` is
@@ -2313,8 +2307,7 @@ class DartCompiler {
         final s = _stringFieldValue(cf, 'stack_trace');
         if (s != null && s.isNotEmpty) tagStackNames.add(s);
       }
-      final anyNeedsStack =
-          untypedStack != null || tagStackNames.isNotEmpty;
+      final anyNeedsStack = untypedStack != null || tagStackNames.isNotEmpty;
       // Use a stable catch-level name; alias per-branch.
       const catchAllStack = '__ball_st';
       if (anyNeedsStack) {
@@ -2963,7 +2956,8 @@ class DartCompiler {
       'list_pop' => '${_e(f['list']!)}.removeLast()',
       'list_insert' =>
         '${_e(f['list']!)}..insert(${_e(f['index'] ?? f['value']!)}, ${_e(f['value'] ?? f['arg1']!)})',
-      'list_remove_at' => '${_e(f['list']!)}.removeAt(${_e(f['index'] ?? f['value']!)})',
+      'list_remove_at' =>
+        '${_e(f['list']!)}.removeAt(${_e(f['index'] ?? f['value']!)})',
       'list_get' => '${_e(f['list']!)}[${_e(f['index'] ?? f['value']!)}]',
       'list_set' =>
         '(${_e(f['list']!)}[${_e(f['index']!)}] = ${_e(f['value']!)})',
@@ -2974,15 +2968,14 @@ class DartCompiler {
       'list_contains' => '${_e(f['list']!)}.contains(${_e(_val())})',
       'list_index_of' => '${_e(f['list']!)}.indexOf(${_e(_val())})',
       'list_map' => '${_e(f['list']!)}.map(${_e(_cb())}).toList()',
-      'list_filter' =>
-        '${_e(f['list']!)}.where(${_e(_cb())}).toList()',
+      'list_filter' => '${_e(f['list']!)}.where(${_e(_cb())}).toList()',
       'list_reduce' => '${_e(f['list']!)}.reduce(${_e(_cb())})',
       'list_any' => '${_e(f['list']!)}.any(${_e(_cb())})',
-      'list_all' ||
-      'list_every' => '${_e(f['list']!)}.every(${_e(_cb())})',
-      'list_sort' => f.containsKey('value') || f.containsKey('comparator')
-          ? '(${_e(f['list']!)}..sort(${_e(_cb())}))'
-          : '(${_e(f['list']!)}..sort())',
+      'list_all' || 'list_every' => '${_e(f['list']!)}.every(${_e(_cb())})',
+      'list_sort' =>
+        f.containsKey('value') || f.containsKey('comparator')
+            ? '(${_e(f['list']!)}..sort(${_e(_cb())}))'
+            : '(${_e(f['list']!)}..sort())',
       'list_reverse' => '${_e(f['list']!)}.reversed.toList()',
       'list_slice' => () {
         final args = f.entries.where((e) => e.key != 'list').toList();
@@ -2992,13 +2985,13 @@ class DartCompiler {
         return '${_e(f['list']!)}.sublist(${_e(args.isNotEmpty ? args[0].value : _start())})';
       }(),
       'list_concat' => '[...${_e(_left())}, ...${_e(_right())}]',
-      'list_flat_map' =>
-        '${_e(f['list']!)}.expand(${_e(_cb())}).toList()',
+      'list_flat_map' => '${_e(f['list']!)}.expand(${_e(_cb())}).toList()',
       'list_clear' => '${_e(f['list']!)}..clear()',
       'list_to_list' => '${_e(f['list']!)}.toList()',
-      'string_join' || 'list_join' => f.containsKey('separator')
-          ? '${_e(f['list']!)}.join(${_e(f['separator']!)})'
-          : '${_e(f['list']!)}.join()',
+      'string_join' || 'list_join' =>
+        f.containsKey('separator')
+            ? '${_e(f['list']!)}.join(${_e(f['separator']!)})'
+            : '${_e(f['list']!)}.join()',
       // Map operations
       'map_get' => '${_e(f['map']!)}[${_e(f['key']!)}]',
       'map_set' => '(${_e(f['map']!)}[${_e(f['key']!)}] = ${_e(f['value']!)})',
@@ -3155,10 +3148,11 @@ class DartCompiler {
     // Wrap the operand in parens when its rendering starts with the
     // same operator character.
     final inner = _e(v);
-    final needsParen = inner.isNotEmpty &&
+    final needsParen =
+        inner.isNotEmpty &&
         ((op == '-' && inner.startsWith('-')) ||
-         (op == '!' && inner.startsWith('!')) ||
-         (op == '~' && inner.startsWith('~')));
+            (op == '!' && inner.startsWith('!')) ||
+            (op == '~' && inner.startsWith('~')));
     if (needsParen) {
       return '$op($inner)';
     }
@@ -3273,7 +3267,9 @@ class DartCompiler {
     if (inner.isEmpty) return false;
     // Prefix operators.
     final first = inner.codeUnitAt(0);
-    if (first == 0x21 /* ! */ || first == 0x7E /* ~ */ || first == 0x2D /* - */) {
+    if (first == 0x21 /* ! */ ||
+        first == 0x7E /* ~ */ ||
+        first == 0x2D /* - */ ) {
       return true;
     }
     // Binary op calls via std render as infix (`a + b`, `a == b`, etc.)
@@ -3281,15 +3277,35 @@ class DartCompiler {
     // those std calls.
     if (v.whichExpr() == Expression_Expr.call) {
       const infixOps = {
-        'add', 'subtract', 'multiply', 'divide', 'divide_double', 'modulo',
-        'equals', 'not_equals', 'less_than', 'greater_than', 'lte', 'gte',
-        'and', 'or',
-        'bitwise_and', 'bitwise_or', 'bitwise_xor',
-        'left_shift', 'right_shift', 'unsigned_right_shift',
+        'add',
+        'subtract',
+        'multiply',
+        'divide',
+        'divide_double',
+        'modulo',
+        'equals',
+        'not_equals',
+        'less_than',
+        'greater_than',
+        'lte',
+        'gte',
+        'and',
+        'or',
+        'bitwise_and',
+        'bitwise_or',
+        'bitwise_xor',
+        'left_shift',
+        'right_shift',
+        'unsigned_right_shift',
         'null_coalesce',
       };
-      const prefixOps = {'not', 'negate', 'bitwise_not',
-                         'pre_increment', 'pre_decrement'};
+      const prefixOps = {
+        'not',
+        'negate',
+        'bitwise_not',
+        'pre_increment',
+        'pre_decrement',
+      };
       // Postfix operators also misparse when used as a method receiver:
       // `i++.toString()` is invalid Dart (the `.toString()` never binds).
       // Wrap the whole expression in parens: `(i++).toString()`.
@@ -3690,10 +3706,7 @@ class DartCompiler {
       final named = <({String k, Expression v})>[];
       for (final f in allFields) {
         if (positionalPattern.hasMatch(f.name)) {
-          positional.add((
-            i: int.parse(f.name.substring(1)),
-            v: f.value,
-          ));
+          positional.add((i: int.parse(f.name.substring(1)), v: f.value));
         } else {
           named.add((k: f.name, v: f.value));
         }

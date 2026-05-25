@@ -7,7 +7,8 @@ import 'package:ball_base/capability_table.dart';
 import 'package:test/test.dart';
 
 Program _load(String path) {
-  final json = jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
+  final json =
+      jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
   return Program()..mergeFromProto3Json(json, ignoreUnknownFields: true);
 }
 
@@ -76,8 +77,18 @@ void main() {
                 'input': {
                   'messageCreation': {
                     'fields': [
-                      {'name': 'left', 'value': {'literal': {'intValue': '1'}}},
-                      {'name': 'right', 'value': {'literal': {'intValue': '2'}}},
+                      {
+                        'name': 'left',
+                        'value': {
+                          'literal': {'intValue': '1'},
+                        },
+                      },
+                      {
+                        'name': 'right',
+                        'value': {
+                          'literal': {'intValue': '2'},
+                        },
+                      },
                     ],
                   },
                 },
@@ -110,7 +121,9 @@ void main() {
                     'fields': [
                       {
                         'name': 'value',
-                        'value': {'literal': {'stringValue': 'hello'}},
+                        'value': {
+                          'literal': {'stringValue': 'hello'},
+                        },
                       },
                     ],
                   },
@@ -148,7 +161,9 @@ void main() {
                     'fields': [
                       {
                         'name': 'value',
-                        'value': {'literal': {'stringValue': 'x'}},
+                        'value': {
+                          'literal': {'stringValue': 'x'},
+                        },
                       },
                     ],
                   },
@@ -180,8 +195,18 @@ void main() {
                 'input': {
                   'messageCreation': {
                     'fields': [
-                      {'name': 'left', 'value': {'literal': {'intValue': '1'}}},
-                      {'name': 'right', 'value': {'literal': {'intValue': '2'}}},
+                      {
+                        'name': 'left',
+                        'value': {
+                          'literal': {'intValue': '1'},
+                        },
+                      },
+                      {
+                        'name': 'right',
+                        'value': {
+                          'literal': {'intValue': '2'},
+                        },
+                      },
                     ],
                   },
                 },
@@ -214,7 +239,9 @@ void main() {
                     'fields': [
                       {
                         'name': 'value',
-                        'value': {'literal': {'stringValue': 'hi'}},
+                        'value': {
+                          'literal': {'stringValue': 'hi'},
+                        },
                       },
                     ],
                   },

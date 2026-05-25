@@ -26,11 +26,7 @@ const int _wireTypeLEN = 2;
 /// Proto3 rule: does not emit anything if [value] is empty.
 ///
 /// Returns [buffer] with the field bytes appended.
-List<int> encodeStringField(
-  List<int> buffer,
-  int fieldNumber,
-  String value,
-) {
+List<int> encodeStringField(List<int> buffer, int fieldNumber, String value) {
   if (value.isEmpty) return buffer;
   encodeTag(buffer, fieldNumber, _wireTypeLEN);
   encodeString(buffer, value);
@@ -42,11 +38,7 @@ List<int> encodeStringField(
 /// Proto3 rule: does not emit anything if [value] is empty.
 ///
 /// Returns [buffer] with the field bytes appended.
-List<int> encodeBytesField(
-  List<int> buffer,
-  int fieldNumber,
-  List<int> value,
-) {
+List<int> encodeBytesField(List<int> buffer, int fieldNumber, List<int> value) {
   if (value.isEmpty) return buffer;
   encodeTag(buffer, fieldNumber, _wireTypeLEN);
   encodeBytes(buffer, value);

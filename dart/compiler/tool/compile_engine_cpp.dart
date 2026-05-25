@@ -77,9 +77,11 @@ Future<void> main(List<String> args) async {
   stdout.writeln('  merged source: ${src.length} bytes');
   stdout.writeln('Encoding...');
   final prog = DartEncoder().encode(src, name: 'engine');
-  stdout.writeln('  ${prog.modules.length} modules, '
-      '${prog.modules.fold<int>(0, (n, m) => n + m.functions.length)} fns, '
-      '${prog.modules.fold<int>(0, (n, m) => n + m.typeDefs.length)} typeDefs');
+  stdout.writeln(
+    '  ${prog.modules.length} modules, '
+    '${prog.modules.fold<int>(0, (n, m) => n + m.functions.length)} fns, '
+    '${prog.modules.fold<int>(0, (n, m) => n + m.typeDefs.length)} typeDefs',
+  );
 
   // Write as binary protobuf (JSON exceeds protobuf's 100-nesting
   // default for engine.dart's deeply nested expression trees).
@@ -88,18 +90,18 @@ Future<void> main(List<String> args) async {
   final pbPath = '${outDir.path}/engine.ball.pb';
   File(pbPath).writeAsBytesSync(prog.writeToBuffer());
   stdout.writeln(
-      '  Wrote ${prog.writeToBuffer().length} bytes → ${pbPath.replaceAll('\\', '/')}');
+    '  Wrote ${prog.writeToBuffer().length} bytes → ${pbPath.replaceAll('\\', '/')}',
+  );
 
   // Run the cpp compiler.
   final cppCompiler = _findCppCompiler(root);
   if (monolithic) {
     final outCpp = '$root/dart/self_host/lib/engine_rt.cpp';
     stdout.writeln('\nRunning $cppCompiler (monolithic) ...');
-    final result = await Process.run(
-      cppCompiler,
-      [pbPath, outCpp],
-      runInShell: true,
-    );
+    final result = await Process.run(cppCompiler, [
+      pbPath,
+      outCpp,
+    ], runInShell: true);
     if (result.exitCode != 0) {
       stdout.writeln('! cpp compiler reported errors:');
       stdout.writeln(result.stderr);
@@ -107,34 +109,36 @@ Future<void> main(List<String> args) async {
     }
     stdout.writeln(result.stdout);
     final lines = File(outCpp).readAsLinesSync().length;
-    stdout.writeln(
-        '✓ Emitted ${outCpp.replaceAll('\\', '/')} ($lines lines)');
+    stdout.writeln('✓ Emitted ${outCpp.replaceAll('\\', '/')} ($lines lines)');
   } else {
     final outDir = '$root/dart/self_host/lib/engine_rt';
     Directory(outDir).createSync(recursive: true);
     stdout.writeln(
-        '\nRunning $cppCompiler --split $outDir --shards $shardCount ...');
-    final result = await Process.run(
-      cppCompiler,
-      [pbPath, '--split', outDir, '--shards', '$shardCount'],
-      runInShell: true,
+      '\nRunning $cppCompiler --split $outDir --shards $shardCount ...',
     );
+    final result = await Process.run(cppCompiler, [
+      pbPath,
+      '--split',
+      outDir,
+      '--shards',
+      '$shardCount',
+    ], runInShell: true);
     if (result.exitCode != 0) {
       stdout.writeln('! cpp compiler reported errors:');
       stdout.writeln(result.stderr);
       exit(result.exitCode);
     }
     stdout.writeln(result.stdout);
-    final shards = Directory(outDir)
-        .listSync()
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.cpp'))
-        .length;
+    final shards = Directory(
+      outDir,
+    ).listSync().whereType<File>().where((f) => f.path.endsWith('.cpp')).length;
     stdout.writeln(
-        '✓ Emitted $outDir ($shards shard .cpp files + engine_rt_common.hpp)');
+      '✓ Emitted $outDir ($shards shard .cpp files + engine_rt_common.hpp)',
+    );
   }
   stdout.writeln(
-      '\nNote: this tool only verifies the Ball → C++ emit step. '
-      'Whether the emitted C++ compiles under MSVC/GCC/Clang requires '
-      'a separate build step (see cpp/CMakeLists.txt).');
+    '\nNote: this tool only verifies the Ball → C++ emit step. '
+    'Whether the emitted C++ compiles under MSVC/GCC/Clang requires '
+    'a separate build step (see cpp/CMakeLists.txt).',
+  );
 }

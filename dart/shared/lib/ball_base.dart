@@ -19,7 +19,14 @@ export 'std_collections.dart' show buildStdCollectionsModule;
 export 'std_io.dart' show buildStdIoModule;
 export 'std_memory.dart' show buildStdMemoryModule;
 export 'ball_proto.dart' show buildBallProtoModule;
-export 'capability_table.dart' show Capability, capabilityRiskLevel, lookupCapability;
-export 'capability_analyzer.dart' show analyzeCapabilities, formatCapabilityReport, checkPolicy;
-export 'termination_analyzer.dart' show analyzeTermination, TerminationReport, TerminationWarning, formatTerminationReport;
+export 'capability_table.dart'
+    show Capability, capabilityRiskLevel, lookupCapability;
+export 'capability_analyzer.dart'
+    show analyzeCapabilities, formatCapabilityReport, checkPolicy;
+export 'termination_analyzer.dart'
+    show
+        analyzeTermination,
+        TerminationReport,
+        TerminationWarning,
+        formatTerminationReport;
 export 'protobuf/protobuf.dart';

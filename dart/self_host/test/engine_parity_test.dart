@@ -25,24 +25,25 @@ void main() {
   final repoRoot = _findRepoRoot();
   final conformanceDir = Directory('$repoRoot/tests/conformance');
 
-  final programs = conformanceDir
-      .listSync()
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.ball.json'))
-      .toList()
-    ..sort((a, b) => a.path.compareTo(b.path));
+  final programs =
+      conformanceDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.ball.json'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
 
   // Fixtures that depend on host-language `BallEngine(...)` constructor
   // knobs the round-tripped engine cannot observe (the IR has no way to
   // express "construct the engine with timeoutMs: 1"), plus pre-existing
   // protobuf-shape failures. Skipped here so the suite finishes.
   const skipFixtures = <String>{
-    '169_pattern_destructure',           // pre-existing protobuf oneof shape
-    '196_timeout',                       // needs timeoutMs constructor arg
-    '197_memory_limit',                  // needs maxMemoryBytes
+    '169_pattern_destructure', // pre-existing protobuf oneof shape
+    '196_timeout', // needs timeoutMs constructor arg
+    '197_memory_limit', // needs maxMemoryBytes
     '200_resource_exhaustion_protection', // needs maxMemoryBytes
-    '201_input_validation',              // needs max* limits
-    '202_sandbox_mode',                  // needs sandbox: true
+    '201_input_validation', // needs max* limits
+    '202_sandbox_mode', // needs sandbox: true
   };
 
   group('self-host parity — conformance suite', () {
@@ -56,10 +57,14 @@ void main() {
         final liveOut = await _runLive(program);
         final rtOut = await _runRoundTripped(program);
 
-        expect(rtOut, equals(liveOut),
-            reason: 'Round-tripped engine output differs from live engine '
-                'on $name. If this test fails after regeneration, a '
-                'Stop-Fix-Test-Resume cycle is needed on encoder or compiler.');
+        expect(
+          rtOut,
+          equals(liveOut),
+          reason:
+              'Round-tripped engine output differs from live engine '
+              'on $name. If this test fails after regeneration, a '
+              'Stop-Fix-Test-Resume cycle is needed on encoder or compiler.',
+        );
       });
     }
   });

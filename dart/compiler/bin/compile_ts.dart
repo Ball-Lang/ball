@@ -27,10 +27,10 @@ void main(List<String> args) {
     dir = parent;
   }
 
-  final result = Process.runSync(
-    Platform.isWindows ? 'node.exe' : 'node',
-    [cli!, args.first],
-  );
+  final result = Process.runSync(Platform.isWindows ? 'node.exe' : 'node', [
+    cli!,
+    args.first,
+  ]);
   stdout.write(result.stdout);
   if (result.exitCode != 0) {
     stderr.write(result.stderr);

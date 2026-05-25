@@ -21,9 +21,7 @@ class PubspecParser {
     }
     final manifest = fromString(pubspecFile.readAsStringSync());
 
-    final lockFile = File(
-      '${dir.path}${Platform.pathSeparator}pubspec.lock',
-    );
+    final lockFile = File('${dir.path}${Platform.pathSeparator}pubspec.lock');
     if (lockFile.existsSync()) {
       return _withLockVersions(manifest, lockFile.readAsStringSync());
     }

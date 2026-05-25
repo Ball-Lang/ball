@@ -172,10 +172,7 @@ void main() {
     });
 
     test('throws on insufficient bytes', () {
-      expect(
-        () => decodeFixed32([1, 2], 0),
-        throwsA(isA<RangeError>()),
-      );
+      expect(() => decodeFixed32([1, 2], 0), throwsA(isA<RangeError>()));
     });
   });
 
@@ -206,10 +203,7 @@ void main() {
     });
 
     test('throws on insufficient bytes', () {
-      expect(
-        () => decodeFixed64([1, 2, 3], 0),
-        throwsA(isA<RangeError>()),
-      );
+      expect(() => decodeFixed64([1, 2, 3], 0), throwsA(isA<RangeError>()));
     });
   });
 
@@ -269,10 +263,7 @@ void main() {
     });
 
     test('decodeString "testing"', () {
-      final result = decodeString(
-        [7, 116, 101, 115, 116, 105, 110, 103],
-        0,
-      );
+      final result = decodeString([7, 116, 101, 115, 116, 105, 110, 103], 0);
       expect(result['value'], 'testing');
       expect(result['bytesRead'], 8);
     });
@@ -856,15 +847,9 @@ void main() {
     });
 
     test('duration to string', () {
-      expect(
-        durationToString({'seconds': 1, 'nanos': 340012}),
-        '1.000340012s',
-      );
+      expect(durationToString({'seconds': 1, 'nanos': 340012}), '1.000340012s');
       expect(durationToString({'seconds': 0, 'nanos': 0}), '0s');
-      expect(
-        durationToString({'seconds': -1, 'nanos': -500000000}),
-        '-1.5s',
-      );
+      expect(durationToString({'seconds': -1, 'nanos': -500000000}), '-1.5s');
     });
 
     test('string to duration', () {
@@ -934,10 +919,9 @@ void main() {
     });
 
     test('packAny and unpackAny', () {
-      final packed = packAny(
-        'type.googleapis.com/my.Type',
-        {'field1': 'value1'},
-      );
+      final packed = packAny('type.googleapis.com/my.Type', {
+        'field1': 'value1',
+      });
       expect(packed['@type'], 'type.googleapis.com/my.Type');
       expect(packed['field1'], 'value1');
 
@@ -1008,10 +992,7 @@ void main() {
     });
 
     test('throws on incomplete header', () {
-      expect(
-        () => grpcDecodeFrame([0, 0], 0),
-        throwsA(isA<RangeError>()),
-      );
+      expect(() => grpcDecodeFrame([0, 0], 0), throwsA(isA<RangeError>()));
     });
 
     test('throws on incomplete payload', () {
@@ -1076,10 +1057,7 @@ void main() {
     });
 
     test('unrecognized edition throws', () {
-      expect(
-        () => editionDefaults('unknown'),
-        throwsA(isA<ArgumentError>()),
-      );
+      expect(() => editionDefaults('unknown'), throwsA(isA<ArgumentError>()));
     });
 
     test('resolveFeatures applies overrides', () {
@@ -1107,10 +1085,7 @@ void main() {
     test('hasExplicitPresence', () {
       expect(hasExplicitPresence(editionDefaults('proto3')), false);
       expect(hasExplicitPresence(editionDefaults('proto2')), true);
-      expect(
-        hasExplicitPresence({'field_presence': 'LEGACY_REQUIRED'}),
-        true,
-      );
+      expect(hasExplicitPresence({'field_presence': 'LEGACY_REQUIRED'}), true);
     });
 
     test('isPackedRepeated', () {
@@ -1150,9 +1125,17 @@ void main() {
       expect(buf.length, 10);
       // All continuation bytes should have bit 7 set except the last.
       for (int i = 0; i < 9; i++) {
-        expect(buf[i] & 0x80, 0x80, reason: 'byte $i should have continuation bit');
+        expect(
+          buf[i] & 0x80,
+          0x80,
+          reason: 'byte $i should have continuation bit',
+        );
       }
-      expect(buf[9] & 0x80, 0, reason: 'last byte should not have continuation bit');
+      expect(
+        buf[9] & 0x80,
+        0,
+        reason: 'last byte should not have continuation bit',
+      );
       // Round-trip: decode should give back the original negative value.
       final result = decodeVarint(buf, 0);
       expect(result['value'], -1);
@@ -1345,10 +1328,7 @@ void main() {
       final buf = <int>[];
       encodeVarint(buf, 100); // claims 100 bytes follow
       buf.add(0x01); // but only 1 byte follows
-      expect(
-        () => decodeBytes(buf, 0),
-        throwsA(isA<FormatException>()),
-      );
+      expect(() => decodeBytes(buf, 0), throwsA(isA<FormatException>()));
     });
 
     test('toCamelCase preserves leading underscores', () {
@@ -1427,8 +1407,11 @@ void main() {
         },
       ];
       final bytes = marshal({'f': -0.0, 'd': -0.0}, desc);
-      expect(bytes, isNotEmpty,
-          reason: '-0.0 fields must not be skipped by marshal');
+      expect(
+        bytes,
+        isNotEmpty,
+        reason: '-0.0 fields must not be skipped by marshal',
+      );
     });
   });
 }

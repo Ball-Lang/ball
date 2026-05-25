@@ -61,8 +61,9 @@ class _Result {
 
 Future<void> main(List<String> args) async {
   final filter = args.indexOf('--filter');
-  final filterName =
-      filter >= 0 && filter + 1 < args.length ? args[filter + 1] : null;
+  final filterName = filter >= 0 && filter + 1 < args.length
+      ? args[filter + 1]
+      : null;
 
   final packages = filterName != null
       ? _packages.where((p) => p.contains(filterName)).toList()
@@ -106,16 +107,18 @@ Future<void> main(List<String> args) async {
           fnCount += m.functions.length;
         }
 
-        results.add(_Result(
-          package: name,
-          version: version,
-          encodeSuccess: true,
-          moduleCount: program.modules.length,
-          functionCount: fnCount,
-          isPure: report.summary.isPure,
-          capabilities: caps,
-          encodeTime: sw.elapsed,
-        ));
+        results.add(
+          _Result(
+            package: name,
+            version: version,
+            encodeSuccess: true,
+            moduleCount: program.modules.length,
+            functionCount: fnCount,
+            isPure: report.summary.isPure,
+            capabilities: caps,
+            encodeTime: sw.elapsed,
+          ),
+        );
 
         stdout.writeln(
           'OK (${program.modules.length} modules, $fnCount fns, '
@@ -124,13 +127,15 @@ Future<void> main(List<String> args) async {
         );
       } catch (e) {
         sw.stop();
-        results.add(_Result(
-          package: name,
-          version: version,
-          encodeSuccess: false,
-          encodeError: e.toString().split('\n').first,
-          encodeTime: sw.elapsed,
-        ));
+        results.add(
+          _Result(
+            package: name,
+            version: version,
+            encodeSuccess: false,
+            encodeError: e.toString().split('\n').first,
+            encodeTime: sw.elapsed,
+          ),
+        );
         stdout.writeln('FAIL: ${e.toString().split('\n').first}');
       }
 
@@ -138,12 +143,14 @@ Future<void> main(List<String> args) async {
         await pkgDir.delete(recursive: true);
       } catch (_) {}
     } catch (e) {
-      results.add(_Result(
-        package: name,
-        version: '?',
-        encodeSuccess: false,
-        encodeError: 'Download failed: ${e.toString().split('\n').first}',
-      ));
+      results.add(
+        _Result(
+          package: name,
+          version: '?',
+          encodeSuccess: false,
+          encodeError: 'Download failed: ${e.toString().split('\n').first}',
+        ),
+      );
       stdout.writeln('DOWNLOAD FAIL: ${e.toString().split('\n').first}');
     }
   }
@@ -154,7 +161,8 @@ Future<void> main(List<String> args) async {
   final failed = results.where((r) => !r.encodeSuccess).length;
   final pct = results.isEmpty ? 0.0 : passed * 100.0 / results.length;
   stdout.writeln(
-      'Results: $passed passed, $failed failed, ${results.length} total');
+    'Results: $passed passed, $failed failed, ${results.length} total',
+  );
   stdout.writeln('Success rate: ${pct.toStringAsFixed(1)}%');
 
   if (failed > 0) {

@@ -11,15 +11,33 @@ import 'package:ball_encoder/package_encoder.dart';
 import 'package:ball_encoder/pub_client.dart';
 
 const _packages = [
-  'path', 'collection', 'meta', 'async', 'crypto',
-  'convert', 'logging', 'args', 'string_scanner', 'stack_trace',
-  'source_span', 'typed_data', 'term_glyph', 'matcher',
-  'boolean_selector', 'pool', 'yaml', 'glob', 'watcher', 'shelf',
+  'path',
+  'collection',
+  'meta',
+  'async',
+  'crypto',
+  'convert',
+  'logging',
+  'args',
+  'string_scanner',
+  'stack_trace',
+  'source_span',
+  'typed_data',
+  'term_glyph',
+  'matcher',
+  'boolean_selector',
+  'pool',
+  'yaml',
+  'glob',
+  'watcher',
+  'shelf',
 ];
 
 Future<void> main(List<String> args) async {
   final filter = args.indexOf('--filter');
-  final filterName = filter >= 0 && filter + 1 < args.length ? args[filter + 1] : null;
+  final filterName = filter >= 0 && filter + 1 < args.length
+      ? args[filter + 1]
+      : null;
   final packages = filterName != null
       ? _packages.where((p) => p.contains(filterName)).toList()
       : _packages;
@@ -37,7 +55,11 @@ Future<void> main(List<String> args) async {
     stdout.write('  $name... ');
     try {
       final vi = await client.resolveVersion(name, 'any');
-      final pkgDir = await client.downloadPackage(name, vi.version, archiveUrl: vi.archiveUrl);
+      final pkgDir = await client.downloadPackage(
+        name,
+        vi.version,
+        archiveUrl: vi.archiveUrl,
+      );
 
       final encoder = PackageEncoder(pkgDir);
       final program = encoder.encode();
@@ -46,9 +68,11 @@ Future<void> main(List<String> args) async {
 
       // Count non-base, non-stub modules (those with actual content).
       final contentModules = program.modules.where((m) {
-        final allBase = m.functions.every((f) => f.isBase) && m.functions.isNotEmpty;
+        final allBase =
+            m.functions.every((f) => f.isBase) && m.functions.isNotEmpty;
         if (allBase) return false;
-        if (m.functions.isEmpty && m.typeDefs.isEmpty && m.types.isEmpty) return false;
+        if (m.functions.isEmpty && m.typeDefs.isEmpty && m.types.isEmpty)
+          return false;
         if (m.name == '__assets__') return false;
         return true;
       }).length;
@@ -58,11 +82,23 @@ Future<void> main(List<String> args) async {
       totalPackages++;
       if (modules.length >= contentModules) fullSuccessPackages++;
 
-      final stubs = program.modules.length - contentModules -
-          program.modules.where((m) => m.functions.every((f) => f.isBase) && m.functions.isNotEmpty).length;
-      stdout.writeln('${modules.length}/$contentModules modules OK, $stubs stubs skipped (v${vi.version})');
+      final stubs =
+          program.modules.length -
+          contentModules -
+          program.modules
+              .where(
+                (m) =>
+                    m.functions.every((f) => f.isBase) &&
+                    m.functions.isNotEmpty,
+              )
+              .length;
+      stdout.writeln(
+        '${modules.length}/$contentModules modules OK, $stubs stubs skipped (v${vi.version})',
+      );
 
-      try { await pkgDir.delete(recursive: true); } catch (_) {}
+      try {
+        await pkgDir.delete(recursive: true);
+      } catch (_) {}
     } catch (e) {
       stdout.writeln('FAIL: ${e.toString().split('\n').first}');
       totalPackages++;
@@ -71,7 +107,9 @@ Future<void> main(List<String> args) async {
 
   stdout.writeln();
   stdout.writeln('=' * 55);
-  stdout.writeln('Packages: $fullSuccessPackages/$totalPackages fully compiled');
+  stdout.writeln(
+    'Packages: $fullSuccessPackages/$totalPackages fully compiled',
+  );
   stdout.writeln('Modules: $compiledModules/$totalModules compiled');
   final pct = totalModules == 0 ? 0.0 : compiledModules * 100.0 / totalModules;
   stdout.writeln('Module compile rate: ${pct.toStringAsFixed(1)}%');

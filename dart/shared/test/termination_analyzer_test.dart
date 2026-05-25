@@ -30,49 +30,54 @@ Program _buildProgram({
 
 // ── Helpers to build common expression JSON structures ────────────────────
 
-Map<String, dynamic> _call(String module, String fn,
-        [Map<String, dynamic>? input]) =>
-    {
-      'call': {
-        'module': module,
-        'function': fn,
-        if (input != null) 'input': input,
-      },
-    };
+Map<String, dynamic> _call(
+  String module,
+  String fn, [
+  Map<String, dynamic>? input,
+]) => {
+  'call': {'module': module, 'function': fn, if (input != null) 'input': input},
+};
 
 Map<String, dynamic> _msg(String typeName, List<Map<String, dynamic>> fields) =>
     {
-      'messageCreation': {
-        'typeName': typeName,
-        'fields': fields,
-      },
+      'messageCreation': {'typeName': typeName, 'fields': fields},
     };
 
-Map<String, dynamic> _field(String name, Map<String, dynamic> value) =>
-    {'name': name, 'value': value};
+Map<String, dynamic> _field(String name, Map<String, dynamic> value) => {
+  'name': name,
+  'value': value,
+};
 
-Map<String, dynamic> _ref(String name) => {'reference': {'name': name}};
+Map<String, dynamic> _ref(String name) => {
+  'reference': {'name': name},
+};
 
-Map<String, dynamic> _litBool(bool v) => {'literal': {'boolValue': v}};
+Map<String, dynamic> _litBool(bool v) => {
+  'literal': {'boolValue': v},
+};
 
-Map<String, dynamic> _litInt(int v) => {'literal': {'intValue': '$v'}};
+Map<String, dynamic> _litInt(int v) => {
+  'literal': {'intValue': '$v'},
+};
 
-Map<String, dynamic> _litStr(String v) => {'literal': {'stringValue': v}};
+Map<String, dynamic> _litStr(String v) => {
+  'literal': {'stringValue': v},
+};
 
-Map<String, dynamic> _block(List<Map<String, dynamic>> stmts,
-        [Map<String, dynamic>? result]) =>
-    {
-      'block': {
-        'statements': stmts,
-        if (result != null) 'result': result,
-      },
-    };
+Map<String, dynamic> _block(
+  List<Map<String, dynamic>> stmts, [
+  Map<String, dynamic>? result,
+]) => {
+  'block': {'statements': stmts, if (result != null) 'result': result},
+};
 
-Map<String, dynamic> _exprStmt(Map<String, dynamic> expr) =>
-    {'expression': expr};
+Map<String, dynamic> _exprStmt(Map<String, dynamic> expr) => {
+  'expression': expr,
+};
 
-Map<String, dynamic> _letStmt(String name, Map<String, dynamic> value) =>
-    {'let': {'name': name, 'value': value}};
+Map<String, dynamic> _letStmt(String name, Map<String, dynamic> value) => {
+  'let': {'name': name, 'value': value},
+};
 
 void main() {
   group('infinite_loop', () {
@@ -91,9 +96,13 @@ void main() {
               _msg('WhileInput', [
                 _field('condition', _litBool(true)),
                 _field(
-                    'body',
-                    _call('std', 'print',
-                        _msg('PrintInput', [_field('message', _litStr('x'))]))),
+                  'body',
+                  _call(
+                    'std',
+                    'print',
+                    _msg('PrintInput', [_field('message', _litStr('x'))]),
+                  ),
+                ),
               ]),
             ),
           },
@@ -122,9 +131,13 @@ void main() {
               _msg('WhileInput', [
                 _field('condition', _litBool(true)),
                 _field(
-                    'body',
-                    _call('std', 'break',
-                        _msg('BreakInput', [_field('label', _litStr(''))]))),
+                  'body',
+                  _call(
+                    'std',
+                    'break',
+                    _msg('BreakInput', [_field('label', _litStr(''))]),
+                  ),
+                ),
               ]),
             ),
           },
@@ -132,8 +145,9 @@ void main() {
       );
 
       final report = analyzeTermination(program);
-      final loopWarnings =
-          report.warnings.where((w) => w.category == 'infinite_loop').toList();
+      final loopWarnings = report.warnings
+          .where((w) => w.category == 'infinite_loop')
+          .toList();
       expect(loopWarnings, isEmpty);
     });
 
@@ -152,18 +166,24 @@ void main() {
               'while',
               _msg('WhileInput', [
                 _field(
-                    'condition',
-                    _call(
-                        'std',
-                        'less_than',
-                        _msg('BinaryInput', [
-                          _field('left', _ref('i')),
-                          _field('right', _litInt(10)),
-                        ]))),
+                  'condition',
+                  _call(
+                    'std',
+                    'less_than',
+                    _msg('BinaryInput', [
+                      _field('left', _ref('i')),
+                      _field('right', _litInt(10)),
+                    ]),
+                  ),
+                ),
                 _field(
-                    'body',
-                    _call('std', 'print',
-                        _msg('PrintInput', [_field('message', _litStr('x'))]))),
+                  'body',
+                  _call(
+                    'std',
+                    'print',
+                    _msg('PrintInput', [_field('message', _litStr('x'))]),
+                  ),
+                ),
               ]),
             ),
           },
@@ -171,8 +191,9 @@ void main() {
       );
 
       final report = analyzeTermination(program);
-      final loopWarnings =
-          report.warnings.where((w) => w.category == 'infinite_loop').toList();
+      final loopWarnings = report.warnings
+          .where((w) => w.category == 'infinite_loop')
+          .toList();
       expect(loopWarnings, hasLength(1));
       expect(loopWarnings[0].message, contains('i'));
       expect(loopWarnings[0].message, contains('does not modify'));
@@ -194,31 +215,37 @@ void main() {
               'while',
               _msg('WhileInput', [
                 _field(
-                    'condition',
-                    _call(
-                        'std',
-                        'less_than',
-                        _msg('BinaryInput', [
-                          _field('left', _ref('i')),
-                          _field('right', _litInt(10)),
-                        ]))),
+                  'condition',
+                  _call(
+                    'std',
+                    'less_than',
+                    _msg('BinaryInput', [
+                      _field('left', _ref('i')),
+                      _field('right', _litInt(10)),
+                    ]),
+                  ),
+                ),
                 _field(
-                    'body',
-                    _call(
-                        'std',
-                        'assign',
-                        _msg('AssignInput', [
-                          _field('target', _ref('i')),
-                          _field(
-                              'value',
-                              _call(
-                                  'std',
-                                  'add',
-                                  _msg('BinaryInput', [
-                                    _field('left', _ref('i')),
-                                    _field('right', _litInt(1)),
-                                  ]))),
-                        ]))),
+                  'body',
+                  _call(
+                    'std',
+                    'assign',
+                    _msg('AssignInput', [
+                      _field('target', _ref('i')),
+                      _field(
+                        'value',
+                        _call(
+                          'std',
+                          'add',
+                          _msg('BinaryInput', [
+                            _field('left', _ref('i')),
+                            _field('right', _litInt(1)),
+                          ]),
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
               ]),
             ),
           },
@@ -226,8 +253,9 @@ void main() {
       );
 
       final report = analyzeTermination(program);
-      final loopWarnings =
-          report.warnings.where((w) => w.category == 'infinite_loop').toList();
+      final loopWarnings = report.warnings
+          .where((w) => w.category == 'infinite_loop')
+          .toList();
       expect(loopWarnings, isEmpty);
     });
 
@@ -246,19 +274,25 @@ void main() {
               _msg('ForInput', [
                 _field('init', _litInt(0)),
                 _field(
-                    'condition',
-                    _call(
-                        'std',
-                        'less_than',
-                        _msg('BinaryInput', [
-                          _field('left', _ref('i')),
-                          _field('right', _litInt(10)),
-                        ]))),
+                  'condition',
+                  _call(
+                    'std',
+                    'less_than',
+                    _msg('BinaryInput', [
+                      _field('left', _ref('i')),
+                      _field('right', _litInt(10)),
+                    ]),
+                  ),
+                ),
                 // No 'update' field.
                 _field(
-                    'body',
-                    _call('std', 'print',
-                        _msg('PrintInput', [_field('message', _litStr('x'))]))),
+                  'body',
+                  _call(
+                    'std',
+                    'print',
+                    _msg('PrintInput', [_field('message', _litStr('x'))]),
+                  ),
+                ),
               ]),
             ),
           },
@@ -266,8 +300,9 @@ void main() {
       );
 
       final report = analyzeTermination(program);
-      final loopWarnings =
-          report.warnings.where((w) => w.category == 'infinite_loop').toList();
+      final loopWarnings = report.warnings
+          .where((w) => w.category == 'infinite_loop')
+          .toList();
       expect(loopWarnings, hasLength(1));
       expect(loopWarnings[0].message, contains('for loop without update'));
     });
@@ -289,14 +324,16 @@ void main() {
                 _field('init', _litInt(0)),
                 _field('condition', _ref('i')),
                 _field(
-                    'update',
-                    _call(
-                        'std',
-                        'assign',
-                        _msg('AssignInput', [
-                          _field('target', _ref('i')),
-                          _field('value', _litInt(1)),
-                        ]))),
+                  'update',
+                  _call(
+                    'std',
+                    'assign',
+                    _msg('AssignInput', [
+                      _field('target', _ref('i')),
+                      _field('value', _litInt(1)),
+                    ]),
+                  ),
+                ),
                 _field('body', _litInt(0)),
               ]),
             ),
@@ -305,8 +342,9 @@ void main() {
       );
 
       final report = analyzeTermination(program);
-      final loopWarnings =
-          report.warnings.where((w) => w.category == 'infinite_loop').toList();
+      final loopWarnings = report.warnings
+          .where((w) => w.category == 'infinite_loop')
+          .toList();
       expect(loopWarnings, isEmpty);
     });
 
@@ -324,9 +362,13 @@ void main() {
               'do_while',
               _msg('DoWhileInput', [
                 _field(
-                    'body',
-                    _call('std', 'print',
-                        _msg('PrintInput', [_field('message', _litStr('x'))]))),
+                  'body',
+                  _call(
+                    'std',
+                    'print',
+                    _msg('PrintInput', [_field('message', _litStr('x'))]),
+                  ),
+                ),
                 _field('condition', _litBool(true)),
               ]),
             ),
@@ -335,8 +377,9 @@ void main() {
       );
 
       final report = analyzeTermination(program);
-      final loopWarnings =
-          report.warnings.where((w) => w.category == 'infinite_loop').toList();
+      final loopWarnings = report.warnings
+          .where((w) => w.category == 'infinite_loop')
+          .toList();
       expect(loopWarnings, hasLength(1));
       expect(loopWarnings[0].message, contains('do-while(true)'));
     });
@@ -351,14 +394,9 @@ void main() {
         functions: [
           {
             'name': 'main',
-            'body': _block([
-              _exprStmt(_call('main', 'recurse', _litInt(1))),
-            ]),
+            'body': _block([_exprStmt(_call('main', 'recurse', _litInt(1)))]),
           },
-          {
-            'name': 'recurse',
-            'body': _call('main', 'recurse', _litInt(1)),
-          },
+          {'name': 'recurse', 'body': _call('main', 'recurse', _litInt(1))},
         ],
       );
 
@@ -379,10 +417,7 @@ void main() {
           {'name': 'less_than', 'inputType': 'BinaryInput'},
         ],
         functions: [
-          {
-            'name': 'main',
-            'body': _call('main', 'recurse', _litInt(1)),
-          },
+          {'name': 'main', 'body': _call('main', 'recurse', _litInt(1))},
           {
             'name': 'recurse',
             'body': _call(
@@ -391,9 +426,13 @@ void main() {
               _msg('IfInput', [
                 _field('condition', _ref('n')),
                 _field(
-                    'then',
-                    _call('std', 'return',
-                        _msg('ReturnInput', [_field('value', _litInt(0))]))),
+                  'then',
+                  _call(
+                    'std',
+                    'return',
+                    _msg('ReturnInput', [_field('value', _litInt(0))]),
+                  ),
+                ),
                 _field('else', _call('main', 'recurse', _litInt(1))),
               ]),
             ),
@@ -412,18 +451,9 @@ void main() {
       final program = _buildProgram(
         stdFunctions: [],
         functions: [
-          {
-            'name': 'main',
-            'body': _call('main', 'a', _litInt(1)),
-          },
-          {
-            'name': 'a',
-            'body': _call('main', 'b', _litInt(1)),
-          },
-          {
-            'name': 'b',
-            'body': _call('main', 'a', _litInt(1)),
-          },
+          {'name': 'main', 'body': _call('main', 'a', _litInt(1))},
+          {'name': 'a', 'body': _call('main', 'b', _litInt(1))},
+          {'name': 'b', 'body': _call('main', 'a', _litInt(1))},
         ],
       );
 
@@ -447,10 +477,20 @@ void main() {
           {
             'name': 'main',
             'body': _block([
-              _exprStmt(_call('std', 'return',
-                  _msg('ReturnInput', [_field('value', _litInt(0))]))),
-              _exprStmt(_call('std', 'print',
-                  _msg('PrintInput', [_field('message', _litStr('dead'))]))),
+              _exprStmt(
+                _call(
+                  'std',
+                  'return',
+                  _msg('ReturnInput', [_field('value', _litInt(0))]),
+                ),
+              ),
+              _exprStmt(
+                _call(
+                  'std',
+                  'print',
+                  _msg('PrintInput', [_field('message', _litStr('dead'))]),
+                ),
+              ),
             ]),
           },
         ],
@@ -476,10 +516,20 @@ void main() {
           {
             'name': 'main',
             'body': _block([
-              _exprStmt(_call('std', 'throw',
-                  _msg('UnaryInput', [_field('value', _litStr('error'))]))),
-              _exprStmt(_call('std', 'print',
-                  _msg('PrintInput', [_field('message', _litStr('dead'))]))),
+              _exprStmt(
+                _call(
+                  'std',
+                  'throw',
+                  _msg('UnaryInput', [_field('value', _litStr('error'))]),
+                ),
+              ),
+              _exprStmt(
+                _call(
+                  'std',
+                  'print',
+                  _msg('PrintInput', [_field('message', _litStr('dead'))]),
+                ),
+              ),
             ]),
           },
         ],
@@ -503,10 +553,20 @@ void main() {
           {
             'name': 'main',
             'body': _block([
-              _exprStmt(_call('std', 'print',
-                  _msg('PrintInput', [_field('message', _litStr('ok'))]))),
-              _exprStmt(_call('std', 'return',
-                  _msg('ReturnInput', [_field('value', _litInt(0))]))),
+              _exprStmt(
+                _call(
+                  'std',
+                  'print',
+                  _msg('PrintInput', [_field('message', _litStr('ok'))]),
+                ),
+              ),
+              _exprStmt(
+                _call(
+                  'std',
+                  'return',
+                  _msg('ReturnInput', [_field('value', _litInt(0))]),
+                ),
+              ),
             ]),
           },
         ],
@@ -536,13 +596,13 @@ void main() {
               _msg('WhileInput', [
                 _field('condition', _litBool(true)),
                 _field(
-                    'body',
-                    _call(
-                        'std',
-                        'break',
-                        _msg('BreakInput', [
-                          _field('label', _litStr('outer')),
-                        ]))),
+                  'body',
+                  _call(
+                    'std',
+                    'break',
+                    _msg('BreakInput', [_field('label', _litStr('outer'))]),
+                  ),
+                ),
               ]),
             ),
           },
@@ -574,22 +634,25 @@ void main() {
               _msg('LabelInput', [
                 _field('name', _litStr('outer')),
                 _field(
-                    'body',
-                    _call(
-                      'std',
-                      'while',
-                      _msg('WhileInput', [
-                        _field('condition', _litBool(true)),
-                        _field(
-                            'body',
-                            _call(
-                                'std',
-                                'break',
-                                _msg('BreakInput', [
-                                  _field('label', _litStr('outer')),
-                                ]))),
-                      ]),
-                    )),
+                  'body',
+                  _call(
+                    'std',
+                    'while',
+                    _msg('WhileInput', [
+                      _field('condition', _litBool(true)),
+                      _field(
+                        'body',
+                        _call(
+                          'std',
+                          'break',
+                          _msg('BreakInput', [
+                            _field('label', _litStr('outer')),
+                          ]),
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
               ]),
             ),
           },
@@ -618,13 +681,15 @@ void main() {
               _msg('WhileInput', [
                 _field('condition', _litBool(true)),
                 _field(
-                    'body',
-                    _call(
-                        'std',
-                        'continue',
-                        _msg('ContinueInput', [
-                          _field('label', _litStr('missing')),
-                        ]))),
+                  'body',
+                  _call(
+                    'std',
+                    'continue',
+                    _msg('ContinueInput', [
+                      _field('label', _litStr('missing')),
+                    ]),
+                  ),
+                ),
               ]),
             ),
           },
@@ -655,13 +720,13 @@ void main() {
               _msg('WhileInput', [
                 _field('condition', _litBool(true)),
                 _field(
-                    'body',
-                    _call(
-                        'std',
-                        'break',
-                        _msg('BreakInput', [
-                          _field('label', _litStr('')),
-                        ]))),
+                  'body',
+                  _call(
+                    'std',
+                    'break',
+                    _msg('BreakInput', [_field('label', _litStr(''))]),
+                  ),
+                ),
               ]),
             ),
           },
@@ -680,10 +745,7 @@ void main() {
     test('empty main function has no warnings', () {
       final program = _buildProgram(
         functions: [
-          {
-            'name': 'main',
-            'body': _litInt(0),
-          },
+          {'name': 'main', 'body': _litInt(0)},
         ],
       );
 
@@ -699,8 +761,11 @@ void main() {
         functions: [
           {
             'name': 'main',
-            'body': _call('std', 'print',
-                _msg('PrintInput', [_field('message', _litStr('hello'))])),
+            'body': _call(
+              'std',
+              'print',
+              _msg('PrintInput', [_field('message', _litStr('hello'))]),
+            ),
           },
         ],
       );
@@ -722,38 +787,46 @@ void main() {
             'name': 'main',
             'body': _block([
               _letStmt('i', _litInt(0)),
-              _exprStmt(_call(
-                'std',
-                'while',
-                _msg('WhileInput', [
-                  _field(
+              _exprStmt(
+                _call(
+                  'std',
+                  'while',
+                  _msg('WhileInput', [
+                    _field(
                       'condition',
                       _call(
-                          'std',
-                          'less_than',
-                          _msg('BinaryInput', [
-                            _field('left', _ref('i')),
-                            _field('right', _litInt(10)),
-                          ]))),
-                  _field(
+                        'std',
+                        'less_than',
+                        _msg('BinaryInput', [
+                          _field('left', _ref('i')),
+                          _field('right', _litInt(10)),
+                        ]),
+                      ),
+                    ),
+                    _field(
                       'body',
                       _call(
-                          'std',
-                          'assign',
-                          _msg('AssignInput', [
-                            _field('target', _ref('i')),
-                            _field(
-                                'value',
-                                _call(
-                                    'std',
-                                    'add',
-                                    _msg('BinaryInput', [
-                                      _field('left', _ref('i')),
-                                      _field('right', _litInt(1)),
-                                    ]))),
-                          ]))),
-                ]),
-              )),
+                        'std',
+                        'assign',
+                        _msg('AssignInput', [
+                          _field('target', _ref('i')),
+                          _field(
+                            'value',
+                            _call(
+                              'std',
+                              'add',
+                              _msg('BinaryInput', [
+                                _field('left', _ref('i')),
+                                _field('right', _litInt(1)),
+                              ]),
+                            ),
+                          ),
+                        ]),
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
             ]),
           },
         ],

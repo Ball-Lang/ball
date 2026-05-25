@@ -34,21 +34,20 @@ Future<void> main(List<String> args) async {
   final outDir = Directory('${fixturesDir.path}/_generated');
   if (!outDir.existsSync()) outDir.createSync(recursive: true);
 
-  final filter = args.isNotEmpty
-      ? args.first.replaceAll('.dart', '')
-      : null;
+  final filter = args.isNotEmpty ? args.first.replaceAll('.dart', '') : null;
 
-  final targets = fixturesDir
-      .listSync()
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.dart'))
-      .where((f) {
-        if (filter == null) return true;
-        final name = f.uri.pathSegments.last.replaceAll('.dart', '');
-        return name == filter;
-      })
-      .toList()
-    ..sort((a, b) => a.path.compareTo(b.path));
+  final targets =
+      fixturesDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))
+          .where((f) {
+            if (filter == null) return true;
+            final name = f.uri.pathSegments.last.replaceAll('.dart', '');
+            return name == filter;
+          })
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
 
   if (targets.isEmpty) {
     stderr.writeln('error: no matching fixtures found');
@@ -82,8 +81,9 @@ Future<void> main(List<String> args) async {
       final expected = (r.stdout as String)
           .replaceAll('\r\n', '\n')
           .trimRight();
-      File('${outDir.path}/$name.expected_output.txt')
-          .writeAsStringSync('$expected\n');
+      File(
+        '${outDir.path}/$name.expected_output.txt',
+      ).writeAsStringSync('$expected\n');
 
       stdout.writeln('  $name');
     } catch (e) {

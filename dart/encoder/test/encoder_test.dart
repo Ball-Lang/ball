@@ -73,7 +73,9 @@ extension on int {
 }
 ''');
       expect(
-        encoder.warnings.any((w) => w.contains('Extension declaration has no name')),
+        encoder.warnings.any(
+          (w) => w.contains('Extension declaration has no name'),
+        ),
         isTrue,
         reason: 'unnamed extensions should produce a warning',
       );

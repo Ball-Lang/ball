@@ -81,8 +81,8 @@ void main(List<String> args) {
     userModules.add(module);
   }
 
-  final (:stdModule, :dartStdModule, :collectionsModule, :protoModule) =
-      encoder.buildStdModules();
+  final (:stdModule, :dartStdModule, :collectionsModule, :protoModule) = encoder
+      .buildStdModules();
 
   final program = Program()
     ..name = 'ball_protobuf'
@@ -105,8 +105,9 @@ void main(List<String> args) {
     ..writeAsStringSync('$jsonString\n');
 
   // Write binary protobuf.
-  File('$outputDir/ball_protobuf.bin')
-      .writeAsBytesSync(program.writeToBuffer());
+  File(
+    '$outputDir/ball_protobuf.bin',
+  ).writeAsBytesSync(program.writeToBuffer());
 
   // Summary.
   var totalFunctions = 0;

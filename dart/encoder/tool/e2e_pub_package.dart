@@ -20,8 +20,9 @@ Future<void> main(List<String> args) async {
 
   final name = args.first;
   final verIdx = args.indexOf('--version');
-  final constraint =
-      verIdx >= 0 && verIdx + 1 < args.length ? args[verIdx + 1] : 'any';
+  final constraint = verIdx >= 0 && verIdx + 1 < args.length
+      ? args[verIdx + 1]
+      : 'any';
 
   final client = PubClient();
 
@@ -64,9 +65,13 @@ Future<void> main(List<String> args) async {
     final dartSource = compiler.compile();
     final outPath = '/tmp/ball_e2e_${name}.dart';
     File(outPath).writeAsStringSync(dartSource);
-    stdout.writeln('   Entry-point compile: $outPath (${dartSource.length} chars)');
+    stdout.writeln(
+      '   Entry-point compile: $outPath (${dartSource.length} chars)',
+    );
   } catch (_) {
-    stdout.writeln('   No entry point (library package) — using compileAllModules');
+    stdout.writeln(
+      '   No entry point (library package) — using compileAllModules',
+    );
   }
 
   // Always compile all modules for library packages.
@@ -85,11 +90,18 @@ Future<void> main(List<String> args) async {
   }
 
   // Count modules that were skipped (base, empty stubs).
-  final skipped = program.modules.length - compiledCount - program.modules.where(
-    (m) => m.functions.every((f) => f.isBase) && m.functions.isNotEmpty,
-  ).length;
+  final skipped =
+      program.modules.length -
+      compiledCount -
+      program.modules
+          .where(
+            (m) => m.functions.every((f) => f.isBase) && m.functions.isNotEmpty,
+          )
+          .length;
 
-  stdout.writeln('   Compiled $compiledCount modules to ${outDir.path}/ ($totalChars total chars)');
+  stdout.writeln(
+    '   Compiled $compiledCount modules to ${outDir.path}/ ($totalChars total chars)',
+  );
   if (skipped > 0) stdout.writeln('   Skipped $skipped empty/stub modules');
 
   // Show a sample of the first compiled module.
@@ -100,8 +112,9 @@ Future<void> main(List<String> args) async {
   }
 
   // Write Ball JSON
-  final jsonOut = const JsonEncoder.withIndent('  ')
-      .convert(jsonDecode(jsonEncode(program.toProto3Json())));
+  final jsonOut = const JsonEncoder.withIndent(
+    '  ',
+  ).convert(jsonDecode(jsonEncode(program.toProto3Json())));
   final ballPath = '/tmp/ball_e2e_${name}.ball.json';
   File(ballPath).writeAsStringSync(jsonOut);
   stdout.writeln('\n6. Ball JSON: $ballPath (${jsonOut.length} chars)');

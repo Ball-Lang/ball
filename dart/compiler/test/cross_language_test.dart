@@ -146,10 +146,7 @@ String? _runTsCompiled(Program program, Directory scratch, String name) {
 }
 
 /// Returns null if the ball_cpp_runner binary isn't present.
-String? _runCppEngine(
-  File ballJsonFile,
-  File runnerBinary,
-) {
+String? _runCppEngine(File ballJsonFile, File runnerBinary) {
   if (!runnerBinary.existsSync()) return null;
   final r = Process.runSync(
     runnerBinary.absolute.path,
@@ -200,9 +197,9 @@ String? _runCppCompiled(
   // fresh mini CMake project; we invoke cmake directly.
   final projDir = Directory('${scratch.path}/$name.proj');
   projDir.createSync(recursive: true);
-  File('${projDir.path}/${name}.cpp').writeAsStringSync(
-    cppOut.readAsStringSync(),
-  );
+  File(
+    '${projDir.path}/${name}.cpp',
+  ).writeAsStringSync(cppOut.readAsStringSync());
   File('${projDir.path}/CMakeLists.txt').writeAsStringSync('''
 cmake_minimum_required(VERSION 3.14)
 project(ball_cross_$name CXX)
@@ -213,10 +210,12 @@ add_executable($name ${name}.cpp)
 
   final buildDir = Directory('${projDir.path}/_b');
   buildDir.createSync();
-  final gen = Process.runSync('cmake', [
-    '-S', projDir.absolute.path,
-    '-B', buildDir.absolute.path,
-  ], stdoutEncoding: utf8, stderrEncoding: utf8);
+  final gen = Process.runSync(
+    'cmake',
+    ['-S', projDir.absolute.path, '-B', buildDir.absolute.path],
+    stdoutEncoding: utf8,
+    stderrEncoding: utf8,
+  );
   if (gen.exitCode != 0) {
     throw StateError(
       'cmake configure failed (rc=${gen.exitCode})\n'
@@ -224,10 +223,12 @@ add_executable($name ${name}.cpp)
       '--- emitted cpp ---\n${cppOut.readAsStringSync()}',
     );
   }
-  final build = Process.runSync('cmake', [
-    '--build', buildDir.absolute.path,
-    '--config', 'Debug',
-  ], stdoutEncoding: utf8, stderrEncoding: utf8);
+  final build = Process.runSync(
+    'cmake',
+    ['--build', buildDir.absolute.path, '--config', 'Debug'],
+    stdoutEncoding: utf8,
+    stderrEncoding: utf8,
+  );
   if (build.exitCode != 0) {
     throw StateError(
       'cmake build failed (rc=${build.exitCode})\n'
@@ -279,7 +280,9 @@ void main() {
 
   // C++ binary locations produced by the default CMake build.
   final cppRunner = File('../../cpp/build/engine/Debug/ball_cpp_runner.exe');
-  final cppCompile = File('../../cpp/build/compiler/Debug/ball_cpp_compile.exe');
+  final cppCompile = File(
+    '../../cpp/build/compiler/Debug/ball_cpp_compile.exe',
+  );
   // Also check the POSIX layout (no Debug subdir).
   final cppRunnerPosix = File('../../cpp/build/engine/ball_cpp_runner');
   final cppCompilePosix = File('../../cpp/build/compiler/ball_cpp_compile');
@@ -294,12 +297,13 @@ void main() {
   final runnerBin = firstExisting([cppRunner, cppRunnerPosix]);
   final compileBin = firstExisting([cppCompile, cppCompilePosix]);
 
-  final fixtures = fixturesDir
-      .listSync()
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.dart'))
-      .toList()
-    ..sort((a, b) => a.path.compareTo(b.path));
+  final fixtures =
+      fixturesDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
 
   group('cross-language: dart fixture → every Ball pipeline', () {
     late final Directory scratch;
@@ -332,22 +336,23 @@ void main() {
         // Persist the generated ball.json so other tests/tools can see it.
         final jsonOut = File('${ballJsonOutDir.path}/$name.ball.json');
         jsonOut.writeAsStringSync(
-          const JsonEncoder.withIndent('  ')
-              .convert(program.toProto3Json()),
+          const JsonEncoder.withIndent('  ').convert(program.toProto3Json()),
         );
         // Also persist the baseline as an expected_output.txt file next
         // to the generated .ball.json. Lets downstream C++ harnesses
         // (test_e2e) compare against a known-good file without needing
         // to re-invoke `dart run` themselves.
-        File('${ballJsonOutDir.path}/$name.expected_output.txt')
-            .writeAsStringSync('$baseline\n');
+        File(
+          '${ballJsonOutDir.path}/$name.expected_output.txt',
+        ).writeAsStringSync('$baseline\n');
 
         // ── 3. Dart BallEngine.
         final dartEngineOut = await _runBallEngine(program);
         expect(
           dartEngineOut,
           equals(baseline),
-          reason: 'DartEngine diverged from `dart run`\n'
+          reason:
+              'DartEngine diverged from `dart run`\n'
               '--- baseline ---\n$baseline\n'
               '--- engine ---\n$dartEngineOut',
         );

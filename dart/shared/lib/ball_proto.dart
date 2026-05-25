@@ -25,75 +25,147 @@ Module buildBallProtoModule() {
   module.functions.addAll([
     // ── Oneof discriminators ──────────────────────────────────────
     _oneofDiscriminator('whichExpr', 'Expression', [
-      'call', 'literal', 'reference', 'fieldAccess',
-      'messageCreation', 'block', 'lambda',
+      'call',
+      'literal',
+      'reference',
+      'fieldAccess',
+      'messageCreation',
+      'block',
+      'lambda',
     ]),
     _oneofDiscriminator('whichValue', 'Literal', [
-      'intValue', 'doubleValue', 'stringValue', 'boolValue',
-      'bytesValue', 'listValue',
+      'intValue',
+      'doubleValue',
+      'stringValue',
+      'boolValue',
+      'bytesValue',
+      'listValue',
     ]),
-    _oneofDiscriminator('whichStmt', 'Statement', [
-      'let', 'expression',
-    ]),
+    _oneofDiscriminator('whichStmt', 'Statement', ['let', 'expression']),
     _oneofDiscriminator('whichKind', 'google.protobuf.Value', [
-      'nullValue', 'numberValue', 'stringValue', 'boolValue',
-      'structValue', 'listValue',
+      'nullValue',
+      'numberValue',
+      'stringValue',
+      'boolValue',
+      'structValue',
+      'listValue',
     ]),
     _oneofDiscriminator('whichSource', 'ModuleImport', [
-      'http', 'file', 'git', 'registry', 'inline',
+      'http',
+      'file',
+      'git',
+      'registry',
+      'inline',
     ]),
 
     // ── Presence checks ──────────────────────────────────────────
     ..._presenceChecks([
-      'body', 'metadata', 'input', 'descriptor', 'result',
-      'call', 'literal', 'reference', 'fieldAccess',
-      'messageCreation', 'block', 'lambda',
-      'stringValue', 'boolValue', 'numberValue', 'listValue',
-      'structValue', 'nullValue', 'intValue', 'doubleValue',
-      'bytesValue', 'name', 'module', 'function',
+      'body',
+      'metadata',
+      'input',
+      'descriptor',
+      'result',
+      'call',
+      'literal',
+      'reference',
+      'fieldAccess',
+      'messageCreation',
+      'block',
+      'lambda',
+      'stringValue',
+      'boolValue',
+      'numberValue',
+      'listValue',
+      'structValue',
+      'nullValue',
+      'intValue',
+      'doubleValue',
+      'bytesValue',
+      'name',
+      'module',
+      'function',
     ]),
 
     // ── Struct field access ──────────────────────────────────────
-    _baseFn('getStructField', ['struct', 'key'],
-        doc: 'Get a field from a protobuf Struct. Returns Value-like map.'),
-    _baseFn('getStringField', ['struct', 'key'],
-        doc: 'Get string value from Struct field. Returns "" if missing.'),
-    _baseFn('getBoolField', ['struct', 'key'],
-        doc: 'Get bool value from Struct field. Returns false if missing.'),
-    _baseFn('getListField', ['struct', 'key'],
-        doc: 'Get list value from Struct field. Returns [] if missing.'),
-    _baseFn('getNumberField', ['struct', 'key'],
-        doc: 'Get number from Struct field. Returns 0 if missing.'),
-    _baseFn('getStructFieldKeys', ['struct'],
-        doc: 'Get all keys from a Struct/metadata map.'),
+    _baseFn(
+      'getStructField',
+      ['struct', 'key'],
+      doc: 'Get a field from a protobuf Struct. Returns Value-like map.',
+    ),
+    _baseFn(
+      'getStringField',
+      ['struct', 'key'],
+      doc: 'Get string value from Struct field. Returns "" if missing.',
+    ),
+    _baseFn(
+      'getBoolField',
+      ['struct', 'key'],
+      doc: 'Get bool value from Struct field. Returns false if missing.',
+    ),
+    _baseFn(
+      'getListField',
+      ['struct', 'key'],
+      doc: 'Get list value from Struct field. Returns [] if missing.',
+    ),
+    _baseFn('getNumberField', [
+      'struct',
+      'key',
+    ], doc: 'Get number from Struct field. Returns 0 if missing.'),
+    _baseFn('getStructFieldKeys', [
+      'struct',
+    ], doc: 'Get all keys from a Struct/metadata map.'),
 
     // ── Proto3 defaults ──────────────────────────────────────────
-    _baseFn('ensureDefaults', ['obj', 'messageType'],
-        doc: 'Fill proto3 default values for the given message type.'),
-    _baseFn('defaultString', [],
-        doc: 'Returns "" (proto3 default for string fields).'),
-    _baseFn('defaultList', [],
-        doc: 'Returns [] (proto3 default for repeated fields).'),
-    _baseFn('defaultBool', [],
-        doc: 'Returns false (proto3 default for bool fields).'),
-    _baseFn('defaultInt', [],
-        doc: 'Returns 0 (proto3 default for int fields).'),
+    _baseFn(
+      'ensureDefaults',
+      ['obj', 'messageType'],
+      doc: 'Fill proto3 default values for the given message type.',
+    ),
+    _baseFn(
+      'defaultString',
+      [],
+      doc: 'Returns "" (proto3 default for string fields).',
+    ),
+    _baseFn(
+      'defaultList',
+      [],
+      doc: 'Returns [] (proto3 default for repeated fields).',
+    ),
+    _baseFn(
+      'defaultBool',
+      [],
+      doc: 'Returns false (proto3 default for bool fields).',
+    ),
+    _baseFn(
+      'defaultInt',
+      [],
+      doc: 'Returns 0 (proto3 default for int fields).',
+    ),
 
     // ── Safe field access ────────────────────────────────────────
-    _baseFn('getField', ['obj', 'name'],
-        doc: 'Get field from map. Returns null if missing.'),
-    _baseFn('getFieldOr', ['obj', 'name', 'defaultValue'],
-        doc: 'Get field from map. Returns default if missing.'),
-    _baseFn('setField', ['obj', 'name', 'value'],
-        doc: 'Set field on map. Returns the modified map.'),
+    _baseFn('getField', [
+      'obj',
+      'name',
+    ], doc: 'Get field from map. Returns null if missing.'),
+    _baseFn('getFieldOr', [
+      'obj',
+      'name',
+      'defaultValue',
+    ], doc: 'Get field from map. Returns default if missing.'),
+    _baseFn('setField', [
+      'obj',
+      'name',
+      'value',
+    ], doc: 'Set field on map. Returns the modified map.'),
 
     // ── Type enum constants ──────────────────────────────────────
-    _baseFn('exprCase', ['name'],
-        doc: 'Validate an Expression oneof case name.'),
-    _baseFn('literalCase', ['name'],
-        doc: 'Validate a Literal value case name.'),
-    _baseFn('stmtCase', ['name'],
-        doc: 'Validate a Statement oneof case name.'),
+    _baseFn('exprCase', [
+      'name',
+    ], doc: 'Validate an Expression oneof case name.'),
+    _baseFn('literalCase', [
+      'name',
+    ], doc: 'Validate a Literal value case name.'),
+    _baseFn('stmtCase', ['name'], doc: 'Validate a Statement oneof case name.'),
   ]);
 
   return module;
@@ -112,8 +184,12 @@ FunctionDefinition _oneofDiscriminator(
     ..inputType = 'Map'
     ..outputType = 'String'
     ..metadata = _meta({
-      'params': variants.map((v) => <String, Object>{'name': 'obj'}).take(1).toList(),
-      'doc': 'Returns which oneof field is set on a $messageType. '
+      'params': variants
+          .map((v) => <String, Object>{'name': 'obj'})
+          .take(1)
+          .toList(),
+      'doc':
+          'Returns which oneof field is set on a $messageType. '
           'Checks: ${variants.join(", ")}. Returns "notSet" if none.',
       'variants': variants,
       'messageType': messageType,
@@ -129,7 +205,9 @@ List<FunctionDefinition> _presenceChecks(List<String> fields) {
       ..inputType = 'Map'
       ..outputType = 'bool'
       ..metadata = _meta({
-        'params': [{'name': 'obj'}],
+        'params': [
+          {'name': 'obj'},
+        ],
         'doc': 'Returns true if "$f" field is present and non-default.',
         'field': f,
       });

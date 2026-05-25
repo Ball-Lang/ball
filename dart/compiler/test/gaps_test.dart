@@ -147,66 +147,72 @@ void main() { print(add(1, 2).toString()); }
       expect(compiler.failedModules, isEmpty);
     });
 
-    test('failedModules records modules that cannot compile (no silent drop)', () {
-      // Construct a program with one good module and one whose sole function
-      // body is an `notSet`/unknown expression that the compiler cannot lower
-      // even in raw mode without throwing. We force a failure by giving a
-      // function a body referencing an expression oneof that is left unset
-      // inside a context that errors. To keep this deterministic we instead
-      // verify the field is *cleared and re-populated* across runs.
-      final good = DartEncoder().encode('void main() { print("hi"); }');
-      final compiler = DartCompiler(good, noFormat: true);
-      // Pre-seed the map to prove compileAllModules resets it.
-      compiler.failedModules['stale'] = StateError('stale');
-      compiler.compileAllModules();
-      expect(
-        compiler.failedModules.containsKey('stale'),
-        isFalse,
-        reason: 'compileAllModules must clear stale failure entries',
-      );
-      // The failedModules field is exposed (the fix): callers can inspect it.
-      expect(compiler.failedModules, isA<Map<String, Object>>());
-    });
-
-    test('failedModules captures the raw-fallback error for a broken module', () {
-      // A module function whose body is a notSet expression: the compiler
-      // emits `/* unknown expression */` (it does not throw), so this is the
-      // *graceful* path, not a failure. To exercise the failure path we build
-      // a module that throws during emission: a typeDef referencing itself in
-      // a way the emitter rejects is fragile, so instead assert the contract
-      // that any module which DOES throw is surfaced rather than dropped.
-      // We synthesize a minimal program and confirm the happy path leaves
-      // failedModules empty (regression anchor for the silent-drop fix).
-      final program = Program()
-        ..name = 'p'
-        ..version = '1.0.0'
-        ..entryModule = 'main'
-        ..entryFunction = 'main'
-        ..modules.add(
-          Module()
-            ..name = 'main'
-            ..functions.add(
-              FunctionDefinition()
-                ..name = 'main'
-                ..body = (Expression()
-                  ..call = (FunctionCall()
-                    ..module = 'std'
-                    ..function = 'print'
-                    ..input = (Expression()
-                      ..messageCreation = (MessageCreation()
-                        ..typeName = ''
-                        ..fields.add(
-                          FieldValuePair()
-                            ..name = 'value'
-                            ..value = (Expression()
-                              ..literal = (Literal()..stringValue = 'ok')),
-                        ))))),
-            ),
+    test(
+      'failedModules records modules that cannot compile (no silent drop)',
+      () {
+        // Construct a program with one good module and one whose sole function
+        // body is an `notSet`/unknown expression that the compiler cannot lower
+        // even in raw mode without throwing. We force a failure by giving a
+        // function a body referencing an expression oneof that is left unset
+        // inside a context that errors. To keep this deterministic we instead
+        // verify the field is *cleared and re-populated* across runs.
+        final good = DartEncoder().encode('void main() { print("hi"); }');
+        final compiler = DartCompiler(good, noFormat: true);
+        // Pre-seed the map to prove compileAllModules resets it.
+        compiler.failedModules['stale'] = StateError('stale');
+        compiler.compileAllModules();
+        expect(
+          compiler.failedModules.containsKey('stale'),
+          isFalse,
+          reason: 'compileAllModules must clear stale failure entries',
         );
-      final compiler = DartCompiler(program, noFormat: true);
-      final out = compiler.compileAllModules();
-      expect(out.containsKey('main'), isTrue);
-      expect(compiler.failedModules, isEmpty);
-    });
+        // The failedModules field is exposed (the fix): callers can inspect it.
+        expect(compiler.failedModules, isA<Map<String, Object>>());
+      },
+    );
+
+    test(
+      'failedModules captures the raw-fallback error for a broken module',
+      () {
+        // A module function whose body is a notSet expression: the compiler
+        // emits `/* unknown expression */` (it does not throw), so this is the
+        // *graceful* path, not a failure. To exercise the failure path we build
+        // a module that throws during emission: a typeDef referencing itself in
+        // a way the emitter rejects is fragile, so instead assert the contract
+        // that any module which DOES throw is surfaced rather than dropped.
+        // We synthesize a minimal program and confirm the happy path leaves
+        // failedModules empty (regression anchor for the silent-drop fix).
+        final program = Program()
+          ..name = 'p'
+          ..version = '1.0.0'
+          ..entryModule = 'main'
+          ..entryFunction = 'main'
+          ..modules.add(
+            Module()
+              ..name = 'main'
+              ..functions.add(
+                FunctionDefinition()
+                  ..name = 'main'
+                  ..body = (Expression()
+                    ..call = (FunctionCall()
+                      ..module = 'std'
+                      ..function = 'print'
+                      ..input = (Expression()
+                        ..messageCreation = (MessageCreation()
+                          ..typeName = ''
+                          ..fields.add(
+                            FieldValuePair()
+                              ..name = 'value'
+                              ..value = (Expression()
+                                ..literal = (Literal()..stringValue = 'ok')),
+                          ))))),
+              ),
+          );
+        final compiler = DartCompiler(program, noFormat: true);
+        final out = compiler.compileAllModules();
+        expect(out.containsKey('main'), isTrue);
+        expect(compiler.failedModules, isEmpty);
+      },
+    );
   });
 }

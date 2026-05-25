@@ -24,13 +24,13 @@ Future<void> main(List<String> args) async {
 
   final name = args.first;
   final verIdx = args.indexOf('--version');
-  final constraint =
-      verIdx >= 0 && verIdx + 1 < args.length ? args[verIdx + 1] : 'any';
+  final constraint = verIdx >= 0 && verIdx + 1 < args.length
+      ? args[verIdx + 1]
+      : 'any';
   final depthIdx = args.indexOf('--max-depth');
-  final maxDepth =
-      depthIdx >= 0 && depthIdx + 1 < args.length
-          ? int.tryParse(args[depthIdx + 1]) ?? 10
-          : 10;
+  final maxDepth = depthIdx >= 0 && depthIdx + 1 < args.length
+      ? int.tryParse(args[depthIdx + 1]) ?? 10
+      : 10;
 
   final client = PubClient();
 
@@ -79,9 +79,7 @@ Future<void> main(List<String> args) async {
     stdout.writeln('   Total modules: ${stubModules.length}');
     stdout.writeln('   Total functions: $stubFnCount');
     stdout.writeln('   User modules (with code): ${userModuleNames.length}');
-    stdout.writeln(
-      '   Base modules (std/dart_std): ${baseModuleNames.length}',
-    );
+    stdout.writeln('   Base modules (std/dart_std): ${baseModuleNames.length}');
     stdout.writeln(
       '   Stub modules (empty, external deps): ${stubModuleNames.length}',
     );
@@ -147,8 +145,7 @@ Future<void> main(List<String> args) async {
       resolvedFnCount += m.functions.length;
       if (m.functions.isEmpty && m.name != '__assets__') {
         resolvedStubNames.add(m.name);
-      } else if (m.functions.every((f) => f.isBase) &&
-          m.functions.isNotEmpty) {
+      } else if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty) {
         resolvedBaseNames.add(m.name);
       } else {
         // Distinguish original user modules from newly-resolved dep modules.
@@ -165,9 +162,7 @@ Future<void> main(List<String> args) async {
     stdout.writeln('   Total functions: $resolvedFnCount');
     stdout.writeln('   User modules (original): ${resolvedUserNames.length}');
     stdout.writeln('   Base modules: ${resolvedBaseNames.length}');
-    stdout.writeln(
-      '   Resolved dep modules (new): ${resolvedDepNames.length}',
-    );
+    stdout.writeln('   Resolved dep modules (new): ${resolvedDepNames.length}');
     stdout.writeln(
       '   Remaining stubs (unresolved): ${resolvedStubNames.length}',
     );
@@ -175,14 +170,14 @@ Future<void> main(List<String> args) async {
     if (resolvedDepNames.isNotEmpty) {
       stdout.writeln('   Resolved dependency modules:');
       for (final d in resolvedDepNames.take(30)) {
-        final fnCount =
-            resolvedModules.firstWhere((m) => m.name == d).functions.length;
+        final fnCount = resolvedModules
+            .firstWhere((m) => m.name == d)
+            .functions
+            .length;
         stdout.writeln('     + $d ($fnCount functions)');
       }
       if (resolvedDepNames.length > 30) {
-        stdout.writeln(
-          '     ... and ${resolvedDepNames.length - 30} more',
-        );
+        stdout.writeln('     ... and ${resolvedDepNames.length - 30} more');
       }
     }
 
@@ -214,15 +209,17 @@ Future<void> main(List<String> args) async {
 
     final int stubsResolved = stubModuleNames.length - resolvedStubNames.length;
     if (stubsResolved > 0) {
-      stdout.writeln(
-        '  External deps successfully resolved: $stubsResolved',
-      );
+      stdout.writeln('  External deps successfully resolved: $stubsResolved');
     } else if (stubsResolved == 0 && stubModuleNames.isNotEmpty) {
       stdout.writeln('');
-      stdout.writeln('  WARNING: No stubs were resolved despite '
-          '${stubModuleNames.length} stub(s) present.');
-      stdout.writeln('  This may indicate an issue with the async '
-          'dependency resolution path.');
+      stdout.writeln(
+        '  WARNING: No stubs were resolved despite '
+        '${stubModuleNames.length} stub(s) present.',
+      );
+      stdout.writeln(
+        '  This may indicate an issue with the async '
+        'dependency resolution path.',
+      );
       stdout.writeln('');
       stdout.writeln('  Possible causes:');
       stdout.writeln(

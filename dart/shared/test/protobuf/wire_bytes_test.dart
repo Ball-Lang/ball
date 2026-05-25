@@ -67,10 +67,16 @@ void main() {
 
   group('encodeString', () {
     test('encodes "testing"', () {
-      expect(
-        encodeString([], 'testing'),
-        [7, 116, 101, 115, 116, 105, 110, 103],
-      );
+      expect(encodeString([], 'testing'), [
+        7,
+        116,
+        101,
+        115,
+        116,
+        105,
+        110,
+        103,
+      ]);
     });
 
     test('encodes empty string', () {
@@ -87,10 +93,7 @@ void main() {
 
   group('decodeString', () {
     test('decodes "testing" from bytes', () {
-      var result = decodeString(
-        [7, 116, 101, 115, 116, 105, 110, 103],
-        0,
-      );
+      var result = decodeString([7, 116, 101, 115, 116, 105, 110, 103], 0);
       expect(result['value'], 'testing');
       expect(result['bytesRead'], 8);
     });

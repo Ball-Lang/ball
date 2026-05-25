@@ -106,38 +106,78 @@ class _Analyzer {
   }) {
     switch (expr.whichExpr()) {
       case Expression_Expr.call:
-        _walkCall(expr.call, contextModule, contextFunction, caps,
-            callees: callees);
+        _walkCall(
+          expr.call,
+          contextModule,
+          contextFunction,
+          caps,
+          callees: callees,
+        );
       case Expression_Expr.literal:
-        _walkLiteral(expr.literal, contextModule, contextFunction, caps,
-            callees: callees);
+        _walkLiteral(
+          expr.literal,
+          contextModule,
+          contextFunction,
+          caps,
+          callees: callees,
+        );
       case Expression_Expr.block:
         for (final stmt in expr.block.statements) {
           if (stmt.hasLet()) {
-            _walkExpression(stmt.let.value, contextModule, contextFunction,
-                caps, callees: callees);
+            _walkExpression(
+              stmt.let.value,
+              contextModule,
+              contextFunction,
+              caps,
+              callees: callees,
+            );
           }
           if (stmt.hasExpression()) {
-            _walkExpression(stmt.expression, contextModule, contextFunction,
-                caps, callees: callees);
+            _walkExpression(
+              stmt.expression,
+              contextModule,
+              contextFunction,
+              caps,
+              callees: callees,
+            );
           }
         }
         if (expr.block.hasResult()) {
-          _walkExpression(expr.block.result, contextModule, contextFunction,
-              caps, callees: callees);
+          _walkExpression(
+            expr.block.result,
+            contextModule,
+            contextFunction,
+            caps,
+            callees: callees,
+          );
         }
       case Expression_Expr.lambda:
-        _walkExpression(expr.lambda.body, contextModule, contextFunction, caps,
-            callees: callees);
+        _walkExpression(
+          expr.lambda.body,
+          contextModule,
+          contextFunction,
+          caps,
+          callees: callees,
+        );
       case Expression_Expr.messageCreation:
         for (final field in expr.messageCreation.fields) {
-          _walkExpression(field.value, contextModule, contextFunction, caps,
-              callees: callees);
+          _walkExpression(
+            field.value,
+            contextModule,
+            contextFunction,
+            caps,
+            callees: callees,
+          );
         }
       case Expression_Expr.fieldAccess:
         if (expr.fieldAccess.hasObject()) {
-          _walkExpression(expr.fieldAccess.object, contextModule,
-              contextFunction, caps, callees: callees);
+          _walkExpression(
+            expr.fieldAccess.object,
+            contextModule,
+            contextFunction,
+            caps,
+            callees: callees,
+          );
         }
       case Expression_Expr.reference:
         break;
@@ -160,11 +200,15 @@ class _Analyzer {
     if (cap != null) {
       caps.add(cap);
       if (cap != Capability.pure) {
-        _capCallSites.putIfAbsent(cap.name, () => []).add(CallSite()
-          ..module = contextModule
-          ..function = contextFunction
-          ..calleeModule = module
-          ..calleeFunction = fn);
+        _capCallSites
+            .putIfAbsent(cap.name, () => [])
+            .add(
+              CallSite()
+                ..module = contextModule
+                ..function = contextFunction
+                ..calleeModule = module
+                ..calleeFunction = fn,
+            );
       }
     } else {
       callees?.add('$module.$fn');
@@ -172,8 +216,12 @@ class _Analyzer {
 
     if (call.hasInput()) {
       _walkExpression(
-          call.input, contextModule, contextFunction, caps,
-          callees: callees);
+        call.input,
+        contextModule,
+        contextFunction,
+        caps,
+        callees: callees,
+      );
     }
   }
 
@@ -186,8 +234,13 @@ class _Analyzer {
   }) {
     if (lit.hasListValue()) {
       for (final elem in lit.listValue.elements) {
-        _walkExpression(elem, contextModule, contextFunction, caps,
-            callees: callees);
+        _walkExpression(
+          elem,
+          contextModule,
+          contextFunction,
+          caps,
+          callees: callees,
+        );
       }
     }
   }
@@ -223,9 +276,11 @@ class _Analyzer {
       if (!allCaps.contains(cap) && cap != Capability.pure) continue;
       final sites = _capCallSites[cap.name] ?? [];
       if (cap == Capability.pure && sites.isEmpty && allCaps.contains(cap)) {
-        report.capabilities.add(CapabilityEntry()
-          ..capability = cap.name
-          ..riskLevel = capabilityRiskLevel[cap]!);
+        report.capabilities.add(
+          CapabilityEntry()
+            ..capability = cap.name
+            ..riskLevel = capabilityRiskLevel[cap]!,
+        );
         continue;
       }
       if (sites.isNotEmpty) {
@@ -241,19 +296,24 @@ class _Analyzer {
       ..isPure = allCaps.every((c) => c == Capability.pure)
       ..readsFilesystem = allCaps.contains(Capability.fs)
       ..writesFilesystem = allCaps.contains(Capability.fs)
-      ..readsStdin = _capCallSites['io']?.any(
-              (s) => s.calleeFunction == 'read_line') ??
+      ..readsStdin =
+          _capCallSites['io']?.any((s) => s.calleeFunction == 'read_line') ??
           false
-      ..writesStdout = _capCallSites['io']?.any(
-              (s) => s.calleeFunction == 'print' ||
-                  s.calleeFunction == 'print_error') ??
+      ..writesStdout =
+          _capCallSites['io']?.any(
+            (s) =>
+                s.calleeFunction == 'print' ||
+                s.calleeFunction == 'print_error',
+          ) ??
           false
-      ..writesStderr = _capCallSites['io']?.any(
-              (s) => s.calleeFunction == 'print_error') ??
+      ..writesStderr =
+          _capCallSites['io']?.any((s) => s.calleeFunction == 'print_error') ??
           false
-      ..readsEnvironment = _capCallSites['io']?.any(
-              (s) => s.calleeFunction == 'env_get' ||
-                  s.calleeFunction == 'args_get') ??
+      ..readsEnvironment =
+          _capCallSites['io']?.any(
+            (s) =>
+                s.calleeFunction == 'env_get' || s.calleeFunction == 'args_get',
+          ) ??
           false
       ..controlsProcess = allCaps.contains(Capability.process)
       ..usesMemory = allCaps.contains(Capability.memory)
@@ -272,7 +332,9 @@ class _Analyzer {
 /// Format a capability report as human-readable text.
 String formatCapabilityReport(BallCapabilityReport report) {
   final buf = StringBuffer();
-  buf.writeln('Ball Capability Audit: ${report.programName} v${report.programVersion}');
+  buf.writeln(
+    'Ball Capability Audit: ${report.programName} v${report.programVersion}',
+  );
   buf.writeln('=' * 60);
   buf.writeln();
 
@@ -284,9 +346,14 @@ String formatCapabilityReport(BallCapabilityReport report) {
       buf.writeln('  $icon ${entry.capability} (pure computation)');
     } else {
       final sites = entry.callSites
-          .map((s) => '${s.module}.${s.function} \u2192 ${s.calleeModule}.${s.calleeFunction}')
+          .map(
+            (s) =>
+                '${s.module}.${s.function} \u2192 ${s.calleeModule}.${s.calleeFunction}',
+          )
           .join(', ');
-      buf.writeln('  $icon ${entry.capability} ($siteCount call sites: $sites)');
+      buf.writeln(
+        '  $icon ${entry.capability} ($siteCount call sites: $sites)',
+      );
     }
   }
 
@@ -306,12 +373,14 @@ String formatCapabilityReport(BallCapabilityReport report) {
   final risk = s.isPure
       ? 'NO RISK \u2014 pure computation only'
       : s.controlsProcess || s.usesMemory || s.usesNetwork
-          ? 'HIGH RISK'
-          : s.readsFilesystem || s.writesFilesystem || s.usesConcurrency
-              ? 'MEDIUM RISK'
-              : 'LOW RISK';
+      ? 'HIGH RISK'
+      : s.readsFilesystem || s.writesFilesystem || s.usesConcurrency
+      ? 'MEDIUM RISK'
+      : 'LOW RISK';
   buf.writeln('Summary: $risk');
-  buf.writeln('  ${s.totalFunctions} functions: ${s.pureFunctions} pure, ${s.effectfulFunctions} effectful');
+  buf.writeln(
+    '  ${s.totalFunctions} functions: ${s.pureFunctions} pure, ${s.effectfulFunctions} effectful',
+  );
 
   buf.writeln();
   buf.writeln('Per-function breakdown:');

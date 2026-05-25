@@ -96,7 +96,8 @@ List<int>? readSizePrefixed(Stdin input) {
     sizeBytes.add(byte);
   }
 
-  final size = sizeBytes[0] |
+  final size =
+      sizeBytes[0] |
       (sizeBytes[1] << 8) |
       (sizeBytes[2] << 16) |
       (sizeBytes[3] << 24);
@@ -423,9 +424,7 @@ Map<String, Object?> processConformanceRequest(Map<String, Object?> request) {
   }
 
   if (requestedOutputFormat == wireFormatJspb) {
-    return {
-      'skipped': 'Ball protobuf: JSPB output format not supported',
-    };
+    return {'skipped': 'Ball protobuf: JSPB output format not supported'};
   }
 
   if (requestedOutputFormat == wireFormatTextFormat) {
@@ -527,16 +526,12 @@ void runConformanceLoop() {
       final request = parseConformanceRequest(requestBytes);
       response = processConformanceRequest(request);
     } catch (e, st) {
-      response = {
-        'runtime_error': 'Ball conformance plugin error: $e\n$st',
-      };
+      response = {'runtime_error': 'Ball conformance plugin error: $e\n$st'};
     }
 
     final responseBytes = encodeConformanceResponse(response);
     writeSizePrefixed(stdout, responseBytes);
   }
 
-  stderr.writeln(
-    'Ball conformance plugin: completed $testCount tests.',
-  );
+  stderr.writeln('Ball conformance plugin: completed $testCount tests.');
 }

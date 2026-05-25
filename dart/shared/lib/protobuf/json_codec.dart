@@ -268,7 +268,8 @@ Object? fieldToJson(
     case 'TYPE_DOUBLE':
       if (value is double) {
         if (value.isNaN) return 'NaN';
-        if (value.isInfinite) return value.isNegative ? '-Infinity' : 'Infinity';
+        if (value.isInfinite)
+          return value.isNegative ? '-Infinity' : 'Infinity';
       }
       return value;
 
@@ -484,8 +485,7 @@ Map<String, Object?> _marshalToMap(
       if (value == null || (value is Map && value.isEmpty)) continue;
       final mapValue = value as Map;
       final valueType = field['valueType'] as String? ?? 'TYPE_STRING';
-      final msgDesc =
-          field['messageDescriptor'] as List<Map<String, Object?>>?;
+      final msgDesc = field['messageDescriptor'] as List<Map<String, Object?>>?;
       final enumVals = field['enumValues'] as Map<int, String>?;
       final jsonMap = <String, Object?>{};
       for (final entry in mapValue.entries) {
@@ -502,8 +502,7 @@ Map<String, Object?> _marshalToMap(
       // Repeated field: encode as JSON array.
       if (value == null || (value is List && value.isEmpty)) continue;
       final list = value as List;
-      final msgDesc =
-          field['messageDescriptor'] as List<Map<String, Object?>>?;
+      final msgDesc = field['messageDescriptor'] as List<Map<String, Object?>>?;
       final enumVals = field['enumValues'] as Map<int, String>?;
       result[camelName] = [
         for (final item in list)
@@ -517,8 +516,7 @@ Map<String, Object?> _marshalToMap(
     } else {
       // Singular field: omit if default.
       if (isDefaultValue(value, type)) continue;
-      final msgDesc =
-          field['messageDescriptor'] as List<Map<String, Object?>>?;
+      final msgDesc = field['messageDescriptor'] as List<Map<String, Object?>>?;
       final enumVals = field['enumValues'] as Map<int, String>?;
       result[camelName] = fieldToJson(
         value,
@@ -577,8 +575,7 @@ Map<String, Object?> _unmarshalFromMap(
     final type = field['type'] as String;
     final label = field['label'] as String?;
     final isMap = field['mapEntry'] == true;
-    final msgDesc =
-        field['messageDescriptor'] as List<Map<String, Object?>>?;
+    final msgDesc = field['messageDescriptor'] as List<Map<String, Object?>>?;
     final enumVals = field['enumValues'] as Map<int, String>?;
 
     if (isMap) {

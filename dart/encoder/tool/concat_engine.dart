@@ -14,9 +14,13 @@ void main() {
 
   final mainFile = File('$libDir/engine.dart').readAsStringSync();
   final typesFile = File('$libDir/engine_types.dart').readAsStringSync();
-  final invocationFile = File('$libDir/engine_invocation.dart').readAsStringSync();
+  final invocationFile = File(
+    '$libDir/engine_invocation.dart',
+  ).readAsStringSync();
   final evalFile = File('$libDir/engine_eval.dart').readAsStringSync();
-  final controlFlowFile = File('$libDir/engine_control_flow.dart').readAsStringSync();
+  final controlFlowFile = File(
+    '$libDir/engine_control_flow.dart',
+  ).readAsStringSync();
   final stdFile = File('$libDir/engine_std.dart').readAsStringSync();
 
   final buf = StringBuffer();
@@ -124,7 +128,9 @@ void main() {
 
   final outPath = '$libDir/engine_full.dart';
   File(outPath).writeAsStringSync(buf.toString());
-  stderr.writeln('Wrote ${outPath.replaceAll('\\', '/')} (${buf.length} chars)');
+  stderr.writeln(
+    'Wrote ${outPath.replaceAll('\\', '/')} (${buf.length} chars)',
+  );
 }
 
 /// Extract the body of `extension ... on BallEngine { ... }`.

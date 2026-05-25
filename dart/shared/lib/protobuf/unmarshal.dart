@@ -191,9 +191,7 @@ Map<String, Object?> unmarshalFieldValue(
       return {'value': rawValue, 'bytesRead': 4};
 
     default:
-      throw FormatException(
-        'Unknown wire type $wireType at offset $offset',
-      );
+      throw FormatException('Unknown wire type $wireType at offset $offset');
   }
 }
 

@@ -171,16 +171,23 @@ class DartEncoder {
           final uri = directive.uri.stringValue;
           if (uri == null) continue;
           final partSource = partResolver(uri);
-          partUnits.add(parseString(
-            content: partSource,
-            throwIfDiagnostics: false,
-            featureSet: FeatureSet.latestLanguageVersion(),
-          ).unit);
+          partUnits.add(
+            parseString(
+              content: partSource,
+              throwIfDiagnostics: false,
+              featureSet: FeatureSet.latestLanguageVersion(),
+            ).unit,
+          );
         }
       }
     }
 
-    return _buildProgram(unit, name: name, version: version, partUnits: partUnits);
+    return _buildProgram(
+      unit,
+      name: name,
+      version: version,
+      partUnits: partUnits,
+    );
   }
 
   /// Encode Dart source into a single ball [Module], accumulating used
@@ -244,8 +251,18 @@ class DartEncoder {
   ///
   /// Use after a sequence of [encodeModule] calls to obtain the shared base
   /// modules for a whole package.
-  ({Module stdModule, Module? dartStdModule, Module? collectionsModule, Module? protoModule}) buildStdModules() =>
-      (stdModule: _buildStdModule(), dartStdModule: _buildDartStdModule(), collectionsModule: _buildCollectionsModule(), protoModule: _buildProtoModule());
+  ({
+    Module stdModule,
+    Module? dartStdModule,
+    Module? collectionsModule,
+    Module? protoModule,
+  })
+  buildStdModules() => (
+    stdModule: _buildStdModule(),
+    dartStdModule: _buildDartStdModule(),
+    collectionsModule: _buildCollectionsModule(),
+    protoModule: _buildProtoModule(),
+  );
 
   /// Clear the accumulated set of used base functions.
   ///
@@ -463,7 +480,11 @@ class DartEncoder {
     required String version,
     List<ast.CompilationUnit> partUnits = const [],
   }) {
-    final (:module, :importStubs) = _buildModule(unit, moduleName: 'main', partUnits: partUnits);
+    final (:module, :importStubs) = _buildModule(
+      unit,
+      moduleName: 'main',
+      partUnits: partUnits,
+    );
     final stdModule = _buildStdModule();
     final dartStdModule = _buildDartStdModule();
     final collectionsModule = _buildCollectionsModule();
@@ -474,7 +495,14 @@ class DartEncoder {
       ..version = version
       ..entryModule = 'main'
       ..entryFunction = 'main'
-      ..modules.addAll([stdModule, ?dartStdModule, ?collectionsModule, ?protoModule, ...importStubs, module]);
+      ..modules.addAll([
+        stdModule,
+        ?dartStdModule,
+        ?collectionsModule,
+        ?protoModule,
+        ...importStubs,
+        module,
+      ]);
   }
 
   /// Builds a single ball [Module] from a parsed compilation unit.
@@ -2091,8 +2119,7 @@ class DartEncoder {
           fields.add(
             FieldValuePair()
               ..name = 'variable_keyword'
-              ..value = (Expression()
-                ..literal = (Literal()..stringValue = kw)),
+              ..value = (Expression()..literal = (Literal()..stringValue = kw)),
           );
         }
       }
@@ -2990,9 +3017,11 @@ class DartEncoder {
             ..function = protoFn
             ..input = (Expression()
               ..messageCreation = (MessageCreation()
-                ..fields.add(FieldValuePair()
-                  ..name = 'obj'
-                  ..value = _encodeExpr(realTarget)))));
+                ..fields.add(
+                  FieldValuePair()
+                    ..name = 'obj'
+                    ..value = _encodeExpr(realTarget),
+                ))));
       }
     }
 
@@ -3134,8 +3163,11 @@ class DartEncoder {
         // them in assign would corrupt the receiver and lose the return
         // value.
         const mutatingMethods = {
-          'list_push', 'list_clear', 'list_sort',
-          'list_insert', 'list_concat',
+          'list_push',
+          'list_clear',
+          'list_sort',
+          'list_insert',
+          'list_concat',
         };
         if (mutatingMethods.contains(fnName) &&
             realTarget is ast.SimpleIdentifier) {

@@ -24,10 +24,8 @@ class PubClient {
   final String registryUrl;
   final http.Client _http;
 
-  PubClient({
-    this.registryUrl = 'https://pub.dev',
-    http.Client? httpClient,
-  }) : _http = httpClient ?? http.Client();
+  PubClient({this.registryUrl = 'https://pub.dev', http.Client? httpClient})
+    : _http = httpClient ?? http.Client();
 
   /// Fetch all versions of a package.
   Future<List<PubVersionInfo>> getVersions(String packageName) async {
@@ -45,7 +43,8 @@ class PubClient {
       final map = v as Map<String, dynamic>;
       return PubVersionInfo(
         version: map['version'] as String,
-        archiveUrl: map['archive_url'] as String? ??
+        archiveUrl:
+            map['archive_url'] as String? ??
             '$registryUrl/api/packages/$packageName/versions/${map['version']}/archive',
       );
     }).toList();
@@ -86,7 +85,8 @@ class PubClient {
     String version, {
     String? archiveUrl,
   }) async {
-    final url = archiveUrl ??
+    final url =
+        archiveUrl ??
         '$registryUrl/api/packages/$packageName/versions/$version/archive';
     final response = await _http.get(Uri.parse(url));
     if (response.statusCode != 200) {

@@ -28,12 +28,13 @@ void main() {
 
   final updateMode = Platform.environment['BALL_UPDATE_SNAPSHOTS'] == '1';
 
-  final fixtures = fixturesDir
-      .listSync()
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.dart'))
-      .toList()
-    ..sort((a, b) => a.path.compareTo(b.path));
+  final fixtures =
+      fixturesDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
 
   group('snapshot: DartCompiler output', () {
     for (final fixture in fixtures) {

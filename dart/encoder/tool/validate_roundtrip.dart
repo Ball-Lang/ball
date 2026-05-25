@@ -75,11 +75,10 @@ Future<void> main(List<String> args) async {
 
       // Run `dart pub get` so imports resolve.
       stdout.writeln('Installing dependencies...');
-      final getResult = await Process.run(
-        'dart',
-        ['pub', 'get'],
-        workingDirectory: outDir.path,
-      );
+      final getResult = await Process.run('dart', [
+        'pub',
+        'get',
+      ], workingDirectory: outDir.path);
       if (getResult.exitCode != 0) {
         stdout.writeln('  (pub get failed — continuing with analyze anyway)');
       }
@@ -104,11 +103,10 @@ Future<void> main(List<String> args) async {
 
       // 5. Run `dart analyze`.
       stdout.writeln('Running dart analyze...');
-      final result = await Process.run(
-        'dart',
-        ['analyze', outDir.path],
-        workingDirectory: outDir.path,
-      );
+      final result = await Process.run('dart', [
+        'analyze',
+        outDir.path,
+      ], workingDirectory: outDir.path);
 
       // Parse output.
       final output = '${result.stdout}\n${result.stderr}'.trim();
@@ -137,9 +135,13 @@ Future<void> main(List<String> args) async {
       stdout.writeln();
       stdout.writeln('=' * 55);
       stdout.writeln('Package:  $packageName v${vi.version}');
-      stdout.writeln('Modules:  ${program.modules.length} encoded, '
-          '${modules.length} compiled, $writtenCount written');
-      stdout.writeln('Analysis: $errors errors, $warnings warnings, $infos infos');
+      stdout.writeln(
+        'Modules:  ${program.modules.length} encoded, '
+        '${modules.length} compiled, $writtenCount written',
+      );
+      stdout.writeln(
+        'Analysis: $errors errors, $warnings warnings, $infos infos',
+      );
       stdout.writeln('Exit code: ${result.exitCode}');
       stdout.writeln('Output dir: ${outDir.path}');
       stdout.writeln('=' * 55);

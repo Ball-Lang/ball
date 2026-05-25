@@ -48,7 +48,14 @@ const _packages = [
   'pedantic', 'effective_dart',
 ];
 
-enum ErrorKind { none, encoderError, compilerError, formatError, timeout, flutter }
+enum ErrorKind {
+  none,
+  encoderError,
+  compilerError,
+  formatError,
+  timeout,
+  flutter,
+}
 
 class PackageResult {
   final String name;
@@ -86,8 +93,7 @@ Future<void> main(List<String> args) async {
   final seen = <String>{};
   final packages = <String>[];
   for (final p in _packages) {
-    if (seen.add(p) &&
-        (filterName == null || p.contains(filterName))) {
+    if (seen.add(p) && (filterName == null || p.contains(filterName))) {
       packages.add(p);
     }
     if (packages.length >= limit) break;
@@ -127,17 +133,20 @@ Future<void> main(List<String> args) async {
       final pubspec = File('${pkgDir.path}/pubspec.yaml');
       if (pubspec.existsSync()) {
         final content = pubspec.readAsStringSync();
-        if (content.contains('flutter:') &&
-            content.contains('sdk: flutter')) {
+        if (content.contains('flutter:') && content.contains('sdk: flutter')) {
           stdout.writeln('SKIP (Flutter) v${vi.version}');
-          results.add(PackageResult(
-            name: name,
-            version: vi.version,
-            errorKind: ErrorKind.flutter,
-            errorMessage: 'Requires Flutter SDK',
-          ));
+          results.add(
+            PackageResult(
+              name: name,
+              version: vi.version,
+              errorKind: ErrorKind.flutter,
+              errorMessage: 'Requires Flutter SDK',
+            ),
+          );
           skipped++;
-          try { await pkgDir.delete(recursive: true); } catch (_) {}
+          try {
+            await pkgDir.delete(recursive: true);
+          } catch (_) {}
           continue;
         }
       }
@@ -154,9 +163,8 @@ Future<void> main(List<String> args) async {
         final allBase =
             m.functions.every((f) => f.isBase) && m.functions.isNotEmpty;
         if (allBase) return false;
-        if (m.functions.isEmpty &&
-            m.typeDefs.isEmpty &&
-            m.types.isEmpty) return false;
+        if (m.functions.isEmpty && m.typeDefs.isEmpty && m.types.isEmpty)
+          return false;
         if (m.name == '__assets__') return false;
         return true;
       }).length;
@@ -165,53 +173,61 @@ Future<void> main(List<String> args) async {
       compiledModules += modules.length;
       if (modules.length >= contentModules) fullSuccess++;
 
-      final stubs = program.modules.length -
+      final stubs =
+          program.modules.length -
           contentModules -
           program.modules
-              .where((m) =>
-                  m.functions.every((f) => f.isBase) &&
-                  m.functions.isNotEmpty)
+              .where(
+                (m) =>
+                    m.functions.every((f) => f.isBase) &&
+                    m.functions.isNotEmpty,
+              )
               .length;
       stdout.writeln(
-          '${modules.length}/$contentModules OK, $stubs stubs (v${vi.version})');
-      results.add(PackageResult(
-        name: name,
-        version: vi.version,
-        modulesTotal: contentModules,
-        modulesCompiled: modules.length,
-      ));
+        '${modules.length}/$contentModules OK, $stubs stubs (v${vi.version})',
+      );
+      results.add(
+        PackageResult(
+          name: name,
+          version: vi.version,
+          modulesTotal: contentModules,
+          modulesCompiled: modules.length,
+        ),
+      );
 
-      try { await pkgDir.delete(recursive: true); } catch (_) {}
+      try {
+        await pkgDir.delete(recursive: true);
+      } catch (_) {}
     } catch (e) {
       final msg = e.toString().split('\n').first;
       final kind = msg.contains('Encoder')
           ? ErrorKind.encoderError
           : msg.contains('format')
-              ? ErrorKind.formatError
-              : ErrorKind.compilerError;
+          ? ErrorKind.formatError
+          : ErrorKind.compilerError;
       stdout.writeln('FAIL: $msg');
-      results.add(PackageResult(
-        name: name,
-        errorKind: kind,
-        errorMessage: msg,
-      ));
+      results.add(
+        PackageResult(name: name, errorKind: kind, errorMessage: msg),
+      );
     }
   }
 
   stdout.writeln();
   stdout.writeln('=' * 60);
   final tested = results.length - skipped;
-  stdout.writeln('Packages: $fullSuccess/$tested fully compiled ($skipped skipped)');
+  stdout.writeln(
+    'Packages: $fullSuccess/$tested fully compiled ($skipped skipped)',
+  );
   stdout.writeln('Modules: $compiledModules/$totalModules compiled');
-  final pct = totalModules == 0
-      ? 0.0
-      : compiledModules * 100.0 / totalModules;
+  final pct = totalModules == 0 ? 0.0 : compiledModules * 100.0 / totalModules;
   stdout.writeln('Module compile rate: ${pct.toStringAsFixed(1)}%');
 
   // Write CSV.
   final csvFile = File(csvPath);
   final csvBuf = StringBuffer();
-  csvBuf.writeln('package,version,modules_total,modules_compiled,error_kind,error_message');
+  csvBuf.writeln(
+    'package,version,modules_total,modules_compiled,error_kind,error_message',
+  );
   for (final r in results) {
     csvBuf.writeln(r.toCsv());
   }

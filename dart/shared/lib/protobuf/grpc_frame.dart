@@ -54,10 +54,12 @@ Map<String, Object?> grpcDecodeFrame(List<int> buffer, int offset) {
     throw RangeError('Incomplete gRPC frame header at offset $offset');
   }
   var compressed = buffer[offset] != 0;
-  var length = ((buffer[offset + 1] << 24) |
-      (buffer[offset + 2] << 16) |
-      (buffer[offset + 3] << 8) |
-      buffer[offset + 4]) & 0xFFFFFFFF;
+  var length =
+      ((buffer[offset + 1] << 24) |
+          (buffer[offset + 2] << 16) |
+          (buffer[offset + 3] << 8) |
+          buffer[offset + 4]) &
+      0xFFFFFFFF;
   if (offset + _headerSize + length > buffer.length) {
     throw RangeError(
       'Incomplete gRPC frame payload at offset $offset: '
@@ -65,8 +67,10 @@ Map<String, Object?> grpcDecodeFrame(List<int> buffer, int offset) {
       'have ${buffer.length - offset - _headerSize}',
     );
   }
-  var messageBytes =
-      buffer.sublist(offset + _headerSize, offset + _headerSize + length);
+  var messageBytes = buffer.sublist(
+    offset + _headerSize,
+    offset + _headerSize + length,
+  );
   return {
     'messageBytes': messageBytes,
     'compressed': compressed,

@@ -207,9 +207,13 @@ class _Gen {
   String function(String name) {
     final paramVars = ['input'];
     final savedVars = vars.toList();
-    vars..clear()..addAll(paramVars);
+    vars
+      ..clear()
+      ..addAll(paramVars);
     final body = expr();
-    vars..clear()..addAll(savedVars);
+    vars
+      ..clear()
+      ..addAll(savedVars);
     return 'int $name(int input) => $body;';
   }
 }
@@ -227,7 +231,9 @@ String _genProgram(int seed) {
     fnNames.add(n);
     buf.writeln(gen.function(n));
   }
-  gen.fns..clear()..addAll(fnNames);
+  gen.fns
+    ..clear()
+    ..addAll(fnNames);
 
   // main body with a few variable declarations and statements.
   buf.writeln('void main() {');
@@ -238,7 +244,9 @@ String _genProgram(int seed) {
     localVars.add(name);
     buf.writeln('  var $name = ${rng.nextInt(30)};');
   }
-  gen.vars..clear()..addAll(localVars);
+  gen.vars
+    ..clear()
+    ..addAll(localVars);
   final stmtCount = 2 + rng.nextInt(3);
   for (var i = 0; i < stmtCount; i++) {
     buf.writeln('  ${gen.statement()}');
@@ -320,7 +328,8 @@ void main() {
         expect(
           engineOut,
           equals(baseline),
-          reason: 'BallEngine diverged on:\n$source\n'
+          reason:
+              'BallEngine diverged on:\n$source\n'
               '--- baseline ---\n$baseline\n'
               '--- engine ---\n$engineOut',
         );

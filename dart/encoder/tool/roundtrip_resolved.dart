@@ -31,10 +31,9 @@ Future<void> main(List<String> args) async {
 
   final packageName = args.first;
   final depthIdx = args.indexOf('--max-depth');
-  final maxDepth =
-      depthIdx >= 0 && depthIdx + 1 < args.length
-          ? int.tryParse(args[depthIdx + 1]) ?? 5
-          : 5;
+  final maxDepth = depthIdx >= 0 && depthIdx + 1 < args.length
+      ? int.tryParse(args[depthIdx + 1]) ?? 5
+      : 5;
 
   final client = PubClient();
 
@@ -269,11 +268,10 @@ Future<Directory> _writePackage(
 
 /// Run `dart analyze` on a directory and parse the results.
 Future<_AnalysisResult> _runAnalyze(Directory dir) async {
-  final result = await Process.run(
-    'dart',
-    ['analyze', dir.path],
-    workingDirectory: dir.path,
-  );
+  final result = await Process.run('dart', [
+    'analyze',
+    dir.path,
+  ], workingDirectory: dir.path);
 
   final output = '${result.stdout}\n${result.stderr}'.trim();
   var errors = 0;

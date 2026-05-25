@@ -58,8 +58,10 @@ Future<void> main(List<String> args) async {
     exit(2);
   }
   final encodeMs = DateTime.now().difference(encodeStart).inMilliseconds;
-  stdout.writeln('OK (${encodeMs}ms, ${program.modules.length} modules, '
-      '${program.modules.fold<int>(0, (n, m) => n + m.functions.length)} functions)');
+  stdout.writeln(
+    'OK (${encodeMs}ms, ${program.modules.length} modules, '
+    '${program.modules.fold<int>(0, (n, m) => n + m.functions.length)} functions)',
+  );
   if (encoder.warnings.isNotEmpty) {
     stdout.writeln('  Encoder warnings: ${encoder.warnings.length}');
     for (final w in encoder.warnings.take(10)) {
@@ -257,7 +259,11 @@ String _resolvePartsAndExtensions(String mainPath) {
 
 bool _isHelperName(String name) {
   return const {
-    '_asMap', '_asList', '_cfAsMap', '_stdAsMap', '_stdAsList',
+    '_asMap',
+    '_asList',
+    '_cfAsMap',
+    '_stdAsMap',
+    '_stdAsList',
   }.contains(name);
 }
 

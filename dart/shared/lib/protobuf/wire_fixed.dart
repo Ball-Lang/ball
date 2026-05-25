@@ -64,7 +64,8 @@ Map<String, int> decodeFixed32(List<int> buffer, int offset) {
       '(need 4, have ${buffer.length - offset})',
     );
   }
-  int value = buffer[offset] |
+  int value =
+      buffer[offset] |
       (buffer[offset + 1] << 8) |
       (buffer[offset + 2] << 16) |
       (buffer[offset + 3] << 24);
@@ -109,7 +110,8 @@ Map<String, int> decodeFixed64(List<int> buffer, int offset) {
       '(need 8, have ${buffer.length - offset})',
     );
   }
-  int value = buffer[offset] |
+  int value =
+      buffer[offset] |
       (buffer[offset + 1] << 8) |
       (buffer[offset + 2] << 16) |
       (buffer[offset + 3] << 24) |

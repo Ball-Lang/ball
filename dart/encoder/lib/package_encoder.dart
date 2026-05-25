@@ -108,11 +108,11 @@ class PackageEncoder {
     Set<String>? inProgress,
     this.maxDepth = 10,
     int currentDepth = 0,
-  })  : _pubClient = pubClient,
-        _encodedCache = encodedCache ?? {},
-        _inProgress = inProgress ?? {},
-        _currentDepth = currentDepth,
-        manifest = PubspecParser.fromDirectory(packageDir) {
+  }) : _pubClient = pubClient,
+       _encodedCache = encodedCache ?? {},
+       _inProgress = inProgress ?? {},
+       _currentDepth = currentDepth,
+       manifest = PubspecParser.fromDirectory(packageDir) {
     _fileToModule = _buildFileMap();
   }
 
@@ -183,7 +183,8 @@ class PackageEncoder {
       }
     }
 
-    final (:stdModule, :dartStdModule, :collectionsModule, :protoModule) = encoder.buildStdModules();
+    final (:stdModule, :dartStdModule, :collectionsModule, :protoModule) =
+        encoder.buildStdModules();
 
     // Sort user modules so the entry module is last (conventional positioning).
     userModules.sort((a, b) {

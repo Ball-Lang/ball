@@ -8,16 +8,24 @@ Future<void> main(List<String> args) async {
   final name = args.isNotEmpty ? args.first : 'logging';
   final client = PubClient();
   final vi = await client.resolveVersion(name, 'any');
-  final pkgDir = await client.downloadPackage(name, vi.version, archiveUrl: vi.archiveUrl);
+  final pkgDir = await client.downloadPackage(
+    name,
+    vi.version,
+    archiveUrl: vi.archiveUrl,
+  );
   final encoder = PackageEncoder(pkgDir);
   final program = encoder.encode();
   final compiler = DartCompiler(program, noFormat: true);
 
   for (final module in program.modules) {
-    final allBase = module.functions.every((f) => f.isBase) && module.functions.isNotEmpty;
+    final allBase =
+        module.functions.every((f) => f.isBase) && module.functions.isNotEmpty;
     if (allBase) continue;
 
-    final isEmpty = module.functions.isEmpty && module.typeDefs.isEmpty && module.types.isEmpty;
+    final isEmpty =
+        module.functions.isEmpty &&
+        module.typeDefs.isEmpty &&
+        module.types.isEmpty;
     if (isEmpty) {
       stdout.writeln('  EMPTY STUB: ${module.name}');
       continue;
@@ -25,12 +33,18 @@ Future<void> main(List<String> args) async {
 
     try {
       compiler.compileModuleRaw(module.name);
-      stdout.writeln('  OK: ${module.name} (${module.functions.length} fns, ${module.typeDefs.length} types)');
+      stdout.writeln(
+        '  OK: ${module.name} (${module.functions.length} fns, ${module.typeDefs.length} types)',
+      );
     } catch (e) {
-      stdout.writeln('  FAIL: ${module.name} (${module.functions.length} fns) — ${e.toString().split('\n').first}');
+      stdout.writeln(
+        '  FAIL: ${module.name} (${module.functions.length} fns) — ${e.toString().split('\n').first}',
+      );
     }
   }
 
-  try { await pkgDir.delete(recursive: true); } catch (_) {}
+  try {
+    await pkgDir.delete(recursive: true);
+  } catch (_) {}
   client.close();
 }

@@ -110,8 +110,7 @@ String resolveDartLibraryFromSource(
               if (seenMembers.contains(key)) continue;
               seenMembers.add(key);
             }
-            final memberSrc =
-                partSource.substring(member.offset, member.end);
+            final memberSrc = partSource.substring(member.offset, member.end);
             final buf = injections[targetType]!;
             buf.writeln();
             buf.writeln('  $memberSrc');
@@ -130,11 +129,12 @@ String resolveDartLibraryFromSource(
   // Splice injections into the main source. Build the result by walking
   // class-close offsets in increasing order, copying chunks of the original
   // source between them and inserting the injected members.
-  final mergedClasses = injections.entries
-      .where((e) => e.value.isNotEmpty)
-      .map((e) => MapEntry(classCloseOffsets[e.key]!, e.value.toString()))
-      .toList()
-    ..sort((a, b) => a.key.compareTo(b.key));
+  final mergedClasses =
+      injections.entries
+          .where((e) => e.value.isNotEmpty)
+          .map((e) => MapEntry(classCloseOffsets[e.key]!, e.value.toString()))
+          .toList()
+        ..sort((a, b) => a.key.compareTo(b.key));
 
   // Strip `part 'X.dart';` directives from the main source. We do this
   // via AST offsets too (no regex).
@@ -168,7 +168,7 @@ String resolveDartLibraryFromSource(
 }
 
 ast.CompilationUnit _parse(String source) => parseString(
-      content: source,
-      throwIfDiagnostics: false,
-      featureSet: FeatureSet.latestLanguageVersion(),
-    ).unit;
+  content: source,
+  throwIfDiagnostics: false,
+  featureSet: FeatureSet.latestLanguageVersion(),
+).unit;

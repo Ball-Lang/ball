@@ -14,30 +14,32 @@ import 'package:ball_compiler/compiler.dart';
 import 'package:test/test.dart';
 
 // ── Tiny Ball-IR builders ─────────────────────────────────────────
-Expression _strLit(String s) => Expression()..literal = (Literal()..stringValue = s);
+Expression _strLit(String s) =>
+    Expression()..literal = (Literal()..stringValue = s);
 
-FieldValuePair _field(String name, Expression value) =>
-    FieldValuePair()
-      ..name = name
-      ..value = value;
+FieldValuePair _field(String name, Expression value) => FieldValuePair()
+  ..name = name
+  ..value = value;
 
-Expression _stdCall(String fn, List<FieldValuePair> fields) => Expression()
-  ..call = (FunctionCall()
-    ..module = 'std'
-    ..function = fn
-    ..input = (Expression()
-      ..messageCreation = (MessageCreation()
-        ..typeName = ''
-        ..fields.addAll(fields))));
+Expression _stdCall(String fn, List<FieldValuePair> fields) =>
+    Expression()
+      ..call = (FunctionCall()
+        ..module = 'std'
+        ..function = fn
+        ..input = (Expression()
+          ..messageCreation = (MessageCreation()
+            ..typeName = ''
+            ..fields.addAll(fields))));
 
-Expression _printCall(String msg) => _stdCall('print', [_field('value', _strLit(msg))]);
+Expression _printCall(String msg) =>
+    _stdCall('print', [_field('value', _strLit(msg))]);
 
 Statement _exprStmt(Expression e) => Statement()..expression = e;
 
 /// A `std.label` statement carrying a name + body expression.
 Statement _label(String name, Expression body) => _exprStmt(
-      _stdCall('label', [_field('name', _strLit(name)), _field('body', body)]),
-    );
+  _stdCall('label', [_field('name', _strLit(name)), _field('body', body)]),
+);
 
 /// A `std.goto` statement jumping to `target`.
 Statement _goto(String target) =>

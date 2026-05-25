@@ -223,7 +223,10 @@ bool requiresUtf8Validation(Map<String, String> features) {
 ///
 /// Only string-valued entries whose keys are recognized feature keys are
 /// applied. All other entries are ignored.
-void _applyOverrides(Map<String, String> base, Map<String, Object?>? overrides) {
+void _applyOverrides(
+  Map<String, String> base,
+  Map<String, Object?>? overrides,
+) {
   if (overrides == null) return;
   for (final entry in overrides.entries) {
     if (entry.value is String && base.containsKey(entry.key)) {

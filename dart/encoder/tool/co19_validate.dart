@@ -129,17 +129,20 @@ bool _isInlineableImport(String importPath) {
 
 /// Regex matching any import of Utils/expect.dart (with varying ../
 /// prefixes, single or double quotes, case-insensitive Utils/utils).
-final _expectImportRe =
-    RegExp(r'''import\s+['"](?:\.\./)*[Uu]tils/expect\.dart['"];?''');
+final _expectImportRe = RegExp(
+  r'''import\s+['"](?:\.\./)*[Uu]tils/expect\.dart['"];?''',
+);
 
 /// Regex matching any import of Utils/static_type_helper.dart.
-final _staticTypeHelperImportRe =
-    RegExp(r'''import\s+['"](?:\.\./)*[Uu]tils/static_type_helper\.dart['"];?''');
+final _staticTypeHelperImportRe = RegExp(
+  r'''import\s+['"](?:\.\./)*[Uu]tils/static_type_helper\.dart['"];?''',
+);
 
 /// Regex matching any import of Utils/dynamic_check.dart or just
 /// dynamic_check.dart.
-final _dynamicCheckImportRe =
-    RegExp(r'''import\s+['"](?:\.\./)*(?:[Uu]tils/)?dynamic_check\.dart['"];?''');
+final _dynamicCheckImportRe = RegExp(
+  r'''import\s+['"](?:\.\./)*(?:[Uu]tils/)?dynamic_check\.dart['"];?''',
+);
 
 /// Replace co19 helper imports with inlined class definitions.
 String _inlineHelpers(String source) {
@@ -148,8 +151,10 @@ String _inlineHelpers(String source) {
     source = source.replaceAll(_expectImportRe, _inlinedExpectClass);
   }
   if (_staticTypeHelperImportRe.hasMatch(source)) {
-    source =
-        source.replaceAll(_staticTypeHelperImportRe, _inlinedStaticTypeHelper);
+    source = source.replaceAll(
+      _staticTypeHelperImportRe,
+      _inlinedStaticTypeHelper,
+    );
   }
   if (_dynamicCheckImportRe.hasMatch(source)) {
     source = source.replaceAll(_dynamicCheckImportRe, _inlinedDynamicCheck);
@@ -442,11 +447,13 @@ Future<void> main(List<String> args) async {
 
     // Check skip conditions.
     if (_shouldSkipFile(file) || _shouldSkipContent(source)) {
-      results.add(_Result(
-        path: relPath,
-        skipped: true,
-        skipReason: 'negative test or non-inlineable imports',
-      ));
+      results.add(
+        _Result(
+          path: relPath,
+          skipped: true,
+          skipReason: 'negative test or non-inlineable imports',
+        ),
+      );
       continue;
     }
 
@@ -464,12 +471,14 @@ Future<void> main(List<String> args) async {
       encodeTime = sw.elapsed;
     } catch (e) {
       encodeError = e.toString().split('\n').first;
-      results.add(_Result(
-        path: relPath,
-        encodeSuccess: false,
-        encodeError: encodeError,
-        encodeTime: encodeTime,
-      ));
+      results.add(
+        _Result(
+          path: relPath,
+          encodeSuccess: false,
+          encodeError: encodeError,
+          encodeTime: encodeTime,
+        ),
+      );
       continue;
     }
 
@@ -477,11 +486,13 @@ Future<void> main(List<String> args) async {
     final dartOutput = await _runDartNative(file);
     if (dartOutput == null) {
       // If dart itself can't run it, skip (runtime error test, etc.)
-      results.add(_Result(
-        path: relPath,
-        skipped: true,
-        skipReason: 'dart run failed (runtime error test?)',
-      ));
+      results.add(
+        _Result(
+          path: relPath,
+          skipped: true,
+          skipReason: 'dart run failed (runtime error test?)',
+        ),
+      );
       continue;
     }
 
@@ -496,11 +507,7 @@ Future<void> main(List<String> args) async {
       final isolateResult = await Isolate.run(() async {
         final p = Program.fromBuffer(programBytes);
         final lines = <String>[];
-        final engine = BallEngine(
-          p,
-          stdout: lines.add,
-          stderr: (_) {},
-        );
+        final engine = BallEngine(p, stdout: lines.add, stderr: (_) {});
         await engine.run();
         return lines.join('\n');
       }).timeout(const Duration(seconds: 10));
@@ -514,17 +521,19 @@ Future<void> main(List<String> args) async {
     final engineSuccess = engineOutput != null;
     final outputMatch = engineSuccess && engineOutput == dartOutput;
 
-    results.add(_Result(
-      path: relPath,
-      encodeSuccess: true,
-      encodeTime: encodeTime,
-      engineSuccess: engineSuccess,
-      engineError: engineError,
-      engineTime: engineTime,
-      outputMatch: outputMatch,
-      dartOutput: dartOutput,
-      engineOutput: engineOutput,
-    ));
+    results.add(
+      _Result(
+        path: relPath,
+        encodeSuccess: true,
+        encodeTime: encodeTime,
+        engineSuccess: engineSuccess,
+        engineError: engineError,
+        engineTime: engineTime,
+        outputMatch: outputMatch,
+        dartOutput: dartOutput,
+        engineOutput: engineOutput,
+      ),
+    );
   }
 
   // ─── Summary ────────────────────────────────────────────────────
@@ -558,8 +567,10 @@ Future<void> main(List<String> args) async {
   }
 
   // Show some failures for debugging.
-  final encodeFails =
-      results.where((r) => !r.skipped && !r.encodeSuccess).take(10).toList();
+  final encodeFails = results
+      .where((r) => !r.skipped && !r.encodeSuccess)
+      .take(10)
+      .toList();
   if (encodeFails.isNotEmpty) {
     stdout.writeln();
     stdout.writeln('Sample encode failures (up to 10):');
@@ -600,7 +611,9 @@ Future<void> main(List<String> args) async {
   // Aggregate encode errors by normalized pattern.
   final encodeErrorCounts = <String, int>{};
   final encodeErrorExamples = <String, String>{};
-  for (final r in results.where((r) => !r.skipped && !r.encodeSuccess && r.encodeError != null)) {
+  for (final r in results.where(
+    (r) => !r.skipped && !r.encodeSuccess && r.encodeError != null,
+  )) {
     final key = _normalizeError(r.encodeError!);
     encodeErrorCounts[key] = (encodeErrorCounts[key] ?? 0) + 1;
     encodeErrorExamples.putIfAbsent(key, () => r.path);
@@ -619,7 +632,13 @@ Future<void> main(List<String> args) async {
   // Aggregate engine errors by normalized pattern.
   final engineErrorCounts = <String, int>{};
   final engineErrorExamples = <String, String>{};
-  for (final r in results.where((r) => !r.skipped && r.encodeSuccess && !r.engineSuccess && r.engineError != null)) {
+  for (final r in results.where(
+    (r) =>
+        !r.skipped &&
+        r.encodeSuccess &&
+        !r.engineSuccess &&
+        r.engineError != null,
+  )) {
     final key = _normalizeError(r.engineError!);
     engineErrorCounts[key] = (engineErrorCounts[key] ?? 0) + 1;
     engineErrorExamples.putIfAbsent(key, () => r.path);
@@ -636,25 +655,33 @@ Future<void> main(List<String> args) async {
   }
 
   // Timing summary.
-  final encodeTimes =
-      results.where((r) => !r.skipped && r.encodeSuccess).toList();
+  final encodeTimes = results
+      .where((r) => !r.skipped && r.encodeSuccess)
+      .toList();
   if (encodeTimes.isNotEmpty) {
-    final totalEncodeMs =
-        encodeTimes.fold<int>(0, (s, r) => s + r.encodeTime.inMilliseconds);
+    final totalEncodeMs = encodeTimes.fold<int>(
+      0,
+      (s, r) => s + r.encodeTime.inMilliseconds,
+    );
     final avgEncodeMs = totalEncodeMs ~/ encodeTimes.length;
     stdout.writeln();
     stdout.writeln(
-        'Avg encode time: ${avgEncodeMs}ms (total: ${totalEncodeMs}ms)');
+      'Avg encode time: ${avgEncodeMs}ms (total: ${totalEncodeMs}ms)',
+    );
   }
 
-  final engineTimes =
-      results.where((r) => !r.skipped && r.engineSuccess).toList();
+  final engineTimes = results
+      .where((r) => !r.skipped && r.engineSuccess)
+      .toList();
   if (engineTimes.isNotEmpty) {
-    final totalEngineMs =
-        engineTimes.fold<int>(0, (s, r) => s + r.engineTime.inMilliseconds);
+    final totalEngineMs = engineTimes.fold<int>(
+      0,
+      (s, r) => s + r.engineTime.inMilliseconds,
+    );
     final avgEngineMs = totalEngineMs ~/ engineTimes.length;
     stdout.writeln(
-        'Avg engine time: ${avgEngineMs}ms (total: ${totalEngineMs}ms)');
+      'Avg engine time: ${avgEngineMs}ms (total: ${totalEngineMs}ms)',
+    );
   }
 
   // Cleanup.

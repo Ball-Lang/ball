@@ -23,11 +23,7 @@ import 'package:test/test.dart';
 /// should fit on screen and cover one language feature — easier to
 /// triage than a single blob.
 final _programs = <({String name, String source, String expected})>[
-  (
-    name: 'hello',
-    source: "void main() { print('hello'); }",
-    expected: 'hello',
-  ),
+  (name: 'hello', source: "void main() { print('hello'); }", expected: 'hello'),
   (
     name: 'arithmetic',
     source: "void main() { print((1 + 2 * 3).toString()); }",

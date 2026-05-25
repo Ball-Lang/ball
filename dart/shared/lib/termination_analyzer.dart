@@ -75,8 +75,8 @@ String formatTerminationReport(TerminationReport report) {
       final icon = w.severity == 'error'
           ? '\u2716'
           : w.severity == 'warning'
-              ? '\u26A0'
-              : '\u2139';
+          ? '\u26A0'
+          : '\u2139';
       buf.writeln('  $icon ${w.location}: ${w.message}');
     }
     buf.writeln();
@@ -154,7 +154,10 @@ class _TerminationAnalyzer {
   }
 
   void _collectCallees(
-      Expression expr, String contextModule, Set<String> callees) {
+    Expression expr,
+    String contextModule,
+    Set<String> callees,
+  ) {
     switch (expr.whichExpr()) {
       case Expression_Expr.call:
         final call = expr.call;
@@ -213,8 +216,7 @@ class _TerminationAnalyzer {
     }
   }
 
-  void _checkLoopsInExpr(
-      Expression expr, String moduleName, String fnName) {
+  void _checkLoopsInExpr(Expression expr, String moduleName, String fnName) {
     switch (expr.whichExpr()) {
       case Expression_Expr.call:
         final call = expr.call;
@@ -262,8 +264,7 @@ class _TerminationAnalyzer {
     }
   }
 
-  void _checkWhileLoop(
-      FunctionCall call, String moduleName, String fnName) {
+  void _checkWhileLoop(FunctionCall call, String moduleName, String fnName) {
     final location = '$moduleName.$fnName';
     if (!call.hasInput()) return;
     final input = call.input;
@@ -288,30 +289,32 @@ class _TerminationAnalyzer {
     _collectMutatedVars(body, mutatedVars);
 
     if (isLiteralTrue && !hasExit) {
-      _warnings.add(TerminationWarning(
-        severity: 'warning',
-        category: 'infinite_loop',
-        message:
-            'while(true) loop without break or return in body',
-        location: location,
-      ));
+      _warnings.add(
+        TerminationWarning(
+          severity: 'warning',
+          category: 'infinite_loop',
+          message: 'while(true) loop without break or return in body',
+          location: location,
+        ),
+      );
     } else if (!isLiteralTrue &&
         condVars.isNotEmpty &&
         !hasExit &&
         condVars.intersection(mutatedVars).isEmpty) {
-      _warnings.add(TerminationWarning(
-        severity: 'warning',
-        category: 'infinite_loop',
-        message:
-            'while loop condition references ${condVars.join(", ")} but body '
-            'does not modify any of them and has no break/return',
-        location: location,
-      ));
+      _warnings.add(
+        TerminationWarning(
+          severity: 'warning',
+          category: 'infinite_loop',
+          message:
+              'while loop condition references ${condVars.join(", ")} but body '
+              'does not modify any of them and has no break/return',
+          location: location,
+        ),
+      );
     }
   }
 
-  void _checkDoWhileLoop(
-      FunctionCall call, String moduleName, String fnName) {
+  void _checkDoWhileLoop(FunctionCall call, String moduleName, String fnName) {
     final location = '$moduleName.$fnName';
     if (!call.hasInput()) return;
     final input = call.input;
@@ -331,30 +334,32 @@ class _TerminationAnalyzer {
     _collectMutatedVars(body, mutatedVars);
 
     if (isLiteralTrue && !hasExit) {
-      _warnings.add(TerminationWarning(
-        severity: 'warning',
-        category: 'infinite_loop',
-        message:
-            'do-while(true) loop without break or return in body',
-        location: location,
-      ));
+      _warnings.add(
+        TerminationWarning(
+          severity: 'warning',
+          category: 'infinite_loop',
+          message: 'do-while(true) loop without break or return in body',
+          location: location,
+        ),
+      );
     } else if (!isLiteralTrue &&
         condVars.isNotEmpty &&
         !hasExit &&
         condVars.intersection(mutatedVars).isEmpty) {
-      _warnings.add(TerminationWarning(
-        severity: 'warning',
-        category: 'infinite_loop',
-        message:
-            'do-while loop condition references ${condVars.join(", ")} but body '
-            'does not modify any of them and has no break/return',
-        location: location,
-      ));
+      _warnings.add(
+        TerminationWarning(
+          severity: 'warning',
+          category: 'infinite_loop',
+          message:
+              'do-while loop condition references ${condVars.join(", ")} but body '
+              'does not modify any of them and has no break/return',
+          location: location,
+        ),
+      );
     }
   }
 
-  void _checkForLoop(
-      FunctionCall call, String moduleName, String fnName) {
+  void _checkForLoop(FunctionCall call, String moduleName, String fnName) {
     final location = '$moduleName.$fnName';
     if (!call.hasInput()) return;
     final input = call.input;
@@ -365,16 +370,20 @@ class _TerminationAnalyzer {
     final body = _getField(fields, 'body');
 
     // Missing update expression is suspicious.
-    final hasUpdate = update != null && update.whichExpr() != Expression_Expr.notSet;
+    final hasUpdate =
+        update != null && update.whichExpr() != Expression_Expr.notSet;
     final hasExit = body != null && _exprHasExitSignal(body);
 
     if (!hasUpdate && !hasExit) {
-      _warnings.add(TerminationWarning(
-        severity: 'warning',
-        category: 'infinite_loop',
-        message: 'for loop without update expression and no break/return in body',
-        location: location,
-      ));
+      _warnings.add(
+        TerminationWarning(
+          severity: 'warning',
+          category: 'infinite_loop',
+          message:
+              'for loop without update expression and no break/return in body',
+          location: location,
+        ),
+      );
     }
   }
 
@@ -387,15 +396,18 @@ class _TerminationAnalyzer {
       // For each function in the cycle, check if it has a base case.
       for (final fnKey in cycle) {
         if (!_hasBaseCase(fnKey)) {
-          final cycleDesc =
-              cycle.length == 1 ? 'direct recursion' : 'mutual recursion cycle: ${cycle.join(" -> ")}';
-          _warnings.add(TerminationWarning(
-            severity: 'warning',
-            category: 'unbounded_recursion',
-            message:
-                '$cycleDesc without conditional return (no base case detected)',
-            location: fnKey,
-          ));
+          final cycleDesc = cycle.length == 1
+              ? 'direct recursion'
+              : 'mutual recursion cycle: ${cycle.join(" -> ")}';
+          _warnings.add(
+            TerminationWarning(
+              severity: 'warning',
+              category: 'unbounded_recursion',
+              message:
+                  '$cycleDesc without conditional return (no base case detected)',
+              location: fnKey,
+            ),
+          );
           // Only warn once per cycle, not once per member.
           break;
         }
@@ -479,8 +491,7 @@ class _TerminationAnalyzer {
         }
       case Expression_Expr.block:
         for (final stmt in expr.block.statements) {
-          if (stmt.hasLet() &&
-              _exprContainsConditionalReturn(stmt.let.value)) {
+          if (stmt.hasLet() && _exprContainsConditionalReturn(stmt.let.value)) {
             return true;
           }
           if (stmt.hasExpression() &&
@@ -525,13 +536,11 @@ class _TerminationAnalyzer {
           if (stmt.hasLet() && _exprContainsReturn(stmt.let.value)) {
             return true;
           }
-          if (stmt.hasExpression() &&
-              _exprContainsReturn(stmt.expression)) {
+          if (stmt.hasExpression() && _exprContainsReturn(stmt.expression)) {
             return true;
           }
         }
-        if (expr.block.hasResult() &&
-            _exprContainsReturn(expr.block.result)) {
+        if (expr.block.hasResult() && _exprContainsReturn(expr.block.result)) {
           return true;
         }
       case Expression_Expr.lambda:
@@ -579,7 +588,10 @@ class _TerminationAnalyzer {
   }
 
   void _checkUnreachableInExpr(
-      Expression expr, String moduleName, String fnName) {
+    Expression expr,
+    String moduleName,
+    String fnName,
+  ) {
     switch (expr.whichExpr()) {
       case Expression_Expr.block:
         _checkBlockUnreachable(expr.block, moduleName, fnName);
@@ -607,8 +619,7 @@ class _TerminationAnalyzer {
         }
       case Expression_Expr.fieldAccess:
         if (expr.fieldAccess.hasObject()) {
-          _checkUnreachableInExpr(
-              expr.fieldAccess.object, moduleName, fnName);
+          _checkUnreachableInExpr(expr.fieldAccess.object, moduleName, fnName);
         }
       case Expression_Expr.literal:
       case Expression_Expr.reference:
@@ -617,20 +628,21 @@ class _TerminationAnalyzer {
     }
   }
 
-  void _checkBlockUnreachable(
-      Block block, String moduleName, String fnName) {
+  void _checkBlockUnreachable(Block block, String moduleName, String fnName) {
     for (var i = 0; i < block.statements.length; i++) {
       final stmt = block.statements[i];
       if (_isTerminatingStatement(stmt) && i < block.statements.length - 1) {
         // Statements after this one are unreachable.
         final unreachableCount = block.statements.length - 1 - i;
-        _warnings.add(TerminationWarning(
-          severity: 'warning',
-          category: 'unreachable_code',
-          message:
-              '$unreachableCount statement(s) after ${_terminatingCallName(stmt)} are unreachable',
-          location: '$moduleName.$fnName:stmt[${i + 1}]',
-        ));
+        _warnings.add(
+          TerminationWarning(
+            severity: 'warning',
+            category: 'unreachable_code',
+            message:
+                '$unreachableCount statement(s) after ${_terminatingCallName(stmt)} are unreachable',
+            location: '$moduleName.$fnName:stmt[${i + 1}]',
+          ),
+        );
         break;
       }
     }
@@ -674,16 +686,17 @@ class _TerminationAnalyzer {
         _collectLabelUsages(fn.body, usedLabels);
         // Report orphans.
         for (final usage in usedLabels) {
-          if (usage.label.isNotEmpty &&
-              !definedLabels.contains(usage.label)) {
-            _warnings.add(TerminationWarning(
-              severity: 'error',
-              category: 'orphaned_label',
-              message:
-                  'std.${usage.kind}(label: "${usage.label}") references '
-                  'undefined label "${usage.label}"',
-              location: '${module.name}.${fn.name}',
-            ));
+          if (usage.label.isNotEmpty && !definedLabels.contains(usage.label)) {
+            _warnings.add(
+              TerminationWarning(
+                severity: 'error',
+                category: 'orphaned_label',
+                message:
+                    'std.${usage.kind}(label: "${usage.label}") references '
+                    'undefined label "${usage.label}"',
+                location: '${module.name}.${fn.name}',
+              ),
+            );
           }
         }
       }
@@ -746,8 +759,10 @@ class _TerminationAnalyzer {
             call.hasInput()) {
           final input = call.input;
           if (input.whichExpr() == Expression_Expr.messageCreation) {
-            final label =
-                _getStringField(input.messageCreation.fields, 'label');
+            final label = _getStringField(
+              input.messageCreation.fields,
+              'label',
+            );
             if (label != null && label.isNotEmpty) {
               usages.add(_LabelUsage(call.function, label));
             }

@@ -10,7 +10,7 @@ name: Regression Gates
 # a tally regressing from 156 -> 155). This workflow asserts hard floors:
 #
 #   * TS hand-written engine : exactly 269 passed / 0 failed
-#   * TS self-hosted compiler : exactly 269 passed / 0 failed
+#   * TS self-hosted compiler : exactly 41 passed / 0 failed (node --test suite)
 #   * Dart engine            : 0 failed; pass count must not drop below DART_ENGINE_MIN_PASS
 #   * Dart encoder           : exactly DART_ENCODER_EXPECTED passed / 0 failed
 #   * Dart compiler          : exactly DART_COMPILER_EXPECTED passed / 0 failed
@@ -42,7 +42,8 @@ concurrency:
 
 # Pin the expected counts in one place so bumping the floor is a one-line edit.
 env:
-  TS_EXPECTED_PASS: "269"
+  TS_ENGINE_EXPECTED_PASS: "269"
+  TS_COMPILER_EXPECTED_PASS: "41"
   DART_ENGINE_MIN_PASS: "566"
   DART_ENCODER_EXPECTED: "116"
   DART_COMPILER_EXPECTED: "88"
@@ -52,7 +53,7 @@ env:
 jobs:
   # ──────────────────────────────────────────────────
   # TypeScript regression gate — engine + compiler must each
-  # report exactly 269 passed / 0 failed.
+  # report exactly 269 engine / 41 compiler passed / 0 failed.
   # ──────────────────────────────────────────────────
   ts-regression:
     name: TS Regression Gate (engine + compiler)
@@ -90,13 +91,13 @@ jobs:
             exit 1
           fi
 
-          echo "TS engine: $passed passed, $failed failed (expected ${TS_EXPECTED_PASS} / 0)"
+          echo "TS engine: $passed passed, $failed failed (expected ${TS_ENGINE_EXPECTED_PASS} / 0)"
           if [ "$failed" != "0" ]; then
             echo "::error::TS engine has $failed failing test(s)"
             exit 1
           fi
-          if [ "$passed" != "${TS_EXPECTED_PASS}" ]; then
-            echo "::error::TS engine pass count regressed: got $passed, expected ${TS_EXPECTED_PASS}. If this is an intentional change, update TS_EXPECTED_PASS in .github/workflows/regression-gates.yml."
+          if [ "$passed" != "${TS_ENGINE_EXPECTED_PASS}" ]; then
+            echo "::error::TS engine pass count regressed: got $passed, expected ${TS_ENGINE_EXPECTED_PASS}. If this is an intentional change, update TS_ENGINE_EXPECTED_PASS in .github/workflows/regression-gates.yml."
             exit 1
           fi
 
@@ -107,7 +108,7 @@ jobs:
       - name: Build @ball-lang/compiler
         run: cd ts/compiler && npm run build
 
-      - name: Compiler — assert 269 pass / 0 fail
+      - name: Compiler — assert 41 pass / 0 fail
         run: |
           set -o pipefail
           cd ts/compiler
@@ -126,13 +127,13 @@ jobs:
             exit 1
           fi
 
-          echo "TS compiler: $passed pass, $failed fail (expected ${TS_EXPECTED_PASS} / 0)"
+          echo "TS compiler: $passed pass, $failed fail (expected ${TS_COMPILER_EXPECTED_PASS} / 0)"
           if [ "$failed" != "0" ]; then
             echo "::error::TS compiler has $failed failing test(s)"
             exit 1
           fi
-          if [ "$passed" != "${TS_EXPECTED_PASS}" ]; then
-            echo "::error::TS compiler pass count regressed: got $passed, expected ${TS_EXPECTED_PASS}. If this is an intentional change, update TS_EXPECTED_PASS in .github/workflows/regression-gates.yml."
+          if [ "$passed" != "${TS_COMPILER_EXPECTED_PASS}" ]; then
+            echo "::error::TS compiler pass count regressed: got $passed, expected ${TS_COMPILER_EXPECTED_PASS}. If this is an intentional change, update TS_COMPILER_EXPECTED_PASS in .github/workflows/regression-gates.yml."
             exit 1
           fi
 

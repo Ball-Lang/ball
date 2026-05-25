@@ -11,9 +11,12 @@
 //   3. Construct BallEngine, run, capture stdout
 //   4. Compare against .expected_output.txt
 
-// Include the self-hosted engine FIRST — it defines BallDyn, BallMap, etc.
-// and lives in an anonymous namespace for internal linkage.
+// Self-hosted engine: multi-TU (ball_rt namespace) or legacy single .cpp include.
+#if defined(BALL_SELFHOST_MULTI_TU)
+#include "engine_rt_link.hpp"
+#else
 #include "../../dart/self_host/lib/engine_rt.cpp"
+#endif
 
 // Now include protobuf headers for JSON parsing of Ball programs.
 // These are separate from the engine_rt runtime types.

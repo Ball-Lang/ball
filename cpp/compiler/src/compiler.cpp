@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <set>
 
 namespace ball {
@@ -17,6 +19,27 @@ namespace ball {
 CppCompiler::CppCompiler(const ball::v1::Program& program)
     : program_(program) {
     build_lookup_tables();
+}
+
+void CppCompiler::queue_split_definition(std::string definition) {
+    if (!split_mode_) return;
+    split_pending_.push_back(std::move(definition));
+}
+
+void CppCompiler::emit_namespace_open() {
+    if (split_mode_) {
+        emit_line(std::string("namespace ") + kSplitNamespace + " {");
+    } else {
+        emit_line("namespace {");
+    }
+}
+
+void CppCompiler::emit_namespace_close() {
+    if (split_mode_) {
+        emit_line(std::string("} // namespace ") + kSplitNamespace);
+    } else {
+        emit_line("} // namespace");
+    }
 }
 
 void CppCompiler::build_lookup_tables() {
@@ -1140,6 +1163,11 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
     if (mod == "std" || mod == "dart_std" ||
         (mod.empty() && std_builtins.count(fn) > 0)) {
         return compile_std_call(fn, call);
+    }
+
+    // Engine runtime intrinsics — insertion-ordered map factory.
+    if (mod.empty() && fn == "_ballUserMap") {
+        return "BallDyn(BallOrderedMap{})";
     }
 
     // std_memory → direct memory calls
@@ -3511,52 +3539,15 @@ inline BallDyn ball_list_copy(const BallDyn& v) {
   return v;
 }
 inline BallDyn ball_map_copy(const BallDyn& v) {
-  try { auto a = static_cast<std::any>(v); return BallDyn(BallMap(std::any_cast<BallMap>(a))); } catch(...) { return v; }
-}
-inline BallDyn ball_map_entries(const BallDyn& v) {
-  std::vector<std::any> r;
   try {
-    // MSVC wraps a BallDyn into std::any (rather than calling operator std::any)
-    // when static_cast'd, so the raw `a` is often typeid(BallDyn). Unwrap it to
-    // reach the underlying map — otherwise this returns empty and every map
-    // iteration (incl. method-scope field binding) silently sees no entries.
-    auto a0 = static_cast<std::any>(v);
-    const std::any& a = _BallDynUnwrapper::unwrap(a0);
-    const BallMap* mp = nullptr;
-    if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
-    else { mp = _ball_object_base_map(a); }  // BallObject / BallObjectRef
-    if (mp) {
-      for (const auto& [k, val] : *mp) {
-        BallMap e; e["key"] = std::any(k); e["value"] = val;
-        r.push_back(std::any(e));
-      }
-    }
+    auto a = static_cast<std::any>(v);
+    const std::any& u = _BallDynUnwrapper::unwrap(a);
+    if (u.type() == typeid(BallOrderedMap))
+      return BallDyn(BallOrderedMap(std::any_cast<const BallOrderedMap&>(u)));
+    if (u.type() == typeid(BallMap))
+      return BallDyn(BallMap(std::any_cast<const BallMap&>(u)));
   } catch(...) {}
-  return BallDyn(BallList(r));
-}
-inline BallDyn ball_map_keys(const BallDyn& v) {
-  std::vector<std::any> r;
-  try {
-    auto a0 = static_cast<std::any>(v);
-    const std::any& a = _BallDynUnwrapper::unwrap(a0);
-    const BallMap* mp = nullptr;
-    if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
-    else { mp = _ball_object_base_map(a); }  // BallObject / BallObjectRef
-    if (mp) { for (const auto& [k, val] : *mp) r.push_back(std::any(k)); }
-  } catch(...) {}
-  return BallDyn(BallList(r));
-}
-inline BallDyn ball_map_values(const BallDyn& v) {
-  std::vector<std::any> r;
-  try {
-    auto a0 = static_cast<std::any>(v);
-    const std::any& a = _BallDynUnwrapper::unwrap(a0);
-    const BallMap* mp = nullptr;
-    if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
-    else { mp = _ball_object_base_map(a); }  // BallObject / BallObjectRef
-    if (mp) { for (const auto& [k, val] : *mp) r.push_back(val); }
-  } catch(...) {}
-  return BallDyn(BallList(r));
+  return v;
 }
 )";
     emit_newline();
@@ -3716,6 +3707,79 @@ void CppCompiler::emit_enum(const google::protobuf::EnumDescriptorProto& ed) {
     emit_newline();
 }
 
+void CppCompiler::emit_function_signature_only(
+    const ball::v1::FunctionDefinition& func) {
+    auto return_type = map_return_type(func);
+    auto name = sanitize_name(func.name());
+    auto params = func.has_metadata() ? extract_params(func.metadata())
+                                      : std::vector<std::string>{};
+    auto meta = read_meta(func);
+    if (meta.count("original_name")) {
+        name = sanitize_name(meta["original_name"]);
+    }
+    if (func.has_metadata()) emit_template_prefix_from_meta(func.metadata());
+    emit_indent();
+    bool is_conv = meta.count("is_conversion_operator") &&
+                   meta["is_conversion_operator"] == "true";
+    if (is_conv) {
+        std::string conv_type = return_type;
+        if (meta.count("conversion_type") && !meta["conversion_type"].empty()) {
+            conv_type = map_type(meta["conversion_type"]);
+        }
+        out_ << "operator " << conv_type << "(";
+    } else {
+        out_ << return_type << " " << name << "(";
+    }
+    auto extract_param_types = [&](const ball::v1::FunctionDefinition& f)
+        -> std::vector<std::string> {
+        std::vector<std::string> types;
+        if (!f.has_metadata()) return types;
+        auto it = f.metadata().fields().find("params");
+        if (it == f.metadata().fields().end()) return types;
+        if (it->second.kind_case() != google::protobuf::Value::kListValue) return types;
+        for (const auto& v : it->second.list_value().values()) {
+            if (v.kind_case() != google::protobuf::Value::kStructValue) {
+                types.push_back("");
+                continue;
+            }
+            auto tit = v.struct_value().fields().find("type");
+            if (tit != v.struct_value().fields().end() &&
+                tit->second.kind_case() == google::protobuf::Value::kStringValue) {
+                types.push_back(tit->second.string_value());
+            } else {
+                types.push_back("");
+            }
+        }
+        return types;
+    };
+    auto param_types = extract_param_types(func);
+    if (!params.empty()) {
+        for (size_t i = 0; i < params.size(); i++) {
+            if (i > 0) out_ << ", ";
+            std::string t = (i < param_types.size() && !param_types[i].empty())
+                                ? map_type(param_types[i])
+                                : "auto&&";
+            out_ << t << " " << sanitize_name(params[i]);
+        }
+    } else if (!func.input_type().empty()) {
+        out_ << map_type(func.input_type()) << " input";
+    }
+    out_ << ");\n";
+}
+
+void CppCompiler::emit_function_body_out_of_line(
+    const ball::v1::FunctionDefinition& func) {
+    std::ostringstream saved;
+    saved.swap(out_);
+    int saved_indent = indent_;
+    emit_function(func);
+    indent_ = saved_indent;
+    queue_split_definition(out_.str());
+    out_.str("");
+    out_.clear();
+    out_.swap(saved);
+}
+
 void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                                 const std::vector<const ball::v1::FunctionDefinition*>& methods) {
     std::string name = sanitize_name(td.name());
@@ -3847,7 +3911,31 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                     out_ << "auto " << sanitize_name(params[i]);
                 }
                 out_ << ")";
-                if (func->has_body()) {
+                if (split_mode_ && func->has_body()) {
+                    out_ << ";\n";
+                    std::ostringstream saved;
+                    saved.swap(out_);
+                    int saved_indent = indent_;
+                    emit_indent();
+                    out_ << name << "::" << name << "(";
+                    for (size_t i = 0; i < params.size(); i++) {
+                        if (i > 0) out_ << ", ";
+                        out_ << "auto " << sanitize_name(params[i]);
+                    }
+                    out_ << ") {\n";
+                    indent_++;
+                    if (func->body().expr_case() == ball::v1::Expression::kBlock) {
+                        for (const auto& s : func->body().block().statements())
+                            compile_statement(s);
+                    }
+                    indent_--;
+                    emit_line("}");
+                    queue_split_definition(out_.str());
+                    out_.str("");
+                    out_.clear();
+                    out_.swap(saved);
+                    indent_ = saved_indent;
+                } else if (func->has_body()) {
                     out_ << " {\n";
                     indent_++;
                     if (func->body().expr_case() == ball::v1::Expression::kBlock) {
@@ -3897,9 +3985,30 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             if (i > 0) out_ << ", ";
             out_ << "auto&& " << sanitize_name(params[i]);
         }
-        out_ << ") {\n";
-        indent_++;
-        if (func->has_body()) {
+
+        if (split_mode_ && func->has_body()) {
+            out_ << ");\n";
+            std::ostringstream saved;
+            saved.swap(out_);
+            int saved_indent = indent_;
+            emit_indent();
+            if (is_static) out_ << "static ";
+            if (is_conv) {
+                std::string conv_type = map_return_type(*func);
+                if (meta.count("conversion_type") && !meta["conversion_type"].empty()) {
+                    conv_type = map_type(meta["conversion_type"]);
+                }
+                out_ << conv_type << " " << name << "::operator " << conv_type << "(";
+            } else {
+                out_ << map_return_type(*func) << " " << name << "::"
+                     << sanitize_name(method_name) << "(";
+            }
+            for (size_t i = 0; i < params.size(); i++) {
+                if (i > 0) out_ << ", ";
+                out_ << "auto&& " << sanitize_name(params[i]);
+            }
+            out_ << ") {\n";
+            indent_++;
             if (func->body().expr_case() == ball::v1::Expression::kBlock) {
                 for (const auto& s : func->body().block().statements())
                     compile_statement(s);
@@ -3909,11 +4018,35 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             } else {
                 emit_line("return " + compile_expr(func->body()) + ";");
             }
+            auto mrt = map_return_type(*func);
+            if (mrt != "void") emit_line("return BallDyn();");
+            indent_--;
+            emit_line("}");
+            queue_split_definition(out_.str());
+            out_.str("");
+            out_.clear();
+            out_.swap(saved);
+            indent_ = saved_indent;
+        } else {
+            out_ << ") {\n";
+            indent_++;
+            if (func->has_body()) {
+                if (func->body().expr_case() == ball::v1::Expression::kBlock) {
+                    for (const auto& s : func->body().block().statements())
+                        compile_statement(s);
+                    if (func->body().block().has_result()) {
+                        emit_line("return " +
+                                   compile_expr(func->body().block().result()) + ";");
+                    }
+                } else {
+                    emit_line("return " + compile_expr(func->body()) + ";");
+                }
+            }
+            auto mrt = map_return_type(*func);
+            if (mrt != "void") emit_line("return BallDyn();");
+            indent_--;
+            emit_line("}");
         }
-        auto mrt = map_return_type(*func);
-        if (mrt != "void") emit_line("return BallDyn();");
-        indent_--;
-        emit_line("}");
     }
 
     current_class_methods_.clear();
@@ -4008,6 +4141,16 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         emit_line("ball_object_set_field(BallDyn(target), "
                   "ball_to_string(BallDyn(fieldName)), BallDyn(val));");
         emit_line("return BallDyn();");
+        indent_--;
+        emit_line("}");
+        emit_newline();
+        return;
+    }
+
+    // Runtime intrinsic: insertion-ordered map factory (Dart LinkedHashMap).
+    // Used by _stdMapCreate and _buildLookupTables — NOT compile-time map_create.
+    if (name == "_ballUserMap") {
+        emit_line("return BallDyn(BallOrderedMap{});");
         indent_--;
         emit_line("}");
         emit_newline();
@@ -4139,7 +4282,7 @@ std::string CppCompiler::compile() {
     // names can't collide with C stdlib names (`abs`, `pow`, etc.) that
     // are pulled in by `<cmath>` / `<cstdlib>`. `main()` stays at global
     // scope and picks up these names via unqualified lookup.
-    emit_line("namespace {");
+    emit_namespace_open();
     emit_newline();
 
     // Forward declarations
@@ -4212,8 +4355,7 @@ std::string CppCompiler::compile() {
         emit_function(*func);
     }
 
-    // Close the anonymous namespace opened before emit_forward_decls.
-    emit_line("} // namespace");
+    emit_namespace_close();
     emit_newline();
 
     // Main entry point (global scope — has access to everything in the
@@ -4223,6 +4365,185 @@ std::string CppCompiler::compile() {
     }
 
     return out_.str();
+}
+
+CompileSplitResult CppCompiler::compile_split(const std::string& output_dir,
+                                              int num_shards) {
+    if (num_shards < 1) num_shards = 1;
+    split_mode_ = true;
+    split_shards_ = num_shards;
+    split_next_shard_ = 0;
+    split_pending_.clear();
+
+    std::filesystem::create_directories(output_dir);
+
+    // Header + declarations (no out-of-line bodies).
+    out_.str("");
+    out_.clear();
+    emit_line("// Generated by ball compiler (C++ target, multi-TU)");
+    emit_line("// Source: " + program_.name() + " v" + program_.version());
+    emit_newline();
+    emit_line("#pragma once");
+    emit_includes();
+
+    const ball::v1::Module* main_module = nullptr;
+    const ball::v1::FunctionDefinition* entry_func = nullptr;
+    for (const auto& mod : program_.modules()) {
+        if (mod.name() == program_.entry_module()) {
+            main_module = &mod;
+            break;
+        }
+    }
+    if (!main_module) {
+        throw std::runtime_error("Entry module \"" + program_.entry_module() + "\" not found");
+    }
+    for (const auto& func : main_module->functions()) {
+        if (func.name() == program_.entry_function()) {
+            entry_func = &func;
+            break;
+        }
+    }
+
+    if (base_modules_.count("std_memory")) {
+        emit_line("// Ball linear memory runtime");
+        emit_line("static uint8_t _ball_memory[65536];");
+        emit_line("static size_t _ball_heap_ptr = 0;");
+        emit_line("static size_t _ball_stack_ptr = 65536;");
+        emit_line("static std::vector<size_t> _ball_stack_frames;");
+        emit_newline();
+    }
+
+    emit_namespace_open();
+    emit_newline();
+    emit_forward_decls(*main_module);
+
+    std::unordered_map<std::string, std::vector<const ball::v1::FunctionDefinition*>>
+        class_methods;
+    std::vector<const ball::v1::FunctionDefinition*> standalone;
+    std::vector<const ball::v1::FunctionDefinition*> top_level_vars;
+
+    for (const auto& func : main_module->functions()) {
+        if (func.is_base()) continue;
+        if (entry_func && func.name() == program_.entry_function()) continue;
+        auto meta = read_meta(func);
+        auto kind = meta.count("kind") ? meta["kind"] : "function";
+        if (kind == "method" || kind == "constructor" || kind == "static_field" ||
+            kind == "operator") {
+            auto colon = func.name().find(':');
+            std::string after =
+                colon != std::string::npos ? func.name().substr(colon + 1) : func.name();
+            auto dot = after.find('.');
+            if (dot != std::string::npos) {
+                std::string class_key =
+                    func.name().substr(0, (colon != std::string::npos ? colon + 1 : 0) + dot);
+                class_methods[class_key].push_back(&func);
+                continue;
+            }
+        }
+        if (kind == "top_level_variable") {
+            top_level_vars.push_back(&func);
+            continue;
+        }
+        standalone.push_back(&func);
+    }
+
+    static const std::set<std::string> runtime_types = {
+        "BallException", "File", "JsonEncoder", "JsonDecoder",
+        "Map_from", "FunctionType",
+        "_FlowSignal", "_Scope", "BallRuntimeError", "BallFuture",
+        "BallGenerator", "_ExitSignal", "BallModuleHandler",
+        "StdModuleHandler",
+        "BallObject", "List_filled",
+    };
+
+    for (const auto& ed : main_module->enums()) {
+        emit_enum(ed);
+    }
+    for (const auto* func : top_level_vars) {
+        emit_top_level_var(*func);
+    }
+    if (!top_level_vars.empty()) emit_newline();
+
+    for (const auto& td : main_module->type_defs()) {
+        if (!td.has_descriptor_()) continue;
+        if (runtime_types.count(sanitize_name(td.name())) > 0) continue;
+        auto it = class_methods.find(td.name());
+        auto methods = it != class_methods.end()
+                           ? it->second
+                           : std::vector<const ball::v1::FunctionDefinition*>{};
+        emit_struct(td, methods);
+    }
+
+    for (const auto* func : standalone) {
+        emit_function_signature_only(*func);
+        emit_function_body_out_of_line(*func);
+    }
+
+    emit_namespace_close();
+    emit_newline();
+
+    const std::string common_path =
+        (std::filesystem::path(output_dir) / "engine_rt_common.hpp").string();
+    {
+        std::ofstream common_out(common_path);
+        if (!common_out) {
+            throw std::runtime_error("Could not open " + common_path);
+        }
+        common_out << out_.str();
+    }
+
+    // Distribute queued definitions across shard .cpp files.
+    std::vector<std::ostringstream> shard_bufs(static_cast<size_t>(num_shards));
+    size_t idx = 0;
+    for (const auto& def : split_pending_) {
+        shard_bufs[idx % static_cast<size_t>(num_shards)] << def << "\n";
+        idx++;
+    }
+
+    CompileSplitResult result;
+    result.output_dir = output_dir;
+    result.num_shards = num_shards;
+    result.common_header = common_path;
+
+    for (int s = 0; s < num_shards; ++s) {
+        char name[64];
+        std::snprintf(name, sizeof(name), "engine_rt_shard_%02d.cpp", s);
+        const std::string shard_path =
+            (std::filesystem::path(output_dir) / name).string();
+        std::ofstream shard_out(shard_path);
+        if (!shard_out) {
+            throw std::runtime_error("Could not open " + shard_path);
+        }
+        shard_out << "// Generated shard " << s << " of " << num_shards << "\n";
+        shard_out << "#include \"engine_rt_common.hpp\"\n\n";
+        shard_out << "namespace " << kSplitNamespace << " {\n\n";
+        shard_out << shard_bufs[static_cast<size_t>(s)].str();
+        shard_out << "} // namespace " << kSplitNamespace << "\n";
+        result.shard_sources.push_back(shard_path);
+    }
+
+    // Consumer header for tests / embedders.
+    const std::string link_path =
+        (std::filesystem::path(output_dir) / "engine_rt_link.hpp").string();
+    {
+        std::ofstream link_out(link_path);
+        link_out << "#pragma once\n";
+        link_out << "#include \"engine_rt_common.hpp\"\n";
+        link_out << "namespace ball_rt_public {\n";
+        link_out << "using ball_rt::BallEngine;\n";
+        link_out << "using ball_rt::BallDyn;\n";
+        link_out << "using ball_rt::BallMap;\n";
+        link_out << "using ball_rt::BallList;\n";
+        link_out << "using ball_rt::BallFunc;\n";
+        link_out << "using ball_rt::StdModuleHandler;\n";
+        link_out << "using ball_rt::ball_to_string;\n";
+        link_out << "} // namespace ball_rt_public\n";
+        link_out << "using namespace ball_rt_public;\n";
+    }
+
+    split_mode_ = false;
+    split_pending_.clear();
+    return result;
 }
 
 std::string CppCompiler::compile_module(const std::string& module_name) {

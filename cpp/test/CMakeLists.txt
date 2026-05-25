@@ -4,6 +4,9 @@ project(ball_cpp_tests)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../cmake")
+include(BallSelfhostEngine)
+
 # Engine tests
 add_executable(test_engine test_engine.cpp)
 target_include_directories(test_engine PRIVATE
@@ -139,11 +142,14 @@ else()
     target_link_options(test_encoder PRIVATE -Wl,-z,stacksize=268435456)
 endif()
 
-# Self-hosted engine compilation test — compile the Ball engine compiled
-# to C++ via the Ball C++ compiler.  This is a compile-only check; we
-# don't link or run it (it's a standalone self-contained .cpp file).
+# Self-hosted engine compilation test — multi-TU engine_rt/ (preferred) or
+# legacy monolithic engine_rt.cpp.
+set(BALL_SELFHOST_RT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../dart/self_host/lib/engine_rt")
 set(BALL_SELFHOST_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../../dart/self_host/lib/engine_rt.cpp")
-if(EXISTS "${BALL_SELFHOST_CPP}")
+if(EXISTS "${BALL_SELFHOST_RT_DIR}/engine_rt_common.hpp")
+    ball_add_selfhost_engine_target(ball_selfhost_engine)
+    add_library(test_selfhost_compile ALIAS ball_selfhost_engine)
+elseif(EXISTS "${BALL_SELFHOST_CPP}")
     add_library(test_selfhost_compile OBJECT "${BALL_SELFHOST_CPP}")
     target_compile_options(test_selfhost_compile PRIVATE
         $<$<CXX_COMPILER_ID:MSVC>:/W0 /bigobj>
@@ -168,12 +174,20 @@ target_compile_options(scope_probe PRIVATE
 )
 
 # Self-hosted engine conformance tests — runs conformance programs through
-# the compiled Ball engine (engine_rt.cpp). Includes engine_rt.cpp directly
-# and links against protobuf for JSON parsing of Ball programs.
+# the compiled Ball engine (multi-TU engine_rt/ or legacy engine_rt.cpp).
 add_executable(test_selfhost_conformance test_selfhost_conformance.cpp)
 target_include_directories(test_selfhost_conformance PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
 )
+if(TARGET ball_selfhost_engine)
+    target_include_directories(test_selfhost_conformance PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../dart/self_host/lib/engine_rt
+    )
+    target_sources(test_selfhost_conformance PRIVATE $<TARGET_OBJECTS:ball_selfhost_engine>)
+    target_compile_definitions(test_selfhost_conformance PRIVATE BALL_SELFHOST_MULTI_TU=1)
+elseif(EXISTS "${BALL_SELFHOST_CPP}")
+    target_sources(test_selfhost_conformance PRIVATE "${BALL_SELFHOST_CPP}")
+endif()
 target_link_libraries(test_selfhost_conformance ball_shared)
 target_compile_options(test_selfhost_conformance PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W0 /bigobj>

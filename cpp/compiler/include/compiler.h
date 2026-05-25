@@ -12,6 +12,7 @@
 
 #include "ball_shared.h"
 #include "code_builder.h"
+#include <map>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -20,6 +21,14 @@
 
 namespace ball {
 
+// Multi-TU output for parallel MSVC/Ninja builds (self-hosted engine_rt).
+struct CompileSplitResult {
+    std::string output_dir;
+    int num_shards = 0;
+    std::string common_header;   // engine_rt_common.hpp
+    std::vector<std::string> shard_sources;  // engine_rt_shard_NN.cpp paths
+};
+
 class CppCompiler {
 public:
     explicit CppCompiler(const ball::v1::Program& program);
@@ -27,8 +36,15 @@ public:
     // Compile the entire program to a single C++ source string
     std::string compile();
 
+    // Emit N translation units + a shared header under output_dir.
+    // Uses namespace ball_rt (not anonymous) so TUs can link together.
+    CompileSplitResult compile_split(const std::string& output_dir, int num_shards);
+
     // Compile a single module (for multi-file output)
     std::string compile_module(const std::string& module_name);
+
+    // Namespace used for multi-TU emission (single-TU uses anonymous namespace).
+    static constexpr const char* kSplitNamespace = "ball_rt";
 
 private:
     ball::v1::Program program_;
@@ -58,6 +74,18 @@ private:
     // wraps it in a lambda to bind `this` (member function pointers
     // can't be stored directly as std::any/std::function values).
     std::unordered_set<std::string> current_class_methods_;
+
+    // Multi-TU emission state (compile_split only)
+    bool split_mode_ = false;
+    int split_shards_ = 8;
+    int split_next_shard_ = 0;
+    std::vector<std::string> split_pending_;
+
+    void queue_split_definition(std::string definition);
+    void emit_namespace_open();
+    void emit_namespace_close();
+    void emit_function_signature_only(const ball::v1::FunctionDefinition& func);
+    void emit_function_body_out_of_line(const ball::v1::FunctionDefinition& func);
 
     void build_lookup_tables();
     std::vector<std::string> extract_params(const google::protobuf::Struct& metadata);

@@ -43,12 +43,27 @@ int main(int argc, char** argv) {
 
 static int run_compile(int argc, char** argv) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <program.ball.json|program.ball.pb> [output.cpp]"
-                  << std::endl;
+        std::cerr << "Usage: " << argv[0]
+                  << " <program.ball.json|program.ball.pb> [output.cpp]\n"
+                  << "       " << argv[0]
+                  << " <program.ball.pb> --split <dir> [--shards N]\n";
         return 1;
     }
 
     std::string input_path = argv[1];
+    std::string output_path;
+    std::string split_dir;
+    int split_shards = 8;
+    for (int i = 2; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--split" && i + 1 < argc) {
+            split_dir = argv[++i];
+        } else if (arg == "--shards" && i + 1 < argc) {
+            split_shards = std::atoi(argv[++i]);
+        } else if (output_path.empty() && split_dir.empty()) {
+            output_path = arg;
+        }
+    }
 
     std::ifstream file(input_path, std::ios::binary);
     if (!file) {
@@ -87,16 +102,25 @@ static int run_compile(int argc, char** argv) {
     }
 
     ball::CppCompiler compiler(program);
+
+    if (!split_dir.empty()) {
+        auto result = compiler.compile_split(split_dir, split_shards);
+        std::cerr << "Compiled split output to " << result.output_dir
+                  << " (" << result.num_shards << " shards, header "
+                  << result.common_header << ")\n";
+        return 0;
+    }
+
     std::string output = compiler.compile();
 
-    if (argc >= 3) {
-        std::ofstream out(argv[2]);
+    if (!output_path.empty()) {
+        std::ofstream out(output_path);
         if (!out) {
-            std::cerr << "Could not open output file " << argv[2] << std::endl;
+            std::cerr << "Could not open output file " << output_path << std::endl;
             return 1;
         }
         out << output;
-        std::cerr << "Compiled to " << argv[2] << std::endl;
+        std::cerr << "Compiled to " << output_path << std::endl;
     } else {
         std::cout << output;
     }

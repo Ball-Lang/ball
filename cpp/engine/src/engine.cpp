@@ -86,23 +86,25 @@ static bool type_name_matches(const std::string& obj_type, const std::string& ch
 /// matches the given type name.
 static bool object_type_matches(const BallValue& value, const std::string& type) {
     if (!is_map(value)) return false;
-    const auto& m = std::any_cast<const BallMap&>(value);
+    const BallMap* m = ball_map_ptr(value);
+    if (!m) return false;
     // Check __type__ on the value itself
-    auto it = m.find("__type__");
-    if (it != m.end() && is_string(it->second)) {
+    auto it = m->find("__type__");
+    if (it != m->end() && is_string(it->second)) {
         if (type_name_matches(std::any_cast<const std::string&>(it->second), type)) return true;
     }
     // Walk __super__ chain
-    auto sit = m.find("__super__");
-    BallValue super_obj = (sit != m.end()) ? sit->second : BallValue{};
+    auto sit = m->find("__super__");
+    BallValue super_obj = (sit != m->end()) ? sit->second : BallValue{};
     while (is_map(super_obj)) {
-        const auto& sm = std::any_cast<const BallMap&>(super_obj);
-        auto st = sm.find("__type__");
-        if (st != sm.end() && is_string(st->second)) {
+        const BallMap* sm = ball_map_ptr(super_obj);
+        if (!sm) break;
+        auto st = sm->find("__type__");
+        if (st != sm->end() && is_string(st->second)) {
             if (type_name_matches(std::any_cast<const std::string&>(st->second), type)) return true;
         }
-        auto ss = sm.find("__super__");
-        super_obj = (ss != sm.end()) ? ss->second : BallValue{};
+        auto ss = sm->find("__super__");
+        super_obj = (ss != sm->end()) ? ss->second : BallValue{};
     }
     return false;
 }
@@ -1133,12 +1135,12 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                     if (is_list(container)) {
                         auto& lst_outer = *ball_list_ptr(container);
                         auto i = to_int(idx_val);
-                        if (i >= 0 && static_cast<size_t>(i) < lst_outer.size() && is_list(lst_outer[i])) {
-                            auto inner = ball_list_copy(lst_outer[i]);
-                            inner.push_back(push_val);
-                            lst_outer[i] = BallValue(inner);
-                            scope->set(container_name, container);
-                            return BallValue(inner);
+                        if (i >= 0 && static_cast<size_t>(i) < lst_outer.size()) {
+                            if (BallList* inner = ball_list_ptr(lst_outer[i])) {
+                                inner->push_back(push_val);
+                                scope->set(container_name, container);
+                                return lst_outer[i];
+                            }
                         }
                     }
                 }
@@ -1155,11 +1157,10 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
             for (const auto& f : call.input().message_creation().fields()) {
                 if (f.name() == "entry") {
                     auto entry_val = eval_expr(f.value(), scope);
-                    if (is_map(entry_val)) {
-                        const auto& entry = std::any_cast<const BallMap&>(entry_val);
-                        auto key_it = entry.find("key");
-                        auto val_it = entry.find("value");
-                        if (key_it != entry.end() && val_it != entry.end()) {
+                    if (const BallMap* entry = ball_map_ptr(entry_val)) {
+                        auto key_it = entry->find("key");
+                        auto val_it = entry->find("value");
+                        if (key_it != entry->end() && val_it != entry->end()) {
                             result[ball::to_string(key_it->second)] = val_it->second;
                         }
                     }
@@ -1168,11 +1169,10 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                     if (is_list(entries_val)) {
                         const auto& entries = *ball_list_ptr(entries_val);
                         for (const auto& e : entries) {
-                            if (is_map(e)) {
-                                const auto& entry = std::any_cast<const BallMap&>(e);
-                                auto key_it = entry.find("name");
-                                auto val_it = entry.find("value");
-                                if (key_it != entry.end() && val_it != entry.end()) {
+                            if (const BallMap* entry = ball_map_ptr(e)) {
+                                auto key_it = entry->find("name");
+                                auto val_it = entry->find("value");
+                                if (key_it != entry->end() && val_it != entry->end()) {
                                     result[ball::to_string(key_it->second)] = val_it->second;
                                 }
                             }
@@ -2937,10 +2937,14 @@ BallValue Engine::eval_lazy_switch(const ball::v1::FunctionCall& call, std::shar
             if (!matched && pei != cf.end()) {
                 auto pe_val = eval_expr(*pei->second, scope);
                 if (is_map(pe_val)) {
-                    const auto& pe_map = std::any_cast<const BallMap&>(pe_val);
-                    auto val_it = pe_map.find("value");
-                    if (val_it != pe_map.end()) {
-                        matched = values_equal(sub_val, val_it->second);
+                    matched = match_pattern(sub_val, pe_val, bindings);
+                    if (!matched) {
+                        if (const BallMap* pe_map = ball_map_ptr(pe_val)) {
+                            auto val_it = pe_map->find("value");
+                            if (val_it != pe_map->end()) {
+                                matched = values_equal(sub_val, val_it->second);
+                            }
+                        }
                     }
                 } else {
                     matched = values_equal(sub_val, pe_val);
@@ -3125,21 +3129,23 @@ bool Engine::matches_type_pattern(const BallValue& value, const std::string& typ
     if (type_name == "Null" || type_name == "null") return is_null(value);
     // Check __type__ on map objects
     if (is_map(value)) {
-        const auto& m = std::any_cast<const BallMap&>(value);
-        auto it = m.find("__type__");
-        if (it != m.end() && is_string(it->second)) {
+        const BallMap* mp = ball_map_ptr(value);
+        if (!mp) return false;
+        auto it = mp->find("__type__");
+        if (it != mp->end() && is_string(it->second)) {
             auto obj_type = std::any_cast<std::string>(it->second);
             if (obj_type == type_name) return true;
             // Walk __super__ chain
-            auto sit = m.find("__super__");
-            BallValue cur = sit != m.end() ? sit->second : BallValue{};
+            auto sit = mp->find("__super__");
+            BallValue cur = sit != mp->end() ? sit->second : BallValue{};
             while (is_map(cur)) {
-                const auto& sm = std::any_cast<const BallMap&>(cur);
-                auto st = sm.find("__type__");
-                if (st != sm.end() && is_string(st->second) &&
+                const BallMap* smp = ball_map_ptr(cur);
+                if (!smp) break;
+                auto st = smp->find("__type__");
+                if (st != smp->end() && is_string(st->second) &&
                     std::any_cast<std::string>(st->second) == type_name) return true;
-                auto nxt = sm.find("__super__");
-                if (nxt == sm.end()) break;
+                auto nxt = smp->find("__super__");
+                if (nxt == smp->end()) break;
                 cur = nxt->second;
             }
         }
@@ -3209,9 +3215,24 @@ bool Engine::match_string_pattern(const BallValue& value, const std::string& pat
 }
 
 bool Engine::match_structured_pattern(const BallValue& value, const BallMap& pattern, BallMap& bindings) {
+    std::string kind;
     auto kind_it = pattern.find("__pattern_kind__");
-    if (kind_it == pattern.end() || !is_string(kind_it->second)) return false;
-    auto kind = std::any_cast<std::string>(kind_it->second);
+    if (kind_it != pattern.end() && is_string(kind_it->second)) {
+        kind = std::any_cast<std::string>(kind_it->second);
+    } else {
+        auto type_it = pattern.find("__type__");
+        if (type_it != pattern.end() && is_string(type_it->second)) {
+            const auto& type_name = std::any_cast<const std::string&>(type_it->second);
+            if (type_name == "VarPattern") kind = "var";
+            else if (type_name == "WildcardPattern") kind = "wildcard";
+            else if (type_name == "ConstPattern") kind = "const";
+            else if (type_name == "ListPattern") kind = "list";
+            else if (type_name == "MapPattern") kind = "map";
+            else if (type_name == "RecordPattern") kind = "record";
+            else if (type_name == "ObjectPattern") kind = "object";
+        }
+    }
+    if (kind.empty()) return false;
 
     if (kind == "type_test") {
         auto type_it = pattern.find("type");
@@ -3224,6 +3245,33 @@ bool Engine::match_structured_pattern(const BallValue& value, const BallMap& pat
                 return true;
             }
         }
+        return false;
+    }
+
+    if (kind == "var") {
+        auto type_it = pattern.find("type");
+        if (type_it != pattern.end() && is_string(type_it->second)) {
+            if (!matches_type_pattern(value, std::any_cast<std::string>(type_it->second)))
+                return false;
+        }
+        auto name_it = pattern.find("name");
+        if (name_it != pattern.end() && is_string(name_it->second)) {
+            auto var_name = std::any_cast<std::string>(name_it->second);
+            if (var_name != "_") bindings[var_name] = value;
+        }
+        return true;
+    }
+
+    if (kind == "wildcard") {
+        auto type_it = pattern.find("type");
+        if (type_it != pattern.end() && is_string(type_it->second))
+            return matches_type_pattern(value, std::any_cast<std::string>(type_it->second));
+        return true;
+    }
+
+    if (kind == "const") {
+        auto val_it = pattern.find("value");
+        if (val_it != pattern.end()) return values_equal(value, val_it->second);
         return false;
     }
 
@@ -3252,22 +3300,45 @@ bool Engine::match_structured_pattern(const BallValue& value, const BallMap& pat
 
     if (kind == "object" || kind == "record") {
         if (!is_map(value)) return false;
-        const auto& val_map = std::any_cast<const BallMap&>(value);
+        const BallMap* val_map = ball_map_ptr(value);
+        if (!val_map) return false;
         auto type_it = pattern.find("type");
         if (type_it != pattern.end() && is_string(type_it->second)) {
             auto want_type = std::any_cast<std::string>(type_it->second);
-            auto obj_type_it = val_map.find("__type__");
-            if (obj_type_it == val_map.end() || !is_string(obj_type_it->second) ||
+            auto obj_type_it = val_map->find("__type__");
+            if (obj_type_it == val_map->end() || !is_string(obj_type_it->second) ||
                 std::any_cast<std::string>(obj_type_it->second) != want_type) return false;
         }
         auto fields_it = pattern.find("fields");
         if (fields_it != pattern.end() && is_map(fields_it->second)) {
-            const auto& field_patterns = std::any_cast<const BallMap&>(fields_it->second);
-            for (const auto& [fname, fpat] : field_patterns) {
-                auto fv_it = val_map.find(fname);
-                BallValue fv = fv_it != val_map.end() ? fv_it->second : BallValue{};
-                if (!match_pattern(fv, fpat, bindings)) return false;
+            if (const BallMap* field_patterns = ball_map_ptr(fields_it->second)) {
+                for (const auto& [fname, fpat] : *field_patterns) {
+                    auto fv_it = val_map->find(fname);
+                    BallValue fv = fv_it != val_map->end() ? fv_it->second : BallValue{};
+                    if (!match_pattern(fv, fpat, bindings)) return false;
+                }
             }
+        }
+        return true;
+    }
+
+    if (kind == "map") {
+        if (!is_map(value)) return false;
+        const BallMap* raw_map = ball_map_ptr(value);
+        if (!raw_map) return false;
+        auto entries_it = pattern.find("entries");
+        if (entries_it == pattern.end() || !is_list(entries_it->second)) return false;
+        const BallList& entries = *ball_list_ptr(entries_it->second);
+        for (const auto& entry : entries) {
+            const BallMap* entry_map = ball_map_ptr(entry);
+            if (!entry_map) return false;
+            auto key_it = entry_map->find("key");
+            auto val_it = entry_map->find("value");
+            if (key_it == entry_map->end() || val_it == entry_map->end()) return false;
+            auto key = ball::to_string(key_it->second);
+            auto fit = raw_map->find(key);
+            if (fit == raw_map->end()) return false;
+            if (!match_pattern(fit->second, val_it->second, bindings)) return false;
         }
         return true;
     }
@@ -3283,7 +3354,9 @@ bool Engine::match_pattern(const BallValue& value, const BallValue& pattern, Bal
         return match_string_pattern(value, pat_str, bindings);
     }
     if (is_map(pattern)) {
-        return match_structured_pattern(value, std::any_cast<const BallMap&>(pattern), bindings);
+        if (const BallMap* pat_map = ball_map_ptr(pattern))
+            return match_structured_pattern(value, *pat_map, bindings);
+        return false;
     }
     // Direct value equality
     return values_equal(value, pattern);
@@ -3554,15 +3627,15 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
                         auto& outer_lst = *ball_list_ptr(outer_container);
                         auto oi = to_int(outer_idx);
                         if (is_list(outer_lst[oi]) && is_int(idx)) {
-                            auto inner = ball_list_copy(outer_lst[oi]);
-                            auto ii = to_int(idx);
-                            if (!op.empty() && op != "=") {
-                                val = apply_compound_op(op, inner[ii], val);
+                            if (BallList* inner = ball_list_ptr(outer_lst[oi])) {
+                                auto ii = to_int(idx);
+                                if (!op.empty() && op != "=") {
+                                    val = apply_compound_op(op, (*inner)[static_cast<size_t>(ii)], val);
+                                }
+                                (*inner)[static_cast<size_t>(ii)] = val;
+                                scope->set(var_name, outer_container);
+                                return val;
                             }
-                            inner[ii] = val;
-                            outer_lst[oi] = BallValue(inner);
-                            scope->set(var_name, outer_container);
-                            return val;
                         }
                     }
                 }
@@ -4792,14 +4865,13 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         auto entries = ball_list_copy(entries_val);
         BallMap result;
         for (const auto& entry : entries) {
-            if (is_map(entry)) {
-                const auto& e = std::any_cast<const BallMap&>(entry);
-                auto ki = e.find("key");
-                if (ki == e.end()) ki = e.find("arg0");
-                if (ki == e.end()) ki = e.find("name");
-                auto vi = e.find("value");
-                if (vi == e.end()) vi = e.find("arg1");
-                if (ki != e.end() && vi != e.end()) {
+            if (const BallMap* e = ball_map_ptr(entry)) {
+                auto ki = e->find("key");
+                if (ki == e->end()) ki = e->find("arg0");
+                if (ki == e->end()) ki = e->find("name");
+                auto vi = e->find("value");
+                if (vi == e->end()) vi = e->find("arg1");
+                if (ki != e->end() && vi != e->end()) {
                     result[to_string(ki->second)] = vi->second;
                 }
             }

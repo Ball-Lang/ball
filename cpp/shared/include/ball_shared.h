@@ -59,6 +59,10 @@ using BallValue = std::any;
 
 // Convenience aliases
 using BallList = std::vector<BallValue>;
+// Reference-semantic lists: copies of a BallValue share the underlying vector
+// (Dart BallList / BallDyn BallListRef parity). Literal and scope-bound lists
+// use BallListRef; legacy by-value BallList remains for interop copies.
+using BallListRef = std::shared_ptr<BallList>;
 using BallMap = std::map<std::string, BallValue>;
 using BallFunction = std::function<BallValue(BallValue)>;
 
@@ -112,6 +116,37 @@ inline bool to_bool(const BallValue& v) {
 // `ball_to_string(double)` overload.
 inline std::string double_to_dart_string(double d) { return ball_to_string(d); }
 
+inline BallList* ball_list_ptr(BallValue& v) {
+    if (v.type() == typeid(BallListRef)) return std::any_cast<BallListRef&>(v).get();
+    if (v.type() == typeid(BallList)) return &std::any_cast<BallList&>(v);
+    return nullptr;
+}
+inline const BallList* ball_list_ptr(const BallValue& v) {
+    if (v.type() == typeid(BallListRef)) return std::any_cast<const BallListRef&>(v).get();
+    if (v.type() == typeid(BallList)) return &std::any_cast<const BallList&>(v);
+    return nullptr;
+}
+inline BallList ball_list_copy(const BallValue& v) {
+    if (const BallList* lp = ball_list_ptr(v)) return *lp;
+    return {};
+}
+inline BallValue ball_list_value(BallList list) {
+    return BallValue(BallListRef(std::make_shared<BallList>(std::move(list))));
+}
+inline BallValue ball_list_at(const BallValue& v, int64_t idx) {
+    if (const BallList* lp = ball_list_ptr(v)) {
+        if (idx >= 0 && static_cast<size_t>(idx) < lp->size()) return (*lp)[static_cast<size_t>(idx)];
+    }
+    return {};
+}
+inline int64_t ball_list_length(const BallValue& v) {
+    if (const BallList* lp = ball_list_ptr(v)) return static_cast<int64_t>(lp->size());
+    return 0;
+}
+inline bool is_list(const BallValue& v) {
+    return v.type() == typeid(BallListRef) || v.type() == typeid(BallList);
+}
+
 inline std::string to_string(const BallValue& v) {
     if (v.type() == typeid(std::string)) return std::any_cast<std::string>(v);
     if (v.type() == typeid(int64_t)) return std::to_string(std::any_cast<int64_t>(v));
@@ -129,12 +164,11 @@ inline std::string to_string(const BallValue& v) {
         result += "]";
         return result;
     }
-    if (v.type() == typeid(BallList)) {
-        const auto& lst = std::any_cast<const BallList&>(v);
+    if (const BallList* lp = ball_list_ptr(v)) {
         std::string result = "[";
-        for (size_t i = 0; i < lst.size(); i++) {
+        for (size_t i = 0; i < lp->size(); i++) {
             if (i > 0) result += ", ";
-            result += to_string(lst[i]);
+            result += to_string((*lp)[i]);
         }
         result += "]";
         return result;
@@ -166,7 +200,6 @@ inline bool is_double(const BallValue& v) { return v.type() == typeid(double); }
 inline bool is_string(const BallValue& v) { return v.type() == typeid(std::string); }
 inline bool is_bool(const BallValue& v) { return v.type() == typeid(bool); }
 inline bool is_null(const BallValue& v) { return !v.has_value(); }
-inline bool is_list(const BallValue& v) { return v.type() == typeid(BallList); }
 inline bool is_map(const BallValue& v) { return v.type() == typeid(BallMap); }
 inline bool is_function(const BallValue& v) { return v.type() == typeid(BallFunction); }
 inline bool is_future(const BallValue& v) { return v.type() == typeid(BallFuture); }
@@ -209,13 +242,13 @@ inline bool values_equal(const BallValue& a, const BallValue& b) {
         }
         return true;
     }
-    // List equality
-    if (a.type() == typeid(BallList) && b.type() == typeid(BallList)) {
-        const auto& la = std::any_cast<const BallList&>(a);
-        const auto& lb = std::any_cast<const BallList&>(b);
-        if (la.size() != lb.size()) return false;
-        for (size_t i = 0; i < la.size(); ++i) {
-            if (!values_equal(la[i], lb[i])) return false;
+    // List equality (by value, not pointer identity)
+    if (is_list(a) && is_list(b)) {
+        const BallList* la = ball_list_ptr(a);
+        const BallList* lb = ball_list_ptr(b);
+        if (!la || !lb || la->size() != lb->size()) return false;
+        for (size_t i = 0; i < la->size(); ++i) {
+            if (!values_equal((*la)[i], (*lb)[i])) return false;
         }
         return true;
     }

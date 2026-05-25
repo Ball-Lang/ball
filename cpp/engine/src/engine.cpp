@@ -640,7 +640,7 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                 }
             }
         } else if (is_list(input)) {
-            const auto& lst = std::any_cast<const BallList&>(input);
+            const BallList& lst = *ball_list_ptr(input);
             for (size_t i = 0; i < params.size() && i < lst.size(); ++i) {
                 scope->bind(params[i], lst[i]);
             }
@@ -1059,7 +1059,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                 if (scope->has(var_name)) {
                     auto val = scope->lookup(var_name);
                     if (is_list(val)) {
-                        auto lst = std::any_cast<BallList>(val);
+                        auto lst = ball_list_copy(val);
                         if (!lst.empty()) {
                             auto removed = lst.back();
                             lst.pop_back();
@@ -1123,7 +1123,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                         BallList lst;
                         auto it = m.find(key);
                         if (it != m.end() && is_list(it->second)) {
-                            lst = std::any_cast<BallList>(it->second);
+                            lst = ball_list_copy(it->second);
                         }
                         lst.push_back(push_val);
                         m[key] = BallValue(lst);
@@ -1131,10 +1131,10 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                         return BallValue(lst);
                     }
                     if (is_list(container)) {
-                        auto& lst_outer = std::any_cast<BallList&>(container);
+                        auto& lst_outer = *ball_list_ptr(container);
                         auto i = to_int(idx_val);
                         if (i >= 0 && static_cast<size_t>(i) < lst_outer.size() && is_list(lst_outer[i])) {
-                            auto inner = std::any_cast<BallList>(lst_outer[i]);
+                            auto inner = ball_list_copy(lst_outer[i]);
                             inner.push_back(push_val);
                             lst_outer[i] = BallValue(inner);
                             scope->set(container_name, container);
@@ -1166,7 +1166,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                 } else if (f.name() == "entries") {
                     auto entries_val = eval_expr(f.value(), scope);
                     if (is_list(entries_val)) {
-                        const auto& entries = std::any_cast<const BallList&>(entries_val);
+                        const auto& entries = *ball_list_ptr(entries_val);
                         for (const auto& e : entries) {
                             if (is_map(e)) {
                                 const auto& entry = std::any_cast<const BallMap&>(e);
@@ -1208,13 +1208,13 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                     ++value_idx;
                 }
             }
-            if (!is_list(list_val)) return BallList{};
-            auto list = std::any_cast<BallList>(list_val);
+            if (!is_list(list_val)) return ball_list_value(BallList{});
+            auto list = ball_list_copy(list_val);
             int64_t start = start_val.has_value() ? to_int(start_val) : 0;
             int64_t end = end_val.has_value() ? to_int(end_val) : static_cast<int64_t>(list.size());
             if (start < 0) start = 0;
             if (end > static_cast<int64_t>(list.size())) end = static_cast<int64_t>(list.size());
-            if (start > end) return BallList{};
+            if (start > end) return ball_list_value(BallList{});
             return BallList(list.begin() + start, list.begin() + end);
         }
     }
@@ -1475,7 +1475,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
 
             // ── List methods ──
             if (is_list(self_val)) {
-                auto lst = std::any_cast<BallList>(self_val);
+                auto lst = ball_list_copy(self_val);
                 if (fn_name == "add") {
                     auto arg = extract_field(input, "arg0");
                     lst.push_back(arg);
@@ -1628,7 +1628,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                     auto other = extract_field(input, "arg0");
                     if (is_list(other)) {
                         BallList result = lst;
-                        for (const auto& item : std::any_cast<const BallList&>(other)) {
+                        for (const auto& item : *ball_list_ptr(other)) {
                             bool found = false;
                             for (const auto& r : result) {
                                 if (values_equal(item, r)) { found = true; break; }
@@ -1642,7 +1642,7 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                 if (fn_name == "intersection") {
                     auto other = extract_field(input, "arg0");
                     if (is_list(other)) {
-                        const auto& other_lst = std::any_cast<const BallList&>(other);
+                        const auto& other_lst = *ball_list_ptr(other);
                         BallList result;
                         for (const auto& item : lst) {
                             for (const auto& r : other_lst) {
@@ -1651,12 +1651,12 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                         }
                         return result;
                     }
-                    return BallList{};
+                    return ball_list_value(BallList{});
                 }
                 if (fn_name == "difference") {
                     auto other = extract_field(input, "arg0");
                     if (is_list(other)) {
-                        const auto& other_lst = std::any_cast<const BallList&>(other);
+                        const auto& other_lst = *ball_list_ptr(other);
                         BallList result;
                         for (const auto& item : lst) {
                             bool found = false;
@@ -1872,20 +1872,20 @@ BallValue Engine::eval_call(const ball::v1::FunctionCall& call, std::shared_ptr<
                     if (fn_name == "filled") { auto n = to_int(extract_field(input, "arg0")); return BallList(n, extract_field(input, "arg1")); }
                     if (fn_name == "of" || fn_name == "from") {
                         auto src = extract_field(input, "arg0");
-                        if (is_list(src)) return std::any_cast<BallList>(src); // copy
-                        return BallList{};
+                        if (is_list(src)) return ball_list_value(ball_list_copy(src)); // copy
+                        return ball_list_value(BallList{});
                     }
                     if (fn_name == "generate") {
                         auto n = to_int(extract_field(input, "arg0")); auto gf = extract_field(input, "arg1");
                         if (is_function(gf)) { auto& cb = std::any_cast<BallFunction&>(gf); BallList r; for (int64_t i=0;i<n;++i) r.push_back(cb(BallValue(i))); return r; }
-                        return BallList{};
+                        return ball_list_value(BallList{});
                     }
                 }
                 if (ss == "Map" && fn_name == "fromEntries") {
                     auto ev = extract_field(input, "arg0");
                     if (is_list(ev)) {
                         BallMap r;
-                        for (const auto& e : std::any_cast<const BallList&>(ev)) {
+                        for (const auto& e : *ball_list_ptr(ev)) {
                             if (is_map(e)) {
                                 const auto& em = std::any_cast<const BallMap&>(e);
                                 // Try key/value, then arg0/arg1, then name/value
@@ -1949,7 +1949,7 @@ BallValue Engine::eval_literal(const ball::v1::Literal& lit, std::shared_ptr<Sco
             BallList list;
             for (const auto& el : lit.list_value().elements())
                 list.push_back(eval_expr(el, scope));
-            return list;
+            return ball_list_value(std::move(list));
         }
         default:
             return {};
@@ -2167,7 +2167,7 @@ BallValue Engine::eval_field_access(const ball::v1::FieldAccess& access, std::sh
         if (field == "isNotEmpty") return !s.empty();
     }
     if (is_list(object)) {
-        const auto& lst = std::any_cast<const BallList&>(object);
+        const BallList& lst = *ball_list_ptr(object);
         if (field == "length") return static_cast<int64_t>(lst.size());
         if (field == "isEmpty") return lst.empty();
         if (field == "isNotEmpty") return !lst.empty();
@@ -2466,7 +2466,7 @@ BallValue Engine::eval_block(const ball::v1::Block& block, std::shared_ptr<Scope
             if (sig.kind == "yield_each") {
                 has_yields = true;
                 if (is_list(sig.value)) {
-                    const auto& lst = std::any_cast<const BallList&>(sig.value);
+                    const BallList& lst = *ball_list_ptr(sig.value);
                     yields.insert(yields.end(), lst.begin(), lst.end());
                 } else {
                     yields.push_back(sig.value);
@@ -2638,7 +2638,7 @@ BallValue Engine::eval_init_string_expr(const std::string& expr, std::shared_ptr
                 auto container = scope->lookup(var_name);
                 auto idx_val = eval_init_string_expr(idx_str, scope);
                 if (is_list(container) && (is_int(idx_val) || is_double(idx_val))) {
-                    auto& lst = std::any_cast<const BallList&>(container);
+                    auto& lst = *ball_list_ptr(container);
                     auto i = to_int(idx_val);
                     if (i >= 0 && static_cast<size_t>(i) < lst.size()) return lst[i];
                 }
@@ -2663,7 +2663,7 @@ BallValue Engine::eval_init_string_expr(const std::string& expr, std::shared_ptr
             if (is_string(obj) && field == "length")
                 return static_cast<int64_t>(std::any_cast<const std::string&>(obj).size());
             if (is_list(obj) && field == "length")
-                return static_cast<int64_t>(std::any_cast<const BallList&>(obj).size());
+                return ball_list_length(obj);
             if (is_map(obj)) {
                 const auto& m = std::any_cast<const BallMap&>(obj);
                 auto it = m.find(field);
@@ -2829,7 +2829,7 @@ BallValue Engine::eval_lazy_for_in(const ball::v1::FunctionCall& call, std::shar
     if (iter_it == fields.end() || body_it == fields.end()) return {};
     auto iter_val = eval_expr(iter_it->second, scope);
     if (!is_list(iter_val)) throw BallRuntimeError("std.for_in: iterable is not a List");
-    for (const auto& item : std::any_cast<const BallList&>(iter_val)) {
+    for (const auto& item : *ball_list_ptr(iter_val)) {
         auto loop_scope = std::make_shared<Scope>(scope);
         loop_scope->bind(variable, item);
         auto result = eval_expr(body_it->second, loop_scope);
@@ -3229,12 +3229,12 @@ bool Engine::match_structured_pattern(const BallValue& value, const BallMap& pat
 
     if (kind == "list") {
         if (!is_list(value)) return false;
-        const auto& lst = std::any_cast<const BallList&>(value);
+        const BallList& lst = *ball_list_ptr(value);
         auto elem_it = pattern.find("elements");
         auto rest_it = pattern.find("rest");
         BallList elements;
         if (elem_it != pattern.end() && is_list(elem_it->second))
-            elements = std::any_cast<const BallList&>(elem_it->second);
+            elements = *ball_list_ptr(elem_it->second);
         std::string rest;
         if (rest_it != pattern.end() && is_string(rest_it->second))
             rest = std::any_cast<std::string>(rest_it->second);
@@ -3430,7 +3430,7 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
                         // In-place mutation: get list, remove element, write back list, return removed
                         auto list_val = scope->lookup(target_name);
                         if (is_list(list_val)) {
-                            auto lst = std::any_cast<BallList>(list_val);
+                            auto lst = ball_list_copy(list_val);
                             BallValue removed;
                             if (val_fn == "list_remove_at") {
                                 int64_t idx = 0;
@@ -3518,7 +3518,7 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
                 const auto& var_name = iti->second.reference().name();
                 auto container = scope->lookup(var_name);
                 if (is_list(container) && (is_int(idx) || is_double(idx))) {
-                    auto& lst = std::any_cast<BallList&>(container);
+                    auto& lst = *ball_list_ptr(container);
                     auto i = to_int(idx);
                     if (!op.empty() && op != "=") {
                         val = apply_compound_op(op, lst[i], val);
@@ -3551,10 +3551,10 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
                     auto outer_idx = eval_expr(oixi->second, scope);
                     auto outer_container = scope->lookup(var_name);
                     if (is_list(outer_container) && is_int(outer_idx)) {
-                        auto& outer_lst = std::any_cast<BallList&>(outer_container);
+                        auto& outer_lst = *ball_list_ptr(outer_container);
                         auto oi = to_int(outer_idx);
                         if (is_list(outer_lst[oi]) && is_int(idx)) {
-                            auto inner = std::any_cast<BallList>(outer_lst[oi]);
+                            auto inner = ball_list_copy(outer_lst[oi]);
                             auto ii = to_int(idx);
                             if (!op.empty() && op != "=") {
                                 val = apply_compound_op(op, inner[ii], val);
@@ -3570,7 +3570,7 @@ BallValue Engine::eval_assign(const ball::v1::FunctionCall& call, std::shared_pt
             // Fallback: evaluate target and try to mutate (may not propagate back)
             auto container = eval_expr(iti->second, scope);
             if (is_list(container) && is_int(idx)) {
-                std::any_cast<BallList&>(container)[to_int(idx)] = val;
+                (*ball_list_ptr(container))[to_int(idx)] = val;
             }
             if (is_map(container) && is_string(idx)) {
                 std::any_cast<BallMap&>(container)[std::any_cast<const std::string&>(idx)] = val;
@@ -3606,7 +3606,7 @@ BallValue Engine::eval_inc_dec(const ball::v1::FunctionCall& call, std::shared_p
             auto idx = eval_expr(ixi->second, scope);
             auto container = scope->lookup(var_name);
             if (is_list(container) && (is_int(idx) || is_double(idx))) {
-                auto lst = std::any_cast<BallList>(container);
+                auto lst = ball_list_copy(container);
                 auto i = to_int(idx);
                 if (i >= 0 && static_cast<size_t>(i) < lst.size()) {
                     int64_t current = to_int(lst[i]);
@@ -4038,7 +4038,7 @@ Engine::build_std_dispatch() {
         {"length", [](BallValue i) -> BallValue {
             auto v=extract_unary(i);
             if(is_string(v)) return static_cast<int64_t>(std::any_cast<std::string>(v).size());
-            if(is_list(v)) return static_cast<int64_t>(std::any_cast<BallList>(v).size());
+            if(is_list(v)) return ball_list_length(v);
             return static_cast<int64_t>(0);
         }},
         {"int_to_string", [](BallValue i) -> BallValue { return std::to_string(to_int(extract_unary(i))); }},
@@ -4061,7 +4061,7 @@ Engine::build_std_dispatch() {
             }
         }},
         {"string_interpolation", [this](BallValue i) -> BallValue {
-            if(is_map(i)){auto p=extract_field(i,"parts");if(is_list(p)){std::string r;for(auto&x:std::any_cast<BallList>(p))r+=value_to_string(x);return r;} auto v=extract_field(i,"value");if(v.has_value())return value_to_string(v);} return value_to_string(i);
+            if(is_map(i)){auto p=extract_field(i,"parts");if(is_list(p)){std::string r;for(auto&x:*ball_list_ptr(p))r+=value_to_string(x);return r;} auto v=extract_field(i,"value");if(v.has_value())return value_to_string(v);} return value_to_string(i);
         }},
         {"null_coalesce", [](BallValue i) -> BallValue { auto [l,r]=extract_binary(i); return l.has_value()?l:r; }},
         {"null_check", [](BallValue i) -> BallValue { return extract_unary(i); }},
@@ -4108,7 +4108,7 @@ Engine::build_std_dispatch() {
         }},
         {"index", [](BallValue i) -> BallValue {
             auto tgt=extract_field(i,"target"); auto idx=extract_field(i,"index");
-            if(is_list(tgt)&&(is_int(idx)||is_double(idx))) return std::any_cast<BallList>(tgt)[to_int(idx)];
+            if(is_list(tgt)&&(is_int(idx)||is_double(idx))) return (*ball_list_ptr(tgt))[to_int(idx)];
             if(is_string(tgt)&&(is_int(idx)||is_double(idx))){auto s=std::any_cast<std::string>(tgt);return std::string(1,s[to_int(idx)]);}
             if(is_map(tgt)) {
                 auto key = ball::to_string(idx);
@@ -4326,8 +4326,8 @@ Engine::build_std_dispatch() {
         {"set_create", [](BallValue i) -> BallValue {
             // Empty {} in Dart is a Map literal. Return BallMap for empty sets.
             auto elems = extract_field(i, "elements");
-            if (is_list(elems) && !std::any_cast<const BallList&>(elems).empty())
-                return std::any_cast<BallList>(elems);
+            if (is_list(elems) && !ball_list_ptr(elems)->empty())
+                return ball_list_value(ball_list_copy(elems));
             return BallMap{};
         }},
         {"record", [](BallValue i) -> BallValue { return i; }},
@@ -4421,31 +4421,32 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
 
     dispatch_["list_push"] = [](BallValue input, BallCallable) -> BallValue {
         auto list_val = extract_field(input, "list");
-        BallList list;
-        if (is_list(list_val)) {
-            list = std::any_cast<BallList>(list_val);
+        auto value = extract_field(input, "value");
+        if (BallList* lp = ball_list_ptr(list_val)) {
+            lp->push_back(value);
+            return list_val;
         }
-        // If list_val is a map (empty set), start with empty list
-        list.push_back(extract_field(input, "value"));
-        return list;
+        BallList list;
+        list.push_back(value);
+        return ball_list_value(std::move(list));
     };
 
     dispatch_["list_pop"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         if (list.empty()) throw BallRuntimeError("list_pop: empty list");
         auto last = list.back();
         return last;
     };
 
     dispatch_["list_insert"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto idx = to_int(extract_field(input, "index"));
         list.insert(list.begin() + idx, extract_field(input, "value"));
         return list;
     };
 
     dispatch_["list_remove_at"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto idx = to_int(extract_field(input, "index"));
         if (idx < 0 || static_cast<size_t>(idx) >= list.size())
             throw BallRuntimeError("list_remove_at: index out of range");
@@ -4455,7 +4456,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_get"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto idx = to_int(extract_field(input, "index"));
         if (idx < 0 || static_cast<size_t>(idx) >= list.size())
             throw BallRuntimeError("list_get: index out of range");
@@ -4463,36 +4464,36 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_set"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto idx = to_int(extract_field(input, "index"));
         list[idx] = extract_field(input, "value");
         return list;
     };
 
     dispatch_["list_length"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         return static_cast<int64_t>(list.size());
     };
 
     dispatch_["list_is_empty"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         return list.empty();
     };
 
     dispatch_["list_first"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         if (list.empty()) throw BallRuntimeError("list_first: empty list");
         return list.front();
     };
 
     dispatch_["list_last"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         if (list.empty()) throw BallRuntimeError("list_last: empty list");
         return list.back();
     };
 
     dispatch_["list_single"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         if (list.size() != 1) throw BallRuntimeError("list_single: list does not have exactly 1 element");
         return list.front();
     };
@@ -4509,7 +4510,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         // Handle empty set (stored as BallMap)
         if (is_map(list_val) && !is_list(list_val)) return false;
         BallList list;
-        if (is_list(list_val)) list = std::any_cast<BallList>(list_val);
+        if (is_list(list_val)) list = ball_list_copy(list_val);
         for (const auto& item : list) {
             if (values_equal(item, target)) return true;
         }
@@ -4517,7 +4518,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_index_of"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto target = extract_field(input, "value");
         for (size_t i = 0; i < list.size(); i++) {
             if (values_equal(list[i], target)) return static_cast<int64_t>(i);
@@ -4526,7 +4527,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_map"] = [](BallValue input, BallCallable engine) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto func_val = extract_field(input, "function");
         if (!func_val.has_value() || !is_function(func_val))
             func_val = extract_field(input, "value");
@@ -4539,7 +4540,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_filter"] = [](BallValue input, BallCallable engine) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto func_val = extract_field(input, "function");
         if (!func_val.has_value() || !is_function(func_val))
             func_val = extract_field(input, "value");
@@ -4552,7 +4553,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_reduce"] = [](BallValue input, BallCallable engine) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
         auto acc = extract_field(input, "initial");
         for (const auto& item : list) {
@@ -4562,7 +4563,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_find"] = [](BallValue input, BallCallable engine) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
         for (const auto& item : list) {
             if (to_bool(func(item))) return item;
@@ -4571,7 +4572,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_any"] = [](BallValue input, BallCallable engine) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
         for (const auto& item : list) {
             if (to_bool(func(item))) return true;
@@ -4580,7 +4581,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_all"] = [](BallValue input, BallCallable engine) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
         for (const auto& item : list) {
             if (!to_bool(func(item))) return false;
@@ -4589,7 +4590,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_none"] = [](BallValue input, BallCallable engine) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
         for (const auto& item : list) {
             if (to_bool(func(item))) return false;
@@ -4598,7 +4599,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_sort"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         // Check for comparator function in "function" or "value" fields.
         auto comp_val = extract_field(input, "function");
         if (!comp_val.has_value() || !is_function(comp_val)) {
@@ -4623,7 +4624,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_sort_by"] = [](BallValue input, BallCallable engine) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
         std::sort(list.begin(), list.end(), [&func](const BallValue& a, const BallValue& b) {
             auto va = func(a);
@@ -4634,17 +4635,17 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_reverse"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         std::reverse(list.begin(), list.end());
         return list;
     };
 
     dispatch_["list_clear"] = [](BallValue input, BallCallable) -> BallValue {
-        return BallList{};
+        return ball_list_value(BallList{});
     };
 
     dispatch_["list_slice"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         // Support both named (start/end) and positional (arg0/arg1 or value) fields
         auto start_val = extract_field(input, "start");
         if (!start_val.has_value()) start_val = extract_field(input, "arg0");
@@ -4655,39 +4656,39 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         int64_t end = end_val.has_value() ? to_int(end_val) : static_cast<int64_t>(list.size());
         if (start < 0) start = 0;
         if (end > static_cast<int64_t>(list.size())) end = static_cast<int64_t>(list.size());
-        if (start > end) return BallList{};
+        if (start > end) return ball_list_value(BallList{});
         return BallList(list.begin() + start, list.begin() + end);
     };
 
     dispatch_["list_take"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto count = to_int(extract_field(input, "count"));
         auto n = std::min(static_cast<size_t>(count), list.size());
         return BallList(list.begin(), list.begin() + n);
     };
 
     dispatch_["list_drop"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto count = to_int(extract_field(input, "count"));
         auto n = std::min(static_cast<size_t>(count), list.size());
         return BallList(list.begin() + n, list.end());
     };
 
     dispatch_["list_concat"] = [](BallValue input, BallCallable) -> BallValue {
-        auto a = std::any_cast<BallList>(extract_field(input, "left"));
-        auto b = std::any_cast<BallList>(extract_field(input, "right"));
+        auto a = ball_list_copy(extract_field(input, "left"));
+        auto b = ball_list_copy(extract_field(input, "right"));
         a.insert(a.end(), b.begin(), b.end());
         return a;
     };
 
     dispatch_["list_flat_map"] = [](BallValue input, BallCallable engine) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto func = std::any_cast<BallFunction>(extract_field(input, "function"));
         BallList result;
         for (const auto& item : list) {
             auto sub = func(item);
             if (is_list(sub)) {
-                const auto& sub_list = std::any_cast<const BallList&>(sub);
+                const auto& sub_list = *ball_list_ptr(sub);
                 result.insert(result.end(), sub_list.begin(), sub_list.end());
             } else {
                 result.push_back(sub);
@@ -4697,8 +4698,8 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_zip"] = [](BallValue input, BallCallable) -> BallValue {
-        auto a = std::any_cast<BallList>(extract_field(input, "left"));
-        auto b = std::any_cast<BallList>(extract_field(input, "right"));
+        auto a = ball_list_copy(extract_field(input, "left"));
+        auto b = ball_list_copy(extract_field(input, "right"));
         BallList result;
         auto len = std::min(a.size(), b.size());
         for (size_t i = 0; i < len; i++) {
@@ -4708,7 +4709,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["string_join"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto sep = to_string(extract_field(input, "separator"));
         std::string result;
         for (size_t i = 0; i < list.size(); i++) {
@@ -4719,7 +4720,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["list_join"] = [](BallValue input, BallCallable) -> BallValue {
-        auto list = std::any_cast<BallList>(extract_field(input, "list"));
+        auto list = ball_list_copy(extract_field(input, "list"));
         auto sep_val = extract_field(input, "separator");
         std::string sep = sep_val.has_value() ? to_string(sep_val) : "";
         std::string result;
@@ -4787,7 +4788,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         auto entries_val = extract_field(input, "entries");
         if (!is_list(entries_val)) entries_val = extract_field(input, "arg0");
         if (!is_list(entries_val)) return BallMap{};
-        auto entries = std::any_cast<BallList>(entries_val);
+        auto entries = ball_list_copy(entries_val);
         BallMap result;
         for (const auto& entry : entries) {
             if (is_map(entry)) {
@@ -4857,9 +4858,9 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     dispatch_["set_create"] = [](BallValue input, BallCallable) -> BallValue {
         auto elems = extract_field(input, "elements");
         if (is_list(elems)) {
-            const auto& lst = std::any_cast<const BallList&>(elems);
+            const BallList& lst = *ball_list_ptr(elems);
             // Non-empty elements → set (backed by BallList)
-            if (!lst.empty()) return std::any_cast<BallList>(elems);
+            if (!lst.empty()) return ball_list_copy(elems);
         }
         // Empty `{}` in Dart is a Map literal, not a Set literal.
         // When elements is empty, return BallMap so that map operations
@@ -4876,7 +4877,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         }
         auto func = std::any_cast<BallFunction>(func_val);
         if (is_list(list_val)) {
-            for (const auto& item : std::any_cast<const BallList&>(list_val)) {
+            for (const auto& item : *ball_list_ptr(list_val)) {
                 func(item);
             }
         } else if (is_map(list_val)) {
@@ -4898,7 +4899,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
         // Direct list input (no wrapping map)
         if (is_list(input)) return input;
         // If it's a map (empty set created as map), return empty list
-        return BallList{};
+        return ball_list_value(BallList{});
     };
 
     dispatch_["list_generate"] = [](BallValue input, BallCallable engine) -> BallValue {
@@ -4935,7 +4936,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     // Helper: extract set as BallList (handles empty maps from set_create)
     auto extract_set = [](const BallValue& input) -> BallList {
         auto set_val = extract_field(input, "set");
-        if (is_list(set_val)) return std::any_cast<BallList>(set_val);
+        if (is_list(set_val)) return ball_list_copy(set_val);
         // Empty set created as BallMap -> return empty BallList
         return BallList{};
     };
@@ -4969,8 +4970,8 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["set_union"] = [](BallValue input, BallCallable) -> BallValue {
-        auto left = std::any_cast<BallList>(extract_field(input, "left"));
-        auto right = std::any_cast<BallList>(extract_field(input, "right"));
+        auto left = ball_list_copy(extract_field(input, "left"));
+        auto right = ball_list_copy(extract_field(input, "right"));
         for (const auto& val : right) {
             bool found = false;
             for (const auto& item : left) {
@@ -4982,8 +4983,8 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["set_intersection"] = [](BallValue input, BallCallable) -> BallValue {
-        auto left = std::any_cast<BallList>(extract_field(input, "left"));
-        auto right = std::any_cast<BallList>(extract_field(input, "right"));
+        auto left = ball_list_copy(extract_field(input, "left"));
+        auto right = ball_list_copy(extract_field(input, "right"));
         BallList result;
         for (const auto& val : left) {
             for (const auto& r : right) {
@@ -4994,8 +4995,8 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["set_difference"] = [](BallValue input, BallCallable) -> BallValue {
-        auto left = std::any_cast<BallList>(extract_field(input, "left"));
-        auto right = std::any_cast<BallList>(extract_field(input, "right"));
+        auto left = ball_list_copy(extract_field(input, "left"));
+        auto right = ball_list_copy(extract_field(input, "right"));
         BallList result;
         for (const auto& val : left) {
             bool found = false;
@@ -5018,7 +5019,7 @@ void StdCollectionsModuleHandler::init(Engine& /*engine*/) {
     };
 
     dispatch_["set_to_list"] = [](BallValue input, BallCallable) -> BallValue {
-        return std::any_cast<BallList>(extract_field(input, "set"));
+        return ball_list_copy(extract_field(input, "set"));
     };
     dispatch_["compare_to"] = [](BallValue input, BallCallable) -> BallValue {
         auto [l,r] = extract_binary(input);
@@ -5091,7 +5092,7 @@ BallValue StdIoModuleHandler::call(const std::string& function, BallValue input,
     }
     if (function == "args_get") {
         // Not available in embedded engine (no argc/argv access)
-        return BallList{};
+        return ball_list_value(BallList{});
     }
     throw BallRuntimeError("Unknown std_io function: \"" + function + "\"");
 }
@@ -5122,7 +5123,7 @@ BallValue Engine::eval_convert(const std::string& function, BallValue input) {
         BallList bytes;
         if (is_map(input)) {
             auto v = extract_field(input, "value");
-            if (is_list(v)) bytes = std::any_cast<BallList>(v);
+            if (is_list(v)) bytes = ball_list_copy(v);
         }
         std::string result;
         for (const auto& b : bytes) result += static_cast<char>(to_int(b));
@@ -5132,7 +5133,7 @@ BallValue Engine::eval_convert(const std::string& function, BallValue input) {
         BallList bytes;
         if (is_map(input)) {
             auto v = extract_field(input, "value");
-            if (is_list(v)) bytes = std::any_cast<BallList>(v);
+            if (is_list(v)) bytes = ball_list_copy(v);
         }
         static const char* b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         std::string result;
@@ -5192,7 +5193,7 @@ std::string Engine::json_encode_value(const BallValue& val) {
         return r;
     }
     if (is_list(val)) {
-        auto lst = std::any_cast<BallList>(val);
+        auto lst = ball_list_copy(val);
         std::string r = "[";
         for (size_t i = 0; i < lst.size(); ++i) {
             if (i > 0) r += ",";
@@ -5270,7 +5271,7 @@ BallValue Engine::eval_fs(const std::string& function, BallValue input) {
         BallList bytes;
         if (is_map(input)) {
             auto v = extract_field(input, "content");
-            if (is_list(v)) bytes = std::any_cast<BallList>(v);
+            if (is_list(v)) bytes = ball_list_copy(v);
         }
         std::ofstream f(path, std::ios::binary);
         for (const auto& b : bytes) f.put(static_cast<char>(to_int(b)));

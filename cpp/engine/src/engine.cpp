@@ -1958,7 +1958,8 @@ BallValue Engine::eval_literal(const ball::v1::Literal& lit, std::shared_ptr<Sco
 
 BallValue Engine::eval_reference(const ball::v1::Reference& ref, std::shared_ptr<Scope> scope) {
     const auto& name = ref.name();
-    if (scope->has(name)) return scope->lookup(name);
+    // Single chain walk instead of has() + lookup() (two walks).
+    if (const BallValue* v = scope->find(name)) return *v;
 
     // Constructor tear-off: resolve class names and "Class.new" references
     // to callable closures that invoke the constructor function.

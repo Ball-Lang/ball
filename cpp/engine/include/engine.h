@@ -75,14 +75,35 @@ public:
         bindings_[name] = std::move(value);
     }
 
+    /// Single-walk lookup: return a pointer to the binding (searching parents)
+    /// or nullptr if undefined. Lets callers avoid the has()+lookup() double
+    /// chain-walk (one search instead of two).
+    BallValue* find(const std::string& name) {
+        for (Scope* s = this; s; s = s->parent_.get()) {
+            auto it = s->bindings_.find(name);
+            if (it != s->bindings_.end()) return &it->second;
+        }
+        return nullptr;
+    }
+    const BallValue* find(const std::string& name) const {
+        for (const Scope* s = this; s; s = s->parent_.get()) {
+            auto it = s->bindings_.find(name);
+            if (it != s->bindings_.end()) return &it->second;
+        }
+        return nullptr;
+    }
+
     bool has(const std::string& name) const {
         if (bindings_.count(name)) return true;
         return parent_ ? parent_->has(name) : false;
     }
 
     void set(const std::string& name, BallValue value) {
-        if (bindings_.count(name)) { bindings_[name] = std::move(value); return; }
-        if (parent_ && parent_->has(name)) { parent_->set(name, std::move(value)); return; }
+        // Single walk: find the owning scope's binding (this or an ancestor)
+        // and overwrite it in place; otherwise define here. Previously this
+        // did bindings_.count() + parent_->has() (a full recursive walk) +
+        // parent_->set() (another full walk) — up to three traversals.
+        if (BallValue* slot = find(name)) { *slot = std::move(value); return; }
         bindings_[name] = std::move(value);
     }
 

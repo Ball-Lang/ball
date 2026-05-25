@@ -185,9 +185,9 @@ if(TARGET ball_selfhost_engine)
     )
     target_sources(test_selfhost_conformance PRIVATE $<TARGET_OBJECTS:ball_selfhost_engine>)
     target_compile_definitions(test_selfhost_conformance PRIVATE BALL_SELFHOST_MULTI_TU=1)
-elseif(EXISTS "${BALL_SELFHOST_CPP}")
-    target_sources(test_selfhost_conformance PRIVATE "${BALL_SELFHOST_CPP}")
 endif()
+# Monolithic engine_rt.cpp is #included by test_selfhost_conformance.cpp — do not
+# also compile it as a separate TU (MSVC elides the include body → LNK2019).
 target_link_libraries(test_selfhost_conformance ball_shared)
 target_compile_options(test_selfhost_conformance PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W0 /bigobj>

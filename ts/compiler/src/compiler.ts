@@ -528,9 +528,9 @@ $1async _resolveAndCallFunction(`,
         }
         else if (__cr === 'Set') __stdNames.push('set_' + __fn, 'dart_set_' + __fn, __fn);
         for (const __sn of __stdNames) {
-          try { return await this._callBaseFunction('std', __sn, __stdInput); } catch (e) {}
-          try { return await this._callBaseFunction('dart_std', __sn, __stdInput); } catch (e) {}
-          try { return await this._callBaseFunction('std_collections', __sn, __stdInput); } catch (e) {}
+          try { return await this._callBaseFunction('std', __sn, __stdInput); } catch (e) { if (!__isUnknownFnError(e)) throw e; }
+          try { return await this._callBaseFunction('dart_std', __sn, __stdInput); } catch (e) { if (!__isUnknownFnError(e)) throw e; }
+          try { return await this._callBaseFunction('std_collections', __sn, __stdInput); } catch (e) { if (!__isUnknownFnError(e)) throw e; }
         }
       }
     }
@@ -972,7 +972,7 @@ $1async _resolveAndCallFunction(`,
       // Fallback: try dispatching as a std/std_collections base function
       // This handles method-style calls like sort(), where() on lists/maps
       for (const __stdMod of ['std', 'std_collections', 'dart_std', 'std_io']) {
-        try { return await this._callBaseFunction(__stdMod, function_, input); } catch(e) {}
+        try { return await this._callBaseFunction(__stdMod, function_, input); } catch(e) { if (!__isUnknownFnError(e)) throw e; }
       }
       // Try with list_ or map_ prefix
       const __self2 = input['self'];
@@ -980,7 +980,7 @@ $1async _resolveAndCallFunction(`,
         const __prefixes = Array.isArray(__self2) ? ['list_'] : (typeof __self2 === 'string' ? ['string_'] : ['map_']);
         for (const __px of __prefixes) {
           for (const __stdMod of ['std', 'std_collections', 'dart_std']) {
-            try { return await this._callBaseFunction(__stdMod, __px + function_, input); } catch(e) {}
+            try { return await this._callBaseFunction(__stdMod, __px + function_, input); } catch(e) { if (!__isUnknownFnError(e)) throw e; }
           }
         }
       }
@@ -2151,6 +2151,26 @@ $1async _resolveAndCallFunction(`,
       /if \(\(\(catchType != null\) && catchType\.isNotEmpty\)\)/,
       `if (catchType != null && (typeof catchType === 'string' ? catchType.length > 0 : catchType.isNotEmpty))`,
     );
+
+    // ── Inject the unknown-function sentinel predicate ────────────────
+    // The std-dispatch probe loops (collection-method dispatch, the
+    // method-call fallback) try a candidate function name against several
+    // base modules and fall through to the next candidate when that name
+    // is not registered. Previously they did `catch(e) {}`, which also
+    // swallowed *genuine* runtime errors thrown from inside a function that
+    // WAS found (e.g. a RangeError from an out-of-bounds index). This helper
+    // lets those probes distinguish "no such function/module" — the only
+    // case where falling through is correct — from a real error that must
+    // propagate. The sentinels come from StdModuleHandler.call
+    // ("Unknown std function: ...") and _callBaseFunction
+    // ("Unknown base module: ..."); see ts/engine/src/compiled_engine.ts.
+    const unknownFnHelper = `
+function __isUnknownFnError(e: any): boolean {
+  const m = e && typeof e.message === 'string' ? e.message : (typeof e === 'string' ? e : '');
+  return m.startsWith('Unknown std function:') || m.startsWith('Unknown base module:');
+}
+`;
+    body = unknownFnHelper + body;
 
     return includePreamble ? TS_RUNTIME_PREAMBLE + "\n" + body : body;
   }

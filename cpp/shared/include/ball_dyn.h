@@ -41,6 +41,10 @@ struct BallOrderedMap {
         return entries_[index_[key]].second;
     }
 
+    const std::any& operator[](const std::string& key) const {
+        return entries_.at(index_.at(key)).second;
+    }
+
     const std::any& at(const std::string& key) const {
         return entries_.at(index_.at(key)).second;
     }
@@ -84,6 +88,10 @@ struct BallOrderedMap {
 using BallMap = std::map<std::string, std::any>;
 using BallUMap = std::unordered_map<std::string, std::any>;
 using BallList = std::vector<std::any>;
+// Reference-semantic PROGRAM ordered maps (_ballUserMap / _stdMapCreate). Mirrors
+// BallListRef: copies of a BallDyn share the underlying map so map_set mutations
+// on a passed reference are visible to the caller's scoped variable.
+using BallOrderedMapRef = std::shared_ptr<BallOrderedMap>;
 using BallFunc = std::function<std::any(std::any)>;
 // BallScope: shared-pointer-based scope for reference semantics in scope chains.
 // Scopes created via child() use this so parent mutations are visible to children.
@@ -123,6 +131,7 @@ public:
         !std::is_arithmetic_v<std::decay_t<F>> &&
         !std::is_same_v<std::decay_t<F>, BallMap> &&
         !std::is_same_v<std::decay_t<F>, BallOrderedMap> &&
+        !std::is_same_v<std::decay_t<F>, BallOrderedMapRef> &&
         !std::is_same_v<std::decay_t<F>, BallList> &&
         !std::is_same_v<std::decay_t<F>, std::regex> &&
         !std::is_base_of_v<BallDyn, std::decay_t<F>> &&
@@ -154,7 +163,9 @@ public:
     BallDyn(std::string&& v) : _val(std::move(v)) {}
     BallDyn(const char* v) : _val(std::string(v)) {}
     BallDyn(BallMap v) : _val(std::move(v)) {}
-    BallDyn(BallOrderedMap v) : _val(std::move(v)) {}
+    BallDyn(BallOrderedMap v)
+        : _val(BallOrderedMapRef(std::make_shared<BallOrderedMap>(std::move(v)))) {}
+    BallDyn(BallOrderedMapRef v) : _val(std::move(v)) {}
     BallDyn(BallUMap v) : _val(std::move(v)) {}
     // A program LIST is stored shared_ptr-backed: a fresh handle is allocated at
     // construction; subsequent BallDyn copies share it, so in-place mutation
@@ -188,6 +199,22 @@ public:
         return nullptr;
     }
     bool _isList() const { return _val.type() == typeid(BallListRef) || _val.type() == typeid(BallList); }
+
+    // ── Reference-semantic ordered-map accessors ──
+    BallOrderedMap* _orderedMapPtr() {
+        if (_val.type() == typeid(BallOrderedMapRef))
+            return std::any_cast<BallOrderedMapRef&>(_val).get();
+        if (_val.type() == typeid(BallOrderedMap))
+            return &std::any_cast<BallOrderedMap&>(_val);
+        return nullptr;
+    }
+    const BallOrderedMap* _orderedMapPtr() const {
+        if (_val.type() == typeid(BallOrderedMapRef))
+            return std::any_cast<const BallOrderedMapRef&>(_val).get();
+        if (_val.type() == typeid(BallOrderedMap))
+            return &std::any_cast<const BallOrderedMap&>(_val);
+        return nullptr;
+    }
 
     // ── Reference-semantic instance accessors ──
     BallObject* _objPtr() {
@@ -311,11 +338,10 @@ public:
             out += "}";
             return out;
         }
-        if (_val.type() == typeid(BallOrderedMap)) {
-            auto& m = std::any_cast<const BallOrderedMap&>(_val);
+        if (const BallOrderedMap* omp = _orderedMapPtr()) {
             std::string out = "{";
             bool first = true;
-            for (const auto& [k, v] : m.entries_) {
+            for (const auto& [k, v] : omp->entries_) {
                 if (k.find("__") == 0 || k == "type_args") continue;
                 if (!first) out += ", ";
                 out += k + ": " + ball_to_string(v);
@@ -367,9 +393,10 @@ public:
             auto& m = const_cast<BallMap&>(std::any_cast<const BallMap&>(_val));
             return BallDyn(m[key]);
         }
-        if (_val.type() == typeid(BallOrderedMap)) {
-            auto& m = const_cast<BallOrderedMap&>(std::any_cast<const BallOrderedMap&>(_val));
-            return BallDyn(m[key]);
+        if (const BallOrderedMap* omp = _orderedMapPtr()) {
+            auto it = omp->index_.find(key);
+            if (it == omp->index_.end()) return BallDyn();
+            return BallDyn(omp->entries_[it->second].second);
         }
         if (_val.type() == typeid(BallUMap)) {
             auto& m = const_cast<BallUMap&>(std::any_cast<const BallUMap&>(_val));
@@ -409,8 +436,8 @@ public:
             op->__op_set_index__(key, value);
         } else if (_val.type() == typeid(BallMap)) {
             std::any_cast<BallMap&>(_val)[key] = value;
-        } else if (_val.type() == typeid(BallOrderedMap)) {
-            std::any_cast<BallOrderedMap&>(_val)[key] = value;
+        } else if (BallOrderedMap* omp = _orderedMapPtr()) {
+            (*omp)[key] = value;
         } else if (_val.type() == typeid(BallUMap)) {
             std::any_cast<BallUMap&>(_val)[key] = value;
         } else if (!_val.has_value()) {
@@ -469,6 +496,7 @@ public:
             return static_cast<const BallMap&>(*op).count(key);
         if (_val.type() == typeid(BallMap))
             return std::any_cast<const BallMap&>(_val).count(key);
+        if (const BallOrderedMap* omp = _orderedMapPtr()) return omp->count(key);
         if (_val.type() == typeid(BallUMap))
             return std::any_cast<const BallUMap&>(_val).count(key);
         return 0;
@@ -502,7 +530,7 @@ public:
         if (const BallList* vp = _listPtr()) return vp->empty();
         if (_val.type() == typeid(BallScope)) return std::any_cast<const BallScope&>(_val)->empty();
         if (_val.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(_val).empty();
-        if (_val.type() == typeid(BallOrderedMap)) return std::any_cast<const BallOrderedMap&>(_val).empty();
+        if (const BallOrderedMap* omp = _orderedMapPtr()) return omp->empty();
         if (_val.type() == typeid(BallUMap)) return std::any_cast<const BallUMap&>(_val).empty();
         return false;
     }
@@ -512,7 +540,7 @@ public:
         if (const BallList* vp = _listPtr()) return vp->size();
         if (_val.type() == typeid(BallScope)) return std::any_cast<const BallScope&>(_val)->size();
         if (_val.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(_val).size();
-        if (_val.type() == typeid(BallOrderedMap)) return std::any_cast<const BallOrderedMap&>(_val).size();
+        if (const BallOrderedMap* omp = _orderedMapPtr()) return omp->size();
         if (_val.type() == typeid(BallUMap)) return std::any_cast<const BallUMap&>(_val).size();
         return 0;
     }
@@ -542,8 +570,8 @@ public:
             std::any_cast<BallScope&>(_val)->erase(key);
         else if (_val.type() == typeid(BallMap))
             std::any_cast<BallMap&>(_val).erase(key);
-        else if (_val.type() == typeid(BallOrderedMap))
-            std::any_cast<BallOrderedMap&>(_val).erase(key);
+        else if (BallOrderedMap* omp = _orderedMapPtr())
+            omp->erase(key);
         else if (_val.type() == typeid(BallUMap))
             std::any_cast<BallUMap&>(_val).erase(key);
     }
@@ -1455,13 +1483,17 @@ inline BallDyn _ball_caught_to_dyn(const std::exception& ex) {
 
 // ── Insertion-ordered map helpers (Dart LinkedHashMap / runtime map_create) ──
 inline const BallOrderedMap* _ballAnyOrderedMapPtr(const std::any& u) {
+    if (u.type() == typeid(BallOrderedMapRef))
+        return std::any_cast<const BallOrderedMapRef&>(u).get();
     if (u.type() == typeid(BallOrderedMap))
         return &std::any_cast<const BallOrderedMap&>(u);
     return nullptr;
 }
 inline BallOrderedMap* _ballAnyOrderedMapPtr(std::any& u) {
+    if (u.type() == typeid(BallOrderedMapRef))
+        return std::any_cast<BallOrderedMapRef&>(u).get();
     if (u.type() == typeid(BallOrderedMap))
-        return &const_cast<BallOrderedMap&>(std::any_cast<const BallOrderedMap&>(u));
+        return &std::any_cast<BallOrderedMap&>(u);
     return nullptr;
 }
 
@@ -1469,6 +1501,7 @@ inline BallOrderedMap* _ballAnyOrderedMapPtr(std::any& u) {
 // to avoid ambiguity with ball_is_map(const std::any&) via BallDyn::operator std::any().
 inline bool ball_is_map_dyn(const BallDyn& v) {
     const std::any& u = _BallDynUnwrapper::unwrap(v._val);
+    if (u.type() == typeid(BallOrderedMapRef)) return true;
     if (u.type() == typeid(BallOrderedMap)) return true;
     return u.has_value() &&
            (u.type() == typeid(BallMap) || _ball_any_is_object(u));

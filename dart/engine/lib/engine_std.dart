@@ -728,8 +728,17 @@ extension BallEngineStd on BallEngine {
       'map_contains_key': (i) {
         final m = _stdAsMap(i)!;
         final target = m['map'];
-        if (target is BallMap) return target.entries.containsKey(m['key']);
-        if (target is Map) return target.containsKey(m['key']);
+        if (target is BallMap) {
+          return target.entries.containsKey(m['key']);
+        }
+        if (target is Map) {
+          final keys = target.keys.toList();
+          final want = m['key'];
+          for (var idx = 0; idx < keys.length; idx++) {
+            if (keys[idx] == want) return true;
+          }
+          return false;
+        }
         if (target is Set) return target.contains(m['key']);
         throw BallRuntimeError('map_contains_key: expected Map or Set');
       },
@@ -764,7 +773,11 @@ extension BallEngineStd on BallEngine {
         final map =
             _stdAsMap((_stdAsMap(i)!)['map']) ??
             ((_stdAsMap(i)!)['map'] as Map);
-        final result = map.values.toList();
+        final keys = map.keys.toList();
+        final result = <Object?>[];
+        for (var idx = 0; idx < keys.length; idx++) {
+          result.add(map[keys[idx]]);
+        }
         _trackMemoryAllocation(result.length * _ballPointerBytes);
         return result;
       },
@@ -1764,18 +1777,18 @@ extension BallEngineStd on BallEngine {
 
   Object? _stdMapCreate(Object? input) {
     final m = _stdAsMap(input);
-    if (m == null) return <String, Object?>{};
+    if (m == null) return _ballUserMap();
     // Support both 'entries' (list of {name, value}) and 'entry' (single or
     // list of {key, value}) formats.
     final entries = m['entries'] ?? m['entry'];
     final entriesList = _stdAsList(entries);
     if (entriesList != null) {
       _trackMemoryAllocation(entriesList.length * _ballMapEntryBytes);
-      final result = <Object?, Object?>{};
+      final result = _ballUserMap();
       for (final entry in entriesList) {
         final entryMap = _stdAsMap(entry);
         if (entryMap != null) {
-          final key = entryMap['key'] ?? entryMap['name'];
+          final key = _ballToString(entryMap['key'] ?? entryMap['name']);
           result[key] = entryMap['value'];
         }
       }
@@ -1785,10 +1798,10 @@ extension BallEngineStd on BallEngine {
     if (entriesMap != null) {
       // Single entry (not wrapped in a list).
       _trackMemoryAllocation(_ballMapEntryBytes);
-      final key = entriesMap['key'] ?? entriesMap['name'];
-      return <Object?, Object?>{key: entriesMap['value']};
+      final key = _ballToString(entriesMap['key'] ?? entriesMap['name']);
+      return _ballUserMap()..[key] = entriesMap['value'];
     }
-    return <String, Object?>{};
+    return _ballUserMap();
   }
 
   Object? _stdSetCreate(Object? input) {

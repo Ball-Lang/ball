@@ -1169,6 +1169,10 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
     if (mod.empty() && fn == "_ballUserMap") {
         return "BallDyn(BallOrderedMap{})";
     }
+    if (mod.empty() && fn == "_ballMapValues") {
+        std::string map_arg = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
+        return "ball_list_copy(ball_map_values(BallDyn(" + map_arg + ")))";
+    }
 
     // std_memory → direct memory calls
     if (mod == "std_memory") {
@@ -1665,7 +1669,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         if (!tn.empty() && tn.back() == '?') tn.pop_back();
         auto col = tn.find(':'); if (col != std::string::npos) tn = tn.substr(col + 1);
         std::string ck;
-        if (tn == "Map" || tn == "HashMap") ck = "ball_is_map(" + val + ")";
+        if (tn == "Map" || tn == "HashMap") ck = "ball_is_map_dyn(BallDyn(" + val + "))";
         else if (tn == "List" || tn == "Iterable") ck = "ball_is_list(" + val + ")";
         else if (tn == "String") ck = "ball_is_string(" + val + ")";
         else if (tn == "int") ck = "ball_is_int(" + val + ")";
@@ -3361,9 +3365,8 @@ inline std::map<std::string,std::any> ball_concat(const std::map<std::string,std
   return r;
 }
 
-// BallDyn-aware ball_is_* overloads for non-const references (auto&& parameters).
-// These prevent MSVC ambiguity between const BallDyn& and const std::any& overloads.
-inline bool ball_is_map(BallDyn& v) { return ball_is_map(static_cast<const BallDyn&>(v)); }
+// ball_is_* BallDyn overloads: ball_is_map(const BallDyn&) lives in ball_dyn.h
+// (BallOrderedMap-aware). Only list/function overloads remain here.
 inline bool ball_is_list(BallDyn& v) { return ball_is_list(static_cast<const BallDyn&>(v)); }
 inline bool ball_is_string(BallDyn& v) { return ball_is_string(static_cast<const BallDyn&>(v)); }
 inline bool ball_is_function(BallDyn& v) { return ball_is_function(static_cast<const BallDyn&>(v)); }
@@ -3542,6 +3545,9 @@ inline BallDyn ball_map_copy(const BallDyn& v) {
   try {
     auto a = static_cast<std::any>(v);
     const std::any& u = _BallDynUnwrapper::unwrap(a);
+    if (u.type() == typeid(BallOrderedMapRef))
+      return BallDyn(BallOrderedMapRef(std::make_shared<BallOrderedMap>(
+          *std::any_cast<const BallOrderedMapRef&>(u))));
     if (u.type() == typeid(BallOrderedMap))
       return BallDyn(BallOrderedMap(std::any_cast<const BallOrderedMap&>(u)));
     if (u.type() == typeid(BallMap))
@@ -4062,6 +4068,26 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     auto params = func.has_metadata() ? extract_params(func.metadata()) : std::vector<std::string>{};
     auto meta = read_meta(func);
 
+    // Runtime intrinsic: insertion-ordered map factory (before original_name remap).
+    if (name == "_ballUserMap") {
+        emit_indent();
+        out_ << return_type << " " << name << "() {\n";
+        indent_++;
+        emit_line("return BallDyn(BallOrderedMap{});");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballMapValues") {
+        emit_indent();
+        out_ << return_type << " " << name << "(auto&& map) {\n";
+        indent_++;
+        emit_line("return ball_list_copy(ball_map_values(BallDyn(map)));");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+
     // Overloaded functions: use original_name for emission
     if (meta.count("original_name")) {
         name = sanitize_name(meta["original_name"]);
@@ -4135,22 +4161,10 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     out_ << ") {\n";
     indent_++;
 
-    // Runtime intrinsic: Dart helper compiled to preamble C++ for BallObjectRef
-    // field writes in the self-hosted engine (_syncFieldToSelf path).
     if (name == "ballObjectSetField") {
         emit_line("ball_object_set_field(BallDyn(target), "
                   "ball_to_string(BallDyn(fieldName)), BallDyn(val));");
         emit_line("return BallDyn();");
-        indent_--;
-        emit_line("}");
-        emit_newline();
-        return;
-    }
-
-    // Runtime intrinsic: insertion-ordered map factory (Dart LinkedHashMap).
-    // Used by _stdMapCreate and _buildLookupTables — NOT compile-time map_create.
-    if (name == "_ballUserMap") {
-        emit_line("return BallDyn(BallOrderedMap{});");
         indent_--;
         emit_line("}");
         emit_newline();

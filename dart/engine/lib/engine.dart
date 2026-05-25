@@ -11,6 +11,7 @@ import 'ball_value.dart';
 export 'ball_value.dart';
 
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io' as io;
 import 'dart:math' as math;
@@ -80,7 +81,7 @@ class BallEngine {
   /// Enum type registry: maps enum type names (both qualified "module:Enum"
   /// and bare "Enum") to a map of value name → enum value object.
   /// Each enum value is a Map with __type__, name, index.
-  final Map<String, Map<String, Map<String, Object?>>> _enumValues = {};
+  final Map<String, Map<String, Object?>> _enumValues = {};
 
   /// Constructor registry: maps bare class names (and "module:Class" qualified
   /// names) to the default `.new` constructor function definition.  Populated
@@ -334,7 +335,7 @@ class BallEngine {
       }
       for (final enumDesc in module.enums) {
         final enumName = enumDesc.name;
-        final values = <String, Map<String, Object?>>{};
+        final values = _ballUserMap();
         for (final v in enumDesc.value) {
           values[v.name] = <String, Object?>{
             '__type__': enumName,
@@ -342,9 +343,13 @@ class BallEngine {
             'index': v.number,
           };
         }
-        _enumValues[enumName] = values;
+        _enumValues[enumName] =
+            values.map((k, v) => MapEntry(k, v as Map<String, Object?>));
         final ec = enumName.indexOf(':');
-        if (ec >= 0) _enumValues[enumName.substring(ec + 1)] = values;
+        if (ec >= 0) {
+          _enumValues[enumName.substring(ec + 1)] =
+              values.map((k, v) => MapEntry(k, v as Map<String, Object?>));
+        }
       }
 
       for (final func in module.functions) {

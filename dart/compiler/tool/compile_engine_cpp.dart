@@ -30,15 +30,28 @@ String _findRepoRoot() {
 }
 
 String _findCppCompiler(String root) {
-  // Debug build under MSVC.
-  for (final p in [
-    '$root/cpp/build/compiler/Debug/ball_cpp_compile.exe',
-    '$root/cpp/build/compiler/Release/ball_cpp_compile.exe',
-    '$root/cpp/build/compiler/ball_cpp_compile',
-    '$root/cpp/build/compiler/ball_cpp_compile.exe',
-  ]) {
-    if (File(p).existsSync()) return p;
+  // Try every common build-tree layout (MSVC release, debug, POSIX).
+  // We pick the most-recently-modified exe so freshly-rebuilt compilers
+  // win over stale copies in older build trees.
+  final candidates = [
+    for (final dir in ['build3', 'build2', 'build'])
+      for (final cfg in ['Release', 'Debug', ''])
+        '$root/cpp/$dir/compiler/${cfg.isEmpty ? '' : '$cfg/'}ball_cpp_compile.exe',
+    for (final dir in ['build3', 'build2', 'build'])
+      '$root/cpp/$dir/compiler/ball_cpp_compile',
+  ];
+  String? best;
+  DateTime? bestMtime;
+  for (final p in candidates) {
+    final f = File(p);
+    if (!f.existsSync()) continue;
+    final mtime = f.lastModifiedSync();
+    if (bestMtime == null || mtime.isAfter(bestMtime)) {
+      bestMtime = mtime;
+      best = p;
+    }
   }
+  if (best != null) return best;
   throw StateError(
     'ball_cpp_compile not found. Build cpp/build first:\n'
     '  cmake -S cpp -B cpp/build && cmake --build cpp/build --target ball_cpp_compile',

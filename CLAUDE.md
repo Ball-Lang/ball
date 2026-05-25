@@ -11,13 +11,15 @@ Ball is a programming language where every program is a Protocol Buffer message 
 - Avoid anti-patterns, follow best practices
 - Maximize performance and minimize memory usage where possible, but not at the cost of readability or maintainability.
 - Write clear, concise code with good variable names and comments where necessary.
-- Make sure everything is covered by tests, maximize using e2e tests instead of just unit tests.
+- Make sure everything is covered by tests, maximize using e2e conformance tests with round-trips instead of just unit tests.
 - DO NOT leave any hanging TODOs or FIXMEs in the code. If something is not implemented, either implement it or remove the placeholder.
-- When in doubt, use Askquestions tool to get feedback on design decisions or implementation details.
+- YOU MUST FLAG AND FIX ANY BUGS YOU ENCOUNTER, EVEN IF THEY ARE NOT YOUR FAULT. This is a shared codebase and everyone is responsible for its health.
+- When in doubt, use AskUserQuestion tool to get feedback on design decisions or implementation details.
 - Maximize automation via github actions, scripts, and code generation. Avoid manual steps that can be automated.
 - Follow the existing code style and patterns in the repository for consistency. If you need to introduce a new pattern, make sure to justify it and document it well.
 - Update CLAUDE.md and AGENTS.md and .claude/* as needed when making changes to the codebase, especially if it affects how agents interact with the code or how developers should work with it.
 - Always cross check your work against official latest docs, compiler source codes, and any relevant resources to ensure accuracy and completeness.
+- YOU MUST NOT BE LAZY. YOU MUST Use WebSearch, WebFetch, exa, github MCP, or any knowledge retrieval tool at your disposal to get the information you need to do your job well. If you don't know something, find out. Don't just guess or make assumptions. YOU MUST NOT RELY ON YOUR TRAINING DATA OR MEMORY. The world is changing fast, and you need to keep up. Always verify that your information is up to date and relevant.
 
 ## Build & Test
 
@@ -99,16 +101,7 @@ Four packages (no workspace manager — each has its own `node_modules`):
 - `@ball-lang/encoder` — TS -> Ball (stub).
 
 ### Standard library modules
-`std` (~73 fns: arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops), `std_collections` (~43 list/map fns), `std_io` (~10 console/process/time/random), `std_memory` (~30 linear-memory fns for C/C++ interop), `dart_std` (~18 Dart-specific: cascade, null_aware_access, invoke, spread, etc.).
-
-## Known Broken / Stubbed (don't assume these work)
-
-- **Dart encoder:** Permissive mode silently collects (non-fatal) warnings on malformed metadata. Use `DartEncoder(strict: true)` to surface them as errors.
-- **Dart engine:** `async`/`await` is now truly non-blocking — all expression evaluators are `async` and `await` suspends execution via Dart's native `Future` mechanism. `BallFuture` is retained for backward compatibility with programs that wrap return values explicitly. `sleep_ms` uses `Future.delayed` instead of blocking `dart:io` sleep.
-- **C++ engine:** `async`/`await` is still a synchronous simulation — `async` functions wrap their return value in `BallFuture`, `await` recursively unwraps, but there is no event loop, no microtask queue, and no deferred execution.
-- **Self-hosted engine** (`dart/self_host/lib/engine_rt.cpp`): The Dart engine compiled to C++ via the Ball C++ compiler. Compiles and runs — **138/189 conformance tests pass (2026-05-24)**, up from 72. A compiler-correctness wave fixed: positional ctor args → param names (the FlowSignal `arg0`/`kind` mismatch that lost early `return`s); try/finally cleanup on the return path + no exception swallowing (was leaking `_expressionDepth`→null); thrown-exception payload preservation; `List.filled` BallDyn-length unwrap; `null_aware_call` method dispatch. Then **reference-semantic program lists** (shared_ptr-backed `BallDyn` lists — maps stay by-value to avoid self-referential `self` cycles) unblocked in-place mutation (sorts/matrix), and emitting `_stdFunctionToOperator` as a `BallMap` landed operator-overload dispatch. TS self-host is **227/227 (100%)** (zero-wrapper) and Dart round-trip parity **183/189**. See `docs/SELF_HOST_STATUS.md` for the full history. Run the real count with `bash cpp/test/run_selfhost_tally.sh` (the in-process harness dies on the first stack-overflowing fixture). Build: `cmake --build build --target test_selfhost_conformance`.
-
-C++ has a custom test framework (`TEST(name)` macros) at [cpp/test/test_engine.cpp](cpp/test/test_engine.cpp), [cpp/test/test_compiler.cpp](cpp/test/test_compiler.cpp), and [cpp/test/test_conformance.cpp](cpp/test/test_conformance.cpp) (the conformance harness runs every `tests/conformance/*.ball.json` through the C++ engine and diff-checks stdout against the matching `.expected_output.txt`). Build via `cmake --build build --target test_engine test_compiler test_conformance` and run the resulting binaries. Always add tests alongside C++ changes.
+`std` (118 fns: arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops), `std_collections` (53 list/map fns), `std_io` (10 console/process/time/random), `std_memory` (38 linear-memory fns for C/C++ interop), `dart_std` (~18 Dart-specific: cascade, null_aware_access, invoke, spread, etc.).
 
 ## Typical Feature Workflow
 

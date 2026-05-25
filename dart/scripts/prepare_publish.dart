@@ -137,20 +137,14 @@ Future<_Result> _dryRunOne(_Pkg p, String root) async {
     );
     final stdoutBuf = StringBuffer();
     final stderrBuf = StringBuffer();
-    final stdoutFuture = proc.stdout
-        .transform(utf8.decoder)
-        .listen((d) {
-          stdout.write(d);
-          stdoutBuf.write(d);
-        })
-        .asFuture<void>();
-    final stderrFuture = proc.stderr
-        .transform(utf8.decoder)
-        .listen((d) {
-          stderr.write(d);
-          stderrBuf.write(d);
-        })
-        .asFuture<void>();
+    final stdoutFuture = proc.stdout.transform(utf8.decoder).listen((d) {
+      stdout.write(d);
+      stdoutBuf.write(d);
+    }).asFuture<void>();
+    final stderrFuture = proc.stderr.transform(utf8.decoder).listen((d) {
+      stderr.write(d);
+      stderrBuf.write(d);
+    }).asFuture<void>();
     final code = await proc.exitCode;
     await stdoutFuture;
     await stderrFuture;

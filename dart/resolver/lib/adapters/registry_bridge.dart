@@ -49,11 +49,10 @@ class RegistryBridge {
       if (result.encoding == ModuleEncoding.MODULE_ENCODING_PROTO) {
         return Module.fromBuffer(result.bytes);
       }
-      return Module()
-        ..mergeFromProto3Json(
-          jsonDecode(String.fromCharCodes(result.bytes)),
-          ignoreUnknownFields: true,
-        );
+      return Module()..mergeFromProto3Json(
+        jsonDecode(String.fromCharCodes(result.bytes)),
+        ignoreUnknownFields: true,
+      );
     } on StateError {
       // If the adapter can't find a pre-packaged Ball artifact (or
       // the download fails because there IS no Ball-specific archive),
@@ -75,7 +74,5 @@ class RegistryBridge {
 /// Callback type for on-the-fly encoding of packages that don't
 /// publish Ball artifacts. The CLI provides this using [PubClient]
 /// + [PackageEncoder].
-typedef OnTheFlyEncoder = Future<Module> Function(
-  RegistrySource source,
-  String resolvedVersion,
-);
+typedef OnTheFlyEncoder =
+    Future<Module> Function(RegistrySource source, String resolvedVersion);

@@ -22,9 +22,8 @@ Module fetchFile(FileSource source, {String? basePath}) {
       filePath.endsWith('.ball')) {
     return Module.fromBuffer(file.readAsBytesSync());
   }
-  return Module()
-    ..mergeFromProto3Json(
-      jsonDecode(file.readAsStringSync()),
-      ignoreUnknownFields: true,
-    );
+  return Module()..mergeFromProto3Json(
+    jsonDecode(file.readAsStringSync()),
+    ignoreUnknownFields: true,
+  );
 }

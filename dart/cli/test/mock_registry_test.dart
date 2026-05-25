@@ -18,20 +18,24 @@ import 'package:test/test.dart';
 List<int> buildMockModuleJson(String name) {
   final module = Module()
     ..name = name
-    ..functions.add(FunctionDefinition()
-      ..name = 'hello'
-      ..isBase = true);
+    ..functions.add(
+      FunctionDefinition()
+        ..name = 'hello'
+        ..isBase = true,
+    );
   return utf8.encode(jsonEncode(module.toProto3Json()));
 }
 
 List<int> buildMockArchive(String packageName) {
   final moduleBytes = buildMockModuleJson(packageName);
   final archive = Archive();
-  archive.addFile(ArchiveFile(
-    '$packageName/lib/module.ball.json',
-    moduleBytes.length,
-    Uint8List.fromList(moduleBytes),
-  ));
+  archive.addFile(
+    ArchiveFile(
+      '$packageName/lib/module.ball.json',
+      moduleBytes.length,
+      Uint8List.fromList(moduleBytes),
+    ),
+  );
   final tarBytes = TarEncoder().encode(archive);
   return GZipEncoder().encode(tarBytes);
 }
@@ -52,21 +56,25 @@ void main() {
         request.response
           ..statusCode = 200
           ..headers.contentType = ContentType.json
-          ..write(jsonEncode({
-            'name': name,
-            'versions': [
-              {'version': '1.0.0'},
-              {'version': '1.1.0'},
-              {'version': '2.0.0'},
-            ],
-          }));
+          ..write(
+            jsonEncode({
+              'name': name,
+              'versions': [
+                {'version': '1.0.0'},
+                {'version': '1.1.0'},
+                {'version': '2.0.0'},
+              ],
+            }),
+          );
         await request.response.close();
         return;
       }
 
       if (path.startsWith('/api/archives/')) {
         final filename = path.split('/').last;
-        final match = RegExp(r'^(.+)-(\d+\.\d+\.\d+)\.tar\.gz$').firstMatch(filename);
+        final match = RegExp(
+          r'^(.+)-(\d+\.\d+\.\d+)\.tar\.gz$',
+        ).firstMatch(filename);
         if (match != null) {
           final name = match.group(1)!;
           final archiveBytes = buildMockArchive(name);
@@ -193,10 +201,7 @@ void main() {
       });
     }
 
-    final lockJson = jsonEncode({
-      'lock_version': '1',
-      'packages': entries,
-    });
+    final lockJson = jsonEncode({'lock_version': '1', 'packages': entries});
     final lock = jsonDecode(lockJson) as Map<String, dynamic>;
     expect(lock['lock_version'], '1');
     expect(lock['packages'], isList);

@@ -59,9 +59,7 @@ class NpmAdapter extends RegistryAdapter {
       }
     }
     if (bestStr == null) {
-      throw StateError(
-        'npm: no version of "$package" matches "$constraint"',
-      );
+      throw StateError('npm: no version of "$package" matches "$constraint"');
     }
     return bestStr;
   }
@@ -87,8 +85,8 @@ class NpmAdapter extends RegistryAdapter {
     }
     final meta = jsonDecode(metaResp.body) as Map<String, dynamic>;
     final dist = meta['dist'] as Map<String, dynamic>? ?? {};
-    final tarballUrl = dist['tarball'] as String? ??
-        '$base/$package/-/$package-$version.tgz';
+    final tarballUrl =
+        dist['tarball'] as String? ?? '$base/$package/-/$package-$version.tgz';
 
     final response = await _http.get(Uri.parse(tarballUrl), headers: headers);
     if (response.statusCode != 200) {

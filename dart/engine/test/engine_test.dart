@@ -1319,7 +1319,8 @@ void main() {
               call(
                 fn,
                 module: 'std',
-                input: input ?? msg([field('path', literal('does_not_matter'))]),
+                input:
+                    input ?? msg([field('path', literal('does_not_matter'))]),
               ),
             ),
           ]),
@@ -1394,11 +1395,7 @@ void main() {
         ],
       );
       final lines = <String>[];
-      final engine = BallEngine(
-        program,
-        stdout: lines.add,
-        envGet: (_) => '',
-      );
+      final engine = BallEngine(program, stdout: lines.add, envGet: (_) => '');
       await engine.run();
 
       expect(lines, ['']);

@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:ball_base/ball_base.dart';
 
 void main() async {
-  final jsonStr = File('../../tests/conformance/160_async_basic.ball.json').readAsStringSync();
+  final jsonStr = File(
+    '../../tests/conformance/160_async_basic.ball.json',
+  ).readAsStringSync();
   final jsonMap = jsonDecode(jsonStr) as Map<String, dynamic>;
   final program = Program()
     ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
@@ -17,7 +19,9 @@ void main() async {
           print('Statements count: ${block.statements.length}');
           for (int i = 0; i < block.statements.length; i++) {
             final stmt = block.statements[i];
-            print('  Statement $i: whichStmt=${stmt.whichStmt()}, hasLet=${stmt.hasLet()}, hasExpression=${stmt.hasExpression()}');
+            print(
+              '  Statement $i: whichStmt=${stmt.whichStmt()}, hasLet=${stmt.hasLet()}, hasExpression=${stmt.hasExpression()}',
+            );
             if (stmt.hasLet()) {
               print('    Let name=${stmt.let.name}');
             }

@@ -34,11 +34,10 @@ Future<Module> fetchHttp(HttpSource source, {http.Client? client}) async {
         source.url.endsWith('.ball')) {
       return Module.fromBuffer(response.bodyBytes);
     }
-    return Module()
-      ..mergeFromProto3Json(
-        jsonDecode(response.body),
-        ignoreUnknownFields: true,
-      );
+    return Module()..mergeFromProto3Json(
+      jsonDecode(response.body),
+      ignoreUnknownFields: true,
+    );
   } finally {
     if (shouldClose) c.close();
   }

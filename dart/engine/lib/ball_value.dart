@@ -23,8 +23,7 @@ class BallInt extends BallValue {
   String toString() => value.toString();
 
   @override
-  bool operator ==(Object other) =>
-      other is BallInt && other.value == value;
+  bool operator ==(Object other) => other is BallInt && other.value == value;
 
   @override
   int get hashCode => value.hashCode;
@@ -46,8 +45,7 @@ class BallDouble extends BallValue {
   }
 
   @override
-  bool operator ==(Object other) =>
-      other is BallDouble && other.value == value;
+  bool operator ==(Object other) => other is BallDouble && other.value == value;
 
   @override
   int get hashCode => value.hashCode;
@@ -62,8 +60,7 @@ class BallString extends BallValue {
   String toString() => value;
 
   @override
-  bool operator ==(Object other) =>
-      other is BallString && other.value == value;
+  bool operator ==(Object other) => other is BallString && other.value == value;
 
   @override
   int get hashCode => value.hashCode;
@@ -78,8 +75,7 @@ class BallBool extends BallValue {
   String toString() => value.toString();
 
   @override
-  bool operator ==(Object other) =>
-      other is BallBool && other.value == value;
+  bool operator ==(Object other) => other is BallBool && other.value == value;
 
   @override
   int get hashCode => value.hashCode;

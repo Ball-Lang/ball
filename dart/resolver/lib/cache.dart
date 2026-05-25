@@ -18,10 +18,11 @@ class ContentAddressableCache {
   final String cacheDir;
 
   ContentAddressableCache({String? cacheDir})
-      : cacheDir = cacheDir ?? _defaultCacheDir();
+    : cacheDir = cacheDir ?? _defaultCacheDir();
 
   static String _defaultCacheDir() {
-    final home = Platform.environment['HOME'] ??
+    final home =
+        Platform.environment['HOME'] ??
         Platform.environment['USERPROFILE'] ??
         '.';
     return p.join(home, '.ball', 'cache');

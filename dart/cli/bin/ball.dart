@@ -104,11 +104,21 @@ void _printUsage() {
   stderr.writeln('  run      <input.ball.json>   Execute ball program');
   stderr.writeln('  round-trip <input.dart>      Encode → compile → show diff');
   stderr.writeln('  audit    <input.ball.json>   Static capability analysis');
-  stderr.writeln('  build    <input.ball.json>   Resolve imports → self-contained program');
-  stderr.writeln('  init                         Create ball.yaml in current directory');
-  stderr.writeln('  add      <spec>              Add dependency (pub:pkg@^1.0.0)');
-  stderr.writeln('  resolve                      Resolve deps → ball.lock.json');
-  stderr.writeln('  publish                      Bake module.ball.bin into lib/');
+  stderr.writeln(
+    '  build    <input.ball.json>   Resolve imports → self-contained program',
+  );
+  stderr.writeln(
+    '  init                         Create ball.yaml in current directory',
+  );
+  stderr.writeln(
+    '  add      <spec>              Add dependency (pub:pkg@^1.0.0)',
+  );
+  stderr.writeln(
+    '  resolve                      Resolve deps → ball.lock.json',
+  );
+  stderr.writeln(
+    '  publish                      Bake module.ball.bin into lib/',
+  );
   stderr.writeln('  tree                         Print dependency tree');
   stderr.writeln('  version                      Print version');
   stderr.writeln('  help                         Show this help');
@@ -479,7 +489,9 @@ void _audit(List<String> args) {
   }
 
   if (inputPath == null) {
-    stderr.writeln('Usage: ball audit <input.ball.json> [--deny fs,memory] [--exit-code] [--reachable-only] [--no-check-termination] [--output report.json]');
+    stderr.writeln(
+      'Usage: ball audit <input.ball.json> [--deny fs,memory] [--exit-code] [--reachable-only] [--no-check-termination] [--output report.json]',
+    );
     exit(1);
   }
 
@@ -535,7 +547,9 @@ void _build(List<String> args) {
   }
 
   if (inputPath == null) {
-    stderr.writeln('Usage: ball build <input.ball.json> [--output resolved.ball.json]');
+    stderr.writeln(
+      'Usage: ball build <input.ball.json> [--output resolved.ball.json]',
+    );
     exit(1);
   }
 
@@ -554,12 +568,14 @@ void _build(List<String> args) {
   }
 
   if (!hasImports) {
-    stderr.writeln('No unresolved imports found — program is already self-contained.');
+    stderr.writeln(
+      'No unresolved imports found — program is already self-contained.',
+    );
     if (outputPath != null) {
       File(outputPath).writeAsStringSync(
-        const JsonEncoder.withIndent('  ').convert(
-          jsonDecode(jsonEncode(program.toProto3Json())),
-        ),
+        const JsonEncoder.withIndent(
+          '  ',
+        ).convert(jsonDecode(jsonEncode(program.toProto3Json()))),
       );
     }
     return;
@@ -571,9 +587,12 @@ void _build(List<String> args) {
   ContentAddressableCache? preCache;
   if (lockFile.existsSync()) {
     try {
-      final lockData = jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
+      final lockData =
+          jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
       final packages = lockData['packages'] as List? ?? [];
-      stderr.writeln('Using ball.lock.json (${packages.length} packages cached)');
+      stderr.writeln(
+        'Using ball.lock.json (${packages.length} packages cached)',
+      );
       preCache = ContentAddressableCache();
     } catch (_) {}
   }
@@ -584,39 +603,50 @@ void _build(List<String> args) {
   bridge.onTheFlyEncoder = (source, version) async {
     stderr.write('  encoding ${source.package}@$version... ');
     final vi = await pubClient.resolveVersion(source.package, source.version);
-    final pkgDir = await pubClient.downloadPackage(source.package, vi.version, archiveUrl: vi.archiveUrl);
+    final pkgDir = await pubClient.downloadPackage(
+      source.package,
+      vi.version,
+      archiveUrl: vi.archiveUrl,
+    );
     try {
       final encoder = PackageEncoder(pkgDir);
       final prog = encoder.encode();
       for (final m in prog.modules) {
-        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty) continue;
-        if (m.functions.isEmpty && m.typeDefs.isEmpty && m.types.isEmpty) continue;
+        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty)
+          continue;
+        if (m.functions.isEmpty && m.typeDefs.isEmpty && m.types.isEmpty)
+          continue;
         stderr.writeln('OK');
         return m;
       }
       throw StateError('No encodable module in ${source.package}@$version');
     } finally {
-      try { await pkgDir.delete(recursive: true); } catch (_) {}
+      try {
+        await pkgDir.delete(recursive: true);
+      } catch (_) {}
     }
   };
   final resolver = ModuleResolver(
     registryResolver: bridge.resolve,
     cache: preCache ?? ContentAddressableCache(),
   );
-  resolver.resolveAll(program).then((resolved) {
-    final jsonOut = const JsonEncoder.withIndent('  ').convert(
-      jsonDecode(jsonEncode(resolved.toProto3Json())),
-    );
-    if (outputPath != null) {
-      File(outputPath).writeAsStringSync(jsonOut);
-      stderr.writeln('Resolved program written to $outputPath');
-    } else {
-      stdout.writeln(jsonOut);
-    }
-  }).catchError((Object e) {
-    stderr.writeln('Error resolving imports: $e');
-    exit(1);
-  });
+  resolver
+      .resolveAll(program)
+      .then((resolved) {
+        final jsonOut = const JsonEncoder.withIndent(
+          '  ',
+        ).convert(jsonDecode(jsonEncode(resolved.toProto3Json())));
+        if (outputPath != null) {
+          File(outputPath).writeAsStringSync(jsonOut);
+          stderr.writeln('Resolved program written to $outputPath');
+        } else {
+          stdout.writeln(jsonOut);
+        }
+      })
+      .catchError((Object e) {
+        stderr.writeln('Error resolving imports: $e');
+        exit(1);
+      });
 }
 
 // ── ball init ───────────────────────────────────────────────────────────────
@@ -628,9 +658,11 @@ void _init(List<String> args) {
     exit(1);
   }
 
-  final name = Directory.current.uri.pathSegments
-      .where((s) => s.isNotEmpty)
-      .lastOrNull ?? 'my_app';
+  final name =
+      Directory.current.uri.pathSegments
+          .where((s) => s.isNotEmpty)
+          .lastOrNull ??
+      'my_app';
 
   file.writeAsStringSync('''
 name: $name
@@ -678,7 +710,8 @@ void _add(List<String> args) {
     } else if (content.contains('dependencies:')) {
       final idx = content.indexOf('dependencies:');
       final lineEnd = content.indexOf('\n', idx);
-      content = '${content.substring(0, lineEnd)}\n  ${parsed.name}:\n${parsed.yaml}${content.substring(lineEnd)}';
+      content =
+          '${content.substring(0, lineEnd)}\n  ${parsed.name}:\n${parsed.yaml}${content.substring(lineEnd)}';
     }
     file.writeAsStringSync(content);
     stdout.writeln('Added ${parsed.name} to ball.yaml');
@@ -707,13 +740,25 @@ _ParsedSpec? _parseImportSpec(String spec) {
 
   switch (registry) {
     case 'pub':
-      return _ParsedSpec(package, '    registry: pub\n    package: $package\n    version: "$version"\n');
+      return _ParsedSpec(
+        package,
+        '    registry: pub\n    package: $package\n    version: "$version"\n',
+      );
     case 'npm':
-      return _ParsedSpec(package.replaceAll('/', '_').replaceAll('@', ''), '    registry: npm\n    package: "$package"\n    version: "$version"\n');
+      return _ParsedSpec(
+        package.replaceAll('/', '_').replaceAll('@', ''),
+        '    registry: npm\n    package: "$package"\n    version: "$version"\n',
+      );
     case 'git':
-      return _ParsedSpec(package.split('/').last.replaceAll('.git', ''), '    git:\n      url: $package\n      ref: "$version"\n');
+      return _ParsedSpec(
+        package.split('/').last.replaceAll('.git', ''),
+        '    git:\n      url: $package\n      ref: "$version"\n',
+      );
     case 'http':
-      return _ParsedSpec(package.split('/').last.replaceAll('.ball.bin', ''), '    url: "$package"\n');
+      return _ParsedSpec(
+        package.split('/').last.replaceAll('.ball.bin', ''),
+        '    url: "$package"\n',
+      );
     default:
       return null;
   }
@@ -800,13 +845,19 @@ Future<void> _resolve(List<String> args) async {
       final program = encoder.encode();
       // Return the main module (the first non-base, non-stub module).
       for (final m in program.modules) {
-        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty) continue;
-        if (m.functions.isEmpty && m.typeDefs.isEmpty && m.types.isEmpty) continue;
+        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty)
+          continue;
+        if (m.functions.isEmpty && m.typeDefs.isEmpty && m.types.isEmpty)
+          continue;
         return m;
       }
-      throw StateError('No encodable module found in ${source.package}@$version');
+      throw StateError(
+        'No encodable module found in ${source.package}@$version',
+      );
     } finally {
-      try { await pkgDir.delete(recursive: true); } catch (_) {}
+      try {
+        await pkgDir.delete(recursive: true);
+      } catch (_) {}
     }
   };
   final resolver = ModuleResolver(registryResolver: bridge.resolve);
@@ -833,10 +884,9 @@ Future<void> _resolve(List<String> args) async {
 
   // Write ball.lock.json.
   final lockFile = File('ball.lock.json');
-  final lockJson = const JsonEncoder.withIndent('  ').convert({
-    'lock_version': '1',
-    'packages': lockEntries,
-  });
+  final lockJson = const JsonEncoder.withIndent(
+    '  ',
+  ).convert({'lock_version': '1', 'packages': lockEntries});
   lockFile.writeAsStringSync(lockJson);
   stderr.writeln('\nWrote ball.lock.json (${lockEntries.length} packages)');
 }
@@ -851,10 +901,14 @@ void _publish(List<String> args) {
     final pubspec = File('pubspec.yaml');
     if (!pubspec.existsSync()) {
       stderr.writeln('Error: No ball.yaml or pubspec.yaml found.');
-      stderr.writeln('Run "ball init" first, or run from a Dart package directory.');
+      stderr.writeln(
+        'Run "ball init" first, or run from a Dart package directory.',
+      );
       return;
     }
-    stderr.writeln('No ball.yaml found. Encoding Dart package from pubspec.yaml...');
+    stderr.writeln(
+      'No ball.yaml found. Encoding Dart package from pubspec.yaml...',
+    );
     final encoder = PackageEncoder(Directory.current);
     final program = encoder.encode();
     _writeArtifacts(program);
@@ -899,11 +953,13 @@ void _writeArtifacts(Program program) {
 
   // JSON (for human inspection / debugging)
   final jsonFile = File('lib/module.ball.json');
-  final jsonStr = const JsonEncoder.withIndent('  ').convert(
-    jsonDecode(jsonEncode(program.toProto3Json())),
-  );
+  final jsonStr = const JsonEncoder.withIndent(
+    '  ',
+  ).convert(jsonDecode(jsonEncode(program.toProto3Json())));
   jsonFile.writeAsStringSync(jsonStr);
-  stderr.writeln('  Wrote lib/module.ball.json (${jsonFile.lengthSync()} bytes)');
+  stderr.writeln(
+    '  Wrote lib/module.ball.json (${jsonFile.lengthSync()} bytes)',
+  );
 
   stderr.writeln('\nBall artifacts ready for publishing.');
   stderr.writeln('Downstream packages can import via:');
@@ -912,13 +968,20 @@ void _writeArtifacts(Program program) {
 
 Registry _parseRegistry(String name) {
   switch (name.toLowerCase()) {
-    case 'pub': return Registry.REGISTRY_PUB;
-    case 'npm': return Registry.REGISTRY_NPM;
-    case 'nuget': return Registry.REGISTRY_NUGET;
-    case 'cargo': return Registry.REGISTRY_CARGO;
-    case 'pypi': return Registry.REGISTRY_PYPI;
-    case 'maven': return Registry.REGISTRY_MAVEN;
-    default: return Registry.REGISTRY_UNSPECIFIED;
+    case 'pub':
+      return Registry.REGISTRY_PUB;
+    case 'npm':
+      return Registry.REGISTRY_NPM;
+    case 'nuget':
+      return Registry.REGISTRY_NUGET;
+    case 'cargo':
+      return Registry.REGISTRY_CARGO;
+    case 'pypi':
+      return Registry.REGISTRY_PYPI;
+    case 'maven':
+      return Registry.REGISTRY_MAVEN;
+    default:
+      return Registry.REGISTRY_UNSPECIFIED;
   }
 }
 
@@ -927,7 +990,10 @@ Registry _parseRegistry(String name) {
 void _tree(List<String> args) {
   String? inputPath;
   for (final arg in args) {
-    if (!arg.startsWith('-')) { inputPath = arg; break; }
+    if (!arg.startsWith('-')) {
+      inputPath = arg;
+      break;
+    }
   }
 
   if (inputPath == null) {
@@ -947,14 +1013,14 @@ void _tree(List<String> args) {
       final source = imp.hasHttp()
           ? 'http: ${imp.http.url}'
           : imp.hasFile()
-              ? 'file: ${imp.file.path}'
-              : imp.hasGit()
-                  ? 'git: ${imp.git.url}@${imp.git.ref}'
-                  : imp.hasRegistry()
-                      ? '${imp.registry.registry.name}: ${imp.registry.package}@${imp.registry.version}'
-                      : imp.hasInline()
-                          ? 'inline'
-                          : 'ref only';
+          ? 'file: ${imp.file.path}'
+          : imp.hasGit()
+          ? 'git: ${imp.git.url}@${imp.git.ref}'
+          : imp.hasRegistry()
+          ? '${imp.registry.registry.name}: ${imp.registry.package}@${imp.registry.version}'
+          : imp.hasInline()
+          ? 'inline'
+          : 'ref only';
       stdout.writeln('    → ${imp.name} ($source)');
     }
   }

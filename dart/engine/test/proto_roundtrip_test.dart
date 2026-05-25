@@ -26,12 +26,13 @@ void main() {
     final fixturesDir = Directory('../../tests/fixtures/dart');
     if (!fixturesDir.existsSync()) return;
 
-    final fixtures = fixturesDir
-        .listSync()
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.dart'))
-        .toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
+    final fixtures =
+        fixturesDir
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
 
     for (final fixture in fixtures) {
       final name = fixture.uri.pathSegments.last.replaceAll('.dart', '');

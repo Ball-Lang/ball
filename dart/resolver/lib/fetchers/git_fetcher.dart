@@ -10,28 +10,29 @@ import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 Future<Module> fetchGit(GitSource source) async {
   final tempDir = await Directory.systemTemp.createTemp('ball_git_');
   try {
-    final cloneResult = await Process.run(
-      'git',
-      ['clone', '--depth', '1', '--branch', source.ref, source.url, '.'],
-      workingDirectory: tempDir.path,
-    );
+    final cloneResult = await Process.run('git', [
+      'clone',
+      '--depth',
+      '1',
+      '--branch',
+      source.ref,
+      source.url,
+      '.',
+    ], workingDirectory: tempDir.path);
     if (cloneResult.exitCode != 0) {
       // Fallback: clone without --branch (for commit SHAs).
-      final fullClone = await Process.run(
-        'git',
-        ['clone', source.url, '.'],
-        workingDirectory: tempDir.path,
-      );
+      final fullClone = await Process.run('git', [
+        'clone',
+        source.url,
+        '.',
+      ], workingDirectory: tempDir.path);
       if (fullClone.exitCode != 0) {
-        throw StateError(
-          'Failed to clone ${source.url}: ${fullClone.stderr}',
-        );
+        throw StateError('Failed to clone ${source.url}: ${fullClone.stderr}');
       }
-      final checkout = await Process.run(
-        'git',
-        ['checkout', source.ref],
-        workingDirectory: tempDir.path,
-      );
+      final checkout = await Process.run('git', [
+        'checkout',
+        source.ref,
+      ], workingDirectory: tempDir.path);
       if (checkout.exitCode != 0) {
         throw StateError(
           'Failed to checkout ref ${source.ref}: ${checkout.stderr}',
@@ -42,9 +43,7 @@ Future<Module> fetchGit(GitSource source) async {
     final filePath = '${tempDir.path}/${source.path}';
     final file = File(filePath);
     if (!file.existsSync()) {
-      throw StateError(
-        'Module file not found in git repo: ${source.path}',
-      );
+      throw StateError('Module file not found in git repo: ${source.path}');
     }
 
     final encoding = source.encoding;
@@ -53,11 +52,10 @@ Future<Module> fetchGit(GitSource source) async {
         filePath.endsWith('.ball')) {
       return Module.fromBuffer(await file.readAsBytes());
     }
-    return Module()
-      ..mergeFromProto3Json(
-        jsonDecode(await file.readAsString()),
-        ignoreUnknownFields: true,
-      );
+    return Module()..mergeFromProto3Json(
+      jsonDecode(await file.readAsString()),
+      ignoreUnknownFields: true,
+    );
   } finally {
     try {
       await tempDir.delete(recursive: true);

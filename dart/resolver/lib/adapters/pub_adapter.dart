@@ -55,9 +55,7 @@ class PubAdapter extends RegistryAdapter {
       }
     }
     if (bestStr == null) {
-      throw StateError(
-        'pub: no version of "$package" matches "$constraint"',
-      );
+      throw StateError('pub: no version of "$package" matches "$constraint"');
     }
     return bestStr;
   }

@@ -8,9 +8,11 @@ import 'package:test/test.dart';
 Module _makeModule(String name, {List<String> functions = const []}) {
   final m = Module()..name = name;
   for (final fn in functions) {
-    m.functions.add(FunctionDefinition()
-      ..name = fn
-      ..isBase = true);
+    m.functions.add(
+      FunctionDefinition()
+        ..name = fn
+        ..isBase = true,
+    );
   }
   return m;
 }
@@ -156,11 +158,13 @@ void main() {
       final resolver = ModuleResolver();
       expect(
         () => resolver.resolve(import_),
-        throwsA(isA<StateError>().having(
-          (e) => e.message,
-          'message',
-          contains('Integrity check failed'),
-        )),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('Integrity check failed'),
+          ),
+        ),
       );
     });
 
@@ -205,11 +209,16 @@ void main() {
         ..version = '1.0.0'
         ..entryModule = 'main'
         ..entryFunction = 'main'
-        ..modules.add(Module()
-          ..name = 'main'
-          ..moduleImports.add(ModuleImport()
-            ..name = 'dep'
-            ..inline = (InlineSource()..protoBytes = depModule.writeToBuffer())));
+        ..modules.add(
+          Module()
+            ..name = 'main'
+            ..moduleImports.add(
+              ModuleImport()
+                ..name = 'dep'
+                ..inline = (InlineSource()
+                  ..protoBytes = depModule.writeToBuffer()),
+            ),
+        );
 
       final resolver = ModuleResolver();
       final resolved = await resolver.resolveAll(program);
@@ -229,11 +238,13 @@ void main() {
       final resolver = ModuleResolver();
       expect(
         () => resolver.resolve(import_),
-        throwsA(isA<StateError>().having(
-          (e) => e.message,
-          'message',
-          contains('registry resolver'),
-        )),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('registry resolver'),
+          ),
+        ),
       );
     });
   });

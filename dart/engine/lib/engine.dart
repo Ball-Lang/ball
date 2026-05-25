@@ -399,10 +399,7 @@ class BallEngine {
   static String _typeMethodKey(String typePrefix, String methodName) =>
       '$typePrefix\x00$methodName';
 
-  void _registerFunctionDispatchTables(
-    Module module,
-    FunctionDefinition func,
-  ) {
+  void _registerFunctionDispatchTables(Module module, FunctionDefinition func) {
     if (func.isBase || !func.hasBody()) return;
 
     if (func.hasMetadata()) {
@@ -432,9 +429,7 @@ class BallEngine {
     final methodName = funcName.substring(dotIdx + 1);
     if (methodName == 'new') return;
     if (_isGetter(func) || _isSetter(func)) return;
-    final kindField = func.hasMetadata()
-        ? func.metadata.fields['kind']
-        : null;
+    final kindField = func.hasMetadata() ? func.metadata.fields['kind'] : null;
     if (kindField?.stringValue == 'constructor') return;
 
     final entry = (module: module.name, func: func);
@@ -461,7 +456,8 @@ class BallEngine {
       return _instanceMethodCache[cacheKey];
     }
 
-    final resolved = _resolveMethod(typeName, methodName) ??
+    final resolved =
+        _resolveMethod(typeName, methodName) ??
         _lookupTypeMethodWithInheritance(typeName, methodName);
     _instanceMethodCache[cacheKey] = resolved;
     return resolved;
@@ -495,9 +491,7 @@ class BallEngine {
         break;
       }
       final superclass = typeDef.superclass!;
-      current = superclass.contains(':')
-          ? superclass
-          : '$modPart:$superclass';
+      current = superclass.contains(':') ? superclass : '$modPart:$superclass';
     }
 
     final mixins = _getMixins(typeName);

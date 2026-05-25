@@ -60,7 +60,8 @@ void main() {
     if (resolveResult.exitCode == 0) {
       final lockFile = File('${tmpDir.path}/ball.lock.json');
       expect(lockFile.existsSync(), isTrue);
-      final lock = jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
+      final lock =
+          jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
       expect(lock.containsKey('packages'), isTrue);
     }
   }, timeout: Timeout(Duration(seconds: 60)));

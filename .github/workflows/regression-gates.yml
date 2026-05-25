@@ -67,6 +67,15 @@ jobs:
           # resolves to a recent 22.x that includes it.
           node-version: 22
 
+      # engine_parse.test.ts shells out to roundtrip_engine.dart when
+      # dart/self_host/engine.ball.json is missing.
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Bootstrap Dart workspace (roundtrip_engine)
+        run: cd dart && dart pub get
+
       # ── @ball-lang/engine — prints: "Results: N passed, M failed, T total"
       - name: Install @ball-lang/engine
         run: cd ts/engine && npm ci

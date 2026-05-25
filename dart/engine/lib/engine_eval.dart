@@ -1057,7 +1057,8 @@ extension BallEngineEval on BallEngine {
         );
 
         if (ctorEntry != null && ctorEntry.func.hasBody()) {
-          final isFactory = ctorEntry.func.hasMetadata() &&
+          final isFactory =
+              ctorEntry.func.hasMetadata() &&
               _metadataBool(ctorEntry.func.metadata.fields['is_factory']);
           if (isFactory) {
             // Factory constructors choose their own return value; do not
@@ -1066,11 +1067,7 @@ extension BallEngineEval on BallEngine {
             final ctorInput = <String, Object?>{}
               ..addAll(fields)
               ..addAll(resolvedParams);
-            return _callFunction(
-              ctorEntry.module,
-              ctorEntry.func,
-              ctorInput,
-            );
+            return _callFunction(ctorEntry.module, ctorEntry.func, ctorInput);
           }
           final ctorInput = <String, Object?>{}
             ..addAll(fields)

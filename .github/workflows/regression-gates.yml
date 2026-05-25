@@ -17,7 +17,7 @@ name: Regression Gates
 #                              (--exclude-tags slow, matching ci.yml)
 #   * C++ native engine      : PASS must not drop below CPP_CONFORMANCE_MIN_PASS
 #                              (of ~263 runnable fixtures via test_conformance)
-#   * C++ self-host tally     : PASS must not drop below 182 (of 227 fixtures)
+#   * C++ self-host tally     : PASS must not drop below 195 (of 227 fixtures)
 #                              — blocking only when the Linux native build is green
 #
 # Action versions verified 2026-05-25 against the upstream release pages:
@@ -47,8 +47,8 @@ env:
   DART_ENGINE_MIN_PASS: "566"
   DART_ENCODER_EXPECTED: "116"
   DART_COMPILER_EXPECTED: "88"
-  CPP_CONFORMANCE_MIN_PASS: "226"
-  CPP_SELFHOST_MIN_PASS: "182"
+  CPP_CONFORMANCE_MIN_PASS: "229"
+  CPP_SELFHOST_MIN_PASS: "195"
 
 jobs:
   # ──────────────────────────────────────────────────
@@ -268,7 +268,7 @@ jobs:
   # of the ~263 runnable conformance fixtures.
   # ──────────────────────────────────────────────────
   cpp-conformance:
-    name: C++ Native Conformance (PASS >= 226)
+    name: C++ Native Conformance (PASS >= 229)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -333,7 +333,7 @@ jobs:
   # summary line that the script does, then enforces the floor.
   # ──────────────────────────────────────────────────
   cpp-selfhost-tally:
-    name: C++ Self-Host Tally (PASS >= 182)
+    name: C++ Self-Host Tally (PASS >= 195)
     runs-on: ubuntu-latest
     needs: cpp-conformance
     steps:

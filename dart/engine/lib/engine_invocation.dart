@@ -47,7 +47,8 @@ extension BallEngineInvocation on BallEngine {
         final typeName = dotIdx >= 0
             ? func.name.substring(0, dotIdx)
             : func.name;
-        final isFactory = func.hasMetadata() &&
+        final isFactory =
+            func.hasMetadata() &&
             _metadataBool(func.metadata.fields['is_factory']);
         if (!isFactory &&
             (constructorInput == null ||
@@ -197,7 +198,8 @@ extension BallEngineInvocation on BallEngine {
         if (kind == 'constructor' &&
             inputMap != null &&
             inputMap.containsKey('self')) {
-          final isFactory = func.hasMetadata() &&
+          final isFactory =
+              func.hasMetadata() &&
               _metadataBool(func.metadata.fields['is_factory']);
           if (result is _FlowSignal && result.kind == 'return') {
             finalResult = result.value;

@@ -109,7 +109,7 @@ extension BallEngineInvocation on BallEngine {
         if (selfMap != null) {
           // Bind direct fields. Use temporary debug to trace.
           for (final entry in selfMap.entries) {
-            if (!entry.key.startsWith('__')) {
+            if (!entry.key.startsWith('__') && entry.value != null) {
               scope.bind(entry.key, entry.value);
             }
           }
@@ -117,7 +117,12 @@ extension BallEngineInvocation on BallEngine {
           var superObj = _asMap(selfMap['__super__']);
           while (superObj != null) {
             for (final entry in superObj.entries) {
-              if (!entry.key.startsWith('__') && !scope.has(entry.key)) {
+              // Skip null placeholders (e.g. abstract mixin getter stubs) — binding
+              // them would make bare references like `label` resolve to null before
+              // getter dispatch runs (110_mixin and related OOP fixtures).
+              if (!entry.key.startsWith('__') &&
+                  !scope.has(entry.key) &&
+                  entry.value != null) {
                 scope.bind(entry.key, entry.value);
               }
             }

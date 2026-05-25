@@ -407,7 +407,10 @@ extension BallEngineEval on BallEngine {
       return BallMap({'__class_ref__': name, '__type__': '__builtin_class__'});
     }
 
-    if (scope.has(name)) return scope.lookup(name);
+    if (scope.has(name)) {
+      final bound = scope.lookup(name);
+      if (bound != null) return bound;
+    }
 
     // Constructor tear-off: resolve class names and "Class.new" references
     // to callable closures that invoke the constructor function.
@@ -467,16 +470,30 @@ extension BallEngineEval on BallEngine {
     // Fallback: if `self` is in scope, try looking up the field on it.
     // This handles method bodies that reference instance fields like `name`
     // even when the field wasn't explicitly bound (e.g., inherited fields).
-    if (scope.has('self')) {
-      final self = scope.lookup('self');
-      final selfMap = _asMap(self);
+    // Use lookup (not has) so a bound-but-empty self still participates in
+    // getter dispatch — has() alone can diverge from lookup on BallScope edges.
+    Object? selfForGetter;
+    try {
+      selfForGetter = scope.lookup('self');
+    } catch (_) {
+      selfForGetter = null;
+    }
+    if (selfForGetter != null) {
+      final selfMap = _asMap(selfForGetter);
       if (selfMap != null) {
-        if (selfMap.containsKey(name)) return selfMap[name];
+        if (selfMap.containsKey(name)) {
+          final direct = selfMap[name];
+          if (direct != null) return direct;
+        }
         // Check __super__ chain for inherited fields.
         var superObj = selfMap['__super__'];
         var superMap = _asMap(superObj);
         while (superMap != null) {
-          if (superMap.containsKey(name)) return superMap[name];
+          if (superMap.containsKey(name)) {
+            final inherited = superMap[name];
+            // Skip null mixin/abstract placeholders — they must not beat getter dispatch.
+            if (inherited != null) return inherited;
+          }
           superObj = superMap['__super__'];
           superMap = _asMap(superObj);
         }
@@ -584,13 +601,19 @@ extension BallEngineEval on BallEngine {
 
     // ── Map / message field access ─────────────────────────────
     if (objectMap != null) {
-      if (objectMap.containsKey(fieldName)) return objectMap[fieldName];
+      if (objectMap.containsKey(fieldName)) {
+        final direct = objectMap[fieldName];
+        if (direct != null) return direct;
+      }
 
       // Walk the __super__ chain for inherited fields.
       var superObj = objectMap['__super__'];
       var superMap = _asMap(superObj);
       while (superMap != null) {
-        if (superMap.containsKey(fieldName)) return superMap[fieldName];
+        if (superMap.containsKey(fieldName)) {
+          final inherited = superMap[fieldName];
+          if (inherited != null) return inherited;
+        }
         superObj = superMap['__super__'];
         superMap = _asMap(superObj);
       }

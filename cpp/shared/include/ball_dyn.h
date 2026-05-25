@@ -505,6 +505,9 @@ public:
     size_t count(const BallDyn& key) const {
         return count(static_cast<std::string>(key));
     }
+    // Dart Map.containsKey parity for self-host engine (BallOrderedMapRef / BallMap).
+    bool containsKey(const BallDyn& key) const { return count(key) > 0; }
+    bool containsKey(const std::string& key) const { return count(key) > 0; }
 
     // Instance field write — routes through BallObject::setField when [this]
     // holds a BallObjectRef, otherwise falls back to map set().
@@ -1053,21 +1056,18 @@ inline BallDyn bind(BallDyn& scope, const char* name, const std::any& value) {
     return BallDyn();
 }
 // child() creates a new scope linked to the parent with reference semantics.
-// The parent is "upgraded" to BallScope (shared_ptr<BallMap>) on first use,
-// so that parent mutations are visible through the child's __parent__ link.
-inline BallDyn child(BallDyn& scope) {
+// Pass-by-value so `child(BallDyn(_globalScope))` (rvalue parent) upgrades the
+// parent copy to BallScope instead of falling through to the legacy copy path.
+inline BallDyn child(BallDyn scope) {
     // Ensure the parent uses BallScope (shared_ptr<BallMap>) for reference semantics
     if (scope._val.type() == typeid(BallMap)) {
-        // Upgrade: move the BallMap content into a shared_ptr
         auto sp = std::make_shared<BallMap>(std::move(std::any_cast<BallMap&>(scope._val)));
         scope._val = std::any(sp);
     }
-    // Now scope._val is BallScope — extract the shared_ptr
     BallScope parentScope;
     if (scope._val.type() == typeid(BallScope)) {
         parentScope = std::any_cast<const BallScope&>(scope._val);
     }
-    // Create child scope backed by BallScope
     auto childMap = std::make_shared<BallMap>();
     if (parentScope) {
         (*childMap)["__parent__"] = std::any(parentScope);
@@ -1286,7 +1286,14 @@ inline std::any set(std::any& scope, const std::any& name, const std::any& value
 
 // identical — Dart's identity comparison
 inline bool identical(const BallDyn& a, const BallDyn& b) { return a == b; }
-inline bool identical(const std::any& a, const std::any& b) { return ball_to_string(a) == ball_to_string(b); }
+inline bool identical(const std::any& a, const std::any& b) {
+    const std::any& ua = _BallDynUnwrapper::unwrap(a);
+    const std::any& ub = _BallDynUnwrapper::unwrap(b);
+    if (_ball_any_is_object(ua) || _ball_any_is_object(ub)) {
+        return BallDyn(a) == BallDyn(b);
+    }
+    return ball_to_string(a) == ball_to_string(b);
+}
 
 // File/Directory constructors from BallDyn
 inline File::File(const BallDyn& p) : path(ball_to_string(p)) {}

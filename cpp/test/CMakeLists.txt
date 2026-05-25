@@ -78,6 +78,25 @@ target_compile_definitions(test_perf PRIVATE
     BALL_PERF_BASELINE="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/perf_baseline.csv"
 )
 
+# Focused micro-benchmark — few call-heavy fixtures, high iteration
+# count, stable median. For measuring single-digit-% perf changes fast.
+add_executable(test_perf_micro test_perf_micro.cpp)
+target_include_directories(test_perf_micro PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../engine/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
+)
+target_link_libraries(test_perf_micro ball_cpp_engine ball_shared)
+target_compile_definitions(test_perf_micro PRIVATE
+    BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
+)
+if(MSVC)
+    target_link_options(test_perf_micro PRIVATE /STACK:16777216)
+elseif(APPLE)
+    target_link_options(test_perf_micro PRIVATE -Wl,-stack_size,0x1000000)
+else()
+    target_link_options(test_perf_micro PRIVATE -Wl,-z,stacksize=16777216)
+endif()
+
 # Snapshot tests — pins the exact CppCompiler output for each fixture.
 add_executable(test_snapshot test_snapshot.cpp)
 target_include_directories(test_snapshot PRIVATE

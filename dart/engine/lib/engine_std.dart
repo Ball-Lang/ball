@@ -47,10 +47,18 @@ extension BallEngineStd on BallEngine {
 
   /// Unwrap a value that may be a [BallMap] or a raw [Map<String, Object?>].
   Map<String, Object?>? _stdAsMap(Object? v) {
+    if (v is Map && v is! BallMap) {
+      if (v is Map<String, Object?>) return v;
+      return v.cast<String, Object?>();
+    }
     if (v is BallMap) return v.entries;
-    if (v is Map<String, Object?>) return v;
-    if (v is Map) return v.cast<String, Object?>();
     return null;
+  }
+
+  /// Map handle for std_collections ops — same lowering as [map_get] (`ball_is_map_dyn` in C++).
+  Object? _stdResolveProgramMap(Object? raw) {
+    if (raw is BallMap) return raw.entries;
+    return raw is Map ? raw : <dynamic, dynamic>{};
   }
 
   /// Unwrap a value that may be a [BallList] or a raw [List].
@@ -707,14 +715,11 @@ extension BallEngineStd on BallEngine {
       'map_set': (i) {
         final m = _stdAsMap(i)!;
         final raw = m['map'];
-        final map = raw is BallMap
-            ? raw.entries
-            : (raw is Map ? raw : <dynamic, dynamic>{});
-        if (!map.containsKey(m['key'])) {
+        if (!_ballMapContainsKeyDyn(raw, m['key'])) {
           _trackMemoryAllocation(_ballMapEntryBytes);
         }
-        map[m['key']] = m['value'];
-        return map;
+        _ballMapSetDyn(raw, m['key'], m['value']);
+        return raw;
       },
       'map_delete': (i) {
         final m = _stdAsMap(i)!;
@@ -728,18 +733,10 @@ extension BallEngineStd on BallEngine {
       'map_contains_key': (i) {
         final m = _stdAsMap(i)!;
         final target = m['map'];
-        if (target is BallMap) {
-          return target.entries.containsKey(m['key']);
-        }
-        if (target is Map) {
-          final keys = target.keys.toList();
-          final want = m['key'];
-          for (var idx = 0; idx < keys.length; idx++) {
-            if (keys[idx] == want) return true;
-          }
-          return false;
-        }
         if (target is Set) return target.contains(m['key']);
+        if (target is Map || target is BallMap) {
+          return _ballMapContainsKeyDyn(target, m['key']);
+        }
         throw BallRuntimeError('map_contains_key: expected Map or Set');
       },
       'map_contains_value': (i) {
@@ -762,22 +759,14 @@ extension BallEngineStd on BallEngine {
         return map[key];
       },
       'map_keys': (i) {
-        final map =
-            _stdAsMap((_stdAsMap(i)!)['map']) ??
-            ((_stdAsMap(i)!)['map'] as Map);
-        final result = map.keys.toList();
+        final m = _stdAsMap(i)!;
+        final result = _ballMapKeysDyn(m['map']);
         _trackMemoryAllocation(result.length * _ballPointerBytes);
         return result;
       },
       'map_values': (i) {
-        final map =
-            _stdAsMap((_stdAsMap(i)!)['map']) ??
-            ((_stdAsMap(i)!)['map'] as Map);
-        final keys = map.keys.toList();
-        final result = <Object?>[];
-        for (var idx = 0; idx < keys.length; idx++) {
-          result.add(map[keys[idx]]);
-        }
+        final m = _stdAsMap(i)!;
+        final result = _ballMapValuesDyn(m['map']);
         _trackMemoryAllocation(result.length * _ballPointerBytes);
         return result;
       },

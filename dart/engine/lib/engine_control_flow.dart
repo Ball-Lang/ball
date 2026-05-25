@@ -2,8 +2,11 @@ part of 'engine.dart';
 
 extension BallEngineControlFlow on BallEngine {
   Map<String, Object?>? _cfAsMap(Object? v) {
+    if (v is Map && v is! BallMap) {
+      if (v is Map<String, Object?>) return v;
+      return v.cast<String, Object?>();
+    }
     if (v is BallMap) return v.entries;
-    if (v is Map<String, Object?>) return v;
     return null;
   }
 

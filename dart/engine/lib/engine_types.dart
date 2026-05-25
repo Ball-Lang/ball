@@ -76,6 +76,38 @@ Map<String, Object?> _ballUserMap() => LinkedHashMap<String, Object?>();
 /// Map values in insertion order — emitted as `ball_map_values(BallDyn(...))` in C++.
 List<Object?> _ballMapValues(Map map) => map.values.toList();
 
+Object? _ballMapHandleEntries(Object? map) {
+  if (map is BallMap) return map.entries;
+  return map;
+}
+
+/// Map keys for a runtime map handle (BallOrderedMap / BallDyn) — C++ intrinsic.
+List<Object?> _ballMapKeysDyn(Object? map) {
+  final handle = _ballMapHandleEntries(map);
+  if (handle is Map) return handle.keys.toList();
+  return [];
+}
+
+/// Map values for a runtime map handle (BallOrderedMap / BallDyn) — C++ intrinsic.
+List<Object?> _ballMapValuesDyn(Object? map) {
+  final handle = _ballMapHandleEntries(map);
+  if (handle is Map) return _ballMapValues(handle);
+  return [];
+}
+
+/// Key check for runtime map handles — C++ intrinsic.
+bool _ballMapContainsKeyDyn(Object? map, Object? key) {
+  final handle = _ballMapHandleEntries(map);
+  if (handle is Map) return handle.containsKey(key);
+  return false;
+}
+
+/// In-place map write for BallOrderedMap / BallDyn — C++ intrinsic (ball_set).
+void _ballMapSetDyn(Object? map, Object? key, Object? value) {
+  final handle = _ballMapHandleEntries(map);
+  if (handle is Map) handle[key] = value;
+}
+
 /// Write [fieldName] on a live instance map (BallObject or __type__ map).
 /// Emitted as a call to preamble `ball_object_set_field` in C++ self-host.
 void ballObjectSetField(Object? target, String fieldName, Object? val) {

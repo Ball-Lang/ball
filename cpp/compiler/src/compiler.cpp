@@ -775,7 +775,7 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
             // Find the first non-metadata field — the parent scope, if any.
             for (const auto& f : msg.fields()) {
                 if (f.name() == "__type_args__" || f.name() == "__const__") continue;
-                return "child(BallDyn(" + compile_expr(f.value()) + "))";
+                return "child(" + compile_expr(f.value()) + ")";
             }
             // _Scope() — a fresh root scope.
             return "child(BallDyn())";
@@ -1172,6 +1172,41 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
     if (mod.empty() && fn == "_ballMapValues") {
         std::string map_arg = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
         return "ball_list_copy(ball_map_values(BallDyn(" + map_arg + ")))";
+    }
+    if (mod.empty() && fn == "_ballMapValuesDyn") {
+        std::string map_arg = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
+        return "ball_list_copy(ball_map_values(BallDyn(" + map_arg + ")))";
+    }
+    if (mod.empty() && fn == "_ballMapKeysDyn") {
+        std::string map_arg = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
+        return "ball_list_copy(ball_map_keys(BallDyn(" + map_arg + ")))";
+    }
+    if (mod.empty() && fn == "_ballMapSetDyn") {
+        std::string map_arg = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
+        std::string key_arg = "BallDyn()";
+        std::string val_arg = "BallDyn()";
+        if (call.has_input() &&
+            call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+            for (const auto& f : call.input().message_creation().fields()) {
+                if (f.name() == "map") map_arg = compile_expr(f.value());
+                else if (f.name() == "key") key_arg = compile_expr(f.value());
+                else if (f.name() == "value") val_arg = compile_expr(f.value());
+            }
+        }
+        return "([](BallDyn m, BallDyn k, BallDyn v){ball_set(m, std::string(ball_to_string(BallDyn(k))), std::any(BallDyn(v))); return BallDyn();}(" +
+               map_arg + "," + key_arg + "," + val_arg + "))";
+    }
+    if (mod.empty() && fn == "_ballMapContainsKeyDyn") {
+        std::string map_arg = "BallDyn()";
+        std::string key_arg = "BallDyn()";
+        if (call.has_input() &&
+            call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+            for (const auto& f : call.input().message_creation().fields()) {
+                if (f.name() == "map") map_arg = compile_expr(f.value());
+                else if (f.name() == "key") key_arg = compile_expr(f.value());
+            }
+        }
+        return "(BallDyn(" + map_arg + ".count(BallDyn(" + key_arg + ")) > 0)";
     }
 
     // std_memory → direct memory calls
@@ -3660,6 +3695,20 @@ void CppCompiler::emit_forward_decls(const ball::v1::Module& module) {
         if (meta_map.count("original_name")) {
             name = sanitize_name(meta_map["original_name"]);
         }
+        if (name == "_ballMapKeysDyn" || name == "_ballMapValuesDyn" ||
+            name == "_ballMapValues") {
+            emit_line(return_type + " " + name + "(BallDyn map);");
+            continue;
+        }
+        if (name == "_ballMapContainsKeyDyn") {
+            emit_line(return_type + " " + name + "(BallDyn map, BallDyn key);");
+            continue;
+        }
+        if (name == "_ballMapSetDyn") {
+            emit_line(return_type + " " + name +
+                      "(BallDyn map, BallDyn key, BallDyn value);");
+            continue;
+        }
         if (func.has_metadata()) emit_template_prefix_from_meta(func.metadata());
         emit_indent();
         out_ << return_type << " " << name << "(";
@@ -4080,9 +4129,46 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     }
     if (name == "_ballMapValues") {
         emit_indent();
-        out_ << return_type << " " << name << "(auto&& map) {\n";
+        out_ << return_type << " " << name << "(BallDyn map) {\n";
         indent_++;
-        emit_line("return ball_list_copy(ball_map_values(BallDyn(map)));");
+        emit_line("return ball_list_copy(ball_map_values(map));");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballMapValuesDyn") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn map) {\n";
+        indent_++;
+        emit_line("return ball_list_copy(ball_map_values(map));");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballMapContainsKeyDyn") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn map, BallDyn key) {\n";
+        indent_++;
+        emit_line("return BallDyn(map.count(BallDyn(key)) > 0);");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballMapSetDyn") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn map, BallDyn key, BallDyn value) {\n";
+        indent_++;
+        emit_line("ball_set(map, std::string(ball_to_string(BallDyn(key))), std::any(BallDyn(value)));");
+        emit_line("return BallDyn();");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballMapKeysDyn") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn map) {\n";
+        indent_++;
+        emit_line("return ball_list_copy(ball_map_keys(map));");
         indent_--;
         emit_line("}\n");
         return;

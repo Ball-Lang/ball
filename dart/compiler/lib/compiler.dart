@@ -207,13 +207,26 @@ class DartCompiler {
     return noFormat ? _emitRaw(lib) : _format(lib);
   }
 
+  /// Module names that [compileAllModules] failed to compile on its last run.
+  ///
+  /// Maps `moduleName → error` for every module that threw during both the
+  /// formatted and the raw fallback compile. Callers can inspect this to
+  /// detect partial output instead of silently shipping an incomplete package.
+  /// Reset at the start of each [compileAllModules] call.
+  final Map<String, Object> failedModules = {};
+
   /// Compile every non-base module in the program, returning a map
   /// of `moduleName → dartSource`.
   ///
   /// Use for library packages that have no entry point.  Base modules
   /// (std, dart_std, etc.) are skipped.  Each module is compiled
   /// independently, so the result can be written to separate files.
+  ///
+  /// Modules that fail to compile (even after the raw fallback) are omitted
+  /// from the result and recorded in [failedModules]; check that map to
+  /// detect partial output.
   Map<String, String> compileAllModules() {
+    failedModules.clear();
     final result = <String, String>{};
     for (final module in program.modules) {
       // Skip base modules and empty stubs.
@@ -239,8 +252,10 @@ class DartCompiler {
         // If formatting fails, try raw.
         try {
           result[module.name] = compileModuleRaw(module.name);
-        } catch (_) {
-          // Skip modules that fail to compile.
+        } catch (rawError) {
+          // Module failed both formatted and raw compilation. Record it so
+          // callers can detect partial output rather than dropping it silently.
+          failedModules[module.name] = rawError;
         }
       }
     }
@@ -1907,6 +1922,19 @@ class DartCompiler {
         }
       case 'rethrow':
         _wl('rethrow;');
+      case 'goto':
+        // A `goto` reached in statement context (e.g. among the pre-label
+        // statements of `case 0:` inside the goto-simulating switch) lowers
+        // to a labelled `continue` targeting the matching switch label —
+        // exactly as the block-expression form does. Without this case it
+        // leaked a `/* unsupported statement: std.goto */` marker.
+        final gotoLabel = _stringFieldValue(fields, 'label') ?? '';
+        _wl('continue $gotoLabel;');
+      case 'label':
+        // A standalone `label` statement (not folded into a sibling-label
+        // block by _generateGotoSwitchBlock) emits its own switch case so
+        // gotos can target it. Mirrors _compileStdStatementToString.
+        _wl('${_compileStdStatementToString(call, hasReturn)}');
       default:
         _wl('/* unsupported statement: std.${call.function} */');
     }

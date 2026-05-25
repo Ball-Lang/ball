@@ -360,9 +360,21 @@ function hasStructValue(obj: any): boolean { return _has(obj, 'structValue'); }
 function hasMatch(obj: any): boolean { return _has(obj, 'match'); }
 function hasXxx(obj: any): boolean { return false; }
 function whichXxx(obj: any): string { return 'notSet'; }
+// whichExpr/whichValue/whichStmt/whichKind sit on the hottest path of the
+// compiled engine (whichExpr alone runs up to 8x per _evalExpression). The
+// previous 'typeof obj.whichXxx === "function"' probe always walked the
+// prototype chain to the Object.prototype shim installed by installProtoShims
+// (true for EVERY plain object) and then *invoked* it — a prototype walk + a
+// megamorphic keyed-load loop per call, even though the compiled engine's AST
+// nodes never carry an own whichXxx. We gate the method probe behind an
+// own-property check (so plain nodes skip the prototype walk entirely and use
+// the inline discriminator) while still honoring hand-rolled wrapper objects —
+// notably the metadata wrapValue Value wrappers, whose own getters
+// (.stringValue etc.) are always-defined, so their own whichXxx() must win
+// over the inline field probes. Hence the own-method check stays FIRST.
 function whichExpr(obj: any): string {
   if (!obj) return 'notSet';
-  if (typeof obj.whichExpr === 'function') return obj.whichExpr();
+  if (Object.prototype.hasOwnProperty.call(obj, 'whichExpr') && typeof obj.whichExpr === 'function') return obj.whichExpr();
   if (obj.call) return 'call'; if (obj.literal) return 'literal';
   if (obj.reference) return 'reference'; if (obj.fieldAccess) return 'fieldAccess';
   if (obj.messageCreation) return 'messageCreation'; if (obj.block) return 'block';
@@ -370,7 +382,7 @@ function whichExpr(obj: any): string {
 }
 function whichValue(obj: any): string {
   if (!obj) return 'notSet';
-  if (typeof obj.whichValue === 'function') return obj.whichValue();
+  if (Object.prototype.hasOwnProperty.call(obj, 'whichValue') && typeof obj.whichValue === 'function') return obj.whichValue();
   if (obj.intValue !== undefined) return 'intValue'; if (obj.doubleValue !== undefined) return 'doubleValue';
   if (obj.stringValue !== undefined) return 'stringValue'; if (obj.boolValue !== undefined) return 'boolValue';
   if (obj.listValue) return 'listValue'; if (obj.bytesValue !== undefined) return 'bytesValue';
@@ -378,12 +390,12 @@ function whichValue(obj: any): string {
 }
 function whichStmt(obj: any): string {
   if (!obj) return 'notSet';
-  if (typeof obj.whichStmt === 'function') return obj.whichStmt();
+  if (Object.prototype.hasOwnProperty.call(obj, 'whichStmt') && typeof obj.whichStmt === 'function') return obj.whichStmt();
   if (obj.let) return 'let'; if (obj.expression) return 'expression'; return 'notSet';
 }
 function whichKind(obj: any): string {
   if (!obj) return 'notSet';
-  if (typeof obj.whichKind === 'function') return obj.whichKind();
+  if (Object.prototype.hasOwnProperty.call(obj, 'whichKind') && typeof obj.whichKind === 'function') return obj.whichKind();
   if (obj.nullValue !== undefined) return 'nullValue'; if (obj.numberValue !== undefined) return 'numberValue';
   if (obj.stringValue !== undefined) return 'stringValue'; if (obj.boolValue !== undefined) return 'boolValue';
   if (obj.structValue) return 'structValue'; if (obj.listValue) return 'listValue';

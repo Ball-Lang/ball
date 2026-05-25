@@ -834,7 +834,7 @@ inline std::string ball_to_string(const BallDyn& d);
 // GCC defines __const__ as a macro alias for `const`, which breaks the
 // Dart-emitted field name. Undef it locally so designated initializers like
 // `JsonEncoder{.__const__ = true}` compile on Linux too.
-#ifdef __const__
+#if defined(__GNUC__)
 #pragma push_macro("__const__")
 #undef __const__
 #endif
@@ -844,7 +844,7 @@ struct JsonEncoder {
 struct JsonDecoder {
     bool __const__ = false;
 };
-#ifdef __const__
+#if defined(__GNUC__)
 #pragma pop_macro("__const__")
 #endif
 

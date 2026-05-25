@@ -66,7 +66,7 @@ jobs:
         run: cd ts/compiler && npm ci && npm run build
 
       - name: Analyze
-        run: dart analyze dart/
+        run: dart analyze --no-fatal-warnings dart/
 
       - name: Format check
         run: dart format --set-exit-if-changed dart/

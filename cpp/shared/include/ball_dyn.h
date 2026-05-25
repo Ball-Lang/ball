@@ -1031,6 +1031,14 @@ inline std::string ball_group(const BallDyn& match, int64_t idx) {
 // bind/child/resolve overloads for BallDyn.
 // Exact-match string-key overloads beat std::bind (ADL template) for emitted
 // `bind(scope, "self"s, self)` — fixes the self-binding gate in method bodies.
+inline BallDyn ball_scope_bind(BallDyn& scope, const std::string& name, const BallDyn& value) {
+    scope.set(name, value._val);
+    return BallDyn();
+}
+inline BallDyn ball_scope_bind(BallDyn& scope, const BallDyn& name, const BallDyn& value) {
+    scope.set(static_cast<std::string>(name), value._val);
+    return BallDyn();
+}
 inline BallDyn bind(BallDyn& scope, const std::any& name, const std::any& value) {
     scope.set(ball_to_string(name), value);
     return BallDyn();
@@ -1073,19 +1081,6 @@ inline BallDyn child(BallDyn scope) {
         (*childMap)["__parent__"] = std::any(parentScope);
     }
     return BallDyn(std::any(childMap));
-}
-// const overload for cases where the parent can't be upgraded (read-only)
-inline BallDyn child(const BallDyn& scope) {
-    if (scope._val.type() == typeid(BallScope)) {
-        auto parentScope = std::any_cast<const BallScope&>(scope._val);
-        auto childMap = std::make_shared<BallMap>();
-        (*childMap)["__parent__"] = std::any(parentScope);
-        return BallDyn(std::any(childMap));
-    }
-    // Fallback: copy-based (legacy behavior)
-    BallMap newScope;
-    newScope["__parent__"] = scope._val;
-    return BallDyn(newScope);
 }
 
 // Helper: get the parent BallScope from a scope's __parent__ entry.

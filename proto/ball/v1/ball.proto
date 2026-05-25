@@ -298,12 +298,12 @@ message RegistrySource {
 // Supported package registries for RegistrySource.
 enum Registry {
   REGISTRY_UNSPECIFIED = 0;
-  REGISTRY_PUB = 1;    // pub.dev (Dart/Flutter)
-  REGISTRY_NPM = 2;    // npmjs.com (JavaScript/TypeScript)
-  REGISTRY_NUGET = 3;  // nuget.org (C#/.NET)
-  REGISTRY_CARGO = 4;  // crates.io (Rust)
-  REGISTRY_PYPI = 5;   // pypi.org (Python)
-  REGISTRY_MAVEN = 6;  // Maven Central (Java/Kotlin)
+  REGISTRY_PUB = 1; // pub.dev (Dart/Flutter)
+  REGISTRY_NPM = 2; // npmjs.com (JavaScript/TypeScript)
+  REGISTRY_NUGET = 3; // nuget.org (C#/.NET)
+  REGISTRY_CARGO = 4; // crates.io (Rust)
+  REGISTRY_PYPI = 5; // pypi.org (Python)
+  REGISTRY_MAVEN = 6; // Maven Central (Java/Kotlin)
 }
 
 // Serialization format for ball Module data.

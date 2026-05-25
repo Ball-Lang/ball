@@ -2541,6 +2541,16 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
         return "ball_try_parse(" + self + ", " + arg0 + ")";
     }
 
+    // Scope.bind(name, value) — ball_scope_bind avoids std::bind ADL and overload
+    // ambiguity between string/BallDyn value overloads in MSVC builds.
+    if (fn == "bind") {
+        std::string nameArg = arg0;
+        if (nameArg.empty()) nameArg = get_message_field(call, "name");
+        std::string valArg = arg1;
+        if (valArg.empty()) valArg = get_message_field(call, "value");
+        return "ball_scope_bind(" + self + ", " + nameArg + ", BallDyn(" + valArg + "))";
+    }
+
     // Fallback: treat as a user-defined function call passing self + args
     std::string func_name = sanitize_name(fn);
     std::string result = func_name + "(";

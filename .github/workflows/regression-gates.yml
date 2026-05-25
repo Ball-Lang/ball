@@ -9,15 +9,15 @@ name: Regression Gates
 # while quietly dropping pass counts (e.g. a test being skipped/deleted, or
 # a tally regressing from 156 -> 155). This workflow asserts hard floors:
 #
-#   * TS hand-written engine : exactly 243 passed / 0 failed
-#   * TS self-hosted compiler : exactly 243 passed / 0 failed
+#   * TS hand-written engine : exactly 269 passed / 0 failed
+#   * TS self-hosted compiler : exactly 269 passed / 0 failed
 #   * Dart engine            : 0 failed; pass count must not drop below DART_ENGINE_MIN_PASS
 #   * Dart encoder           : exactly DART_ENCODER_EXPECTED passed / 0 failed
 #   * Dart compiler          : exactly DART_COMPILER_EXPECTED passed / 0 failed
 #                              (--exclude-tags slow, matching ci.yml)
 #   * C++ native engine      : PASS must not drop below CPP_CONFORMANCE_MIN_PASS
-#                              (of ~237 runnable fixtures via test_conformance)
-#   * C++ self-host tally     : PASS must not drop below 156 (of 205 fixtures)
+#                              (of ~263 runnable fixtures via test_conformance)
+#   * C++ self-host tally     : PASS must not drop below 182 (of 227 fixtures)
 #                              — blocking only when the Linux native build is green
 #
 # Action versions verified 2026-05-25 against the upstream release pages:
@@ -42,17 +42,17 @@ concurrency:
 
 # Pin the expected counts in one place so bumping the floor is a one-line edit.
 env:
-  TS_EXPECTED_PASS: "243"
-  DART_ENGINE_MIN_PASS: "540"
+  TS_EXPECTED_PASS: "269"
+  DART_ENGINE_MIN_PASS: "566"
   DART_ENCODER_EXPECTED: "116"
   DART_COMPILER_EXPECTED: "88"
-  CPP_CONFORMANCE_MIN_PASS: "201"
-  CPP_SELFHOST_MIN_PASS: "156"
+  CPP_CONFORMANCE_MIN_PASS: "226"
+  CPP_SELFHOST_MIN_PASS: "182"
 
 jobs:
   # ──────────────────────────────────────────────────
   # TypeScript regression gate — engine + compiler must each
-  # report exactly 243 passed / 0 failed.
+  # report exactly 269 passed / 0 failed.
   # ──────────────────────────────────────────────────
   ts-regression:
     name: TS Regression Gate (engine + compiler)
@@ -73,7 +73,7 @@ jobs:
       - name: Build @ball-lang/engine
         run: cd ts/engine && npm run build
 
-      - name: Engine — assert 243 passed / 0 failed
+      - name: Engine — assert 269 passed / 0 failed
         run: |
           set -o pipefail
           cd ts/engine
@@ -107,7 +107,7 @@ jobs:
       - name: Build @ball-lang/compiler
         run: cd ts/compiler && npm run build
 
-      - name: Compiler — assert 243 pass / 0 fail
+      - name: Compiler — assert 269 pass / 0 fail
         run: |
           set -o pipefail
           cd ts/compiler
@@ -255,10 +255,10 @@ jobs:
   # ──────────────────────────────────────────────────
   # C++ native conformance gate — the hand-written C++ engine
   # (test_conformance) must keep passing at least CPP_CONFORMANCE_MIN_PASS
-  # of the ~237 runnable conformance fixtures.
+  # of the ~263 runnable conformance fixtures.
   # ──────────────────────────────────────────────────
   cpp-conformance:
-    name: C++ Native Conformance (PASS >= 201)
+    name: C++ Native Conformance (PASS >= 226)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -313,7 +313,7 @@ jobs:
 
   # ──────────────────────────────────────────────────
   # C++ self-host tally gate — the compiled Ball engine (engine_rt.cpp)
-  # must keep passing at least CPP_SELFHOST_MIN_PASS of the 205 conformance
+  # must keep passing at least CPP_SELFHOST_MIN_PASS of the 227 conformance
   # fixtures. This job only runs (and is blocking) once cpp-conformance has
   # built successfully on Linux — i.e. the native C++ build is green.
   #
@@ -323,7 +323,7 @@ jobs:
   # summary line that the script does, then enforces the floor.
   # ──────────────────────────────────────────────────
   cpp-selfhost-tally:
-    name: C++ Self-Host Tally (PASS >= 156)
+    name: C++ Self-Host Tally (PASS >= 182)
     runs-on: ubuntu-latest
     needs: cpp-conformance
     steps:
@@ -382,7 +382,7 @@ jobs:
           printf '%s\n' "${fails[@]}"
 
           echo ""
-          echo "C++ self-host tally: $pass passed (floor: ${CPP_SELFHOST_MIN_PASS}, of 205 fixtures)"
+          echo "C++ self-host tally: $pass passed (floor: ${CPP_SELFHOST_MIN_PASS}, of 227 fixtures)"
           if [ "$pass" -lt "${CPP_SELFHOST_MIN_PASS}" ]; then
             echo "::error::C++ self-host PASS regressed: got $pass, must be >= ${CPP_SELFHOST_MIN_PASS}. See the non-pass list above. If this is an intentional change, update CPP_SELFHOST_MIN_PASS in .github/workflows/regression-gates.yml."
             exit 1

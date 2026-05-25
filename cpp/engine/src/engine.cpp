@@ -36,6 +36,18 @@
 #include <sstream>
 #include <thread>
 
+// Compile-time debug tracing. The engine carries hand-rolled trace blocks
+// (gated on hard-coded fixture-specific function names like "delayedAdd",
+// "describe", "Vehicle"/"Motor"/"Car") that were used to debug OOP/closure
+// dispatch. Even when the std::cerr never fires, the guard conditions run a
+// std::string::find / comparison on *every* constructor call and parameter
+// bind — pure overhead on the hottest paths. Gate them behind a compile-time
+// flag so Release builds dead-code-eliminate the whole block (zero cost).
+// Define BALL_ENGINE_DEBUG_TRACE=1 to re-enable for debugging.
+#ifndef BALL_ENGINE_DEBUG_TRACE
+#define BALL_ENGINE_DEBUG_TRACE 0
+#endif
+
 namespace ball {
 
 // The exception currently bound inside an active `catch` block, or null.
@@ -356,6 +368,7 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                     }
                 }
 
+#if BALL_ENGINE_DEBUG_TRACE
                 // DEBUG constructor
                 if (func.name().find("Vehicle") != std::string::npos || func.name().find("Motor") != std::string::npos || func.name().find("Car") != std::string::npos) {
                     std::cerr << "[CTOR] " << func.name() << " obj keys:";
@@ -363,6 +376,7 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                     std::cerr << "\n";
                     std::cerr << "[CTOR] scope has type:" << scope->has("type") << " horsepower:" << scope->has("horsepower") << " doors:" << scope->has("doors") << "\n";
                 }
+#endif
                 // Process params with is_this: true
                 auto params_it = func.metadata().fields().find("params");
                 if (params_it != func.metadata().fields().end() &&
@@ -490,6 +504,7 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                     }
                 }
 
+#if BALL_ENGINE_DEBUG_TRACE
                 // DEBUG after super invocation
                 if (func.name().find("Vehicle") != std::string::npos || func.name().find("Motor") != std::string::npos || func.name().find("Car") != std::string::npos) {
                     std::cerr << "[CTOR-POST] " << func.name() << " obj keys:";
@@ -502,6 +517,7 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                         std::cerr << "\n";
                     }
                 }
+#endif
                 // Build __super__ chain for classes without explicit super() call
                 if (obj.find("__super__") == obj.end()) {
                     std::string cur_type = class_name;
@@ -559,12 +575,14 @@ BallValue Engine::call_function_internal(const std::string& module_name,
             // For instance methods (input has 'self'), bind param to arg0 not whole map.
             if (is_map(input)) {
                 const auto& m = std::any_cast<const BallMap&>(input);
+#if BALL_ENGINE_DEBUG_TRACE
                 // DEBUG: log input map keys for delayedAdd
                 if (func.name() == "delayedAdd") {
                     std::cerr << "[DEBUG] delayedAdd input map keys:";
                     for (const auto& [k,v] : m) std::cerr << " " << k;
                     std::cerr << std::endl;
                 }
+#endif
                 auto self_chk = m.find("self");
                 if (self_chk != m.end()) {
                     auto a0 = m.find("arg0");
@@ -581,14 +599,17 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                 } else {
                     // No self: check named param or arg0 first, then whole input
                     auto named = m.find(params[0]);
+#if BALL_ENGINE_DEBUG_TRACE
                     if (func.name() == "delayedAdd") {
                         std::cerr << "[DEBUG] delayedAdd: looking for param '" << params[0] << "' in map" << std::endl;
                         std::cerr << "[DEBUG] delayedAdd: named found = " << (named != m.end()) << std::endl;
                     }
+#endif
                     if (named != m.end()) {
                         scope->bind(params[0], named->second);
                     } else {
                         auto a0 = m.find("arg0");
+#if BALL_ENGINE_DEBUG_TRACE
                         if (func.name() == "delayedAdd") {
                             std::cerr << "[DEBUG] delayedAdd: looking for 'arg0' in map" << std::endl;
                             std::cerr << "[DEBUG] delayedAdd: a0 found = " << (a0 != m.end()) << std::endl;
@@ -596,6 +617,7 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                                 std::cerr << "[DEBUG] delayedAdd: a0->second type = " << a0->second.type().name() << std::endl;
                             }
                         }
+#endif
                         if (a0 != m.end()) {
                             scope->bind(params[0], a0->second);
                         } else {
@@ -644,6 +666,7 @@ BallValue Engine::call_function_internal(const std::string& module_name,
             if (is_map(self_it->second)) {
                 const auto& self_map = std::any_cast<const BallMap&>(self_it->second);
                 auto type_it2 = self_map.find("__type__");
+#if BALL_ENGINE_DEBUG_TRACE
                 // DEBUG: log field binding for describe
                 if (func.name().find("describe") != std::string::npos) {
                     std::cerr << "[DEBUG] " << func.name() << " self keys:";
@@ -666,6 +689,7 @@ BallValue Engine::call_function_internal(const std::string& module_name,
                         depth++;
                     }
                 }
+#endif
                 if (type_it2 != self_map.end() && is_string(type_it2->second)) {
                     scope->bind("this", self_it->second);
                     // Bind ALL fields from self and its entire __super__ chain
@@ -724,6 +748,7 @@ BallValue Engine::call_function_internal(const std::string& module_name,
 
     auto result = eval_expr(func.body(), scope);
     current_module_ = prev_module;
+#if BALL_ENGINE_DEBUG_TRACE
     // DEBUG: trace function result
     if (func.name() == "delayedAdd") {
         std::cerr << "[DEBUG] delayedAdd result type: " << (result.has_value() ? result.type().name() : "empty") << std::endl;
@@ -745,6 +770,7 @@ BallValue Engine::call_function_internal(const std::string& module_name,
             std::cerr << "[DEBUG] delayedAdd input NOT in scope" << std::endl;
         }
     }
+#endif
     if (is_flow(result) && as_flow(result).kind == "return") {
         result = as_flow(result).value;
     }

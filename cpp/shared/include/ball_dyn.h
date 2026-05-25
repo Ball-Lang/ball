@@ -21,6 +21,66 @@
 #include <unordered_map>
 #include <vector>
 
+// Insertion-ordered string map (Dart LinkedHashMap semantics).
+struct BallOrderedMap {
+    std::vector<std::pair<std::string, std::any>> entries_;
+    std::map<std::string, size_t> index_;
+
+    using key_type = std::string;
+    using mapped_type = std::any;
+    using value_type = std::pair<std::string, std::any>;
+    using iterator = std::vector<value_type>::iterator;
+    using const_iterator = std::vector<value_type>::const_iterator;
+
+    std::any& operator[](const std::string& key) {
+        auto it = index_.find(key);
+        if (it == index_.end()) {
+            index_[key] = entries_.size();
+            entries_.emplace_back(key, std::any{});
+        }
+        return entries_[index_[key]].second;
+    }
+
+    const std::any& at(const std::string& key) const {
+        return entries_.at(index_.at(key)).second;
+    }
+
+    iterator begin() { return entries_.begin(); }
+    iterator end() { return entries_.end(); }
+    const_iterator begin() const { return entries_.begin(); }
+    const_iterator end() const { return entries_.end(); }
+
+    size_t size() const { return entries_.size(); }
+    bool empty() const { return entries_.empty(); }
+    void clear() { entries_.clear(); index_.clear(); }
+    size_t count(const std::string& key) const { return index_.count(key); }
+
+    iterator find(const std::string& key) {
+        auto it = index_.find(key);
+        return it == index_.end() ? end() : entries_.begin() + static_cast<std::ptrdiff_t>(it->second);
+    }
+    const_iterator find(const std::string& key) const {
+        auto it = index_.find(key);
+        return it == index_.end() ? end() : entries_.begin() + static_cast<std::ptrdiff_t>(it->second);
+    }
+
+    void erase(const std::string& key) {
+        auto it = index_.find(key);
+        if (it == index_.end()) return;
+        size_t idx = it->second;
+        entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(idx));
+        index_.erase(it);
+        for (size_t i = idx; i < entries_.size(); ++i)
+            index_[entries_[i].first] = i;
+    }
+
+    template<class InputIt>
+    void insert(InputIt first, InputIt last) {
+        for (; first != last; ++first)
+            (*this)[first->first] = first->second;
+    }
+};
+
 using BallMap = std::map<std::string, std::any>;
 using BallUMap = std::unordered_map<std::string, std::any>;
 using BallList = std::vector<std::any>;
@@ -62,6 +122,7 @@ public:
         !std::is_same_v<std::decay_t<F>, std::string> &&
         !std::is_arithmetic_v<std::decay_t<F>> &&
         !std::is_same_v<std::decay_t<F>, BallMap> &&
+        !std::is_same_v<std::decay_t<F>, BallOrderedMap> &&
         !std::is_same_v<std::decay_t<F>, BallList> &&
         !std::is_same_v<std::decay_t<F>, std::regex> &&
         !std::is_base_of_v<BallDyn, std::decay_t<F>> &&
@@ -93,6 +154,7 @@ public:
     BallDyn(std::string&& v) : _val(std::move(v)) {}
     BallDyn(const char* v) : _val(std::string(v)) {}
     BallDyn(BallMap v) : _val(std::move(v)) {}
+    BallDyn(BallOrderedMap v) : _val(std::move(v)) {}
     BallDyn(BallUMap v) : _val(std::move(v)) {}
     // A program LIST is stored shared_ptr-backed: a fresh handle is allocated at
     // construction; subsequent BallDyn copies share it, so in-place mutation
@@ -249,6 +311,19 @@ public:
             out += "}";
             return out;
         }
+        if (_val.type() == typeid(BallOrderedMap)) {
+            auto& m = std::any_cast<const BallOrderedMap&>(_val);
+            std::string out = "{";
+            bool first = true;
+            for (const auto& [k, v] : m.entries_) {
+                if (k.find("__") == 0 || k == "type_args") continue;
+                if (!first) out += ", ";
+                out += k + ": " + ball_to_string(v);
+                first = false;
+            }
+            out += "}";
+            return out;
+        }
         return "<dynamic>";
     }
 
@@ -292,6 +367,10 @@ public:
             auto& m = const_cast<BallMap&>(std::any_cast<const BallMap&>(_val));
             return BallDyn(m[key]);
         }
+        if (_val.type() == typeid(BallOrderedMap)) {
+            auto& m = const_cast<BallOrderedMap&>(std::any_cast<const BallOrderedMap&>(_val));
+            return BallDyn(m[key]);
+        }
         if (_val.type() == typeid(BallUMap)) {
             auto& m = const_cast<BallUMap&>(std::any_cast<const BallUMap&>(_val));
             return BallDyn(m[key]);
@@ -330,6 +409,8 @@ public:
             op->__op_set_index__(key, value);
         } else if (_val.type() == typeid(BallMap)) {
             std::any_cast<BallMap&>(_val)[key] = value;
+        } else if (_val.type() == typeid(BallOrderedMap)) {
+            std::any_cast<BallOrderedMap&>(_val)[key] = value;
         } else if (_val.type() == typeid(BallUMap)) {
             std::any_cast<BallUMap&>(_val)[key] = value;
         } else if (!_val.has_value()) {
@@ -421,6 +502,7 @@ public:
         if (const BallList* vp = _listPtr()) return vp->empty();
         if (_val.type() == typeid(BallScope)) return std::any_cast<const BallScope&>(_val)->empty();
         if (_val.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(_val).empty();
+        if (_val.type() == typeid(BallOrderedMap)) return std::any_cast<const BallOrderedMap&>(_val).empty();
         if (_val.type() == typeid(BallUMap)) return std::any_cast<const BallUMap&>(_val).empty();
         return false;
     }
@@ -430,6 +512,7 @@ public:
         if (const BallList* vp = _listPtr()) return vp->size();
         if (_val.type() == typeid(BallScope)) return std::any_cast<const BallScope&>(_val)->size();
         if (_val.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(_val).size();
+        if (_val.type() == typeid(BallOrderedMap)) return std::any_cast<const BallOrderedMap&>(_val).size();
         if (_val.type() == typeid(BallUMap)) return std::any_cast<const BallUMap&>(_val).size();
         return 0;
     }
@@ -459,6 +542,8 @@ public:
             std::any_cast<BallScope&>(_val)->erase(key);
         else if (_val.type() == typeid(BallMap))
             std::any_cast<BallMap&>(_val).erase(key);
+        else if (_val.type() == typeid(BallOrderedMap))
+            std::any_cast<BallOrderedMap&>(_val).erase(key);
         else if (_val.type() == typeid(BallUMap))
             std::any_cast<BallUMap&>(_val).erase(key);
     }
@@ -1366,6 +1451,113 @@ inline BallDyn _ball_caught_to_dyn(const std::exception& ex) {
     if (auto* be = dynamic_cast<const BallException*>(&ex))
         return _ball_exception_to_dyn(*be);
     return BallDyn(std::string(ex.what()));
+}
+
+// ── Insertion-ordered map helpers (Dart LinkedHashMap / runtime map_create) ──
+inline const BallOrderedMap* _ballAnyOrderedMapPtr(const std::any& u) {
+    if (u.type() == typeid(BallOrderedMap))
+        return &std::any_cast<const BallOrderedMap&>(u);
+    return nullptr;
+}
+inline BallOrderedMap* _ballAnyOrderedMapPtr(std::any& u) {
+    if (u.type() == typeid(BallOrderedMap))
+        return &const_cast<BallOrderedMap&>(std::any_cast<const BallOrderedMap&>(u));
+    return nullptr;
+}
+
+// ball_is_map BallDyn overload — recognizes BallOrderedMap. Named ball_is_map_dyn
+// to avoid ambiguity with ball_is_map(const std::any&) via BallDyn::operator std::any().
+inline bool ball_is_map_dyn(const BallDyn& v) {
+    const std::any& u = _BallDynUnwrapper::unwrap(v._val);
+    if (u.type() == typeid(BallOrderedMap)) return true;
+    return u.has_value() &&
+           (u.type() == typeid(BallMap) || _ball_any_is_object(u));
+}
+
+// Map iteration helpers — moved from compiler preamble (MSVC 64KB limit).
+// Support BallMap, BallOrderedMap, and BallObject base maps.
+inline BallDyn ball_map_entries(const BallDyn& v) {
+    std::vector<std::any> r;
+    try {
+        auto a0 = static_cast<std::any>(v);
+        const std::any& a = _BallDynUnwrapper::unwrap(a0);
+        if (const BallOrderedMap* omp = _ballAnyOrderedMapPtr(a)) {
+            for (const auto& [k, val] : omp->entries_) {
+                BallMap e;
+                e["key"] = std::any(k);
+                e["value"] = val;
+                r.push_back(std::any(e));
+            }
+        } else {
+            const BallMap* mp = nullptr;
+            if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
+            else { mp = _ball_object_base_map(a); }
+            if (mp) {
+                for (const auto& [k, val] : *mp) {
+                    BallMap e;
+                    e["key"] = std::any(k);
+                    e["value"] = val;
+                    r.push_back(std::any(e));
+                }
+            }
+        }
+    } catch (...) {}
+    return BallDyn(BallList(r));
+}
+inline BallDyn ball_map_keys(const BallDyn& v) {
+    std::vector<std::any> r;
+    try {
+        auto a0 = static_cast<std::any>(v);
+        const std::any& a = _BallDynUnwrapper::unwrap(a0);
+        if (const BallOrderedMap* omp = _ballAnyOrderedMapPtr(a)) {
+            for (const auto& [k, val] : omp->entries_) r.push_back(std::any(k));
+        } else {
+            const BallMap* mp = nullptr;
+            if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
+            else { mp = _ball_object_base_map(a); }
+            if (mp) { for (const auto& [k, val] : *mp) r.push_back(std::any(k)); }
+        }
+    } catch (...) {}
+    return BallDyn(BallList(r));
+}
+inline BallDyn ball_map_values(const BallDyn& v) {
+    std::vector<std::any> r;
+    try {
+        auto a0 = static_cast<std::any>(v);
+        const std::any& a = _BallDynUnwrapper::unwrap(a0);
+        if (const BallOrderedMap* omp = _ballAnyOrderedMapPtr(a)) {
+            for (const auto& [k, val] : omp->entries_) r.push_back(val);
+        } else {
+            const BallMap* mp = nullptr;
+            if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
+            else { mp = _ball_object_base_map(a); }
+            if (mp) { for (const auto& [k, val] : *mp) r.push_back(val); }
+        }
+    } catch (...) {}
+    return BallDyn(BallList(r));
+}
+
+// ── fold free function ──
+// Dart's Iterable.fold(initialValue, combine) — reduce over a list.
+template<typename Iter, typename Init, typename Fn>
+inline BallDyn _ballFoldImpl(const Iter& iter, Init init, Fn fn) {
+    BallDyn acc{std::any(init)};
+    try {
+        std::any a = static_cast<std::any>(BallDyn(iter));
+        if (a.type() == typeid(std::vector<std::any>)) {
+            const auto& v = std::any_cast<const std::vector<std::any>&>(a);
+            for (const auto& el : v) acc = fn(acc, BallDyn(el));
+        }
+    } catch (...) {}
+    return acc;
+}
+template<typename Iter, typename Init, typename Fn>
+inline BallDyn fold(const Iter& iter, const std::string& /*type_tag*/, Init init, Fn fn) {
+    return _ballFoldImpl(iter, init, fn);
+}
+template<typename Iter, typename Init, typename Fn>
+inline BallDyn fold(const Iter& iter, Init init, Fn fn) {
+    return _ballFoldImpl(iter, init, fn);
 }
 
 // ================================================================

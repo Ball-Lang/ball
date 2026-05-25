@@ -27,6 +27,8 @@ export interface EngineModule {
 
 export function createEngineSetup(mod: EngineModule) {
   const StdModuleHandler = mod.StdModuleHandler;
+  type CompiledEngine = InstanceType<typeof mod.BallEngine>;
+  type StdHandler = InstanceType<typeof StdModuleHandler>;
   const BallGenerator = mod.BallGenerator;
   const _FlowSignal = mod._FlowSignal;
 
@@ -431,7 +433,7 @@ export function createEngineSetup(mod: EngineModule) {
   // for functions that the compiled engine's _buildStdDispatch doesn't cover
   // (collection higher-order functions, string helpers, etc.).
   
-  function registerExtraStdFunctions(stdHandler: StdModuleHandler): void {
+  function registerExtraStdFunctions(stdHandler: StdHandler): void {
     const _r = stdHandler.register.bind(stdHandler);
     const _m = (i: any) => (typeof i === 'object' && i !== null) ? i : {};
   

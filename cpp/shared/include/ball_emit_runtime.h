@@ -831,12 +831,22 @@ inline std::string ball_to_string(const BallDyn& d);
 // Dart's `JsonEncoder` / `JsonDecoder` classes with a `convert()`
 // method. In compiled C++ we stub them to do basic
 // ball_to_string / passthrough.
+// GCC defines __const__ as a macro alias for `const`, which breaks the
+// Dart-emitted field name. Undef it locally so designated initializers like
+// `JsonEncoder{.__const__ = true}` compile on Linux too.
+#ifdef __const__
+#pragma push_macro("__const__")
+#undef __const__
+#endif
 struct JsonEncoder {
     bool __const__ = false;
 };
 struct JsonDecoder {
     bool __const__ = false;
 };
+#ifdef __const__
+#pragma pop_macro("__const__")
+#endif
 
 // Escape a string per JSON rules (quotes, backslash, control chars).
 inline std::string _ball_json_escape(const std::string& s) {
@@ -1500,34 +1510,12 @@ inline std::any toProto3Json(const BallDyn& program);  // defined in ball_dyn.h
 // ── fold free function ──
 // Dart's Iterable.fold(initialValue, combine) — reduce over a list.
 // Used in _trackMemoryAllocation for string_split result.
-inline BallDyn ball_fold(const BallDyn& iter, const BallDyn& init, const BallDyn& fn);  // in ball_dyn.h
-// The generated engine code calls it as:
-//   fold(result, "<int>"s, 0LL, lambda)
-// where `result` is a BallDyn wrapping a list and the lambda is
-// (BallDyn acc, BallDyn el) -> BallDyn. We return a BallDyn so the result
-// participates in BallDyn arithmetic (e.g. `fold(...) * _ballStringCodeUnitBytes`).
-class BallDyn;
+// fold() templates are defined in ball_dyn.h after the BallDyn class.
 template<typename Iter, typename Init, typename Fn>
-inline BallDyn _ballFoldImpl(const Iter& iter, Init init, Fn fn) {
-    BallDyn acc{std::any(init)};
-    try {
-        std::any a = static_cast<std::any>(BallDyn(iter));
-        if (a.type() == typeid(std::vector<std::any>)) {
-            const auto& v = std::any_cast<const std::vector<std::any>&>(a);
-            for (const auto& el : v) acc = fn(acc, BallDyn(el));
-        }
-    } catch (...) {}
-    return acc;
-}
+BallDyn fold(const Iter& iter, const std::string& type_tag, Init init, Fn fn);
 template<typename Iter, typename Init, typename Fn>
-inline BallDyn fold(const Iter& iter, const std::string& /*type_tag*/, Init init, Fn fn) {
-    return _ballFoldImpl(iter, init, fn);
-}
-// Overload without type_tag for simpler call sites
-template<typename Iter, typename Init, typename Fn>
-inline BallDyn fold(const Iter& iter, Init init, Fn fn) {
-    return _ballFoldImpl(iter, init, fn);
-}
+BallDyn fold(const Iter& iter, Init init, Fn fn);
+inline BallDyn ball_fold(const BallDyn& iter, const BallDyn& init, const BallDyn& fn);
 
 // ── ball_container_size ──
 // Returns the size() of containers; returns 0 for non-container types

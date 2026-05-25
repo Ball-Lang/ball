@@ -993,9 +993,16 @@ inline bool existsSync(const Directory& d) {
 
 /// Dart: jsonDecode(string) — minimal JSON parser (returns BallMap or BallList)
 /// For a production version, integrate nlohmann/json. This is a stub.
+#ifdef __const__
+#pragma push_macro("__const__")
+#undef __const__
+#endif
 struct _JsonDecoder {
     bool __const__ = false;
 };
+#ifdef __const__
+#pragma pop_macro("__const__")
+#endif
 inline constexpr _JsonDecoder JsonDecoder{};
 
 /// Dart: convert(codec, data) — stub that returns the string as-is for json

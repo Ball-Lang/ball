@@ -34,6 +34,11 @@ const patchScopeBindings = _setup.patchScopeBindings;
 
 // ── Compatibility wrapper ──────────────────────────────────────────────────
 
+export interface BallEngineOptions {
+  stdout?: (msg: string) => void;
+  stderr?: (msg: string) => void;
+}
+
 export class BallEngine {
   private _compiledEngine: CompiledEngine;
   private _output: string[] = [];

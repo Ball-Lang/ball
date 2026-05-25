@@ -11,6 +11,7 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "types": ["node"],
     "rewriteRelativeImportExtensions": true,
     "newLine": "lf"
   },

@@ -80,26 +80,6 @@ inline BallDyn lookup(const BallDyn& scope, const BallDyn& name) {
   return BallDyn();
 }
 
-// ball_map_entries copied from compiler.cpp's emitted runtime (not in headers).
-inline BallDyn ball_map_entries(const BallDyn& v) {
-  std::vector<std::any> r;
-  try {
-    auto a0 = static_cast<std::any>(v);
-    const std::any& a = _BallDynUnwrapper::unwrap(a0);
-    const BallMap* mp = nullptr;
-    BallMap tmp;
-    if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
-    else if (a.type() == typeid(BallObject)) { tmp = std::any_cast<const BallObject&>(a); mp = &tmp; }
-    if (mp) {
-      for (const auto& [k, val] : *mp) {
-        BallMap e; e["key"] = std::any(k); e["value"] = val;
-        r.push_back(std::any(e));
-      }
-    }
-  } catch(...) {}
-  return BallDyn(BallList(r));
-}
-
 static int g_fail = 0;
 static void check(const std::string& label, bool cond) {
     std::cout << (cond ? "  OK   " : "  FAIL ") << label << "\n";

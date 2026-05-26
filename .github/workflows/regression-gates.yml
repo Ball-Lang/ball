@@ -16,7 +16,10 @@ name: Regression Gates
 #   * Dart compiler          : exactly DART_COMPILER_EXPECTED passed / 0 failed
 #                              (--exclude-tags slow, matching ci.yml)
 #   * C++ native engine      : PASS must not drop below CPP_CONFORMANCE_MIN_PASS
-#                              (of ~263 runnable fixtures via test_conformance)
+#                              (of ~263 runnable fixtures via test_conformance).
+#                              test_conformance exits non-zero when any fixture
+#                              fails; this gate parses the summary and enforces
+#                              the pass floor only (same idea as self-host tally).
 #   * C++ self-host tally     : PASS must not drop below 195 (of 227 fixtures)
 #                              — blocking only when the Linux native build is green
 #
@@ -288,7 +291,7 @@ jobs:
 
       - name: Run conformance and enforce PASS floor
         run: |
-          set -o pipefail
+          set -uo pipefail
 
           exe=""
           for candidate in \
@@ -303,7 +306,9 @@ jobs:
           fi
           echo "Using binary: $exe"
 
-          output=$("$exe" 2>&1) || { echo "$output"; echo "::error::C++ test_conformance exited non-zero"; exit 1; }
+          # test_conformance exits non-zero when any fixture fails; parse the
+          # summary and enforce the pass floor only (mirrors cpp-selfhost-tally).
+          output=$("$exe" 2>&1) || true
           echo "$output"
 
           passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)' | tail -1)

@@ -652,16 +652,8 @@ public:
             return b != nullptr && a == b;
         }
         if (o._objPtr() != nullptr) return false;
-        if (_val.type() != o._val.type()) return false;
-        if (_val.type() == typeid(BallDispatchNotFound)) return true;
-        if (_val.type() == typeid(BallListRef) && o._val.type() == typeid(BallListRef)) {
-            return std::any_cast<const BallListRef&>(_val) ==
-                   std::any_cast<const BallListRef&>(o._val);
-        }
-        if (_val.type() == typeid(BallList) && o._val.type() == typeid(BallList)) {
-            return std::any_cast<const BallList&>(_val) ==
-                   std::any_cast<const BallList&>(o._val);
-        }
+        // List equality before storage-type check: BallListRef vs BallList may
+        // alias the same vector (e.g. outer[0] == outer[1] with shared refs).
         if (const BallList* ap = _listPtr()) {
             const BallList* bp = o._listPtr();
             if (!bp) return false;
@@ -669,6 +661,22 @@ public:
             if (ap->size() != bp->size()) return false;
             for (size_t i = 0; i < ap->size(); ++i) {
                 if (BallDyn((*ap)[i]) != BallDyn((*bp)[i])) return false;
+            }
+            return true;
+        }
+        if (_val.type() != o._val.type()) return false;
+        if (_val.type() == typeid(BallDispatchNotFound)) return true;
+        if (_val.type() == typeid(BallListRef) && o._val.type() == typeid(BallListRef)) {
+            return std::any_cast<const BallListRef&>(_val) ==
+                   std::any_cast<const BallListRef&>(o._val);
+        }
+        if (_val.type() == typeid(BallList) && o._val.type() == typeid(BallList)) {
+            const BallList& la = std::any_cast<const BallList&>(_val);
+            const BallList& lb = std::any_cast<const BallList&>(o._val);
+            if (&la == &lb) return true;
+            if (la.size() != lb.size()) return false;
+            for (size_t i = 0; i < la.size(); ++i) {
+                if (BallDyn(la[i]) != BallDyn(lb[i])) return false;
             }
             return true;
         }

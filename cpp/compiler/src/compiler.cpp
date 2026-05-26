@@ -484,8 +484,8 @@ std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
     if (ref.name() == "this") return "(*this)";
     // Dart uninitialized sentinel → C++ default-initialized BallDyn
     if (ref.name() == "__no_init__") return "BallDyn()";
-    // Dart sentinel object → unique marker
-    if (ref.name() == "_sentinel") return "BallDyn()";
+    // Dart sentinel object → unique dispatch-not-found marker (not null BallDyn)
+    if (ref.name() == "_sentinel") return "ball_dispatch_not_found()";
     // Dart type objects used as values (e.g., int.tryParse, double.tryParse)
     // → emit as string constants representing the type name.
     if (ref.name() == "int") return "\"int\"s";
@@ -869,6 +869,23 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
         return "BallGenerator{}";
     }
 
+    // JsonEncoder/JsonDecoder — runtime structs with only metadata fields in IR.
+    {
+        auto bare_rt = sanitize_name(msg.type_name());
+        auto rc = bare_rt.find(':');
+        if (rc != std::string::npos) bare_rt = bare_rt.substr(rc + 1);
+        if (bare_rt == "JsonEncoder" || bare_rt == "JsonDecoder") {
+            bool only_meta = true;
+            for (const auto& f : msg.fields()) {
+                if (f.name() != "__type_args__" && f.name() != "__const__") {
+                    only_meta = false;
+                    break;
+                }
+            }
+            if (only_meta) return bare_rt + "{}";
+        }
+    }
+
     // Check if there are any argN fields mixed with named fields.
     // If so, look up the constructor to resolve argN to actual param names.
     bool has_arg_fields = false;
@@ -887,6 +904,7 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
         std::string result = type + "{";
         bool first = true;
         for (const auto& f : msg.fields()) {
+            if (f.name() == "__type_args__" || f.name() == "__const__") continue;
             if (!first) result += ", ";
             std::string field_name = f.name();
             // Resolve argN to constructor parameter name
@@ -909,6 +927,7 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
     std::string result = type + "{";
     bool first = true;
     for (const auto& f : msg.fields()) {
+        if (f.name() == "__type_args__" || f.name() == "__const__") continue;
         if (!first) result += ", ";
         result += "." + sanitize_name(f.name()) + " = " + compile_expr(f.value());
         first = false;

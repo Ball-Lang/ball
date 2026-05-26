@@ -193,7 +193,7 @@ static bool build_sub_project(const fs::path& proj_dir,
         std::ofstream cml(proj_dir / "CMakeLists.txt", std::ios::binary);
         cml << "cmake_minimum_required(VERSION 3.14)\n"
             << "project(ball_e2e_scratch CXX)\n"
-            << "set(CMAKE_CXX_STANDARD 17)\n"
+            << "set(CMAKE_CXX_STANDARD 20)\n"
             << "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n";
         for (const auto& p : programs) {
             cml << "add_executable(" << p.name << " " << p.name << ".cpp)\n";

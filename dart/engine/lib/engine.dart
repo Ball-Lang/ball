@@ -53,6 +53,32 @@ class BallEngine {
   /// Current module context (set during function execution).
   String _currentModule = '';
 
+  /// Innermost sync*/async* scope — std.yield collects into its __generator__.
+  _Scope? _activeGeneratorScope;
+
+  /// Consume std.yield / yield_each flow signals inside a generator function.
+  Object? _consumeGeneratorFlow(Object? result) {
+    if (result is! _FlowSignal) return result;
+    final gs = _activeGeneratorScope;
+    if (gs == null || !gs.has('__generator__')) return result;
+    final gen = gs.lookup('__generator__');
+    if (gen is! BallGenerator) return result;
+    if (result.kind == 'yield') {
+      (gen as BallGenerator).yield_(result.value);
+      return null;
+    }
+    if (result.kind == 'yield_each') {
+      final val = result.value;
+      if (val is BallGenerator) {
+        (gen as BallGenerator).yieldAll(val.values);
+      } else {
+        (gen as BallGenerator).yieldAll(_toIterable(val));
+      }
+      return null;
+    }
+    return result;
+  }
+
   /// Pre-resolved parameter name lists, keyed by "module.function".
   /// Built once in [_buildLookupTables] to avoid repeated metadata parsing.
   final Map<String, List<String>> _paramCache = {};

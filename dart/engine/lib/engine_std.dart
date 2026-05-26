@@ -192,7 +192,7 @@ extension BallEngineStd on BallEngine {
     // Check for operator overrides on class instances before std dispatch.
     if (_stdFunctionToOperator.containsKey(function)) {
       final override = await _tryOperatorOverride(function, input);
-      if (override != null) return override;
+      if (override != null) return _consumeGeneratorFlow(override);
     }
 
     for (final handler in moduleHandlers) {
@@ -200,7 +200,7 @@ extension BallEngineStd on BallEngine {
         final result = await handler.call(function, input, callFunction);
         // Profiling: track call counts per function name.
         _callCounts?[function] = (_callCounts![function] ?? 0) + 1;
-        return result;
+        return _consumeGeneratorFlow(result);
       }
     }
     throw BallRuntimeError('Unknown base module: "$module"');
@@ -263,10 +263,10 @@ extension BallEngineStd on BallEngine {
       'string_to_int': (i) => _stdConvert(i, (v) => int.parse(v as String)),
       'string_to_double': (i) =>
           _stdConvert(i, (v) => double.parse(v as String)),
-      'to_double': (i) => _toNum(_extractUnaryArg(i)).toDouble(),
-      'to_int': (i) => _toNum(_extractUnaryArg(i)).toInt(),
-      'int_to_double': (i) => _toNum(_extractUnaryArg(i)).toDouble(),
-      'double_to_int': (i) => _toNum(_extractUnaryArg(i)).toInt(),
+      'to_double': (i) => _ballToDouble(_extractUnaryArg(i)),
+      'to_int': (i) => _ballDoubleToInt64(_toNum(_extractUnaryArg(i))),
+      'int_to_double': (i) => _ballToDouble(_extractUnaryArg(i)),
+      'double_to_int': (i) => _ballDoubleToInt64(_toNum(_extractUnaryArg(i))),
       'compare_to': (i) {
         final m = _stdAsMap(i) ?? <String, Object?>{'value': i};
         final v = m['value'] ?? m['left'];
@@ -951,19 +951,8 @@ extension BallEngineStd on BallEngine {
         if (_isBallFuture(val)) return _unwrapBallFuture(val);
         return val;
       },
-      'yield': (i) {
-        final val = _extractUnaryArg(i);
-        // In generator context, add the value to the current BallGenerator.
-        // The generator is bound as __generator__ in the function scope by
-        // _callFunction when it detects is_sync_star / is_async_star.
-        // Outside generator context, just return the value.
-        return val;
-      },
-      'yield_each': (i) {
-        final val = _extractUnaryArg(i);
-        // Flatten iterable yields: add all elements to the current generator.
-        return val;
-      },
+      'yield': (i) => _FlowSignal('yield', value: _extractUnaryArg(i)),
+      'yield_each': (i) => _FlowSignal('yield_each', value: _extractUnaryArg(i)),
 
       // Literals
       'symbol': (i) => _extractField(i, 'value'),
@@ -1697,20 +1686,20 @@ extension BallEngineStd on BallEngine {
     }
 
     // Simple types
-    return switch (type) {
-      'int' => value is int || value is BallInt,
-      'double' => value is double || value is BallDouble,
-      'num' => value is num || value is BallInt || value is BallDouble,
-      'String' => value is String || value is BallString,
-      'bool' => value is bool || value is BallBool,
-      'List' => value is List || value is BallList,
-      'Map' => value is Map || value is BallMap,
-      'Set' => value is Set,
-      'Null' || 'void' => value == null || value is BallNull,
-      'Object' || 'dynamic' => true,
-      'Function' => value is Function || value is BallFunction,
-      _ => _objectTypeMatches(value, type),
-    };
+    if (type == 'int') return _ballIsInt(value);
+    if (type == 'double') return _ballIsDouble(value);
+    if (type == 'num') return _ballIsNum(value);
+    if (type == 'String') return _ballIsString(value);
+    if (type == 'bool') return _ballIsBool(value);
+    if (type == 'List') return _ballIsList(value);
+    if (type == 'Map') return _ballIsMap(value);
+    if (type == 'Set') return value is Set;
+    if (type == 'Null' || type == 'void') {
+      return value == null || value is BallNull;
+    }
+    if (type == 'Object' || type == 'dynamic') return true;
+    if (type == 'Function') return value is Function || value is BallFunction;
+    return _objectTypeMatches(value, type);
   }
 
   bool _objectTypeMatches(Object? value, String type) {
@@ -2173,19 +2162,20 @@ extension BallEngineStd on BallEngine {
 
   /// Returns true if [value] matches the type-name pattern string.
   /// Enables switch expressions with type arms like `case int: ...`.
-  bool _matchesTypePattern(Object? value, String pattern) {
-    return switch (pattern) {
-      'int' => value is int || value is BallInt,
-      'double' => value is double || value is BallDouble,
-      'num' => value is num || value is BallInt || value is BallDouble,
-      'String' => value is String || value is BallString,
-      'bool' => value is bool || value is BallBool,
-      'List' => value is List || value is BallList,
-      'Map' => value is Map || value is BallMap,
-      'Set' => value is Set,
-      'Null' || 'null' => value == null || value is BallNull,
-      _ => false,
-    };
+  bool _matchesTypePattern(Object? value, Object? pattern) {
+    final p = pattern is String ? pattern : _ballToString(pattern);
+    if (p == 'Null' || p == 'null') {
+      return value == null || value is BallNull;
+    }
+    if (p == 'int') return _ballIsInt(value);
+    if (p == 'double') return _ballIsDouble(value);
+    if (p == 'num') return _ballIsNum(value);
+    if (p == 'String') return _ballIsString(value);
+    if (p == 'bool') return _ballIsBool(value);
+    if (p == 'List') return _ballIsList(value);
+    if (p == 'Map') return _ballIsMap(value);
+    if (p == 'Set') return value is Set;
+    return false;
   }
 
   Object? _stdAssert(Object? input) {
@@ -2308,8 +2298,8 @@ extension BallEngineStd on BallEngine {
   int _toInt(Object? v) {
     if (v is int) return v;
     if (v is BallInt) return v.value;
-    if (v is double) return v.toInt();
-    if (v is BallDouble) return v.value.toInt();
+    if (v is double) return _ballDoubleToInt64(v);
+    if (v is BallDouble) return _ballDoubleToInt64(v.value);
     if (v is String) return int.tryParse(v) ?? 0;
     if (v is BallString) return int.tryParse(v.value) ?? 0;
     if (v is bool) return v ? 1 : 0;
@@ -2399,7 +2389,7 @@ extension BallEngineStd on BallEngine {
     }
     final target = (m['target'] ?? m['value'] ?? m['string']) as String;
     final index = _toInt(m['index']);
-    return target.codeUnitAt(index);
+    return _ballCodeUnitAt(target, index);
   }
 
   Object? _stdStringReplace(Object? input, bool all) {

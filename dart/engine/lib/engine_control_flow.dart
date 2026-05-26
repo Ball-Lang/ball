@@ -1394,16 +1394,13 @@ extension BallEngineControlFlow on BallEngine {
         : null;
 
     // Walk up the scope chain to find the nearest __generator__ binding.
-    _Scope? s = scope;
-    while (s != null) {
-      if (s._bindings.containsKey('__generator__')) {
-        final gen = s._bindings['__generator__'];
-        if (gen is BallGenerator) {
-          gen.yield_(val);
-          return val;
-        }
+    // Use scope.has/lookup (not _bindings): ball_scope_bind stores on BallScope directly.
+    if (scope.has('__generator__')) {
+      final gen = scope.lookup('__generator__');
+      if (gen is BallGenerator) {
+        gen.yield_(val);
+        return val;
       }
-      s = s._parent;
     }
 
     // Outside generator context, just return the value.
@@ -1425,26 +1422,17 @@ extension BallEngineControlFlow on BallEngine {
         ? await _evalExpression(call.input, scope)
         : null;
 
-    // Walk up the scope chain to find the nearest __generator__ binding.
-    _Scope? s = scope;
-    while (s != null) {
-      if (s._bindings.containsKey('__generator__')) {
-        final gen = s._bindings['__generator__'];
-        if (gen is BallGenerator) {
-          if (gen is BallGenerator) {
-            // If the input is another BallGenerator, add all its values.
-            if (iterable is BallGenerator) {
-              gen.yieldAll(iterable.values);
-            } else {
-              // Flatten any iterable into the generator.
-              final items = _toIterable(iterable);
-              gen.yieldAll(items);
-            }
-          }
-          return iterable;
+    if (scope.has('__generator__')) {
+      final gen = scope.lookup('__generator__');
+      if (gen is BallGenerator) {
+        if (iterable is BallGenerator) {
+          gen.yieldAll(iterable.values);
+        } else {
+          final items = _toIterable(iterable);
+          gen.yieldAll(items);
         }
+        return iterable;
       }
-      s = s._parent;
     }
 
     // Outside generator context, just return the iterable.
@@ -1811,7 +1799,7 @@ extension BallEngineControlFlow on BallEngine {
         case 'toString':
           return self;
         case 'codeUnitAt':
-          return self.codeUnitAt(_toInt(arg0));
+          return _ballCodeUnitAt(self, _toInt(arg0));
         case 'compareTo':
           return self.compareTo(arg0.toString());
       }
@@ -1822,9 +1810,9 @@ extension BallEngineControlFlow on BallEngine {
       final self = unwrappedSelf;
       switch (method) {
         case 'toDouble':
-          return self.toDouble();
+          return _ballToDouble(self);
         case 'toInt':
-          return self.toInt();
+          return _ballDoubleToInt64(self);
         case 'toString':
           return _ballToString(self);
         case 'toStringAsFixed':
@@ -1842,7 +1830,7 @@ extension BallEngineControlFlow on BallEngine {
         case 'clamp':
           return self.clamp(_toNum(arg0), _toNum(args['arg1'] ?? self));
         case 'truncate':
-          return self.truncate();
+          return _ballDoubleToInt64(self.truncate());
         case 'remainder':
           return self.remainder(_toNum(arg0));
       }

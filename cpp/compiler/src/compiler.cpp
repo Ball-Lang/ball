@@ -561,7 +561,7 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     }
     if (field == "first") return obj + ".front()";
     if (field == "last") return obj + ".back()";
-    if (field == "runtimeType") return "std::string(typeid(" + obj + ").name())";
+    if (field == "runtimeType") return "ball_runtime_type_name(BallDyn(" + obj + "))";
     // Dart Map.entries → iterable of {key, value} maps (same as map_entries).
     // Delegates to the ball_map_entries runtime helper, which safely unwraps
     // a BallDyn (map or BallObject) without relying on a `.value()` accessor.
@@ -1187,6 +1187,69 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
     // Engine runtime intrinsics — insertion-ordered map factory.
     if (mod.empty() && fn == "_ballUserMap") {
         return "BallDyn(BallOrderedMap{})";
+    }
+    if (mod.empty() && fn == "_ballNewGenerator") {
+        return "BallDyn(BallGenerator{})";
+    }
+    if (mod.empty() && fn == "_ballGeneratorValues") {
+        std::string gen = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
+        return "_ballGeneratorValues(BallDyn(" + gen + "))";
+    }
+    if (mod.empty() && fn == "_ballDoubleToInt64") {
+        std::string val = "BallDyn()";
+        if (call.has_input()) {
+            if (call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+                for (const auto& f : call.input().message_creation().fields()) {
+                    if (f.name() == "arg0" || f.name() == "value") {
+                        val = compile_expr(f.value());
+                        break;
+                    }
+                }
+            } else {
+                val = compile_expr(call.input());
+            }
+        }
+        return "_ballDoubleToInt64(BallDyn(" + val + "))";
+    }
+    if (mod.empty() && fn == "_ballCodeUnitAt") {
+        std::string s = "BallDyn()";
+        std::string idx = "0LL";
+        if (call.has_input() &&
+            call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+            for (const auto& f : call.input().message_creation().fields()) {
+                if (f.name() == "arg0" || f.name() == "s") s = compile_expr(f.value());
+                else if (f.name() == "arg1" || f.name() == "index") idx = compile_expr(f.value());
+            }
+        }
+        return "ball_code_unit_at(BallDyn(" + s + "), static_cast<int64_t>(" + idx + "))";
+    }
+    if (mod.empty() && fn == "_ballIsInt") {
+        std::string val = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
+        return "(ball_is_int(BallDyn(" + val + ")) || ball_object_type_matches(BallDyn(" + val + "), \"BallInt\"s))";
+    }
+    if (mod.empty() && fn == "_ballIsDouble") {
+        std::string val = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
+        return "(ball_is_double(BallDyn(" + val + ")) || ball_object_type_matches(BallDyn(" + val + "), \"BallDouble\"s))";
+    }
+    if (mod.empty() && fn == "_ballIsNum") {
+        std::string val = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
+        return "((ball_is_int(BallDyn(" + val + ")) || ball_is_double(BallDyn(" + val + "))) || ball_object_type_matches(BallDyn(" + val + "), \"BallInt\"s) || ball_object_type_matches(BallDyn(" + val + "), \"BallDouble\"s))";
+    }
+    if (mod.empty() && fn == "_ballIsString") {
+        std::string val = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
+        return "(ball_is_string(BallDyn(" + val + ")) || ball_object_type_matches(BallDyn(" + val + "), \"BallString\"s))";
+    }
+    if (mod.empty() && fn == "_ballIsBool") {
+        std::string val = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
+        return "(ball_is_bool(BallDyn(" + val + ")) || ball_object_type_matches(BallDyn(" + val + "), \"BallBool\"s))";
+    }
+    if (mod.empty() && fn == "_ballIsList") {
+        std::string val = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
+        return "(ball_is_list(BallDyn(" + val + ")) || ball_object_type_matches(BallDyn(" + val + "), \"BallList\"s))";
+    }
+    if (mod.empty() && fn == "_ballIsMap") {
+        std::string val = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
+        return "(ball_is_map_dyn(BallDyn(" + val + ")) || ball_object_type_matches(BallDyn(" + val + "), \"BallMap\"s))";
     }
     if (mod.empty() && fn == "_ballMapValues") {
         std::string map_arg = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
@@ -2407,10 +2470,13 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
 
     // ── Number methods ──
     if (fn == "toDouble") {
-        return "static_cast<double>(" + self + ")";
+        return "_ballToDouble(BallDyn(" + self + "))";
+    }
+    if (fn == "truncate") {
+        return "_ballDoubleToInt64(BallDyn(" + self + "))";
     }
     if (fn == "toInt") {
-        return "static_cast<int64_t>(" + self + ")";
+        return "_ballDoubleToInt64(BallDyn(" + self + "))";
     }
     if (fn == "toString") {
         return "ball_to_string(" + self + ")";
@@ -4142,16 +4208,143 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
 
 void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     auto return_type = map_return_type(func);
-    auto name = sanitize_name(func.name());
-    auto params = func.has_metadata() ? extract_params(func.metadata()) : std::vector<std::string>{};
     auto meta = read_meta(func);
+    auto name = sanitize_name(func.name());
+    // Resolve overloaded/part-mangled names before intrinsic matching.
+    if (meta.count("original_name")) {
+        name = sanitize_name(meta["original_name"]);
+    }
+    auto params = func.has_metadata() ? extract_params(func.metadata()) : std::vector<std::string>{};
 
-    // Runtime intrinsic: insertion-ordered map factory (before original_name remap).
+    // Runtime intrinsic: insertion-ordered map factory.
     if (name == "_ballUserMap") {
         emit_indent();
         out_ << return_type << " " << name << "() {\n";
         indent_++;
         emit_line("return BallDyn(BallOrderedMap{});");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballNewGenerator") {
+        emit_indent();
+        out_ << return_type << " " << name << "() {\n";
+        indent_++;
+        emit_line("return BallDyn(BallGenerator{});");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballGeneratorValues") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn gen) {\n";
+        indent_++;
+        emit_line("const std::any& u = _BallDynUnwrapper::unwrap(static_cast<std::any>(gen));");
+        emit_line("if (u.type() == typeid(BallGenerator))");
+        emit_line("    return BallDyn(ball_list_copy(*std::any_cast<const BallGenerator&>(u).values));");
+        emit_line("return BallDyn(BallList{});");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballDoubleToInt64") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn value) {\n";
+        indent_++;
+        emit_line("if (ball_is_int(value)) return value;");
+        emit_line("return BallDyn(ball_double_to_int64(static_cast<double>(value)));");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballCodeUnitAt") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn s, BallDyn index) {\n";
+        indent_++;
+        emit_line("return BallDyn(ball_code_unit_at(s, static_cast<int64_t>(index)));");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballIsInt") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn v) {\n";
+        indent_++;
+        emit_line("return BallDyn(ball_is_int(v) || ball_object_type_matches(v, \"BallInt\"s));");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballIsDouble") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn v) {\n";
+        indent_++;
+        emit_line("return BallDyn(ball_is_double(v) || ball_object_type_matches(v, \"BallDouble\"s));");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballIsNum") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn v) {\n";
+        indent_++;
+        emit_line("return BallDyn((ball_is_int(v) || ball_is_double(v)) || ball_object_type_matches(v, \"BallInt\"s) || ball_object_type_matches(v, \"BallDouble\"s));");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballIsString") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn v) {\n";
+        indent_++;
+        emit_line("return BallDyn(ball_is_string(v) || ball_object_type_matches(v, \"BallString\"s));");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballIsBool") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn v) {\n";
+        indent_++;
+        emit_line("return BallDyn(ball_is_bool(v) || ball_object_type_matches(v, \"BallBool\"s));");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballIsList") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn v) {\n";
+        indent_++;
+        emit_line("return BallDyn(ball_is_list(v) || ball_object_type_matches(v, \"BallList\"s));");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballIsMap") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn v) {\n";
+        indent_++;
+        emit_line("return BallDyn(ball_is_map_dyn(v) || ball_object_type_matches(v, \"BallMap\"s));");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballRuntimeTypeName") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn value) {\n";
+        indent_++;
+        emit_line("return BallDyn(ball_runtime_type_name(value));");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballToDouble") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn value) {\n";
+        indent_++;
+        emit_line("if (ball_is_int(value)) return BallDyn(static_cast<double>(static_cast<int64_t>(value)));");
+        emit_line("if (ball_is_double(value)) return value;");
+        emit_line("return BallDyn(static_cast<double>(value));");
         indent_--;
         emit_line("}\n");
         return;
@@ -4234,11 +4427,6 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         indent_--;
         emit_line("}\n");
         return;
-    }
-
-    // Overloaded functions: use original_name for emission
-    if (meta.count("original_name")) {
-        name = sanitize_name(meta["original_name"]);
     }
 
     // Template prefix for generic functions

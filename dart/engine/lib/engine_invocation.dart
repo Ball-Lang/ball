@@ -155,25 +155,28 @@ extension BallEngineInvocation on BallEngine {
       // and dart_std.yield_each can add values to it.
       final isSyncStar =
           func.hasMetadata() &&
-          (func.metadata.fields['is_sync_star']?.boolValue ?? false);
+          _metadataBool(func.metadata.fields['is_sync_star']);
       final isAsyncStar =
           func.hasMetadata() &&
-          (func.metadata.fields['is_async_star']?.boolValue ?? false);
+          _metadataBool(func.metadata.fields['is_async_star']);
       final isGenerator =
           func.hasMetadata() &&
-          (func.metadata.fields['is_generator']?.boolValue ?? false);
+          _metadataBool(func.metadata.fields['is_generator']);
       final isGenFunc = isSyncStar || isAsyncStar || isGenerator;
 
       BallGenerator? generator;
       if (isGenFunc) {
-        generator = BallGenerator();
+        generator = _ballNewGenerator();
         scope.bind('__generator__', generator);
       }
+
+      final prevGeneratorScope = _activeGeneratorScope;
+      if (isGenFunc) _activeGeneratorScope = scope;
 
       // Detect async functions for error-wrapping.
       final isAsync =
           func.hasMetadata() &&
-          (func.metadata.fields['is_async']?.boolValue ?? false);
+          _metadataBool(func.metadata.fields['is_async']);
 
       Object? finalResult;
       if (isAsync && !isGenFunc) {
@@ -228,7 +231,10 @@ extension BallEngineInvocation on BallEngine {
       // Generator: return collected values as a list.
       if (isGenFunc && generator != null) {
         generator.completed = true;
-        final values = generator.values;
+        final genFromScope = scope.lookup('__generator__');
+        final values = genFromScope is BallGenerator
+            ? _ballGeneratorValues(genFromScope)
+            : generator.values;
         if (isAsyncStar) {
           // async* → BallFuture of list
           return _ballFuture(values);
@@ -247,6 +253,7 @@ extension BallEngineInvocation on BallEngine {
 
       return finalResult;
     } finally {
+      _activeGeneratorScope = prevGeneratorScope;
       _recursionDepth--;
     }
   }

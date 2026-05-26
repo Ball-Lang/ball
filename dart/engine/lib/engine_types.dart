@@ -73,6 +73,59 @@ class BallObject extends BallMap {
 /// Emitted as `BallOrderedMap{}` in C++ self-host — NOT `std::map` (key-sorted).
 Map<Object?, Object?> _ballUserMap() => LinkedHashMap<Object?, Object?>();
 
+/// Fresh sync*/async* yield collector — emitted as `BallDyn(BallGenerator{})`.
+BallGenerator _ballNewGenerator() => BallGenerator();
+
+/// Dart `double.toInt()` / `truncate()` semantics with int64 clamping.
+int _ballDoubleToInt64(Object? value) {
+  if (value is int) return value;
+  if (value is BallInt) return value.value;
+  final d = (value is BallDouble ? value.value : (value as num).toDouble());
+  if (d >= 9223372036854775808.0) return 9223372036854775807;
+  if (d <= -9223372036854775808.0) return -9223372036854775808;
+  final r = d.toInt();
+  if (d > 0.0 && r < 0) return 9223372036854775807;
+  return r;
+}
+
+/// UTF-16 code unit access — emitted as `ball_code_unit_at` in C++ self-host.
+int _ballCodeUnitAt(Object? s, Object? index) =>
+    (s as String).codeUnitAt(index as int);
+
+/// Dart `Object.runtimeType.toString()` for primitive Ball values.
+String _ballRuntimeTypeName(Object? value) {
+  if (value == null || value is BallNull) return 'Null';
+  if (value is int || value is BallInt) return 'int';
+  if (value is double || value is BallDouble) return 'double';
+  if (value is String || value is BallString) return 'String';
+  if (value is bool || value is BallBool) return 'bool';
+  if (value is List || value is BallList) return 'List';
+  if (value is Map || value is BallMap) return 'Map';
+  return 'Object';
+}
+
+/// Dart num.toDouble() — always stores as double (avoids int64 wrap on large ints).
+double _ballToDouble(Object? value) {
+  if (value is double) return value;
+  if (value is BallDouble) return value.value;
+  if (value is int) return value.toDouble();
+  if (value is BallInt) return value.value.toDouble();
+  if (value is num) return value.toDouble();
+  return 0.0;
+}
+
+/// Strict runtime type tests for pattern matching (avoid `is double` → num widen).
+bool _ballIsInt(Object? v) => v is int || v is BallInt;
+bool _ballIsDouble(Object? v) => v is double || v is BallDouble;
+bool _ballIsNum(Object? v) => v is num || v is BallInt || v is BallDouble;
+bool _ballIsString(Object? v) => v is String || v is BallString;
+bool _ballIsBool(Object? v) => v is bool || v is BallBool;
+bool _ballIsList(Object? v) => v is List || v is BallList;
+bool _ballIsMap(Object? v) => v is Map || v is BallMap;
+
+/// Yield values collected by a sync*/async* generator.
+List<Object?> _ballGeneratorValues(BallGenerator gen) => gen.values;
+
 /// Map values in insertion order — emitted as `ball_map_values(BallDyn(...))` in C++.
 List<Object?> _ballMapValues(Map map) => map.values.toList();
 

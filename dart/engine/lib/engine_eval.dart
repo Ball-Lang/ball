@@ -28,7 +28,7 @@ extension BallEngineEval on BallEngine {
     _checkExecutionTimeout();
     _checkExpressionDepth();
     try {
-      return switch (expr.whichExpr()) {
+      final result = switch (expr.whichExpr()) {
         Expression_Expr.call => await _evalCall(expr.call, scope),
         Expression_Expr.literal => await _evalLiteral(expr.literal, scope),
         Expression_Expr.reference => await _evalReference(
@@ -47,6 +47,7 @@ extension BallEngineEval on BallEngine {
         Expression_Expr.lambda => _evalLambda(expr.lambda, scope),
         Expression_Expr.notSet => null,
       };
+      return _consumeGeneratorFlow(result);
     } finally {
       _exitExpression();
     }
@@ -771,7 +772,14 @@ extension BallEngineEval on BallEngine {
       case 'toString':
         return _ballToString(object);
       case 'runtimeType':
-        return object?.runtimeType.toString() ?? 'Null';
+        if (object == null || object is BallNull) return 'Null';
+        if (object is int || object is BallInt) return 'int';
+        if (object is double || object is BallDouble) return 'double';
+        if (object is String || object is BallString) return 'String';
+        if (object is bool || object is BallBool) return 'bool';
+        if (object is List || object is BallList) return 'List';
+        if (object is Map || object is BallMap) return 'Map';
+        return 'Object';
     }
 
     throw BallRuntimeError(

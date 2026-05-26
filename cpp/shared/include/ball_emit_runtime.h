@@ -153,6 +153,29 @@ inline int64_t ball_u16_code_unit_at(const std::string& s, int64_t u16idx) {
     return 0;
 }
 
+// Dart double.toInt()/truncate() with int64 clamping (matches cpp/engine).
+inline int64_t ball_double_to_int64(double d) {
+    constexpr double kMaxD = 9223372036854775808.0;
+    constexpr double kMinD = -9223372036854775808.0;
+    if (d >= kMaxD) return static_cast<int64_t>(9223372036854775807LL);
+    if (d <= kMinD) return (std::numeric_limits<int64_t>::min)();
+    int64_t r = static_cast<int64_t>(d);
+    if (d > 0.0 && r < 0) return static_cast<int64_t>(9223372036854775807LL);
+    return r;
+}
+
+// Dart Object.runtimeType.toString() for BallDyn primitives.
+inline std::string ball_runtime_type_name(const BallDyn& v) {
+    if (ball_is_int(v)) return "int";
+    if (ball_is_double(v)) return "double";
+    if (ball_is_string(v)) return "String";
+    if (ball_is_bool(v)) return "bool";
+    if (ball_is_list(v)) return "List";
+    if (ball_is_map_dyn(v)) return "Map";
+    if (!v.has_value()) return "Null";
+    return "Object";
+}
+
 // Forward declare for vector recursion before the template catch-all.
 template<typename T> inline std::string ball_to_string(const std::vector<T>& v);
 

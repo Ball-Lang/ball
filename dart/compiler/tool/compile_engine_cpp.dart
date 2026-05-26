@@ -37,9 +37,10 @@ String _findCppCompiler(String root) {
   final candidates = [
     for (final dir in ['ci-build', 'build3', 'build2', 'build'])
       for (final cfg in ['Release', 'Debug', ''])
-        '$root/cpp/$dir/compiler/${cfg.isEmpty ? '' : '$cfg/'}ball_cpp_compile.exe',
-    for (final dir in ['build3', 'build2', 'build'])
-      '$root/cpp/$dir/compiler/ball_cpp_compile',
+        ...[
+          '$root/cpp/$dir/compiler/${cfg.isEmpty ? '' : '$cfg/'}ball_cpp_compile.exe',
+          '$root/cpp/$dir/compiler/${cfg.isEmpty ? '' : '$cfg/'}ball_cpp_compile',
+        ],
   ];
   String? best;
   DateTime? bestMtime;

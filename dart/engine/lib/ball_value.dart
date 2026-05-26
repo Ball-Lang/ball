@@ -36,6 +36,9 @@ class BallDouble extends BallValue {
 
   @override
   String toString() {
+    if (value == 0.0) {
+      return value.isNegative ? '-0.0' : '0.0';
+    }
     if (value == value.truncateToDouble() &&
         !value.isNaN &&
         !value.isInfinite) {

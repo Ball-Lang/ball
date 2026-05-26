@@ -143,6 +143,36 @@ bool _metadataBool(Object? field) {
   return false;
 }
 
+/// Numeric predicates using operators the Ball→C++ compiler lowers directly
+/// (not BallDyn property dispatch like `.isNaN`, which recurses infinitely).
+bool _ballNumIsNaN(Object? v) {
+  if (v is int) return false;
+  if (v is double) {
+    final d = v;
+    return d != d;
+  }
+  return false;
+}
+
+bool _ballNumIsFinite(Object? v) {
+  if (v is int) return true;
+  if (v is double) {
+    final d = v;
+    if (d != d) return false;
+    return d.isFinite;
+  }
+  return false;
+}
+
+bool _ballNumIsInfinite(Object? v) {
+  if (v is int) return false;
+  if (v is double) {
+    final d = v;
+    return d.isInfinite;
+  }
+  return false;
+}
+
 /// A scope contains variable bindings. Scopes are chained for lexical nesting.
 class _Scope {
   final Map<String, Object?> _bindings = {};

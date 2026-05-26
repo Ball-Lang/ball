@@ -757,11 +757,11 @@ extension BallEngineEval on BallEngine {
           return vals;
         }
       case 'isNaN':
-        if (object is double) return object.isNaN;
+        return _ballNumIsNaN(object);
       case 'isFinite':
-        if (object is double) return object.isFinite;
+        return _ballNumIsFinite(object);
       case 'isInfinite':
-        if (object is double) return object.isInfinite;
+        return _ballNumIsInfinite(object);
       case 'isNegative':
         if (object is num) return object.isNegative;
       case 'sign':

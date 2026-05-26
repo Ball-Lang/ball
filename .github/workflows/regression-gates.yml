@@ -351,7 +351,23 @@ jobs:
       - name: Install nlohmann-json
         run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
 
-      - name: Configure CMake
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Bootstrap Dart workspace (engine_rt generation)
+        run: cd dart && dart pub get
+
+      - name: Configure CMake (bootstrap compiler)
+        run: cmake -S cpp -B cpp/ci-build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build ball_cpp_compile
+        run: cmake --build cpp/ci-build --config Release --target ball_cpp_compile
+
+      - name: Generate engine_rt.cpp
+        run: dart run dart/compiler/tool/compile_engine_cpp.dart --monolithic
+
+      - name: Configure CMake (enable self-host target)
         run: cmake -S cpp -B cpp/ci-build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build self-host conformance binary

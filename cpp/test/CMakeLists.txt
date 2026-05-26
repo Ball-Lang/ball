@@ -143,13 +143,17 @@ else()
 endif()
 
 # Self-hosted engine compilation test — multi-TU engine_rt/ (preferred) or
-# legacy monolithic engine_rt.cpp.
+# legacy monolithic engine_rt.cpp. Both are gitignored and regenerated
+# locally; skip self-host targets when absent (CI builds native engine only).
 set(BALL_SELFHOST_RT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../dart/self_host/lib/engine_rt")
 set(BALL_SELFHOST_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../../dart/self_host/lib/engine_rt.cpp")
+set(BALL_SELFHOST_AVAILABLE FALSE)
 if(EXISTS "${BALL_SELFHOST_RT_DIR}/engine_rt_common.hpp")
+    set(BALL_SELFHOST_AVAILABLE TRUE)
     ball_add_selfhost_engine_target(ball_selfhost_engine)
     add_library(test_selfhost_compile ALIAS ball_selfhost_engine)
 elseif(EXISTS "${BALL_SELFHOST_CPP}")
+    set(BALL_SELFHOST_AVAILABLE TRUE)
     add_library(test_selfhost_compile OBJECT "${BALL_SELFHOST_CPP}")
     target_compile_options(test_selfhost_compile PRIVATE
         $<$<CXX_COMPILER_ID:MSVC>:/W0 /bigobj>
@@ -159,6 +163,8 @@ elseif(EXISTS "${BALL_SELFHOST_CPP}")
         CXX_STANDARD 20
         CXX_STANDARD_REQUIRED ON
     )
+else()
+    message(STATUS "Skipping self-host C++ targets: engine_rt not generated")
 endif()
 
 # Scope-machinery probe — isolates bind/child/has/lookup from the full engine
@@ -175,6 +181,7 @@ target_compile_options(scope_probe PRIVATE
 
 # Self-hosted engine conformance tests — runs conformance programs through
 # the compiled Ball engine (multi-TU engine_rt/ or legacy engine_rt.cpp).
+if(BALL_SELFHOST_AVAILABLE)
 add_executable(test_selfhost_conformance test_selfhost_conformance.cpp)
 target_include_directories(test_selfhost_conformance PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
@@ -210,6 +217,7 @@ elseif(APPLE)
     target_link_options(test_selfhost_conformance PRIVATE -Wl,-stack_size,0x10000000)
 else()
     target_link_options(test_selfhost_conformance PRIVATE -Wl,-z,stacksize=268435456)
+endif()
 endif()
 
 enable_testing()

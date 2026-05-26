@@ -4202,6 +4202,39 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         emit_line("}\n");
         return;
     }
+    if (name == "_ballNumIsNaN") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn v) {\n";
+        indent_++;
+        emit_line("if (ball_is_int(v)) return BallDyn(false);");
+        emit_line("if (ball_is_double(v)) return BallDyn(std::isnan(static_cast<double>(v)));");
+        emit_line("return BallDyn(false);");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballNumIsFinite") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn v) {\n";
+        indent_++;
+        emit_line("if (ball_is_int(v)) return BallDyn(true);");
+        emit_line("if (ball_is_double(v)) return BallDyn(std::isfinite(static_cast<double>(v)));");
+        emit_line("return BallDyn(false);");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
+    if (name == "_ballNumIsInfinite") {
+        emit_indent();
+        out_ << return_type << " " << name << "(BallDyn v) {\n";
+        indent_++;
+        emit_line("if (ball_is_int(v)) return BallDyn(false);");
+        emit_line("if (ball_is_double(v)) return BallDyn(std::isinf(static_cast<double>(v)));");
+        emit_line("return BallDyn(false);");
+        indent_--;
+        emit_line("}\n");
+        return;
+    }
 
     // Overloaded functions: use original_name for emission
     if (meta.count("original_name")) {

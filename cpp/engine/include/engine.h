@@ -222,6 +222,12 @@ private:
     };
     std::optional<PendingRefInfo> pending_ref_info_;
 
+    // When executing a generator function body, lazy control flow appends
+    // yielded values here instead of propagating yield signals upward.
+    BallList* collecting_yields_ = nullptr;
+    bool* collecting_has_yields_ = nullptr;
+    bool handle_generator_flow(BallValue& result);
+
     // Memory simulation
     std::vector<uint8_t> memory_;
     size_t heap_ptr_ = 0;
@@ -262,6 +268,10 @@ private:
     BallValue eval_lazy_while(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_lazy_do_while(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_lazy_switch(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue eval_lazy_switch_expr(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
+    BallValue call_object_constructor(const std::string& module_name,
+                                      const ball::v1::FunctionDefinition& func,
+                                      BallValue input);
     BallValue eval_lazy_try(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_lazy_cascade(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);
     BallValue eval_short_circuit_and(const ball::v1::FunctionCall& call, std::shared_ptr<Scope> scope);

@@ -10,17 +10,17 @@ name: Regression Gates
 # a tally regressing from 156 -> 155). This workflow asserts hard floors:
 #
 #   * TS hand-written engine : exactly 269 passed / 0 failed
-#   * TS self-hosted compiler : exactly 41 passed / 0 failed (node --test suite)
+#   * TS self-hosted compiler : exactly 269 passed / 0 failed (node --test suite)
 #   * Dart engine            : 0 failed; pass count must not drop below DART_ENGINE_MIN_PASS
 #   * Dart encoder           : exactly DART_ENCODER_EXPECTED passed / 0 failed
 #   * Dart compiler          : exactly DART_COMPILER_EXPECTED passed / 0 failed
 #                              (--exclude-tags slow, matching ci.yml)
 #   * C++ native engine      : PASS must not drop below CPP_CONFORMANCE_MIN_PASS
-#                              (of ~263 runnable fixtures via test_conformance).
+#                              (all 263 runnable fixtures via test_conformance).
 #                              test_conformance exits non-zero when any fixture
 #                              fails; this gate parses the summary and enforces
 #                              the pass floor only (same idea as self-host tally).
-#   * C++ self-host tally     : PASS must not drop below 195 (of 227 fixtures)
+#   * C++ self-host tally     : PASS must not drop below 205 (of 227 fixtures)
 #                              — blocking only when the Linux native build is green
 #
 # Action versions verified 2026-05-25 against the upstream release pages:
@@ -46,12 +46,12 @@ concurrency:
 # Pin the expected counts in one place so bumping the floor is a one-line edit.
 env:
   TS_ENGINE_EXPECTED_PASS: "269"
-  TS_COMPILER_EXPECTED_PASS: "41"
+  TS_COMPILER_EXPECTED_PASS: "269"
   DART_ENGINE_MIN_PASS: "566"
   DART_ENCODER_EXPECTED: "116"
   DART_COMPILER_EXPECTED: "88"
-  CPP_CONFORMANCE_MIN_PASS: "229"
-  CPP_SELFHOST_MIN_PASS: "195"
+  CPP_CONFORMANCE_MIN_PASS: "263"
+  CPP_SELFHOST_MIN_PASS: "205"
 
 jobs:
   # ──────────────────────────────────────────────────
@@ -120,7 +120,7 @@ jobs:
       - name: Build @ball-lang/compiler
         run: cd ts/compiler && npm run build
 
-      - name: Compiler — assert 41 pass / 0 fail
+      - name: Compiler — assert 269 pass / 0 fail
         run: |
           set -o pipefail
           cd ts/compiler
@@ -271,7 +271,7 @@ jobs:
   # of the ~263 runnable conformance fixtures.
   # ──────────────────────────────────────────────────
   cpp-conformance:
-    name: C++ Native Conformance (PASS >= 229)
+    name: C++ Native Conformance (PASS >= 263)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -338,7 +338,7 @@ jobs:
   # summary line that the script does, then enforces the floor.
   # ──────────────────────────────────────────────────
   cpp-selfhost-tally:
-    name: C++ Self-Host Tally (PASS >= 195)
+    name: C++ Self-Host Tally (PASS >= 205)
     runs-on: ubuntu-latest
     needs: cpp-conformance
     steps:

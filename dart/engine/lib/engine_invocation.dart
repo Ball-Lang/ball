@@ -30,6 +30,7 @@ extension BallEngineInvocation on BallEngine {
     }
 
     _recursionDepth++;
+    final prevGeneratorScope = _activeGeneratorScope;
     try {
       // Constructor without body: build an instance from `is_this` params.
       if (!func.hasBody()) {
@@ -170,7 +171,6 @@ extension BallEngineInvocation on BallEngine {
         scope.bind('__generator__', generator);
       }
 
-      final prevGeneratorScope = _activeGeneratorScope;
       if (isGenFunc) _activeGeneratorScope = scope;
 
       // Detect async functions for error-wrapping.

@@ -164,18 +164,6 @@ inline int64_t ball_double_to_int64(double d) {
     return r;
 }
 
-// Dart Object.runtimeType.toString() for BallDyn primitives.
-inline std::string ball_runtime_type_name(const BallDyn& v) {
-    if (ball_is_int(v)) return "int";
-    if (ball_is_double(v)) return "double";
-    if (ball_is_string(v)) return "String";
-    if (ball_is_bool(v)) return "bool";
-    if (ball_is_list(v)) return "List";
-    if (ball_is_map_dyn(v)) return "Map";
-    if (!v.has_value()) return "Null";
-    return "Object";
-}
-
 // Forward declare for vector recursion before the template catch-all.
 template<typename T> inline std::string ball_to_string(const std::vector<T>& v);
 
@@ -347,6 +335,21 @@ inline bool ball_is_map(const std::any& v) {
 inline bool ball_is_function(const std::any& v) {
     auto& u = _BallDynUnwrapper::unwrap(v);
     return u.has_value() && u.type() == typeid(BallFunc_RT);
+}
+
+// Dart Object.runtimeType.toString() for primitives. Uses std::any so this
+// header stays self-contained (no BallDyn dependency). BallDyn values convert
+// to std::any via operator std::any() before reaching here.
+inline std::string ball_runtime_type_name(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    if (ball_is_int(u)) return "int";
+    if (ball_is_double(u)) return "double";
+    if (ball_is_string(u)) return "String";
+    if (ball_is_bool(u)) return "bool";
+    if (ball_is_list(u)) return "List";
+    if (ball_is_map(u)) return "Map";
+    if (!u.has_value()) return "Null";
+    return "Object";
 }
 
 // RAII guard implementing Dart `finally` semantics. The cleanup callable runs

@@ -27,9 +27,6 @@ endif()
 # Shared library (protobuf types + helpers)
 add_subdirectory(shared)
 
-# Engine (interpreter)
-add_subdirectory(engine)
-
 # Compiler (Ball → C++ code generation)
 add_subdirectory(compiler)
 

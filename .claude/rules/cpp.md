@@ -9,7 +9,9 @@ paths:
 
 - C++17 standard required
 - CMake build system — root at `cpp/CMakeLists.txt`
-- 4 targets: `ball_shared`, `ball_cpp_runner` (engine), `ball_cpp_compile` (compiler), `ball_cpp_encode` (encoder)
+- 3 targets: `ball_shared`, `ball_cpp_compile` (compiler), `ball_cpp_encode` (encoder)
+- Self-hosted engine: `dart/self_host/lib/engine_rt.cpp` (generated from Dart engine via Ball compiler)
+- Self-host conformance: `test_selfhost_conformance` target
 - Encoder requires nlohmann/json (FetchContent from GitHub if not installed)
 - Stack sizes: compiler 128MB, encoder 256MB (for deep protobuf ASTs)
 
@@ -62,31 +64,26 @@ buf generate --template cpp/buf.gen.cpp.yaml -o cpp/shared/gen proto/
 - Normalizer converts cpp_std pointer ops → safe refs or unsafe std_memory
 - Recursion limit: 512 for encoder, 10000 for protobuf
 
-### Engine (`cpp/engine/`)
-- Tree-walking interpreter with lexical scoping
-- Lazy evaluation for control flow (if, for, while)
-- FlowSignal for break/continue/return propagation
-- 65KB linear memory (heap + stack)
+### Self-Hosted Engine (`dart/self_host/lib/engine_rt.cpp`)
+- Generated from the Dart reference engine via Ball IR → C++ compiler
+- Regenerate: `cd dart && dart run compiler/tool/compile_engine_cpp.dart --monolithic`
+- Conformance: `test_selfhost_conformance` (per-fixture isolated runs via `BALL_TEST_FILTER`)
 
 ## Known Issues — MUST READ
 
-C++ tests live in `cpp/test/test_engine.cpp`, `cpp/test/test_compiler.cpp`, and `cpp/test/test_conformance.cpp` and use a custom `TEST(name)` macro framework (no gtest). Build + run via:
+C++ tests live in `cpp/test/test_compiler.cpp`, `cpp/test/test_selfhost_conformance.cpp`, and `cpp/test/test_encoder.cpp` and use a custom `TEST(name)` macro framework (no gtest). Build + run via:
 
 ```bash
-cd cpp && cmake --build build --target test_engine test_compiler test_conformance
-./build/test/Debug/test_engine.exe       # or ./build/test/test_engine on POSIX
+cd cpp && cmake --build build --target test_compiler test_selfhost_conformance
 ./build/test/Debug/test_compiler.exe
-./build/test/Debug/test_conformance.exe  # runs every tests/conformance/*.ball.json
+# Self-host: use per-fixture isolated runs for reliable count
+BALL_TEST_FILTER="01_hello_world" ./build/test/Debug/test_selfhost_conformance.exe
 ```
 
-**Always add tests alongside every C++ change.** The suites cover arithmetic, comparisons, string/regex/math ops, control flow (`switch`, `for_in`, `try/catch`, typed catch, `rethrow`, labeled break/continue, base64), `std_collections` list/map/set ops, and most of `std_io`/`std_convert`/`std_time`. The conformance harness mirrors the Dart one and catches Dart/C++ parity bugs on any change.
-
-Remaining known limitations:
-
-- `async`/`await` in the engine is a synchronous simulation — `async` wraps the return in `BallFuture`, `await` recursively unwraps, but there is no event loop / no microtask queue. A real scheduler would need the whole engine rewritten to be async.
+**Always add tests alongside every C++ change.** Conformance tests automatically pick up new programs added to `tests/conformance/`.
 
 ## When Adding Features
 
-1. Implement in BOTH compiler AND engine where applicable
-2. Add test cases in `cpp/test/test_engine.cpp` and/or `cpp/test/test_compiler.cpp`; conformance tests automatically pick up new programs added to `tests/conformance/`
-3. Verify the feature matches the corresponding Dart implementation's behavior
+1. Implement in the Dart reference engine first, then regenerate `engine_rt.cpp`
+2. Add test cases in `cpp/test/test_compiler.cpp`; conformance tests automatically pick up new programs added to `tests/conformance/`
+3. Verify the self-hosted engine passes conformance after regeneration

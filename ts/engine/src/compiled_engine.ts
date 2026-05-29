@@ -1718,6 +1718,71 @@ export class BallEngine {
     return instance;
   }
 
+  _applyConstructorInitializers(func: any, targetFields: any, resolvedParams: any, onlyIfAbsent: any): any {
+    if (!hasMetadata(func)) {
+      return;
+    }
+    let initsField = __ball_index(func.metadata.fields, 'initializers');
+    if (((initsField == null) || (whichKind(initsField) !== structpb_Value_Kind.listValue))) {
+      return;
+    }
+    for (const init of initsField.listValue.values) {
+      if ((whichKind(init) !== structpb_Value_Kind.structValue)) {
+        continue;
+      }
+      let kind = __ball_index(init.structValue.fields, 'kind')?.stringValue;
+      let name = __ball_index(init.structValue.fields, 'name')?.stringValue;
+      if (((kind !== 'field') || (name == null))) {
+        continue;
+      }
+      if ((onlyIfAbsent && (__ball_index(targetFields, name) != null))) {
+        continue;
+      }
+      let valField = __ball_index(init.structValue.fields, 'value');
+      if (((valField != null) && hasStringValue(valField))) {
+        let valStr = valField.stringValue;
+        let indexMatch = new RegExp('^(\\w+)\\[(\\d+)\\]$').firstMatch(valStr);
+        if ((indexMatch != null)) {
+          let arrName = indexMatch.group(1);
+          let idx = __ball_parse_int(indexMatch.group(2));
+          let rawArr = __ball_index(resolvedParams, arrName);
+          let arr = (false /* BallList is List in TS */ ? rawArr.items : rawArr);
+          if ((Array.isArray(arr) && (idx < arr.length))) {
+            targetFields[name] = __ball_index(arr, idx);
+          } else {
+            targetFields[name] = null;
+          }
+        } else {
+          if ((valStr === 'true')) {
+            targetFields[name] = true;
+          } else {
+            if ((valStr === 'false')) {
+              targetFields[name] = false;
+            } else {
+              if ((num.tryParse(valStr) != null)) {
+                let numVal = num.parse(valStr);
+                targetFields[name] = (valStr.includes('.') ? new BallDouble((+(numVal))) : __ball_to_int(numVal));
+              } else {
+                targetFields[name] = (__ball_index(resolvedParams, valStr) ?? valStr);
+              }
+            }
+          }
+        }
+      } else {
+        if (((valField != null) && hasNumberValue(valField))) {
+          let n = valField.numberValue;
+          targetFields[name] = ((n === __ball_to_int(n)) ? __ball_to_int(n) : n);
+        } else {
+          if (((valField != null) && hasBoolValue(valField))) {
+            targetFields[name] = valField.boolValue;
+          } else {
+            targetFields[name] = null;
+          }
+        }
+      }
+    }
+  }
+
   async _buildConstructorInstance(moduleName: any, func: any, input: any): Promise<any> {
     let params = (hasMetadata(func) ? this._extractParams(func.metadata) : []);
     let paramsMeta = this._extractParamsMeta(func.metadata);
@@ -1755,62 +1820,7 @@ export class BallEngine {
         }
       }
     }
-    if (hasMetadata(func)) {
-      let initsField = __ball_index(func.metadata.fields, 'initializers');
-      if (((initsField != null) && (whichKind(initsField) === structpb_Value_Kind.listValue))) {
-        for (const init of initsField.listValue.values) {
-          if ((whichKind(init) !== structpb_Value_Kind.structValue)) {
-            continue;
-          }
-          let kind = __ball_index(init.structValue.fields, 'kind')?.stringValue;
-          let name = __ball_index(init.structValue.fields, 'name')?.stringValue;
-          if (((kind === 'field') && (name != null))) {
-            let valField = __ball_index(init.structValue.fields, 'value');
-            if (((valField != null) && hasStringValue(valField))) {
-              let valStr = valField.stringValue;
-              let indexMatch = new RegExp('^(\\w+)\\[(\\d+)\\]$').firstMatch(valStr);
-              if ((indexMatch != null)) {
-                let arrName = indexMatch.group(1);
-                let idx = __ball_parse_int(indexMatch.group(2));
-                let rawArr = __ball_index(resolvedParams, arrName);
-                let arr = (false /* BallList is List in TS */ ? rawArr.items : rawArr);
-                if ((Array.isArray(arr) && (idx < arr.length))) {
-                  instance[name] = __ball_index(arr, idx);
-                } else {
-                  instance[name] = null;
-                }
-              } else {
-                if ((valStr === 'true')) {
-                  instance[name] = true;
-                } else {
-                  if ((valStr === 'false')) {
-                    instance[name] = false;
-                  } else {
-                    if ((num.tryParse(valStr) != null)) {
-                      let numVal = num.parse(valStr);
-                      instance[name] = (valStr.includes('.') ? new BallDouble((+(numVal))) : __ball_to_int(numVal));
-                    } else {
-                      instance[name] = (__ball_index(resolvedParams, valStr) ?? valStr);
-                    }
-                  }
-                }
-              }
-            } else {
-              if (((valField != null) && hasNumberValue(valField))) {
-                let n = valField.numberValue;
-                instance[name] = ((n === __ball_to_int(n)) ? __ball_to_int(n) : n);
-              } else {
-                if (((valField != null) && hasBoolValue(valField))) {
-                  instance[name] = valField.boolValue;
-                } else {
-                  instance[name] = null;
-                }
-              }
-            }
-          }
-        }
-      }
-    }
+    this._applyConstructorInitializers(func, instance, resolvedParams);
     let typeDef = this._findTypeDef(typeName);
     if ((typeDef != null)) {
       let superclass = this._getMetaString(typeDef, 'superclass');
@@ -3394,6 +3404,9 @@ export class BallEngine {
               }
             }
           }
+        }
+        if ((((ctorEntry != null) && hasMetadata(ctorEntry.func)) && !hasBody(ctorEntry.func))) {
+          this._applyConstructorInitializers(ctorEntry.func, instanceFields, resolvedParams, { onlyIfAbsent: true });
         }
         let superclass = this._getMetaString(typeDef, 'superclass');
         let superObject = __no_init__;

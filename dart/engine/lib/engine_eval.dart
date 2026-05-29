@@ -1045,6 +1045,22 @@ extension BallEngineEval on BallEngine {
           }
         }
 
+        // A no-body constructor whose zero-inits live in metadata.initializers
+        // (e.g. `main:Counts.new` with `count = 0` in the initializer list)
+        // never runs a body, so apply those initializers here. Explicit
+        // messageCreation fields and resolved ctor params take precedence:
+        // only fields still null are filled.
+        if (ctorEntry != null &&
+            ctorEntry.func.hasMetadata() &&
+            !ctorEntry.func.hasBody()) {
+          _applyConstructorInitializers(
+            ctorEntry.func,
+            instanceFields,
+            resolvedParams,
+            onlyIfAbsent: true,
+          );
+        }
+
         final superclass = _getMetaString(typeDef, 'superclass');
         Object? superObject;
         if (superclass != null && superclass.isNotEmpty) {

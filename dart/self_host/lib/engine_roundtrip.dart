@@ -873,6 +873,69 @@ class BallEngine {
     return instance;
   }
 
+  void _applyConstructorInitializers(
+    FunctionDefinition func,
+    Map<String, Object?> targetFields,
+    Map<String, Object?> resolvedParams, {
+    bool onlyIfAbsent = false,
+  }) {
+    if (!func.hasMetadata()) {
+      return;
+    }
+    final initsField = func.metadata.fields['initializers'];
+    if (((initsField == null) ||
+        (initsField.whichKind() != structpb.Value_Kind.listValue))) {
+      return;
+    }
+    for (final init in initsField.listValue.values) {
+      if ((init.whichKind() != structpb.Value_Kind.structValue)) {
+        continue;
+      }
+      final kind = init.structValue.fields['kind']?.stringValue;
+      final name = init.structValue.fields['name']?.stringValue;
+      if (((kind != 'field') || (name == null))) {
+        continue;
+      }
+      if ((onlyIfAbsent && (targetFields[name] != null))) {
+        continue;
+      }
+      final valField = init.structValue.fields['value'];
+      if (((valField != null) && valField.hasStringValue())) {
+        final valStr = valField.stringValue;
+        final indexMatch = RegExp('^(\\w+)\\[(\\d+)\\]\$').firstMatch(valStr);
+        if ((indexMatch != null)) {
+          final arrName = indexMatch.group(1)!;
+          final idx = int.parse(indexMatch.group(2)!);
+          final rawArr = resolvedParams[arrName];
+          final arr = ((rawArr is BallList) ? rawArr.items : rawArr);
+          if (((arr is List) && (idx < arr.length))) {
+            targetFields[name] = arr[idx];
+          } else {
+            targetFields[name] = null;
+          }
+        } else if ((valStr == 'true')) {
+          targetFields[name] = true;
+        } else if ((valStr == 'false')) {
+          targetFields[name] = false;
+        } else if ((num.tryParse(valStr) != null)) {
+          final numVal = num.parse(valStr);
+          targetFields[name] = (valStr.contains('.')
+              ? BallDouble(numVal.toDouble())
+              : numVal.toInt());
+        } else {
+          targetFields[name] = (resolvedParams[valStr] ?? valStr);
+        }
+      } else if (((valField != null) && valField.hasNumberValue())) {
+        final n = valField.numberValue;
+        targetFields[name] = ((n == n.toInt()) ? n.toInt() : n);
+      } else if (((valField != null) && valField.hasBoolValue())) {
+        targetFields[name] = valField.boolValue;
+      } else {
+        targetFields[name] = null;
+      }
+    }
+  }
+
   Future<Object?> _buildConstructorInstance(
     String moduleName,
     FunctionDefinition func,
@@ -916,57 +979,7 @@ class BallEngine {
         instance[params[0]] = input;
       }
     }
-    if (func.hasMetadata()) {
-      final initsField = func.metadata.fields['initializers'];
-      if (((initsField != null) &&
-          (initsField.whichKind() == structpb.Value_Kind.listValue))) {
-        for (final init in initsField.listValue.values) {
-          if ((init.whichKind() != structpb.Value_Kind.structValue)) {
-            continue;
-          }
-          final kind = init.structValue.fields['kind']?.stringValue;
-          final name = init.structValue.fields['name']?.stringValue;
-          if (((kind == 'field') && (name != null))) {
-            final valField = init.structValue.fields['value'];
-            if (((valField != null) && valField.hasStringValue())) {
-              final valStr = valField.stringValue;
-              final indexMatch = RegExp(
-                '^(\\w+)\\[(\\d+)\\]\$',
-              ).firstMatch(valStr);
-              if ((indexMatch != null)) {
-                final arrName = indexMatch.group(1)!;
-                final idx = int.parse(indexMatch.group(2)!);
-                final rawArr = resolvedParams[arrName];
-                final arr = ((rawArr is BallList) ? rawArr.items : rawArr);
-                if (((arr is List) && (idx < arr.length))) {
-                  instance[name] = arr[idx];
-                } else {
-                  instance[name] = null;
-                }
-              } else if ((valStr == 'true')) {
-                instance[name] = true;
-              } else if ((valStr == 'false')) {
-                instance[name] = false;
-              } else if ((num.tryParse(valStr) != null)) {
-                final numVal = num.parse(valStr);
-                instance[name] = (valStr.contains('.')
-                    ? BallDouble(numVal.toDouble())
-                    : numVal.toInt());
-              } else {
-                instance[name] = (resolvedParams[valStr] ?? valStr);
-              }
-            } else if (((valField != null) && valField.hasNumberValue())) {
-              final n = valField.numberValue;
-              instance[name] = ((n == n.toInt()) ? n.toInt() : n);
-            } else if (((valField != null) && valField.hasBoolValue())) {
-              instance[name] = valField.boolValue;
-            } else {
-              instance[name] = null;
-            }
-          }
-        }
-      }
-    }
+    _applyConstructorInitializers(func, instance, resolvedParams);
     final typeDef = _findTypeDef(typeName);
     if ((typeDef != null)) {
       final superclass = _getMetaString(typeDef, 'superclass');
@@ -2301,6 +2314,15 @@ class BallEngine {
               instanceFields[allFieldNames.first] = value;
             }
           }
+        }
+        if ((((ctorEntry != null) && ctorEntry.func.hasMetadata()) &&
+            !ctorEntry.func.hasBody())) {
+          _applyConstructorInitializers(
+            ctorEntry.func,
+            instanceFields,
+            resolvedParams,
+            onlyIfAbsent: true,
+          );
         }
         final superclass = _getMetaString(typeDef, 'superclass');
         Object? superObject;

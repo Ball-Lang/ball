@@ -1923,18 +1923,21 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         auto v = get_message_field(call, "value");
         return "[](BallDyn _v) -> BallDyn { if(_v.type()==typeid(int64_t))return BallDyn(std::abs(static_cast<int64_t>(_v))); return BallDyn(std::abs(static_cast<double>(_v))); }(" + v + ")";
     }
-    if (fn == "math_floor") return "static_cast<int64_t>(std::floor(" + get_message_field(call, "value") + "))";
-    if (fn == "math_ceil") return "static_cast<int64_t>(std::ceil(" + get_message_field(call, "value") + "))";
-    if (fn == "math_round") return "static_cast<int64_t>(std::round(" + get_message_field(call, "value") + "))";
-    if (fn == "math_sqrt") return "std::sqrt(" + get_message_field(call, "value") + ")";
-    if (fn == "math_pow") return "std::pow(" + get_message_field(call, "left") + ", " + get_message_field(call, "right") + ")";
+    // std math functions take floating args; a BallDyn argument is ambiguous
+    // under gcc/clang (multiple user conversions: operator double vs int64_t),
+    // so cast to double explicitly. (MSVC tolerated the bare BallDyn.)
+    if (fn == "math_floor") return "static_cast<int64_t>(std::floor(static_cast<double>(" + get_message_field(call, "value") + ")))";
+    if (fn == "math_ceil") return "static_cast<int64_t>(std::ceil(static_cast<double>(" + get_message_field(call, "value") + ")))";
+    if (fn == "math_round") return "static_cast<int64_t>(std::round(static_cast<double>(" + get_message_field(call, "value") + ")))";
+    if (fn == "math_sqrt") return "std::sqrt(static_cast<double>(" + get_message_field(call, "value") + "))";
+    if (fn == "math_pow") return "std::pow(static_cast<double>(" + get_message_field(call, "left") + "), static_cast<double>(" + get_message_field(call, "right") + "))";
     if (fn == "math_min") return "std::min(" + get_message_field(call, "left") + ", " + get_message_field(call, "right") + ")";
     if (fn == "math_max") return "std::max(" + get_message_field(call, "left") + ", " + get_message_field(call, "right") + ")";
     if (fn == "math_pi") return "3.141592653589793";
     if (fn == "math_e") return "2.718281828459045";
-    if (fn == "math_log") return "std::log(" + get_message_field(call, "value") + ")";
-    if (fn == "math_sin") return "std::sin(" + get_message_field(call, "value") + ")";
-    if (fn == "math_cos") return "std::cos(" + get_message_field(call, "value") + ")";
+    if (fn == "math_log") return "std::log(static_cast<double>(" + get_message_field(call, "value") + "))";
+    if (fn == "math_sin") return "std::sin(static_cast<double>(" + get_message_field(call, "value") + "))";
+    if (fn == "math_cos") return "std::cos(static_cast<double>(" + get_message_field(call, "value") + "))";
 
     // ── Type system ──
     if (fn == "is" || fn == "is_not") {
@@ -2743,16 +2746,18 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
         return "ball_to_string(" + self + ")";
     }
     if (fn == "abs") {
-        return "std::abs(" + self + ")";
+        // Type-preserving abs (int stays int) with an explicit cast so gcc/clang
+        // don't see an ambiguous std::abs(BallDyn) overload.
+        return "[](BallDyn _v) -> BallDyn { if(_v.type()==typeid(int64_t))return BallDyn(std::abs(static_cast<int64_t>(_v))); return BallDyn(std::abs(static_cast<double>(_v))); }(" + self + ")";
     }
     if (fn == "round") {
-        return "static_cast<int64_t>(std::round(" + self + "))";
+        return "static_cast<int64_t>(std::round(static_cast<double>(" + self + ")))";
     }
     if (fn == "ceil") {
-        return "static_cast<int64_t>(std::ceil(" + self + "))";
+        return "static_cast<int64_t>(std::ceil(static_cast<double>(" + self + ")))";
     }
     if (fn == "floor") {
-        return "static_cast<int64_t>(std::floor(" + self + "))";
+        return "static_cast<int64_t>(std::floor(static_cast<double>(" + self + ")))";
     }
     if (fn == "toStringAsFixed") {
         return "[](double v, int64_t d){"
@@ -4840,14 +4845,22 @@ void CppCompiler::emit_top_level_var(const ball::v1::FunctionDefinition& func) {
     if (meta.count("is_const") && meta["is_const"] == "true") modifier = "const auto";
     if (meta.count("is_final") && meta["is_final"] == "true") modifier = "const auto";
 
+    const std::string name = sanitize_name(func.name());
+    const std::string init = func.has_body() ? compile_expr(func.body()) : "0";
     emit_indent();
-    out_ << modifier << " " << sanitize_name(func.name()) << " = ";
-    if (func.has_body()) {
-        out_ << compile_expr(func.body());
+    // A namespace-scope (non-local) lambda may not carry a [&]/[=] capture
+    // default under gcc/clang. When a top-level initializer is such an IIFE
+    // (e.g. a map/block comprehension), route it through a named helper
+    // function — inside which the capture default is in function scope and so
+    // legal — preserving the deduced type via `auto`.
+    if (init.rfind("[&]", 0) == 0 || init.rfind("[=]", 0) == 0) {
+        out_ << "inline auto _ballinit_" << name << "() { return " << init
+             << "; }\n";
+        emit_indent();
+        out_ << modifier << " " << name << " = _ballinit_" << name << "();\n";
     } else {
-        out_ << "0";
+        out_ << modifier << " " << name << " = " << init << ";\n";
     }
-    out_ << ";\n";
 }
 
 void CppCompiler::emit_main(const ball::v1::FunctionDefinition& entry) {

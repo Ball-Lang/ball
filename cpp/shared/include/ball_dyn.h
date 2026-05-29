@@ -161,6 +161,20 @@ public:
     }
     BallDyn(int64_t v) : _val(v) {}
     BallDyn(int v) : _val(static_cast<int64_t>(v)) {}
+    // Any other integral type widens to int64_t. Crucially this covers
+    // `long long` on platforms where `int64_t` is `long` (gcc/Linux): there a
+    // `long long` argument matches none of the int64_t/int/double/bool ctors
+    // exactly and gcc reports the construction (and every `BallDyn == long long`
+    // comparison, which routes through this conversion) as ambiguous. The
+    // enable_if excludes the types already handled above, so on MSVC — where
+    // `int64_t` IS `long long` — this template never collides with BallDyn(int64_t).
+    template <typename T,
+              std::enable_if_t<std::is_integral_v<T> &&
+                                   !std::is_same_v<T, bool> &&
+                                   !std::is_same_v<T, int> &&
+                                   !std::is_same_v<T, int64_t>,
+                               int> = 0>
+    BallDyn(T v) : _val(static_cast<int64_t>(v)) {}
     BallDyn(double v) : _val(v) {}
     BallDyn(bool v) : _val(v) {}
     BallDyn(const std::string& v) : _val(v) {}

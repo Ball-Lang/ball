@@ -8,6 +8,8 @@ library;
 
 import 'package:ball_base/protobuf/edition.dart';
 import 'package:ball_base/protobuf/editions.dart';
+import 'package:ball_base/protobuf/marshal.dart';
+import 'package:ball_base/protobuf/unmarshal.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -264,6 +266,96 @@ void main() {
           requiresUtf8Validation({featureUtf8Validation: utf8ValidationVerify}),
           isTrue);
       expect(jsonFormatIsAllow({featureJsonFormat: jsonFormatAllow}), isTrue);
+    });
+  });
+
+  group('marshal honors resolved features (Phase 3)', () {
+    test('EXPLICIT presence serializes a default scalar; IMPLICIT elides it',
+        () {
+      final explicit = [
+        {
+          'name': 'x',
+          'number': 1,
+          'type': 'TYPE_INT32',
+          'features': {featureFieldPresence: fieldPresenceExplicit},
+        },
+      ];
+      final implicit = [
+        {
+          'name': 'x',
+          'number': 1,
+          'type': 'TYPE_INT32',
+          'features': {featureFieldPresence: fieldPresenceImplicit},
+        },
+      ];
+      final none = [
+        {'name': 'x', 'number': 1, 'type': 'TYPE_INT32'},
+      ];
+
+      // Explicit presence: a set-but-default (0) value IS on the wire.
+      expect(marshal({'x': 0}, explicit), isNotEmpty);
+      // Implicit presence (proto3): default elided.
+      expect(marshal({'x': 0}, implicit), isEmpty);
+      // No features key → unchanged proto3 behavior (back-compat).
+      expect(marshal({'x': 0}, none), isEmpty);
+      // Non-default value always serialized regardless.
+      expect(marshal({'x': 7}, implicit), isNotEmpty);
+    });
+
+    test('PACKED vs EXPANDED differ on the wire; readers accept both', () {
+      List<Map<String, Object?>> desc(String enc) => [
+            {
+              'name': 'a',
+              'number': 1,
+              'type': 'TYPE_INT32',
+              'label': 'LABEL_REPEATED',
+              'repeated': true,
+              'features': {featureRepeatedFieldEncoding: enc},
+            },
+          ];
+      final packedDesc = desc(repeatedFieldEncodingPacked);
+      final expandedDesc = desc(repeatedFieldEncodingExpanded);
+
+      final packed = marshal({'a': [1, 2, 3]}, packedDesc);
+      final expanded = marshal({'a': [1, 2, 3]}, expandedDesc);
+
+      // Different wire encodings (one LEN blob vs three tagged records).
+      expect(packed, isNot(equals(expanded)));
+
+      // A reader accepts EITHER encoding regardless of its own feature.
+      expect(unmarshal(packed, expandedDesc)['a'], [1, 2, 3]);
+      expect(unmarshal(expanded, packedDesc)['a'], [1, 2, 3]);
+    });
+
+    test('EXPANDED repeated keeps default-valued (0) elements on the wire', () {
+      final desc = [
+        {
+          'name': 'a',
+          'number': 1,
+          'type': 'TYPE_INT32',
+          'label': 'LABEL_REPEATED',
+          'repeated': true,
+          'features': {
+            featureRepeatedFieldEncoding: repeatedFieldEncodingExpanded,
+          },
+        },
+      ];
+      // The 0 element must survive (proto3 elision would drop it).
+      expect(unmarshal(marshal({'a': [1, 0, 3]}, desc), desc)['a'], [1, 0, 3]);
+    });
+
+    test('EXPLICIT default scalar round-trips as a present 0', () {
+      final desc = [
+        {
+          'name': 'x',
+          'number': 1,
+          'type': 'TYPE_INT32',
+          'features': {featureFieldPresence: fieldPresenceExplicit},
+        },
+      ];
+      final bytes = marshal({'x': 0}, desc);
+      expect(bytes, isNotEmpty);
+      expect(unmarshal(bytes, desc)['x'], 0);
     });
   });
 }

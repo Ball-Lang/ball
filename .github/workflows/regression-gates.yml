@@ -73,6 +73,14 @@ jobs:
       - name: Bootstrap Dart workspace (roundtrip_engine)
         run: cd dart && dart pub get
 
+      # engine_runtime.test.ts checks existsSync(engine.ball.json) at module
+      # load and SKIPS its ~227 conformance subtests if it is missing — and the
+      # file is gitignored. Generate it explicitly here (rather than relying on
+      # engine_parse.test.ts's on-demand shell-out, which races module load) so
+      # the TS compiler gate exercises the full 269-test suite.
+      - name: Generate engine.ball.json (self-host source)
+        run: cd dart && dart run encoder/tool/roundtrip_engine.dart --skip-analyze --save-program self_host/engine.ball.json
+
       # ── @ball-lang/engine — prints: "Results: N passed, M failed, T total"
       - name: Install @ball-lang/engine
         run: cd ts/engine && npm ci

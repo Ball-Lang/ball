@@ -1320,6 +1320,15 @@ extension BallEngineStd on BallEngine {
     if (map != null) {
       // StringBuffer: return the buffer contents.
       final typeName = map['__type__'] as String?;
+      // Enum value: format as EnumName.valueName, matching Dart's enum
+      // toString (e.g. `Color.red`) instead of dumping the underlying map.
+      if (typeName != null && _enumValues.containsKey(typeName)) {
+        final shortType = typeName.contains(':')
+            ? typeName.substring(typeName.lastIndexOf(':') + 1)
+            : typeName;
+        final valName = map['name'];
+        if (valName != null) return '$shortType.${_ballToString(valName)}';
+      }
       if (typeName != null &&
           (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
         return (map['__buffer__'] as String?) ?? '';

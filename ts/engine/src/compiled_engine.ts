@@ -7257,6 +7257,13 @@ export class BallEngine {
     let map = this._stdAsMap(v);
     if ((map != null)) {
       let typeName = __ball_index(map, '__type__');
+      if (((typeName != null) && (typeName in this._enumValues))) {
+        let shortType = (typeName.includes(':') ? typeName.substring((typeName.lastIndexOf(':') + 1)) : typeName);
+        let valName = __ball_index(map, 'name');
+        if ((valName != null)) {
+          return ((__ball_to_string(shortType) + '.') + __ball_to_string(this._ballToString(valName)));
+        }
+      }
       if (((typeName != null) && (typeName.endsWith(':StringBuffer') || (typeName === 'StringBuffer')))) {
         return (__ball_index(map, '__buffer__') ?? '');
       }

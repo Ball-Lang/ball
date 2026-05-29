@@ -352,6 +352,19 @@ inline std::string ball_runtime_type_name(const std::any& v) {
     return "Object";
 }
 
+inline bool ball_natural_less(const std::any& a, const std::any& b) {
+    auto& ua = _BallDynUnwrapper::unwrap(a);
+    auto& ub = _BallDynUnwrapper::unwrap(b);
+    bool a_num = ua.type() == typeid(int64_t) || ua.type() == typeid(double);
+    bool b_num = ub.type() == typeid(int64_t) || ub.type() == typeid(double);
+    if (a_num && b_num) {
+        double da = ua.type() == typeid(int64_t) ? static_cast<double>(std::any_cast<int64_t>(ua)) : std::any_cast<double>(ua);
+        double db = ub.type() == typeid(int64_t) ? static_cast<double>(std::any_cast<int64_t>(ub)) : std::any_cast<double>(ub);
+        return da < db;
+    }
+    return ball_to_string(a) < ball_to_string(b);
+}
+
 // RAII guard implementing Dart `finally` semantics. The cleanup callable runs
 // when the guard leaves scope — on EVERY exit path: normal fall-through, a
 // `return` inside the guarded block, or exception unwinding. C++ has no

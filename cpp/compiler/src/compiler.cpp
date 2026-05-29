@@ -1064,6 +1064,68 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
 }
 
 // ================================================================
+// Map entry sentinel detection helpers
+// ================================================================
+
+// Returns true when the expression is a MessageCreation with empty typeName
+// and exactly two fields named "key" and "value" — the Ball IR encoding of
+// a Dart map literal entry (e.g. `k: v`).
+static bool _isMapEntrySentinel(const ball::v1::Expression& e) {
+    if (e.expr_case() != ball::v1::Expression::kMessageCreation) return false;
+    const auto& mc = e.message_creation();
+    if (!mc.type_name().empty()) return false;
+    if (mc.fields_size() != 2) return false;
+    return mc.fields(0).name() == "key" && mc.fields(1).name() == "value";
+}
+
+// Follows through collection_if/collection_for bodies to determine whether the
+// innermost leaf body produces map entries (key/value MessageCreation sentinels).
+// This lets collection_for/set_create decide at compile time whether to emit
+// map-building or list-building code.
+static bool _bodyProducesMapEntries(const ball::v1::Expression& e) {
+    if (_isMapEntrySentinel(e)) return true;
+    // Unwrap collection_if: look at its "then" field.
+    if (e.expr_case() == ball::v1::Expression::kCall) {
+        const auto& fn = e.call().function();
+        if (fn == "collection_if") {
+            if (e.call().has_input() &&
+                e.call().input().expr_case() == ball::v1::Expression::kMessageCreation) {
+                for (const auto& f : e.call().input().message_creation().fields()) {
+                    if (f.name() == "then") return _bodyProducesMapEntries(f.value());
+                }
+            }
+            return false;
+        }
+        // Unwrap nested collection_for: look at its "body" field.
+        if (fn == "collection_for") {
+            if (e.call().has_input() &&
+                e.call().input().expr_case() == ball::v1::Expression::kMessageCreation) {
+                for (const auto& f : e.call().input().message_creation().fields()) {
+                    if (f.name() == "body") return _bodyProducesMapEntries(f.value());
+                }
+            }
+            return false;
+        }
+    }
+    return false;
+}
+
+// Compile a map entry sentinel (MessageCreation with key/value fields) as a
+// map insertion statement: `__m[ball_to_string(<key>)] = std::any(<value>);`
+// This is used by collection_for/collection_if when they detect map entry
+// bodies.
+std::string CppCompiler::compile_map_entry_insert(const ball::v1::Expression& e,
+                                                    const std::string& map_var) {
+    const auto& mc = e.message_creation();
+    std::string key_expr, val_expr;
+    for (const auto& f : mc.fields()) {
+        if (f.name() == "key") key_expr = compile_expr(f.value());
+        else if (f.name() == "value") val_expr = compile_expr(f.value());
+    }
+    return map_var + "[ball_to_string(" + key_expr + ")] = std::any(BallDyn(" + val_expr + "));";
+}
+
+// ================================================================
 // Function call compilation
 // ================================================================
 
@@ -2085,7 +2147,40 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
 
     // ── Collection constructors that sometimes appear in the std module
     //    rather than std_collections (encoder variation) ──
-    if (fn == "set_create") return "std::vector<std::any>{}";
+    if (fn == "set_create") {
+        // set_create can carry an `elements` field with a list of element
+        // expressions (possibly including collection_for / collection_if).
+        // When those elements produce map entry sentinels (key/value pairs),
+        // this is actually a map comprehension; otherwise it's a set/list.
+        if (call.has_input() &&
+            call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+            const ball::v1::Expression* elements_expr = nullptr;
+            for (const auto& f : call.input().message_creation().fields()) {
+                if (f.name() == "elements") {
+                    elements_expr = &f.value();
+                    break;
+                }
+            }
+            if (elements_expr &&
+                elements_expr->expr_case() == ball::v1::Expression::kLiteral &&
+                elements_expr->literal().value_case() == ball::v1::Literal::kListValue) {
+                const auto& elems = elements_expr->literal().list_value().elements();
+                if (elems.size() == 1) {
+                    // Single element: compile directly (collection_for handles
+                    // map vs list detection internally).
+                    return compile_expr(elems.Get(0));
+                }
+                // Multiple elements: build a list.
+                std::string result = "[&]() -> BallDyn { BallList __r; ";
+                for (const auto& el : elems) {
+                    result += "__r.push_back(std::any(BallDyn(" + compile_expr(el) + "))); ";
+                }
+                result += "return BallDyn(__r); }()";
+                return result;
+            }
+        }
+        return "std::vector<std::any>{}";
+    }
     if (fn == "map_create") {
         // map_create can carry `entries` in input.
         // The Ball IR encodes map literals as:
@@ -2121,6 +2216,10 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                                 result += "__m[ball_to_string(" + key_expr + ")] = std::any(" + val_expr + "); ";
                             }
                         }
+                    } else if (f.name() == "element") {
+                        // Comprehension element (collection_for / collection_if):
+                        // compile it as a statement that inserts into __m.
+                        result += compile_expr(f.value()) + "; ";
                     } else {
                         // Non-entry field: use field name as key
                         result += "__m[\"" + f.name() + "\"] = std::any(" + compile_expr(f.value()) + "); ";
@@ -2274,6 +2373,47 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         return "static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(" + get_message_field(call, "left") +
                ")) >> static_cast<int64_t>(" + get_message_field(call, "right") + "))";
     }
+    // ── collection_if — conditional element in a collection literal ──
+    // When the body is a map entry sentinel, emit a conditional map insertion;
+    // otherwise emit a conditional list push. This handler is used from
+    // within collection_for's IIFE where __m or __r is in scope.
+    if (fn == "collection_if") {
+        auto cond = get_message_field(call, "condition");
+        auto* then_expr = get_message_field_expr(call, "then");
+        auto* else_expr = get_message_field_expr(call, "else");
+        if (then_expr && _bodyProducesMapEntries(*then_expr)) {
+            // Map context: emit conditional map insertions.
+            std::string result = "if (_ball_pred_true(" + cond + ")) { ";
+            if (_isMapEntrySentinel(*then_expr)) {
+                result += compile_map_entry_insert(*then_expr, "__m") + " ";
+            } else {
+                // Nested collection_for/collection_if — compile and execute.
+                result += compile_expr(*then_expr) + "; ";
+            }
+            result += "}";
+            if (else_expr) {
+                result += " else { ";
+                if (_isMapEntrySentinel(*else_expr)) {
+                    result += compile_map_entry_insert(*else_expr, "__m") + " ";
+                } else {
+                    result += compile_expr(*else_expr) + "; ";
+                }
+                result += "}";
+            }
+            return result;
+        }
+        // List/set context: emit conditional list push.
+        if (then_expr) {
+            std::string then_val = compile_expr(*then_expr);
+            std::string result = "if (_ball_pred_true(" + cond + ")) { __r.push_back(std::any(BallDyn(" + then_val + "))); }";
+            if (else_expr) {
+                result += " else { __r.push_back(std::any(BallDyn(" + compile_expr(*else_expr) + "))); }";
+            }
+            return result;
+        }
+        return "/* invalid collection_if */";
+    }
+
     // ── for-in / collection-for as expressions (statement form is handled in
     // compile_statement; these fire when a for-in appears in expression
     // position, e.g. inside a block compiled as an IIFE) ──
@@ -2284,11 +2424,28 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             var_name = var_expr->literal().string_value();
         auto vn = ball_local_var_name(sanitize_name(var_name));
         auto iter = get_message_field(call, "iterable");
-        auto body = get_message_field(call, "body");
         if (fn == "collection_for") {
+            auto* body_expr = get_message_field_expr(call, "body");
+            if (body_expr && _bodyProducesMapEntries(*body_expr)) {
+                // Map comprehension: build a std::map<std::string,std::any>.
+                std::string result = "[&]() -> BallDyn { std::map<std::string,std::any> __m; for (auto " +
+                    vn + " : BallDyn(" + iter + ")) { ";
+                if (_isMapEntrySentinel(*body_expr)) {
+                    // Direct map entry: e.key: e.value
+                    result += compile_map_entry_insert(*body_expr, "__m");
+                } else {
+                    // Nested collection_if or collection_for — compile as
+                    // statements that insert into __m.
+                    result += compile_expr(*body_expr) + ";";
+                }
+                result += " } return BallDyn(__m); }()";
+                return result;
+            }
+            auto body = body_expr ? compile_expr(*body_expr) : "BallDyn()";
             return "[&]() -> BallDyn { BallList __r; for (auto " + vn + " : BallDyn(" + iter +
                    ")) { __r.push_back(std::any(BallDyn(" + body + "))); } return BallDyn(__r); }()";
         }
+        auto body = get_message_field(call, "body");
         return "[&]() -> BallDyn { for (auto " + vn + " : BallDyn(" + iter +
                ")) { (void)(" + body + "); } return BallDyn(); }()";
     }
@@ -5061,7 +5218,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         auto list = get_message_field(call, "list");
         // Sort in place on the shared list (reference semantics) and return the
         // same handle, so `list.sort()` mutates the caller's list.
-        return "[](BallDyn v){if(BallList* l=v._listPtr()){std::sort(l->begin(),l->end(),[](const std::any& a,const std::any& b){return ball_to_string(a)<ball_to_string(b);});}return v;}(" + list + ")";
+        return "[](BallDyn v){if(BallList* l=v._listPtr()){std::sort(l->begin(),l->end(),[](const std::any& a,const std::any& b){return ball_natural_less(a,b);});}return v;}(" + list + ")";
     }
     if (fn == "list_sort_by") {
         auto list = get_message_field(call, "list");

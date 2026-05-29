@@ -3817,7 +3817,7 @@ inline bool has(const BallDyn& scope, const BallDyn& name) {
   auto key = ball_to_string(name);
   if (_ball_scope_has_key(scope, key)) return true;
   auto bindings = scope["_bindings"s];
-  if (bindings.has_value() && BallDyn(bindings)[key].has_value()) return true;
+  if (bindings.has_value() && (BallDyn(bindings))[key].has_value()) return true;
   // Walk parent chain via BallScope shared_ptr
   BallScope parent = _ball_get_parent_scope(scope);
   while (parent) {
@@ -3844,7 +3844,7 @@ inline BallDyn lookup(const BallDyn& scope, const BallDyn& name) {
   // Check _bindings sub-map
   auto bindings = scope["_bindings"s];
   if (bindings.has_value()) {
-    auto val = BallDyn(bindings)[key];
+    auto val = (BallDyn(bindings))[key];
     if (val.has_value()) return val;
   }
   // Walk parent chain via BallScope shared_ptr (sees live mutations)
@@ -5455,7 +5455,9 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "map_get") {
         auto map = get_message_field(call, "map");
         auto key = get_message_field(call, "key");
-        return map + "[" + key + "]";
+        // Parenthesize: when `map` is `BallDyn(ident)`, `BallDyn(ident)[key]` is
+        // the most-vexing-parse under gcc/clang (array declaration of `ident`).
+        return "(" + map + ")[" + key + "]";
     }
     if (fn == "map_set") {
         auto map = get_message_field(call, "map");

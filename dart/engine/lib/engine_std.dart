@@ -1029,11 +1029,13 @@ extension BallEngineStd on BallEngine {
       'regex_replace_all': (i) => _stdRegexReplace(i, true),
 
       // ── Math ─────────────────────────────────────────────────────
-      'math_abs': (i) => _stdConvert(i, (v) => (v as num).abs()),
-      'math_floor': (i) => _stdConvert(i, (v) => (v as num).floor()),
-      'math_ceil': (i) => _stdConvert(i, (v) => (v as num).ceil()),
-      'math_round': (i) => _stdConvert(i, (v) => (v as num).round()),
-      'math_trunc': (i) => _stdConvert(i, (v) => (v as num).truncate()),
+      // Unwrap Ball numeric wrappers (BallDouble/BallInt) via _toNum rather than
+      // a bare `as num` cast, which throws when the value arrives wrapped.
+      'math_abs': (i) => _stdConvert(i, (v) => _toNum(v).abs()),
+      'math_floor': (i) => _stdConvert(i, (v) => _toNum(v).floor()),
+      'math_ceil': (i) => _stdConvert(i, (v) => _toNum(v).ceil()),
+      'math_round': (i) => _stdConvert(i, (v) => _toNum(v).round()),
+      'math_trunc': (i) => _stdConvert(i, (v) => _toNum(v).truncate()),
       'math_sqrt': (i) => _stdMathUnary(i, _mathSqrt),
       'math_pow': (i) => _stdMathBinary(i, _mathPow),
       'math_log': (i) => _stdMathUnary(i, _mathLog),

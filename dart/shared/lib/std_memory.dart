@@ -32,7 +32,7 @@ Module buildStdMemoryModule() {
   // Types
   // ============================================================
 
-  module.types.addAll([
+  module.typeDefs.addAll(<google.DescriptorProto>[
     // Allocation / deallocation
     _type('AllocInput', [_intField('size', 1)]),
     _type('FreeInput', [_intField('address', 1)]),
@@ -77,7 +77,7 @@ Module buildStdMemoryModule() {
     // Address-of / dereference (used before normalization decides safe vs unsafe)
     _type('AddressOfInput', [_exprField('value', 1)]),
     _type('DerefInput', [_exprField('pointer', 1)]),
-  ]);
+  ].map((d) => TypeDefinition()..name = d.name..descriptor = d));
 
   // ============================================================
   // Functions

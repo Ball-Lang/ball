@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 import { compile } from "../src/index.ts";
 import type { Program } from "../src/index.ts";
+import { unwrapBallFile } from "./ball_file.ts";
 
 function findRepoRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -35,8 +36,8 @@ const files = readdirSync(fixturesDir)
 for (const file of files) {
   const name = file.replace(/\.ball\.json$/, "");
   test(`fixture — ${name}`, () => {
-    const program: Program = JSON.parse(
-      readFileSync(join(fixturesDir, file), "utf8"),
+    const program: Program = unwrapBallFile(
+      JSON.parse(readFileSync(join(fixturesDir, file), "utf8")),
     );
     const ts = compile(program);
     const tmpPath = join(tmpdir(), `ball_fixture_${name}_${process.pid}.ts`);

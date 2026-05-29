@@ -1,50 +1,10 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "comprehensive",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        {
-          "name": "PrintInput",
-          "field": [
-            {
-              "name": "message",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        },
-        {
-          "name": "BinaryInput",
-          "field": [
-            {
-              "name": "left",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_INT64"
-            },
-            {
-              "name": "right",
-              "number": 2,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_INT64"
-            }
-          ]
-        },
-        {
-          "name": "UnaryInput",
-          "field": [
-            {
-              "name": "value",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        }
-      ],
       "functions": [
         {
           "name": "concat",
@@ -72,6 +32,10 @@
         },
         {
           "name": "return",
+          "isBase": true
+        },
+        {
+          "name": "map_put_if_absent",
           "isBase": true
         },
         {
@@ -108,10 +72,6 @@
         },
         {
           "name": "null_coalesce",
-          "isBase": true
-        },
-        {
-          "name": "null_aware_access",
           "isBase": true
         },
         {
@@ -159,27 +119,11 @@
           "isBase": true
         },
         {
-          "name": "cascade",
-          "isBase": true
-        },
-        {
-          "name": "collection_for",
-          "isBase": true
-        },
-        {
           "name": "map_create",
           "isBase": true
         },
         {
-          "name": "spread",
-          "isBase": true
-        },
-        {
-          "name": "collection_if",
-          "isBase": true
-        },
-        {
-          "name": "typed_list",
+          "name": "list_push",
           "isBase": true
         },
         {
@@ -193,9 +137,111 @@
         {
           "name": "break",
           "isBase": true
+        },
+        {
+          "name": "list_reverse",
+          "isBase": true
         }
       ],
-      "description": "Standard library base module"
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "dart_std",
+      "functions": [
+        {
+          "name": "null_aware_access",
+          "isBase": true
+        },
+        {
+          "name": "cascade",
+          "isBase": true
+        },
+        {
+          "name": "collection_for",
+          "isBase": true
+        },
+        {
+          "name": "spread",
+          "isBase": true
+        },
+        {
+          "name": "collection_if",
+          "isBase": true
+        },
+        {
+          "name": "typed_list",
+          "isBase": true
+        }
+      ],
+      "description": "Dart-specific standard library base module"
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_push",
+          "isBase": true
+        },
+        {
+          "name": "list_reverse",
+          "isBase": true
+        },
+        {
+          "name": "map_put_if_absent",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "dart.math",
@@ -203,98 +249,6 @@
     },
     {
       "name": "main",
-      "types": [
-        {
-          "name": "Shape"
-        },
-        {
-          "name": "Circle",
-          "field": [
-            {
-              "name": "radius",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_DOUBLE"
-            }
-          ]
-        },
-        {
-          "name": "Rectangle",
-          "field": [
-            {
-              "name": "width",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_DOUBLE"
-            },
-            {
-              "name": "height",
-              "number": 2,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_DOUBLE"
-            }
-          ]
-        },
-        {
-          "name": "Point",
-          "field": [
-            {
-              "name": "x",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_DOUBLE"
-            },
-            {
-              "name": "y",
-              "number": 2,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_DOUBLE"
-            }
-          ]
-        },
-        {
-          "name": "Logger",
-          "field": [
-            {
-              "name": "name",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        },
-        {
-          "name": "Describable"
-        },
-        {
-          "name": "Animal",
-          "field": [
-            {
-              "name": "species",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        },
-        {
-          "name": "Pair",
-          "field": [
-            {
-              "name": "first",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE"
-            },
-            {
-              "name": "second",
-              "number": 2,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE"
-            }
-          ]
-        }
-      ],
       "functions": [
         {
           "name": "pi",
@@ -340,48 +294,8 @@
           }
         },
         {
-          "name": "_meta_IntTransform",
-          "description": "Typedef IntTransform",
-          "isBase": true,
-          "metadata": {
-            "kind": "typedef",
-            "aliased_type": "int Function(int)"
-          }
-        },
-        {
-          "name": "_meta_StringMapper",
-          "description": "Typedef StringMapper",
-          "isBase": true,
-          "metadata": {
-            "kind": "typedef",
-            "aliased_type": "String Function(T)",
-            "type_params": [
-              "T"
-            ]
-          }
-        },
-        {
-          "name": "_meta_Color",
-          "description": "Enum metadata for Color",
-          "isBase": true,
-          "metadata": {
-            "kind": "enum",
-            "values": [
-              {
-                "name": "red"
-              },
-              {
-                "name": "green"
-              },
-              {
-                "name": "blue"
-              }
-            ]
-          }
-        },
-        {
-          "name": "Planet.new",
-          "outputType": "Planet",
+          "name": "main:Planet.new",
+          "outputType": "main:Planet",
           "metadata": {
             "kind": "constructor",
             "is_const": true,
@@ -394,7 +308,7 @@
           }
         },
         {
-          "name": "Planet.describe",
+          "name": "main:Planet.describe",
           "outputType": "String",
           "body": {
             "call": {
@@ -487,36 +401,7 @@
           }
         },
         {
-          "name": "_meta_Planet",
-          "description": "Enum metadata for Planet",
-          "isBase": true,
-          "metadata": {
-            "kind": "enum",
-            "fields": [
-              {
-                "name": "gravity",
-                "type": "double",
-                "is_final": true
-              }
-            ],
-            "values": [
-              {
-                "name": "mercury",
-                "args": "(3.7)"
-              },
-              {
-                "name": "venus",
-                "args": "(8.87)"
-              },
-              {
-                "name": "earth",
-                "args": "(9.81)"
-              }
-            ]
-          }
-        },
-        {
-          "name": "Shape.area",
+          "name": "main:Shape.area",
           "outputType": "double",
           "metadata": {
             "kind": "method",
@@ -524,7 +409,7 @@
           }
         },
         {
-          "name": "Shape.describe",
+          "name": "main:Shape.describe",
           "outputType": "String",
           "body": {
             "call": {
@@ -601,17 +486,8 @@
           }
         },
         {
-          "name": "_meta_Shape",
-          "description": "Class metadata for Shape",
-          "isBase": true,
-          "metadata": {
-            "kind": "class",
-            "is_abstract": true
-          }
-        },
-        {
-          "name": "Circle.new",
-          "outputType": "Circle",
+          "name": "main:Circle.new",
+          "outputType": "main:Circle",
           "metadata": {
             "kind": "constructor",
             "params": [
@@ -623,7 +499,7 @@
           }
         },
         {
-          "name": "Circle.area",
+          "name": "main:Circle.area",
           "outputType": "double",
           "body": {
             "call": {
@@ -680,11 +556,14 @@
           },
           "metadata": {
             "kind": "method",
-            "expression_body": true
+            "expression_body": true,
+            "annotations": [
+              "override"
+            ]
           }
         },
         {
-          "name": "Circle.describe",
+          "name": "main:Circle.describe",
           "outputType": "String",
           "body": {
             "call": {
@@ -821,28 +700,15 @@
           },
           "metadata": {
             "kind": "method",
-            "expression_body": true
-          }
-        },
-        {
-          "name": "_meta_Circle",
-          "description": "Class metadata for Circle",
-          "isBase": true,
-          "metadata": {
-            "kind": "class",
-            "superclass": "Shape",
-            "fields": [
-              {
-                "name": "radius",
-                "type": "double",
-                "is_final": true
-              }
+            "expression_body": true,
+            "annotations": [
+              "override"
             ]
           }
         },
         {
-          "name": "Rectangle.new",
-          "outputType": "Rectangle",
+          "name": "main:Rectangle.new",
+          "outputType": "main:Rectangle",
           "metadata": {
             "kind": "constructor",
             "params": [
@@ -858,7 +724,7 @@
           }
         },
         {
-          "name": "Rectangle.area",
+          "name": "main:Rectangle.area",
           "outputType": "double",
           "body": {
             "call": {
@@ -891,33 +757,15 @@
           },
           "metadata": {
             "kind": "method",
-            "expression_body": true
-          }
-        },
-        {
-          "name": "_meta_Rectangle",
-          "description": "Class metadata for Rectangle",
-          "isBase": true,
-          "metadata": {
-            "kind": "class",
-            "superclass": "Shape",
-            "fields": [
-              {
-                "name": "width",
-                "type": "double",
-                "is_final": true
-              },
-              {
-                "name": "height",
-                "type": "double",
-                "is_final": true
-              }
+            "expression_body": true,
+            "annotations": [
+              "override"
             ]
           }
         },
         {
-          "name": "Point.new",
-          "outputType": "Point",
+          "name": "main:Point.new",
+          "outputType": "main:Point",
           "metadata": {
             "kind": "constructor",
             "params": [
@@ -933,8 +781,8 @@
           }
         },
         {
-          "name": "Point.origin",
-          "outputType": "Point",
+          "name": "main:Point.origin",
+          "outputType": "main:Point",
           "metadata": {
             "kind": "constructor",
             "initializers": [
@@ -952,8 +800,8 @@
           }
         },
         {
-          "name": "Point.fromList",
-          "outputType": "Point",
+          "name": "main:Point.fromList",
+          "outputType": "main:Point",
           "metadata": {
             "kind": "constructor",
             "initializers": [
@@ -977,7 +825,7 @@
           }
         },
         {
-          "name": "Point.distanceTo",
+          "name": "main:Point.distanceTo",
           "inputType": "Point",
           "outputType": "double",
           "body": {
@@ -1158,7 +1006,7 @@
           }
         },
         {
-          "name": "Point.toString",
+          "name": "main:Point.toString",
           "outputType": "String",
           "body": {
             "call": {
@@ -1295,31 +1143,14 @@
           },
           "metadata": {
             "kind": "method",
-            "expression_body": true
-          }
-        },
-        {
-          "name": "_meta_Point",
-          "description": "Class metadata for Point",
-          "isBase": true,
-          "metadata": {
-            "kind": "class",
-            "fields": [
-              {
-                "name": "x",
-                "type": "double",
-                "is_final": true
-              },
-              {
-                "name": "y",
-                "type": "double",
-                "is_final": true
-              }
+            "expression_body": true,
+            "annotations": [
+              "override"
             ]
           }
         },
         {
-          "name": "Logger._cache",
+          "name": "main:Logger._cache",
           "outputType": "Map<String, Logger>",
           "body": {
             "call": {
@@ -1348,8 +1179,8 @@
           }
         },
         {
-          "name": "Logger._internal",
-          "outputType": "Logger",
+          "name": "main:Logger._internal",
+          "outputType": "main:Logger",
           "metadata": {
             "kind": "constructor",
             "params": [
@@ -1361,8 +1192,8 @@
           }
         },
         {
-          "name": "Logger.new",
-          "outputType": "Logger",
+          "name": "main:Logger.new",
+          "outputType": "main:Logger",
           "body": {
             "call": {
               "module": "std",
@@ -1375,12 +1206,13 @@
                       "name": "value",
                       "value": {
                         "call": {
-                          "function": "putIfAbsent",
+                          "module": "std_collections",
+                          "function": "map_put_if_absent",
                           "input": {
                             "messageCreation": {
                               "fields": [
                                 {
-                                  "name": "self",
+                                  "name": "map",
                                   "value": {
                                     "reference": {
                                       "name": "_cache"
@@ -1388,7 +1220,7 @@
                                   }
                                 },
                                 {
-                                  "name": "arg0",
+                                  "name": "key",
                                   "value": {
                                     "reference": {
                                       "name": "name"
@@ -1396,7 +1228,7 @@
                                   }
                                 },
                                 {
-                                  "name": "arg1",
+                                  "name": "value",
                                   "value": {
                                     "lambda": {
                                       "name": "",
@@ -1429,7 +1261,8 @@
                                       },
                                       "metadata": {
                                         "kind": "lambda",
-                                        "expression_body": true
+                                        "expression_body": true,
+                                        "has_return": true
                                       }
                                     }
                                   }
@@ -1457,8 +1290,9 @@
           }
         },
         {
-          "name": "Logger.log",
+          "name": "main:Logger.log",
           "inputType": "String",
+          "outputType": "void",
           "body": {
             "call": {
               "module": "std",
@@ -1595,22 +1429,7 @@
           }
         },
         {
-          "name": "_meta_Logger",
-          "description": "Class metadata for Logger",
-          "isBase": true,
-          "metadata": {
-            "kind": "class",
-            "fields": [
-              {
-                "name": "name",
-                "type": "String",
-                "is_final": true
-              }
-            ]
-          }
-        },
-        {
-          "name": "Describable.describe",
+          "name": "main:Describable.describe",
           "outputType": "String",
           "metadata": {
             "kind": "method",
@@ -1618,7 +1437,8 @@
           }
         },
         {
-          "name": "Describable.printDescription",
+          "name": "main:Describable.printDescription",
+          "outputType": "void",
           "body": {
             "call": {
               "module": "std",
@@ -1645,16 +1465,8 @@
           }
         },
         {
-          "name": "_meta_Describable",
-          "description": "Mixin metadata for Describable",
-          "isBase": true,
-          "metadata": {
-            "kind": "mixin"
-          }
-        },
-        {
-          "name": "Animal.new",
-          "outputType": "Animal",
+          "name": "main:Animal.new",
+          "outputType": "main:Animal",
           "metadata": {
             "kind": "constructor",
             "params": [
@@ -1666,7 +1478,7 @@
           }
         },
         {
-          "name": "Animal.describe",
+          "name": "main:Animal.describe",
           "outputType": "String",
           "body": {
             "call": {
@@ -1715,29 +1527,14 @@
           },
           "metadata": {
             "kind": "method",
-            "expression_body": true
-          }
-        },
-        {
-          "name": "_meta_Animal",
-          "description": "Class metadata for Animal",
-          "isBase": true,
-          "metadata": {
-            "kind": "class",
-            "mixins": [
-              "Describable"
-            ],
-            "fields": [
-              {
-                "name": "species",
-                "type": "String",
-                "is_final": true
-              }
+            "expression_body": true,
+            "annotations": [
+              "override"
             ]
           }
         },
         {
-          "name": "StringUtils.reversed",
+          "name": "main:StringUtils.reversed",
           "outputType": "String",
           "body": {
             "block": {
@@ -1764,8 +1561,8 @@
                   "let": {
                     "name": "buffer",
                     "value": {
-                      "call": {
-                        "function": "StringBuffer"
+                      "messageCreation": {
+                        "typeName": "main:StringBuffer"
                       }
                     },
                     "metadata": {
@@ -1785,8 +1582,51 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "var i = chars.length - 1"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "i",
+                                        "value": {
+                                          "call": {
+                                            "module": "std",
+                                            "function": "subtract",
+                                            "input": {
+                                              "messageCreation": {
+                                                "typeName": "",
+                                                "fields": [
+                                                  {
+                                                    "name": "left",
+                                                    "value": {
+                                                      "fieldAccess": {
+                                                        "object": {
+                                                          "reference": {
+                                                            "name": "chars"
+                                                          }
+                                                        },
+                                                        "field": "length"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "name": "right",
+                                                    "value": {
+                                                      "literal": {
+                                                        "intValue": "1"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },
@@ -1935,7 +1775,7 @@
           }
         },
         {
-          "name": "StringUtils.isPalindrome",
+          "name": "main:StringUtils.isPalindrome",
           "outputType": "bool",
           "body": {
             "call": {
@@ -1973,15 +1813,6 @@
           }
         },
         {
-          "name": "_meta_StringUtils",
-          "description": "Extension metadata for StringUtils",
-          "isBase": true,
-          "metadata": {
-            "kind": "extension",
-            "on": "String"
-          }
-        },
-        {
           "name": "identity",
           "inputType": "T",
           "outputType": "T",
@@ -2005,8 +1836,8 @@
           }
         },
         {
-          "name": "Pair.new",
-          "outputType": "Pair",
+          "name": "main:Pair.new",
+          "outputType": "main:Pair",
           "metadata": {
             "kind": "constructor",
             "params": [
@@ -2022,7 +1853,7 @@
           }
         },
         {
-          "name": "Pair.toString",
+          "name": "main:Pair.toString",
           "outputType": "String",
           "body": {
             "call": {
@@ -2159,30 +1990,9 @@
           },
           "metadata": {
             "kind": "method",
-            "expression_body": true
-          }
-        },
-        {
-          "name": "_meta_Pair",
-          "description": "Class metadata for Pair",
-          "isBase": true,
-          "metadata": {
-            "kind": "class",
-            "type_params": [
-              "A",
-              "B"
-            ],
-            "fields": [
-              {
-                "name": "first",
-                "type": "A",
-                "is_final": true
-              },
-              {
-                "name": "second",
-                "type": "B",
-                "is_final": true
-              }
+            "expression_body": true,
+            "annotations": [
+              "override"
             ]
           }
         },
@@ -2525,7 +2335,7 @@
                       "name": "left",
                       "value": {
                         "call": {
-                          "module": "std",
+                          "module": "dart_std",
                           "function": "null_aware_access",
                           "input": {
                             "messageCreation": {
@@ -2621,6 +2431,24 @@
                                           "stringValue": "zero"
                                         }
                                       }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "ConstPattern",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "0"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
                                     }
                                   ]
                                 }
@@ -2643,6 +2471,24 @@
                                           "stringValue": "one"
                                         }
                                       }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "ConstPattern",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "1"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
                                     }
                                   ]
                                 }
@@ -2663,6 +2509,24 @@
                                       "value": {
                                         "literal": {
                                           "stringValue": "two"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "ConstPattern",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "2"
+                                                }
+                                              }
+                                            }
+                                          ]
                                         }
                                       }
                                     }
@@ -2725,6 +2589,14 @@
                                               ]
                                             }
                                           }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "WildcardPattern"
                                         }
                                       }
                                     }
@@ -2827,13 +2699,18 @@
                                                             {
                                                               "name": "value",
                                                               "value": {
-                                                                "call": {
-                                                                  "function": "ArgumentError",
-                                                                  "input": {
-                                                                    "literal": {
-                                                                      "stringValue": "Division by zero"
+                                                                "messageCreation": {
+                                                                  "typeName": "main:ArgumentError",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "arg0",
+                                                                      "value": {
+                                                                        "literal": {
+                                                                          "stringValue": "Division by zero"
+                                                                        }
+                                                                      }
                                                                     }
-                                                                  }
+                                                                  ]
                                                                 }
                                                               }
                                                             }
@@ -3204,6 +3081,14 @@
                               "value": {
                                 "literal": {
                                   "stringValue": "item"
+                                }
+                              }
+                            },
+                            {
+                              "name": "variable_keyword",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "final"
                                 }
                               }
                             },
@@ -3738,7 +3623,7 @@
                     "name": "sb",
                     "value": {
                       "call": {
-                        "module": "std",
+                        "module": "dart_std",
                         "function": "cascade",
                         "input": {
                           "messageCreation": {
@@ -3747,8 +3632,8 @@
                               {
                                 "name": "target",
                                 "value": {
-                                  "call": {
-                                    "function": "StringBuffer"
+                                  "messageCreation": {
+                                    "typeName": "main:StringBuffer"
                                   }
                                 }
                               },
@@ -3762,8 +3647,25 @@
                                           "call": {
                                             "function": "write",
                                             "input": {
-                                              "literal": {
-                                                "stringValue": "a"
+                                              "messageCreation": {
+                                                "fields": [
+                                                  {
+                                                    "name": "self",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "__cascade_self__"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "name": "arg0",
+                                                    "value": {
+                                                      "literal": {
+                                                        "stringValue": "a"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
                                               }
                                             }
                                           }
@@ -3772,8 +3674,25 @@
                                           "call": {
                                             "function": "write",
                                             "input": {
-                                              "literal": {
-                                                "stringValue": "b"
+                                              "messageCreation": {
+                                                "fields": [
+                                                  {
+                                                    "name": "self",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "__cascade_self__"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "name": "arg0",
+                                                    "value": {
+                                                      "literal": {
+                                                        "stringValue": "b"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
                                               }
                                             }
                                           }
@@ -3782,8 +3701,25 @@
                                           "call": {
                                             "function": "write",
                                             "input": {
-                                              "literal": {
-                                                "stringValue": "c"
+                                              "messageCreation": {
+                                                "fields": [
+                                                  {
+                                                    "name": "self",
+                                                    "value": {
+                                                      "reference": {
+                                                        "name": "__cascade_self__"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "name": "arg0",
+                                                    "value": {
+                                                      "literal": {
+                                                        "stringValue": "c"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
                                               }
                                             }
                                           }
@@ -3841,7 +3777,7 @@
                 "elements": [
                   {
                     "call": {
-                      "module": "std",
+                      "module": "dart_std",
                       "function": "collection_for",
                       "input": {
                         "messageCreation": {
@@ -4078,7 +4014,7 @@
                 "elements": [
                   {
                     "call": {
-                      "module": "std",
+                      "module": "dart_std",
                       "function": "spread",
                       "input": {
                         "messageCreation": {
@@ -4099,7 +4035,7 @@
                   },
                   {
                     "call": {
-                      "module": "std",
+                      "module": "dart_std",
                       "function": "spread",
                       "input": {
                         "messageCreation": {
@@ -4152,7 +4088,7 @@
                   },
                   {
                     "call": {
-                      "module": "std",
+                      "module": "dart_std",
                       "function": "collection_if",
                       "input": {
                         "messageCreation": {
@@ -4423,6 +4359,7 @@
               "metadata": {
                 "kind": "lambda",
                 "expression_body": true,
+                "has_return": true,
                 "params": [
                   {
                     "name": "x",
@@ -4454,7 +4391,7 @@
                     "name": "result",
                     "value": {
                       "call": {
-                        "module": "std",
+                        "module": "dart_std",
                         "function": "typed_list",
                         "input": {
                           "messageCreation": {
@@ -4504,6 +4441,14 @@
                               }
                             },
                             {
+                              "name": "variable_keyword",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "final"
+                                }
+                              }
+                            },
+                            {
                               "name": "iterable",
                               "value": {
                                 "reference": {
@@ -4515,12 +4460,13 @@
                               "name": "body",
                               "value": {
                                 "call": {
-                                  "function": "add",
+                                  "module": "std",
+                                  "function": "assign",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "target",
                                           "value": {
                                             "reference": {
                                               "name": "result"
@@ -4528,13 +4474,36 @@
                                           }
                                         },
                                         {
-                                          "name": "arg0",
+                                          "name": "value",
                                           "value": {
                                             "call": {
-                                              "function": "fn",
+                                              "module": "std_collections",
+                                              "function": "list_push",
                                               "input": {
-                                                "reference": {
-                                                  "name": "item"
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "list",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "result"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "call": {
+                                                          "function": "fn",
+                                                          "input": {
+                                                            "reference": {
+                                                              "name": "item"
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
                                                 }
                                               }
                                             }
@@ -4759,8 +4728,22 @@
                                                 {
                                                   "name": "init",
                                                   "value": {
-                                                    "literal": {
-                                                      "stringValue": "var i = 0"
+                                                    "block": {
+                                                      "statements": [
+                                                        {
+                                                          "let": {
+                                                            "name": "i",
+                                                            "value": {
+                                                              "literal": {
+                                                                "intValue": "0"
+                                                              }
+                                                            },
+                                                            "metadata": {
+                                                              "keyword": "var"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
                                                     }
                                                   }
                                                 },
@@ -4837,8 +4820,22 @@
                                                                     {
                                                                       "name": "init",
                                                                       "value": {
-                                                                        "literal": {
-                                                                          "stringValue": "var j = 0"
+                                                                        "block": {
+                                                                          "statements": [
+                                                                            {
+                                                                              "let": {
+                                                                                "name": "j",
+                                                                                "value": {
+                                                                                  "literal": {
+                                                                                    "intValue": "0"
+                                                                                  }
+                                                                                },
+                                                                                "metadata": {
+                                                                                  "keyword": "var"
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
                                                                         }
                                                                       }
                                                                     },
@@ -5105,6 +5102,7 @@
         },
         {
           "name": "main",
+          "outputType": "void",
           "body": {
             "block": {
               "statements": [
@@ -5434,13 +5432,18 @@
                   "let": {
                     "name": "circle",
                     "value": {
-                      "call": {
-                        "function": "Circle",
-                        "input": {
-                          "literal": {
-                            "doubleValue": 5
+                      "messageCreation": {
+                        "typeName": "main:Circle",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "doubleValue": 5
+                              }
+                            }
                           }
-                        }
+                        ]
                       }
                     },
                     "metadata": {
@@ -5489,30 +5492,26 @@
                   "let": {
                     "name": "rect",
                     "value": {
-                      "call": {
-                        "function": "Rectangle",
-                        "input": {
-                          "messageCreation": {
-                            "fields": [
-                              {
-                                "name": "arg0",
-                                "value": {
-                                  "literal": {
-                                    "doubleValue": 3
-                                  }
-                                }
-                              },
-                              {
-                                "name": "arg1",
-                                "value": {
-                                  "literal": {
-                                    "doubleValue": 4
-                                  }
-                                }
+                      "messageCreation": {
+                        "typeName": "main:Rectangle",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "doubleValue": 3
                               }
-                            ]
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "doubleValue": 4
+                              }
+                            }
                           }
-                        }
+                        ]
                       }
                     },
                     "metadata": {
@@ -5577,30 +5576,26 @@
                   "let": {
                     "name": "p1",
                     "value": {
-                      "call": {
-                        "function": "Point",
-                        "input": {
-                          "messageCreation": {
-                            "fields": [
-                              {
-                                "name": "arg0",
-                                "value": {
-                                  "literal": {
-                                    "doubleValue": 3
-                                  }
-                                }
-                              },
-                              {
-                                "name": "arg1",
-                                "value": {
-                                  "literal": {
-                                    "doubleValue": 4
-                                  }
-                                }
+                      "messageCreation": {
+                        "typeName": "main:Point",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "doubleValue": 3
                               }
-                            ]
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "doubleValue": 4
+                              }
+                            }
                           }
-                        }
+                        ]
                       }
                     },
                     "metadata": {
@@ -5778,13 +5773,18 @@
                   "let": {
                     "name": "log1",
                     "value": {
-                      "call": {
-                        "function": "Logger",
-                        "input": {
-                          "literal": {
-                            "stringValue": "test"
+                      "messageCreation": {
+                        "typeName": "main:Logger",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "stringValue": "test"
+                              }
+                            }
                           }
-                        }
+                        ]
                       }
                     },
                     "metadata": {
@@ -5825,13 +5825,18 @@
                   "let": {
                     "name": "animal",
                     "value": {
-                      "call": {
-                        "function": "Animal",
-                        "input": {
-                          "literal": {
-                            "stringValue": "Cat"
+                      "messageCreation": {
+                        "typeName": "main:Animal",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "stringValue": "Cat"
+                              }
+                            }
                           }
-                        }
+                        ]
                       }
                     },
                     "metadata": {
@@ -5889,12 +5894,13 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "reversed",
+                                  "module": "std_collections",
+                                  "function": "list_reverse",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "self",
+                                          "name": "list",
                                           "value": {
                                             "literal": {
                                               "stringValue": "hello"
@@ -6023,30 +6029,26 @@
                                         {
                                           "name": "value",
                                           "value": {
-                                            "call": {
-                                              "function": "Pair",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "fields": [
-                                                    {
-                                                      "name": "arg0",
-                                                      "value": {
-                                                        "literal": {
-                                                          "stringValue": "a"
-                                                        }
-                                                      }
-                                                    },
-                                                    {
-                                                      "name": "arg1",
-                                                      "value": {
-                                                        "literal": {
-                                                          "intValue": "1"
-                                                        }
-                                                      }
+                                            "messageCreation": {
+                                              "typeName": "main:Pair",
+                                              "fields": [
+                                                {
+                                                  "name": "arg0",
+                                                  "value": {
+                                                    "literal": {
+                                                      "stringValue": "a"
                                                     }
-                                                  ]
+                                                  }
+                                                },
+                                                {
+                                                  "name": "arg1",
+                                                  "value": {
+                                                    "literal": {
+                                                      "intValue": "1"
+                                                    }
+                                                  }
                                                 }
-                                              }
+                                              ]
                                             }
                                           }
                                         }
@@ -7411,6 +7413,17 @@
           }
         }
       ],
+      "moduleImports": [
+        {
+          "name": "std"
+        },
+        {
+          "name": "dart_std"
+        },
+        {
+          "name": "dart.math"
+        }
+      ],
       "metadata": {
         "dart_imports": [
           {
@@ -7424,7 +7437,7 @@
       },
       "enums": [
         {
-          "name": "Color",
+          "name": "main:Color",
           "value": [
             {
               "name": "red",
@@ -7441,7 +7454,7 @@
           ]
         },
         {
-          "name": "Planet",
+          "name": "main:Planet",
           "value": [
             {
               "name": "mercury",
@@ -7458,12 +7471,307 @@
           ]
         }
       ],
-      "moduleImports": [
+      "typeDefs": [
         {
-          "name": "std"
+          "name": "main:Color",
+          "description": "Enum metadata for main:Color",
+          "metadata": {
+            "kind": "enum",
+            "values": [
+              {
+                "name": "red"
+              },
+              {
+                "name": "green"
+              },
+              {
+                "name": "blue"
+              }
+            ]
+          }
         },
         {
-          "name": "dart.math"
+          "name": "main:Planet",
+          "description": "Enum metadata for main:Planet",
+          "metadata": {
+            "kind": "enum",
+            "fields": [
+              {
+                "name": "gravity",
+                "type": "double",
+                "is_final": true
+              }
+            ],
+            "values": [
+              {
+                "name": "mercury",
+                "args": "(3.7)"
+              },
+              {
+                "name": "venus",
+                "args": "(8.87)"
+              },
+              {
+                "name": "earth",
+                "args": "(9.81)"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Shape",
+          "descriptor": {
+            "name": "main:Shape"
+          },
+          "description": "Class metadata for main:Shape",
+          "metadata": {
+            "kind": "class",
+            "is_abstract": true
+          }
+        },
+        {
+          "name": "main:Circle",
+          "descriptor": {
+            "name": "main:Circle",
+            "field": [
+              {
+                "name": "radius",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_DOUBLE"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Circle",
+          "metadata": {
+            "kind": "class",
+            "superclass": "Shape",
+            "fields": [
+              {
+                "name": "radius",
+                "type": "double",
+                "is_final": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Rectangle",
+          "descriptor": {
+            "name": "main:Rectangle",
+            "field": [
+              {
+                "name": "width",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_DOUBLE"
+              },
+              {
+                "name": "height",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_DOUBLE"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Rectangle",
+          "metadata": {
+            "kind": "class",
+            "superclass": "Shape",
+            "fields": [
+              {
+                "name": "width",
+                "type": "double",
+                "is_final": true
+              },
+              {
+                "name": "height",
+                "type": "double",
+                "is_final": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Point",
+          "descriptor": {
+            "name": "main:Point",
+            "field": [
+              {
+                "name": "x",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_DOUBLE"
+              },
+              {
+                "name": "y",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_DOUBLE"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Point",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "x",
+                "type": "double",
+                "is_final": true
+              },
+              {
+                "name": "y",
+                "type": "double",
+                "is_final": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Logger",
+          "descriptor": {
+            "name": "main:Logger",
+            "field": [
+              {
+                "name": "name",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Logger",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "name",
+                "type": "String",
+                "is_final": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Describable",
+          "descriptor": {
+            "name": "main:Describable"
+          },
+          "description": "Mixin metadata for main:Describable",
+          "metadata": {
+            "kind": "mixin"
+          }
+        },
+        {
+          "name": "main:Animal",
+          "descriptor": {
+            "name": "main:Animal",
+            "field": [
+              {
+                "name": "species",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Animal",
+          "metadata": {
+            "kind": "class",
+            "mixins": [
+              "Describable"
+            ],
+            "fields": [
+              {
+                "name": "species",
+                "type": "String",
+                "is_final": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:StringUtils",
+          "description": "Extension metadata for main:StringUtils",
+          "metadata": {
+            "kind": "extension",
+            "on": "String"
+          }
+        },
+        {
+          "name": "main:Pair",
+          "descriptor": {
+            "name": "main:Pair",
+            "field": [
+              {
+                "name": "first",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              },
+              {
+                "name": "second",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              }
+            ]
+          },
+          "typeParams": [
+            {
+              "name": "A"
+            },
+            {
+              "name": "B"
+            }
+          ],
+          "description": "Class metadata for main:Pair",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "first",
+                "type": "A",
+                "is_final": true
+              },
+              {
+                "name": "second",
+                "type": "B",
+                "is_final": true
+              }
+            ],
+            "type_params": [
+              "A",
+              "B"
+            ]
+          }
+        }
+      ],
+      "typeAliases": [
+        {
+          "name": "IntTransform",
+          "targetType": "int Function(int)",
+          "metadata": {
+            "kind": "typedef",
+            "aliased_type": "int Function(int)"
+          }
+        },
+        {
+          "name": "StringMapper",
+          "targetType": "String Function(T)",
+          "typeParams": [
+            {
+              "name": "T"
+            }
+          ],
+          "metadata": {
+            "kind": "typedef",
+            "aliased_type": "String Function(T)",
+            "type_params": [
+              "T"
+            ]
+          }
         }
       ]
     }

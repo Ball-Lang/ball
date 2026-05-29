@@ -20,7 +20,7 @@ Ball's Dart implementation is a workspace with 5 packages:
 - `DartCompiler.compile(Program)` → returns formatted Dart source string
 - Base functions are dispatched in `_compileBaseCall()` — extract fields from `MessageCreation` input
 - Control flow (if, for, while) must use LAZY evaluation — extract expression trees, don't evaluate eagerly
-- Types are emitted from `typeDefs[]` (preferred) or legacy `types[]` + `_meta_*` functions
+- Types are emitted from `typeDefs[]` only (a `TypeDefinition` = descriptor + metadata); the legacy `types[]`/`_meta_*` path was removed
 
 ### Encoder
 - `DartEncoder.encode(String source)` → returns Ball `Program`

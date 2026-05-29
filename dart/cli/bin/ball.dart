@@ -21,6 +21,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ball_base/ball_base.dart'
+    show decodeProgramJson, encodeBallFileBinary, encodeBallFileJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_base/capability_analyzer.dart';
 import 'package:ball_base/termination_analyzer.dart';
@@ -153,9 +155,6 @@ void _info(List<String> args) {
   for (final module in program.modules) {
     final isBase = module.functions.every((f) => f.isBase);
     stdout.writeln('  ${module.name}${isBase ? " (base)" : ""}');
-    if (module.types.isNotEmpty) {
-      stdout.writeln('    types:     ${module.types.length}');
-    }
     if (module.typeDefs.isNotEmpty) {
       stdout.writeln('    typeDefs:  ${module.typeDefs.length}');
     }
@@ -334,7 +333,7 @@ void _encode(List<String> args) {
   final output = _parseOption(args, 'output');
 
   if (format == 'binary') {
-    final bytes = program.writeToBuffer();
+    final bytes = encodeBallFileBinary(program);
     if (output.isNotEmpty) {
       File(output).writeAsBytesSync(bytes);
       stderr.writeln('Encoded to $output (binary, ${bytes.length} bytes)');
@@ -344,7 +343,7 @@ void _encode(List<String> args) {
   } else {
     final jsonStr = const JsonEncoder.withIndent(
       '  ',
-    ).convert(program.toProto3Json());
+    ).convert(encodeBallFileJson(program));
     if (output.isNotEmpty) {
       File(output).writeAsStringSync(jsonStr);
       stderr.writeln('Encoded to $output (JSON)');
@@ -444,15 +443,15 @@ Program _loadProgram(String path) {
     stderr.writeln('Error reading file: $e');
     exit(1);
   }
-  final Map<String, dynamic> jsonData;
+  final Object? jsonData;
   try {
-    jsonData = json.decode(jsonString) as Map<String, dynamic>;
+    jsonData = json.decode(jsonString);
   } catch (e) {
     stderr.writeln('Error parsing JSON: $e');
     exit(1);
   }
   try {
-    return Program()..mergeFromProto3Json(jsonData);
+    return decodeProgramJson(jsonData);
   } catch (e) {
     stderr.writeln('Error deserializing ball program: $e');
     exit(1);
@@ -573,9 +572,7 @@ void _build(List<String> args) {
     );
     if (outputPath != null) {
       File(outputPath).writeAsStringSync(
-        const JsonEncoder.withIndent(
-          '  ',
-        ).convert(jsonDecode(jsonEncode(program.toProto3Json()))),
+        const JsonEncoder.withIndent('  ').convert(encodeBallFileJson(program)),
       );
     }
     return;
@@ -614,7 +611,7 @@ void _build(List<String> args) {
       for (final m in prog.modules) {
         if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty)
           continue;
-        if (m.functions.isEmpty && m.typeDefs.isEmpty && m.types.isEmpty)
+        if (m.functions.isEmpty && m.typeDefs.isEmpty)
           continue;
         stderr.writeln('OK');
         return m;
@@ -635,7 +632,7 @@ void _build(List<String> args) {
       .then((resolved) {
         final jsonOut = const JsonEncoder.withIndent(
           '  ',
-        ).convert(jsonDecode(jsonEncode(resolved.toProto3Json())));
+        ).convert(encodeBallFileJson(resolved));
         if (outputPath != null) {
           File(outputPath).writeAsStringSync(jsonOut);
           stderr.writeln('Resolved program written to $outputPath');
@@ -847,7 +844,7 @@ Future<void> _resolve(List<String> args) async {
       for (final m in program.modules) {
         if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty)
           continue;
-        if (m.functions.isEmpty && m.typeDefs.isEmpty && m.types.isEmpty)
+        if (m.functions.isEmpty && m.typeDefs.isEmpty)
           continue;
         return m;
       }
@@ -946,16 +943,16 @@ void _writeArtifacts(Program program) {
   final libDir = Directory('lib');
   if (!libDir.existsSync()) libDir.createSync(recursive: true);
 
-  // Binary protobuf
+  // Binary protobuf (self-describing Any envelope).
   final binFile = File('lib/module.ball.bin');
-  binFile.writeAsBytesSync(program.writeToBuffer());
+  binFile.writeAsBytesSync(encodeBallFileBinary(program));
   stderr.writeln('  Wrote lib/module.ball.bin (${binFile.lengthSync()} bytes)');
 
-  // JSON (for human inspection / debugging)
+  // JSON (for human inspection / debugging).
   final jsonFile = File('lib/module.ball.json');
   final jsonStr = const JsonEncoder.withIndent(
     '  ',
-  ).convert(jsonDecode(jsonEncode(program.toProto3Json())));
+  ).convert(encodeBallFileJson(program));
   jsonFile.writeAsStringSync(jsonStr);
   stderr.writeln(
     '  Wrote lib/module.ball.json (${jsonFile.lengthSync()} bytes)',

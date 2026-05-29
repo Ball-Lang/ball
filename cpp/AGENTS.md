@@ -1,38 +1,30 @@
 # C++ Implementation Agents
 
-**Generated:** 2026-05-05 | **Commit:** e9d2668 | **Branch:** main
-
-When working in the C++ codebase. The C++ implementation is a **prototype** — Dart is the reference.
+When working in the C++ codebase. The C++ implementation is a **prototype** — Dart is the reference. C++ runs the **self-hosted** engine (`dart/self_host/lib/engine_rt.cpp`, generated from the Dart engine); there is no native C++ engine.
 
 ## Critical Context
 
-- Tests exist across engine + compiler (see `cpp/test/`)
-- Several features are BROKEN or STUBBED (see below)
+- The C++ build produces the compiler (`ball_cpp_compile`) and encoder (`ball_cpp_encode`); the engine is the self-hosted `dart/self_host/lib/engine_rt.cpp`
+- Tests exist across compiler, encoder, and self-host conformance (see `cpp/test/`)
+- Several features are STUBBED or have silent-correctness gaps — tracked in `docs/SELF_HOST_STATUS.md`
 - This is prototype-quality code, not production-ready
 
-## Build
+## Build & Test
 
-```bash
-cd cpp/build && cmake .. && cmake --build .
-```
+Commands: see CLAUDE.md → Build & Test (canonical) and `.claude/rules/cpp.md` for the self-host build/regeneration flow.
 
-## Test
-
-**Prefer conformance tests over unit tests.** The conformance suite (`test_conformance`, `test_selfhost_conformance`) validates against shared `.ball.json` fixtures — same programs tested across Dart, C++, and TS engines. Unit tests should be minimal.
+**Prefer conformance tests over unit tests.** The conformance suite validates against shared `.ball.json` fixtures — the same programs tested across the Dart, C++ (self-hosted), and TS engines. Unit tests should be minimal.
 
 ```bash
 cd cpp/build && cmake .. && cmake --build . && ctest --output-on-failure
-# Conformance (highest value — validates against shared fixtures):
-ctest -R conformance_tests
-ctest -R test_selfhost_conformance
-# Per-language (use sparingly):
-ctest -R engine_tests
+# Self-host conformance (highest value — validates the self-hosted engine
+# against shared fixtures). Use per-fixture isolated runs for a reliable count:
+BALL_TEST_FILTER="01_hello_world" ./test/Debug/test_selfhost_conformance.exe
+# Compiler / encoder unit tests (use sparingly):
 ctest -R compiler_tests
 ctest -R encoder_tests
 ```
 - Test files: `cpp/test/test_*.cpp` — each compiles as standalone executable
-- CTest targets: `conformance_tests`, `engine_tests`, `compiler_tests`, `encoder_tests`, `e2e_tests`, `snapshot_tests`
-- Non-registered executables: `test_perf` (benchmarks), `test_selfhost_conformance`
 - Conformance fixtures live in `tests/conformance/*.ball.json`
 - Stack sizes: compiler 128MB, encoder 256MB, engine memory 65KB
 - Snapshot tests rewrite baselines with `BALL_UPDATE_SNAPSHOTS=1`
@@ -48,58 +40,34 @@ ctest -R encoder_tests
 
 ## Known Broken/Stubbed Features
 
-NOTE (2026-05-24): the previous list here was STALE — it claimed `string_split`/
-`string_replace`/`switch`/`for_in` were broken, but all are implemented
-(`compiler.cpp:1347`, `1362`, `2679`, `2579`). Below is the audited, verified set
-of real stubs/silent-correctness gaps. C++ self-host conformance is 144/189
-(2026-05-25, after the dynamic-invoke fixes — `apply()` now unwraps the
-BallDyn-wrapped callee/arg before the `std::function` type check, and
-`Map.values.first` emits `ball_map_values(...).front()` instead of a bogus
-`["values"]` key lookup, unblocking 85/203/211 higher-order closures; earlier:
-higher-order callback-field fix (`list_any`/`list_all`/etc. read the callback
-from `callback`→`function`→`value`); FlowSignal-key / try-finally /
-exception-payload / List.filled-unwrap fixes — see docs/SELF_HOST_STATUS.md).
+The authoritative, kept-current list of C++/self-host gaps and pass counts lives in
+`docs/SELF_HOST_STATUS.md`; the CI floor is in `.github/workflows/regression-gates.yml`.
+The compiler/encoder/runtime-emit citations below are stable references into the C++
+toolchain (the engine itself is the self-hosted `engine_rt.cpp`, not native C++).
 
-**FIXED 2026-05-24 (kept here as history):**
-- FlowSignal early-return loss — was an `arg0` vs `kind` ctor-key mismatch, not
-  an IIFE-propagation gap. Fixed (positional ctor args resolve to param names).
-- try/finally no longer skips cleanup on the return path and no longer swallows
-  exceptions (RAII `make_ball_finally` guard).
-- thrown exception payloads are preserved through throw/catch
-  (`_ball_make_exception` / `_ball_caught_to_dyn`).
-
-**Silent-correctness bugs (wrong result, no error):**
+**Compiler (`cpp/compiler/src/compiler.cpp`) — silent-correctness gaps:**
 - `for`/`while` in expression context whose body contains `return` or a labeled
-  break/continue → still stubbed (`// for loop`), dropping the loop. Break/
-  continue-only and jump-free bodies emit real loops (`compiler.cpp` ~1438).
-  NOTE: not currently hit by the self-host engine (0 loop stubs in engine_rt.cpp)
-  but a latent limitation for arbitrary programs.
-- Bytes literals → empty `std::vector<uint8_t>{}` (`compiler.cpp:437`).
+  break/continue → stubbed (`// for loop`), dropping the loop. Break/continue-only
+  and jump-free bodies emit real loops (~1438). Not currently hit by the
+  self-hosted engine, but a latent limitation for arbitrary programs.
+- Bytes literals → empty `std::vector<uint8_t>{}` (~437).
 - Unknown base functions → emit `/* std.fn */ 0` or a comment (wrong value, no
-  error) (`compiler.cpp` module dispatchers ~2018+).
-- Engine `cascade` drops all sections (`engine.cpp:4094`); list `index` has no
-  bounds check → UB on out-of-range (`engine.cpp:4084`); `as` cast is a no-op.
-- In-place container mutation: program LISTS are now reference-semantic
-  (shared_ptr-backed `BallDyn` lists, commit `40ccd74`) — sorts 132–134 + matrix
-  83/128/138 pass. MAPS deliberately stay by-value (a shared map creates
-  self-referential cycles via `self` → bad_alloc on OOP/map tests); raw-map +
-  instance mutation is handled by the existing copy-on-read + writeback. If a
-  future map-aliasing case needs it, make ONLY non-instance maps shared.
+  error) (module dispatchers ~2018+).
+- `string_split`/`string_replace`/`string_replace_all` ARE implemented (~1624/1639/1647).
 
 **Runtime stubs (compile, produce wrong/fake results):**
-- `jsonEncode`/`toProto3Json` are not real JSON (`ball_emit_runtime.h:1098`).
+- `jsonEncode`/`toProto3Json` are not real JSON (`ball_emit_runtime.h`).
 - Filesystem ops (`existsSync`/dir list/create, `writeAsBytesSync`) are no-ops.
 - `await`/`yield`/`yield_each` are synchronous pass-throughs (no event loop).
 - Generic proto `hasXxx`→false, `whichXxx`→"notSet" fallbacks.
 
-**Other:**
-- `rethrow` (22) re-raises a generic BallException, losing the original payload;
-  typed nested catch dispatch (146) still partial.
-- Labeled break/continue → goto-based, dispatch rudimentary.
-- Conformance harness (`cpp/test/test_selfhost_conformance.cpp`) ends `return 0`
-  ("don't fail the build") and skip-lists ~9 unpassable fixtures — self-host
-  failures do NOT fail CI. Use `cpp/test/run_selfhost_tally.sh` for the real count.
-- Encoder silently drops unhandled AST nodes (`encoder.cpp:880`, depth-limit `781`).
+**Encoder (`cpp/encoder/src/encoder.cpp`):**
+- Silently drops unhandled AST nodes (~880, depth-limit ~781).
+
+**Conformance harness:**
+- `cpp/test/test_selfhost_conformance.cpp` ends `return 0` ("don't fail the
+  build") and skip-lists a few unpassable fixtures — self-host failures do NOT
+  fail this target. Use the per-fixture isolated runs (above) for the real count.
 
 ## Architecture Notes
 
@@ -109,3 +77,10 @@ exception-payload / List.filled-unwrap fixes — see docs/SELF_HOST_STATUS.md).
 - Normalizer converts `cpp_std` pointer ops to safe/unsafe memory ops
 - Compiler stack size: 128MB, Encoder: 256MB, Engine memory: 65KB
 - Memory.hpp: typed linear buffer for C/C++ interop
+- Ball files (`.ball.json`/`.ball.bin`) are self-describing `google.protobuf.Any`
+  envelopes (JSON form carries an `@type` key). Read them via
+  `cpp/shared/include/ball_file.h` (`ball::LoadProgram(path)` / `LoadModule(path)`
+  / `DecodeProgram(path, content)`), which mirrors `dart/shared/lib/ball_file.dart`.
+  NEVER parse a ball file directly into a `Program`/`Module` — the envelope's
+  type URL discriminates Program vs Module. Exception: `dart/self_host/engine.ball.pb`
+  is a raw (non-Any) `Program` pipeline artifact, read directly by the self-host build.

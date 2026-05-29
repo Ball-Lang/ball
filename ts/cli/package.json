@@ -1,6 +1,6 @@
 {
   "name": "@ball-lang/cli",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Command-line interface for the Ball programming language. Runs Ball programs and performs static capability analysis.",
   "type": "module",
   "main": "dist/index.js",
@@ -57,7 +57,7 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
-    "@ball-lang/engine": "^0.2.0"
+    "@ball-lang/engine": "^0.3.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

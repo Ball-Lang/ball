@@ -1,18 +1,47 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "207_record_pattern_destructure",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
-      ],
       "functions": [
-        { "name": "print", "isBase": true },
-        { "name": "concat", "isBase": true },
-        { "name": "to_string", "isBase": true },
-        { "name": "record", "isBase": true },
-        { "name": "switch_expr", "isBase": true }
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "record",
+          "isBase": true
+        },
+        {
+          "name": "switch_expr",
+          "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
       ]
     },
     {
@@ -27,68 +56,307 @@
                   "let": {
                     "name": "point",
                     "value": {
-                      "call": { "module": "std", "function": "record", "input": { "messageCreation": { "fields": [
-                        { "name": "x", "value": { "literal": { "intValue": "10" } } },
-                        { "name": "y", "value": { "literal": { "intValue": "20" } } }
-                      ] } } }
+                      "call": {
+                        "module": "std",
+                        "function": "record",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "x",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "10"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "y",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "20"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
                     },
-                    "metadata": { "keyword": "final" }
+                    "metadata": {
+                      "keyword": "final"
+                    }
                   }
                 }
               ],
               "result": {
-                "call": { "module": "std", "function": "switch_expr", "input": { "messageCreation": { "fields": [
-                  { "name": "subject", "value": { "reference": { "name": "point" } } },
-                  { "name": "cases", "value": { "literal": { "listValue": { "elements": [
-                    { "messageCreation": { "fields": [
-                      { "name": "pattern_expr", "value": { "messageCreation": { "fields": [
-                        { "name": "__pattern_kind__", "value": { "literal": { "stringValue": "record" } } },
-                        { "name": "fields", "value": { "literal": { "listValue": { "elements": [
-                          { "messageCreation": { "fields": [
-                            { "name": "name", "value": { "literal": { "stringValue": "x" } } },
-                            { "name": "pattern", "value": { "messageCreation": { "fields": [
-                              { "name": "__pattern_kind__", "value": { "literal": { "stringValue": "var" } } },
-                              { "name": "name", "value": { "literal": { "stringValue": "a" } } }
-                            ] } } }
-                          ] } },
-                          { "messageCreation": { "fields": [
-                            { "name": "name", "value": { "literal": { "stringValue": "y" } } },
-                            { "name": "pattern", "value": { "messageCreation": { "fields": [
-                              { "name": "__pattern_kind__", "value": { "literal": { "stringValue": "var" } } },
-                              { "name": "name", "value": { "literal": { "stringValue": "b" } } }
-                            ] } } }
-                          ] } }
-                        ] } } } }
-                      ] } } },
-                      { "name": "body", "value": { "call": { "module": "std", "function": "concat", "input": { "messageCreation": { "fields": [
-                        { "name": "left", "value": { "call": { "module": "std", "function": "concat", "input": { "messageCreation": { "fields": [
-                          { "name": "left", "value": { "call": { "module": "std", "function": "to_string", "input": { "messageCreation": { "fields": [
-                            { "name": "value", "value": { "reference": { "name": "a" } } }
-                          ] } } } } },
-                          { "name": "right", "value": { "literal": { "stringValue": "," } } }
-                        ] } } } } },
-                        { "name": "right", "value": { "call": { "module": "std", "function": "to_string", "input": { "messageCreation": { "fields": [
-                          { "name": "value", "value": { "reference": { "name": "b" } } }
-                        ] } } } } }
-                      ] } } } } }
-                    ] } }
-                  ] } } } }
-                ] } } }
+                "call": {
+                  "module": "std",
+                  "function": "switch_expr",
+                  "input": {
+                    "messageCreation": {
+                      "fields": [
+                        {
+                          "name": "subject",
+                          "value": {
+                            "reference": {
+                              "name": "point"
+                            }
+                          }
+                        },
+                        {
+                          "name": "cases",
+                          "value": {
+                            "literal": {
+                              "listValue": {
+                                "elements": [
+                                  {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "pattern_expr",
+                                          "value": {
+                                            "messageCreation": {
+                                              "fields": [
+                                                {
+                                                  "name": "__pattern_kind__",
+                                                  "value": {
+                                                    "literal": {
+                                                      "stringValue": "record"
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "fields",
+                                                  "value": {
+                                                    "literal": {
+                                                      "listValue": {
+                                                        "elements": [
+                                                          {
+                                                            "messageCreation": {
+                                                              "fields": [
+                                                                {
+                                                                  "name": "name",
+                                                                  "value": {
+                                                                    "literal": {
+                                                                      "stringValue": "x"
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "pattern",
+                                                                  "value": {
+                                                                    "messageCreation": {
+                                                                      "fields": [
+                                                                        {
+                                                                          "name": "__pattern_kind__",
+                                                                          "value": {
+                                                                            "literal": {
+                                                                              "stringValue": "var"
+                                                                            }
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "name": "name",
+                                                                          "value": {
+                                                                            "literal": {
+                                                                              "stringValue": "a"
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          },
+                                                          {
+                                                            "messageCreation": {
+                                                              "fields": [
+                                                                {
+                                                                  "name": "name",
+                                                                  "value": {
+                                                                    "literal": {
+                                                                      "stringValue": "y"
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "pattern",
+                                                                  "value": {
+                                                                    "messageCreation": {
+                                                                      "fields": [
+                                                                        {
+                                                                          "name": "__pattern_kind__",
+                                                                          "value": {
+                                                                            "literal": {
+                                                                              "stringValue": "var"
+                                                                            }
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "name": "name",
+                                                                          "value": {
+                                                                            "literal": {
+                                                                              "stringValue": "b"
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        ]
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "body",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "concat",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "concat",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "fields": [
+                                                                {
+                                                                  "name": "left",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "module": "std",
+                                                                      "function": "to_string",
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "fields": [
+                                                                            {
+                                                                              "name": "value",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "a"
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "right",
+                                                                  "value": {
+                                                                    "literal": {
+                                                                      "stringValue": ","
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "to_string",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "fields": [
+                                                                {
+                                                                  "name": "value",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "b"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
               }
             }
           },
-          "metadata": { "kind": "function" }
+          "metadata": {
+            "kind": "function"
+          }
         },
         {
           "name": "main",
           "body": {
-            "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
-              { "name": "message", "value": { "call": { "function": "describe", "input": { "messageCreation": { "fields": [] } } } } }
-            ] } } }
+            "call": {
+              "module": "std",
+              "function": "print",
+              "input": {
+                "messageCreation": {
+                  "typeName": "PrintInput",
+                  "fields": [
+                    {
+                      "name": "message",
+                      "value": {
+                        "call": {
+                          "function": "describe",
+                          "input": {
+                            "messageCreation": {
+                              "fields": []
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
           }
         }
       ],
-      "moduleImports": [ { "name": "std" } ]
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
     }
   ],
   "entryModule": "main",

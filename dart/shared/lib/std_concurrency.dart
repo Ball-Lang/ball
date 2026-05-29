@@ -19,7 +19,7 @@ Module buildStdConcurrencyModule() {
   // Types
   // ============================================================
 
-  module.types.addAll([
+  module.typeDefs.addAll(<google.DescriptorProto>[
     _type('ThreadInput', [_exprField('body', 1)]),
     _type('MutexInput', []),
     _type('LockInput', [_exprField('mutex', 1), _exprField('body', 2)]),
@@ -29,7 +29,7 @@ Module buildStdConcurrencyModule() {
       _stringField('op', 2),
       _exprField('value', 3),
     ]),
-  ]);
+  ].map((d) => TypeDefinition()..name = d.name..descriptor = d));
 
   // ============================================================
   // Functions

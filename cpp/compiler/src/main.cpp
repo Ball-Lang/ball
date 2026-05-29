@@ -5,9 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
-#include <google/protobuf/util/json_util.h>
-#include <google/protobuf/io/coded_stream.h>
-#include <google/protobuf/io/zero_copy_stream_impl_lite.h>
+#include "ball_file.h"
 #include "compiler.h"
 
 #ifdef _WIN32
@@ -75,30 +73,14 @@ static int run_compile(int argc, char** argv) {
     buffer << file.rdbuf();
     std::string content = buffer.str();
 
+    // Ball files are self-describing google.protobuf.Any envelopes. Extension
+    // selects binary vs JSON; the envelope's type URL must be a Program here.
     ball::v1::Program program;
-
-    // Detect format: binary protobuf (.ball.pb) or JSON (.ball.json)
-    bool is_binary = input_path.size() >= 8 &&
-                     input_path.substr(input_path.size() - 8) == ".ball.pb";
-
-    if (is_binary) {
-        google::protobuf::io::ArrayInputStream raw(content.data(), static_cast<int>(content.size()));
-        google::protobuf::io::CodedInputStream coded(&raw);
-        coded.SetRecursionLimit(10000);
-        if (!program.ParseFromCodedStream(&coded)) {
-            std::cerr << "Failed to parse binary protobuf: " << input_path << std::endl;
-            return 1;
-        }
-    } else {
-        google::protobuf::util::JsonParseOptions options;
-        options.ignore_unknown_fields = true;
-
-        auto status = google::protobuf::util::JsonStringToMessage(
-            content, &program, options);
-        if (!status.ok()) {
-            std::cerr << "Failed to parse JSON: " << status.message() << std::endl;
-            return 1;
-        }
+    try {
+        program = ball::DecodeProgram(input_path, content);
+    } catch (const ball::BallFileFormatException& e) {
+        std::cerr << "Failed to read ball file: " << e.what() << std::endl;
+        return 1;
     }
 
     ball::CppCompiler compiler(program);

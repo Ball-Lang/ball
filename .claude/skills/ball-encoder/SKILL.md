@@ -82,6 +82,14 @@ The C++ encoder has a normalizer phase (`cpp/encoder/src/normalizer.cpp`) that c
 - **Safe projections**: variable references, field access (when pointer usage is safe)
 - **Unsafe lowerings**: `std_memory` operations (when actual pointer arithmetic is needed)
 
+## Creating a New Encoder for a New Language
+
+If you're building a Ball encoder for an entirely new source language (not modifying Dart/C++),
+follow the **new-ball-language** skill (`.claude/skills/new-ball-language/SKILL.md`), Phase 3.
+That playbook covers parser selection, AST mapping strategy, language-specific module creation,
+and round-trip testing. This skill focuses on the encoding internals once you're ready to
+implement.
+
 ## Common Mistakes
 
 1. Not preserving enough metadata for round-trip (imports, visibility, type annotations)

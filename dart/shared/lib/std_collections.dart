@@ -23,7 +23,7 @@ Module buildStdCollectionsModule() {
   // Types
   // ============================================================
 
-  module.types.addAll([
+  module.typeDefs.addAll(<google.DescriptorProto>[
     _type('ListInput', [
       _exprField('list', 1),
       _exprField('index', 2),
@@ -62,7 +62,7 @@ Module buildStdCollectionsModule() {
       _exprField('callback', 2),
     ]),
     _type('SetBinaryInput', [_exprField('left', 1), _exprField('right', 2)]),
-  ]);
+  ].map((d) => TypeDefinition()..name = d.name..descriptor = d));
 
   // ============================================================
   // Functions — list operations

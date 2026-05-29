@@ -4,6 +4,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ball_base/ball_base.dart'
+    show decodeModuleBinary, decodeModuleJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 
 Module fetchFile(FileSource source, {String? basePath}) {
@@ -20,10 +22,7 @@ Module fetchFile(FileSource source, {String? basePath}) {
   if (encoding == ModuleEncoding.MODULE_ENCODING_PROTO ||
       filePath.endsWith('.ball.bin') ||
       filePath.endsWith('.ball')) {
-    return Module.fromBuffer(file.readAsBytesSync());
+    return decodeModuleBinary(file.readAsBytesSync());
   }
-  return Module()..mergeFromProto3Json(
-    jsonDecode(file.readAsStringSync()),
-    ignoreUnknownFields: true,
-  );
+  return decodeModuleJson(jsonDecode(file.readAsStringSync()));
 }

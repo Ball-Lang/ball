@@ -1,16 +1,39 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "173_async_multiple_futures",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
-      ],
       "functions": [
-        { "name": "print", "isBase": true },
-        { "name": "add", "isBase": true },
-        { "name": "multiply", "isBase": true }
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "multiply",
+          "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
       ]
     },
     {
@@ -27,8 +50,22 @@
               "input": {
                 "messageCreation": {
                   "fields": [
-                    { "name": "left", "value": { "reference": { "name": "n" } } },
-                    { "name": "right", "value": { "literal": { "intValue": "3" } } }
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "n"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "intValue": "3"
+                        }
+                      }
+                    }
                   ]
                 }
               }
@@ -37,7 +74,12 @@
           "metadata": {
             "kind": "function",
             "is_async": true,
-            "params": [ { "name": "n", "type": "int" } ]
+            "params": [
+              {
+                "name": "n",
+                "type": "int"
+              }
+            ]
           }
         },
         {
@@ -51,8 +93,22 @@
               "input": {
                 "messageCreation": {
                   "fields": [
-                    { "name": "left", "value": { "reference": { "name": "n" } } },
-                    { "name": "right", "value": { "literal": { "intValue": "2" } } }
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "n"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "intValue": "2"
+                        }
+                      }
+                    }
                   ]
                 }
               }
@@ -61,7 +117,12 @@
           "metadata": {
             "kind": "function",
             "is_async": true,
-            "params": [ { "name": "n", "type": "int" } ]
+            "params": [
+              {
+                "name": "n",
+                "type": "int"
+              }
+            ]
           }
         },
         {
@@ -79,7 +140,14 @@
                         "input": {
                           "messageCreation": {
                             "fields": [
-                              { "name": "arg0", "value": { "literal": { "intValue": "10" } } }
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "10"
+                                  }
+                                }
+                              }
                             ]
                           }
                         }
@@ -100,7 +168,14 @@
                         "input": {
                           "messageCreation": {
                             "fields": [
-                              { "name": "arg0", "value": { "literal": { "intValue": "5" } } }
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "5"
+                                  }
+                                }
+                              }
                             ]
                           }
                         }
@@ -122,8 +197,22 @@
                         "input": {
                           "messageCreation": {
                             "fields": [
-                              { "name": "left", "value": { "reference": { "name": "first" } } },
-                              { "name": "right", "value": { "reference": { "name": "second" } } }
+                              {
+                                "name": "left",
+                                "value": {
+                                  "reference": {
+                                    "name": "first"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "right",
+                                "value": {
+                                  "reference": {
+                                    "name": "second"
+                                  }
+                                }
+                              }
                             ]
                           }
                         }
@@ -144,7 +233,14 @@
                         "messageCreation": {
                           "typeName": "PrintInput",
                           "fields": [
-                            { "name": "message", "value": { "reference": { "name": "sum" } } }
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "sum"
+                                }
+                              }
+                            }
                           ]
                         }
                       }
@@ -159,7 +255,11 @@
           }
         }
       ],
-      "moduleImports": [ { "name": "std" } ]
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
     }
   ],
   "entryModule": "main",

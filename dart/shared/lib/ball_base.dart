@@ -30,3 +30,19 @@ export 'termination_analyzer.dart'
         TerminationWarning,
         formatTerminationReport;
 export 'protobuf/protobuf.dart';
+export 'ball_file.dart'
+    show
+        BallFile,
+        BallProgramFile,
+        BallModuleFile,
+        BallFileFormatException,
+        programTypeUrl,
+        moduleTypeUrl,
+        decodeBallFileBinary,
+        decodeBallFileJson,
+        decodeProgramJson,
+        decodeModuleJson,
+        decodeProgramBinary,
+        decodeModuleBinary,
+        encodeBallFileBinary,
+        encodeBallFileJson;

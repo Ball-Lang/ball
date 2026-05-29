@@ -710,9 +710,6 @@ extension BallEngineInvocation on BallEngine {
 
   void _indexModule(Module module) {
     program.modules.add(module);
-    for (final type in module.types) {
-      _types[type.name] = type;
-    }
     for (final td in module.typeDefs) {
       if (td.hasDescriptor()) _types[td.name] = td.descriptor;
     }

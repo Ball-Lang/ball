@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ball_base/ball_base.dart'
+    show encodeBallFileBinary, encodeBallFileJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_resolver/ball_resolver.dart';
 import 'package:test/test.dart';
@@ -107,7 +109,7 @@ void main() {
       final module = _makeModule('inline_test', functions: ['fn1']);
       final import_ = ModuleImport()
         ..name = 'inline_test'
-        ..inline = (InlineSource()..protoBytes = module.writeToBuffer());
+        ..inline = (InlineSource()..protoBytes = encodeBallFileBinary(module));
 
       final resolver = ModuleResolver();
       final resolved = await resolver.resolve(import_);
@@ -117,7 +119,7 @@ void main() {
 
     test('resolves InlineSource with JSON', () async {
       final module = _makeModule('json_test', functions: ['fn2']);
-      final json = jsonEncode(module.toProto3Json());
+      final json = jsonEncode(encodeBallFileJson(module));
       final import_ = ModuleImport()
         ..name = 'json_test'
         ..inline = (InlineSource()..json = json);
@@ -132,7 +134,7 @@ void main() {
       final tempDir = Directory.systemTemp.createTempSync('ball_file_test_');
       try {
         final file = File('${tempDir.path}/module.ball.bin');
-        file.writeAsBytesSync(module.writeToBuffer());
+        file.writeAsBytesSync(encodeBallFileBinary(module));
 
         final import_ = ModuleImport()
           ..name = 'file_test'
@@ -153,7 +155,7 @@ void main() {
       final import_ = ModuleImport()
         ..name = 'tampered'
         ..integrity = 'sha256:deadbeefdeadbeefdeadbeef'
-        ..inline = (InlineSource()..protoBytes = module.writeToBuffer());
+        ..inline = (InlineSource()..protoBytes = encodeBallFileBinary(module));
 
       final resolver = ModuleResolver();
       expect(
@@ -174,7 +176,7 @@ void main() {
       final import_ = ModuleImport()
         ..name = 'verified'
         ..integrity = hash
-        ..inline = (InlineSource()..protoBytes = module.writeToBuffer());
+        ..inline = (InlineSource()..protoBytes = encodeBallFileBinary(module));
 
       final resolver = ModuleResolver();
       final resolved = await resolver.resolve(import_);
@@ -216,7 +218,7 @@ void main() {
               ModuleImport()
                 ..name = 'dep'
                 ..inline = (InlineSource()
-                  ..protoBytes = depModule.writeToBuffer()),
+                  ..protoBytes = encodeBallFileBinary(depModule)),
             ),
         );
 

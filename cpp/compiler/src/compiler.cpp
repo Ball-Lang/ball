@@ -51,12 +51,6 @@ void CppCompiler::build_lookup_tables() {
         if (all_base && mod.functions_size() > 0) {
             base_modules_.insert(mod.name());
         }
-        for (const auto& type : mod.types()) {
-            types_[type.name()] = type;
-            auto colon = type.name().find(':');
-            if (colon != std::string::npos)
-                types_[type.name().substr(colon + 1)] = type;
-        }
         for (const auto& td : mod.type_defs()) {
             if (td.has_descriptor_()) {
                 types_[td.name()] = td.descriptor_();

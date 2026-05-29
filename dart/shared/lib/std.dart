@@ -26,7 +26,7 @@ Module buildStdModule() {
   // Types (input message types for universal base functions)
   // ============================================================
 
-  module.types.addAll([
+  module.typeDefs.addAll(<google.DescriptorProto>[
     _type('BinaryInput', [_exprField('left', 1), _exprField('right', 2)]),
     _type('UnaryInput', [_exprField('value', 1)]),
     _type('PrintInput', [_stringField('message', 1)]),
@@ -115,7 +115,7 @@ Module buildStdModule() {
       _exprField('min', 2),
       _exprField('max', 3),
     ]),
-  ]);
+  ].map((d) => TypeDefinition()..name = d.name..descriptor = d));
 
   // ============================================================
   // Functions — universal, language-agnostic

@@ -248,12 +248,6 @@ type Module struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Unique module name (e.g., "std", "main", "my_lib")
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Message types defined using protobuf's own descriptor format.
-	// This ensures types are truly language-agnostic — protobuf already
-	// defines how each type maps to every target language's native types
-	// (e.g. int32 → int in Dart, int in Python, int32_t in C++, number in JS).
-	// See: https://protobuf.dev/reference/protobuf/google.protobuf/#DescriptorProto
-	Types []*descriptorpb.DescriptorProto `protobuf:"bytes,2,rep,name=types,proto3" json:"types,omitempty"`
 	// Enum types defined using protobuf's own enum descriptor format.
 	Enums []*descriptorpb.EnumDescriptorProto `protobuf:"bytes,7,rep,name=enums,proto3" json:"enums,omitempty"`
 	// Function definitions in this module
@@ -320,13 +314,6 @@ func (x *Module) GetName() string {
 		return x.Name
 	}
 	return ""
-}
-
-func (x *Module) GetTypes() []*descriptorpb.DescriptorProto {
-	if x != nil {
-		return x.Types
-	}
-	return nil
 }
 
 func (x *Module) GetEnums() []*descriptorpb.EnumDescriptorProto {
@@ -3105,10 +3092,9 @@ const file_ball_v1_ball_proto_rawDesc = "" +
 	"\amodules\x18\x03 \x03(\v2\x0f.ball.v1.ModuleR\amodules\x12!\n" +
 	"\fentry_module\x18\x04 \x01(\tR\ventryModule\x12%\n" +
 	"\x0eentry_function\x18\x05 \x01(\tR\rentryFunction\x123\n" +
-	"\bmetadata\x18\x06 \x01(\v2\x17.google.protobuf.StructR\bmetadata\"\xb9\x04\n" +
+	"\bmetadata\x18\x06 \x01(\v2\x17.google.protobuf.StructR\bmetadata\"\x8e\x04\n" +
 	"\x06Module\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x126\n" +
-	"\x05types\x18\x02 \x03(\v2 .google.protobuf.DescriptorProtoR\x05types\x12:\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12:\n" +
 	"\x05enums\x18\a \x03(\v2$.google.protobuf.EnumDescriptorProtoR\x05enums\x129\n" +
 	"\tfunctions\x18\x03 \x03(\v2\x1b.ball.v1.FunctionDefinitionR\tfunctions\x12 \n" +
 	"\vdescription\x18\x05 \x01(\tR\vdescription\x123\n" +
@@ -3117,7 +3103,7 @@ const file_ball_v1_ball_proto_rawDesc = "" +
 	"\ttype_defs\x18\b \x03(\v2\x17.ball.v1.TypeDefinitionR\btypeDefs\x125\n" +
 	"\ftype_aliases\x18\v \x03(\v2\x12.ball.v1.TypeAliasR\vtypeAliases\x12<\n" +
 	"\x10module_constants\x18\f \x03(\v2\x11.ball.v1.ConstantR\x0fmoduleConstants\x12,\n" +
-	"\x06assets\x18\r \x03(\v2\x14.ball.v1.ModuleAssetR\x06assets\"\x8f\x01\n" +
+	"\x06assets\x18\r \x03(\v2\x14.ball.v1.ModuleAssetR\x06assetsJ\x04\b\x02\x10\x03R\x05types\"\x8f\x01\n" +
 	"\vModuleAsset\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\fR\acontent\x12\x1d\n" +
@@ -3384,80 +3370,79 @@ var file_ball_v1_ball_proto_goTypes = []any{
 	(*CapabilitySummary)(nil),                // 34: ball.v1.CapabilitySummary
 	nil,                                      // 35: ball.v1.HttpSource.HeadersEntry
 	(*structpb.Struct)(nil),                  // 36: google.protobuf.Struct
-	(*descriptorpb.DescriptorProto)(nil),     // 37: google.protobuf.DescriptorProto
-	(*descriptorpb.EnumDescriptorProto)(nil), // 38: google.protobuf.EnumDescriptorProto
+	(*descriptorpb.EnumDescriptorProto)(nil), // 37: google.protobuf.EnumDescriptorProto
+	(*descriptorpb.DescriptorProto)(nil),     // 38: google.protobuf.DescriptorProto
 }
 var file_ball_v1_ball_proto_depIdxs = []int32{
 	3,  // 0: ball.v1.Program.modules:type_name -> ball.v1.Module
 	36, // 1: ball.v1.Program.metadata:type_name -> google.protobuf.Struct
-	37, // 2: ball.v1.Module.types:type_name -> google.protobuf.DescriptorProto
-	38, // 3: ball.v1.Module.enums:type_name -> google.protobuf.EnumDescriptorProto
-	15, // 4: ball.v1.Module.functions:type_name -> ball.v1.FunctionDefinition
-	36, // 5: ball.v1.Module.metadata:type_name -> google.protobuf.Struct
-	5,  // 6: ball.v1.Module.module_imports:type_name -> ball.v1.ModuleImport
-	12, // 7: ball.v1.Module.type_defs:type_name -> ball.v1.TypeDefinition
-	13, // 8: ball.v1.Module.type_aliases:type_name -> ball.v1.TypeAlias
-	14, // 9: ball.v1.Module.module_constants:type_name -> ball.v1.Constant
-	4,  // 10: ball.v1.Module.assets:type_name -> ball.v1.ModuleAsset
-	36, // 11: ball.v1.ModuleAsset.metadata:type_name -> google.protobuf.Struct
-	36, // 12: ball.v1.ModuleImport.metadata:type_name -> google.protobuf.Struct
-	6,  // 13: ball.v1.ModuleImport.http:type_name -> ball.v1.HttpSource
-	7,  // 14: ball.v1.ModuleImport.file:type_name -> ball.v1.FileSource
-	8,  // 15: ball.v1.ModuleImport.inline:type_name -> ball.v1.InlineSource
-	9,  // 16: ball.v1.ModuleImport.git:type_name -> ball.v1.GitSource
-	10, // 17: ball.v1.ModuleImport.registry:type_name -> ball.v1.RegistrySource
-	1,  // 18: ball.v1.HttpSource.encoding:type_name -> ball.v1.ModuleEncoding
-	35, // 19: ball.v1.HttpSource.headers:type_name -> ball.v1.HttpSource.HeadersEntry
-	1,  // 20: ball.v1.FileSource.encoding:type_name -> ball.v1.ModuleEncoding
-	1,  // 21: ball.v1.GitSource.encoding:type_name -> ball.v1.ModuleEncoding
-	0,  // 22: ball.v1.RegistrySource.registry:type_name -> ball.v1.Registry
-	1,  // 23: ball.v1.RegistrySource.encoding:type_name -> ball.v1.ModuleEncoding
-	36, // 24: ball.v1.TypeParameter.metadata:type_name -> google.protobuf.Struct
-	37, // 25: ball.v1.TypeDefinition.descriptor:type_name -> google.protobuf.DescriptorProto
-	11, // 26: ball.v1.TypeDefinition.type_params:type_name -> ball.v1.TypeParameter
-	36, // 27: ball.v1.TypeDefinition.metadata:type_name -> google.protobuf.Struct
-	11, // 28: ball.v1.TypeAlias.type_params:type_name -> ball.v1.TypeParameter
-	36, // 29: ball.v1.TypeAlias.metadata:type_name -> google.protobuf.Struct
-	16, // 30: ball.v1.Constant.value:type_name -> ball.v1.Expression
-	36, // 31: ball.v1.Constant.metadata:type_name -> google.protobuf.Struct
-	16, // 32: ball.v1.FunctionDefinition.body:type_name -> ball.v1.Expression
-	36, // 33: ball.v1.FunctionDefinition.metadata:type_name -> google.protobuf.Struct
-	17, // 34: ball.v1.Expression.call:type_name -> ball.v1.FunctionCall
-	18, // 35: ball.v1.Expression.literal:type_name -> ball.v1.Literal
-	20, // 36: ball.v1.Expression.reference:type_name -> ball.v1.Reference
-	21, // 37: ball.v1.Expression.field_access:type_name -> ball.v1.FieldAccess
-	22, // 38: ball.v1.Expression.message_creation:type_name -> ball.v1.MessageCreation
-	24, // 39: ball.v1.Expression.block:type_name -> ball.v1.Block
-	15, // 40: ball.v1.Expression.lambda:type_name -> ball.v1.FunctionDefinition
-	16, // 41: ball.v1.FunctionCall.input:type_name -> ball.v1.Expression
-	19, // 42: ball.v1.Literal.list_value:type_name -> ball.v1.ListLiteral
-	16, // 43: ball.v1.ListLiteral.elements:type_name -> ball.v1.Expression
-	16, // 44: ball.v1.FieldAccess.object:type_name -> ball.v1.Expression
-	23, // 45: ball.v1.MessageCreation.fields:type_name -> ball.v1.FieldValuePair
-	16, // 46: ball.v1.FieldValuePair.value:type_name -> ball.v1.Expression
-	25, // 47: ball.v1.Block.statements:type_name -> ball.v1.Statement
-	16, // 48: ball.v1.Block.result:type_name -> ball.v1.Expression
-	26, // 49: ball.v1.Statement.let:type_name -> ball.v1.LetBinding
-	16, // 50: ball.v1.Statement.expression:type_name -> ball.v1.Expression
-	16, // 51: ball.v1.LetBinding.value:type_name -> ball.v1.Expression
-	36, // 52: ball.v1.LetBinding.metadata:type_name -> google.protobuf.Struct
-	5,  // 53: ball.v1.BallManifest.dependencies:type_name -> ball.v1.ModuleImport
-	5,  // 54: ball.v1.BallManifest.dev_dependencies:type_name -> ball.v1.ModuleImport
-	36, // 55: ball.v1.BallManifest.metadata:type_name -> google.protobuf.Struct
-	29, // 56: ball.v1.BallLockfile.packages:type_name -> ball.v1.ResolvedDependency
-	6,  // 57: ball.v1.ResolvedDependency.http:type_name -> ball.v1.HttpSource
-	9,  // 58: ball.v1.ResolvedDependency.git:type_name -> ball.v1.GitSource
-	7,  // 59: ball.v1.ResolvedDependency.file:type_name -> ball.v1.FileSource
-	10, // 60: ball.v1.ResolvedDependency.registry:type_name -> ball.v1.RegistrySource
-	31, // 61: ball.v1.BallCapabilityReport.capabilities:type_name -> ball.v1.CapabilityEntry
-	33, // 62: ball.v1.BallCapabilityReport.functions:type_name -> ball.v1.FunctionCapability
-	34, // 63: ball.v1.BallCapabilityReport.summary:type_name -> ball.v1.CapabilitySummary
-	32, // 64: ball.v1.CapabilityEntry.call_sites:type_name -> ball.v1.CallSite
-	65, // [65:65] is the sub-list for method output_type
-	65, // [65:65] is the sub-list for method input_type
-	65, // [65:65] is the sub-list for extension type_name
-	65, // [65:65] is the sub-list for extension extendee
-	0,  // [0:65] is the sub-list for field type_name
+	37, // 2: ball.v1.Module.enums:type_name -> google.protobuf.EnumDescriptorProto
+	15, // 3: ball.v1.Module.functions:type_name -> ball.v1.FunctionDefinition
+	36, // 4: ball.v1.Module.metadata:type_name -> google.protobuf.Struct
+	5,  // 5: ball.v1.Module.module_imports:type_name -> ball.v1.ModuleImport
+	12, // 6: ball.v1.Module.type_defs:type_name -> ball.v1.TypeDefinition
+	13, // 7: ball.v1.Module.type_aliases:type_name -> ball.v1.TypeAlias
+	14, // 8: ball.v1.Module.module_constants:type_name -> ball.v1.Constant
+	4,  // 9: ball.v1.Module.assets:type_name -> ball.v1.ModuleAsset
+	36, // 10: ball.v1.ModuleAsset.metadata:type_name -> google.protobuf.Struct
+	36, // 11: ball.v1.ModuleImport.metadata:type_name -> google.protobuf.Struct
+	6,  // 12: ball.v1.ModuleImport.http:type_name -> ball.v1.HttpSource
+	7,  // 13: ball.v1.ModuleImport.file:type_name -> ball.v1.FileSource
+	8,  // 14: ball.v1.ModuleImport.inline:type_name -> ball.v1.InlineSource
+	9,  // 15: ball.v1.ModuleImport.git:type_name -> ball.v1.GitSource
+	10, // 16: ball.v1.ModuleImport.registry:type_name -> ball.v1.RegistrySource
+	1,  // 17: ball.v1.HttpSource.encoding:type_name -> ball.v1.ModuleEncoding
+	35, // 18: ball.v1.HttpSource.headers:type_name -> ball.v1.HttpSource.HeadersEntry
+	1,  // 19: ball.v1.FileSource.encoding:type_name -> ball.v1.ModuleEncoding
+	1,  // 20: ball.v1.GitSource.encoding:type_name -> ball.v1.ModuleEncoding
+	0,  // 21: ball.v1.RegistrySource.registry:type_name -> ball.v1.Registry
+	1,  // 22: ball.v1.RegistrySource.encoding:type_name -> ball.v1.ModuleEncoding
+	36, // 23: ball.v1.TypeParameter.metadata:type_name -> google.protobuf.Struct
+	38, // 24: ball.v1.TypeDefinition.descriptor:type_name -> google.protobuf.DescriptorProto
+	11, // 25: ball.v1.TypeDefinition.type_params:type_name -> ball.v1.TypeParameter
+	36, // 26: ball.v1.TypeDefinition.metadata:type_name -> google.protobuf.Struct
+	11, // 27: ball.v1.TypeAlias.type_params:type_name -> ball.v1.TypeParameter
+	36, // 28: ball.v1.TypeAlias.metadata:type_name -> google.protobuf.Struct
+	16, // 29: ball.v1.Constant.value:type_name -> ball.v1.Expression
+	36, // 30: ball.v1.Constant.metadata:type_name -> google.protobuf.Struct
+	16, // 31: ball.v1.FunctionDefinition.body:type_name -> ball.v1.Expression
+	36, // 32: ball.v1.FunctionDefinition.metadata:type_name -> google.protobuf.Struct
+	17, // 33: ball.v1.Expression.call:type_name -> ball.v1.FunctionCall
+	18, // 34: ball.v1.Expression.literal:type_name -> ball.v1.Literal
+	20, // 35: ball.v1.Expression.reference:type_name -> ball.v1.Reference
+	21, // 36: ball.v1.Expression.field_access:type_name -> ball.v1.FieldAccess
+	22, // 37: ball.v1.Expression.message_creation:type_name -> ball.v1.MessageCreation
+	24, // 38: ball.v1.Expression.block:type_name -> ball.v1.Block
+	15, // 39: ball.v1.Expression.lambda:type_name -> ball.v1.FunctionDefinition
+	16, // 40: ball.v1.FunctionCall.input:type_name -> ball.v1.Expression
+	19, // 41: ball.v1.Literal.list_value:type_name -> ball.v1.ListLiteral
+	16, // 42: ball.v1.ListLiteral.elements:type_name -> ball.v1.Expression
+	16, // 43: ball.v1.FieldAccess.object:type_name -> ball.v1.Expression
+	23, // 44: ball.v1.MessageCreation.fields:type_name -> ball.v1.FieldValuePair
+	16, // 45: ball.v1.FieldValuePair.value:type_name -> ball.v1.Expression
+	25, // 46: ball.v1.Block.statements:type_name -> ball.v1.Statement
+	16, // 47: ball.v1.Block.result:type_name -> ball.v1.Expression
+	26, // 48: ball.v1.Statement.let:type_name -> ball.v1.LetBinding
+	16, // 49: ball.v1.Statement.expression:type_name -> ball.v1.Expression
+	16, // 50: ball.v1.LetBinding.value:type_name -> ball.v1.Expression
+	36, // 51: ball.v1.LetBinding.metadata:type_name -> google.protobuf.Struct
+	5,  // 52: ball.v1.BallManifest.dependencies:type_name -> ball.v1.ModuleImport
+	5,  // 53: ball.v1.BallManifest.dev_dependencies:type_name -> ball.v1.ModuleImport
+	36, // 54: ball.v1.BallManifest.metadata:type_name -> google.protobuf.Struct
+	29, // 55: ball.v1.BallLockfile.packages:type_name -> ball.v1.ResolvedDependency
+	6,  // 56: ball.v1.ResolvedDependency.http:type_name -> ball.v1.HttpSource
+	9,  // 57: ball.v1.ResolvedDependency.git:type_name -> ball.v1.GitSource
+	7,  // 58: ball.v1.ResolvedDependency.file:type_name -> ball.v1.FileSource
+	10, // 59: ball.v1.ResolvedDependency.registry:type_name -> ball.v1.RegistrySource
+	31, // 60: ball.v1.BallCapabilityReport.capabilities:type_name -> ball.v1.CapabilityEntry
+	33, // 61: ball.v1.BallCapabilityReport.functions:type_name -> ball.v1.FunctionCapability
+	34, // 62: ball.v1.BallCapabilityReport.summary:type_name -> ball.v1.CapabilitySummary
+	32, // 63: ball.v1.CapabilityEntry.call_sites:type_name -> ball.v1.CallSite
+	64, // [64:64] is the sub-list for method output_type
+	64, // [64:64] is the sub-list for method input_type
+	64, // [64:64] is the sub-list for extension type_name
+	64, // [64:64] is the sub-list for extension extendee
+	0,  // [0:64] is the sub-list for field type_name
 }
 
 func init() { file_ball_v1_ball_proto_init() }

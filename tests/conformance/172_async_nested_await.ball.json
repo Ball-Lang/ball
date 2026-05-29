@@ -1,15 +1,35 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "172_async_nested_await",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
-      ],
       "functions": [
-        { "name": "print", "isBase": true },
-        { "name": "add", "isBase": true }
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "add",
+          "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
       ]
     },
     {
@@ -26,8 +46,22 @@
               "input": {
                 "messageCreation": {
                   "fields": [
-                    { "name": "left", "value": { "reference": { "name": "x" } } },
-                    { "name": "right", "value": { "literal": { "intValue": "10" } } }
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "x"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "intValue": "10"
+                        }
+                      }
+                    }
                   ]
                 }
               }
@@ -36,7 +70,12 @@
           "metadata": {
             "kind": "function",
             "is_async": true,
-            "params": [ { "name": "x", "type": "int" } ]
+            "params": [
+              {
+                "name": "x",
+                "type": "int"
+              }
+            ]
           }
         },
         {
@@ -49,7 +88,14 @@
               "input": {
                 "messageCreation": {
                   "fields": [
-                    { "name": "arg0", "value": { "reference": { "name": "y" } } }
+                    {
+                      "name": "arg0",
+                      "value": {
+                        "reference": {
+                          "name": "y"
+                        }
+                      }
+                    }
                   ]
                 }
               }
@@ -58,7 +104,12 @@
           "metadata": {
             "kind": "function",
             "is_async": true,
-            "params": [ { "name": "y", "type": "int" } ]
+            "params": [
+              {
+                "name": "y",
+                "type": "int"
+              }
+            ]
           }
         },
         {
@@ -76,7 +127,14 @@
                         "input": {
                           "messageCreation": {
                             "fields": [
-                              { "name": "arg0", "value": { "literal": { "intValue": "5" } } }
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "5"
+                                  }
+                                }
+                              }
                             ]
                           }
                         }
@@ -97,7 +155,14 @@
                         "messageCreation": {
                           "typeName": "PrintInput",
                           "fields": [
-                            { "name": "message", "value": { "reference": { "name": "result" } } }
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "result"
+                                }
+                              }
+                            }
                           ]
                         }
                       }
@@ -112,7 +177,11 @@
           }
         }
       ],
-      "moduleImports": [ { "name": "std" } ]
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
     }
   ],
   "entryModule": "main",

@@ -415,6 +415,18 @@ public:
             const auto& v = *vp;
             if (idx >= 0 && static_cast<size_t>(idx) < v.size())
                 return BallDyn(v[idx]);
+            // Out-of-range list index: Dart's native `List[i]` throws a
+            // RangeError. The self-host engine relies on that native throw
+            // (its `_stdIndex` does `listTarget[_toInt(index)]` with no bounds
+            // check) so a `catch (RangeError)` handler can fire. Mirror it with
+            // a RangeError-typed BallException; the message matches Dart's
+            // `RangeError (index): ...` shape closely enough for stringified
+            // catches. Throwing only on a confirmed list receiver keeps the
+            // blast radius tight (internal correct reads never go out of range).
+            throw BallException(
+                "RangeError",
+                "RangeError (index): Index out of range: index should be less than " +
+                    std::to_string(v.size()) + ": " + std::to_string(idx));
         }
         if (_val.type() == typeid(std::vector<std::string>)) {
             auto& v = std::any_cast<const std::vector<std::string>&>(_val);

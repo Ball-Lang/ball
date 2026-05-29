@@ -89,6 +89,7 @@ csharp/**/obj/
 .sisyphus/boulder.json
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+.claude/settings.local.json
 
 # ----------------------------------
 # Transient logs / scratch output
@@ -97,3 +98,4 @@ csharp/**/obj/
 test_output.txt
 engine_test.log
 dart_test_out.txt
+cpp/ci-build-test/

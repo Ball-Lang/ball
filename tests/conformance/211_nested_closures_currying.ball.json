@@ -1,23 +1,52 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "211_nested_closures_currying",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
-      ],
       "functions": [
-        { "name": "print", "isBase": true },
-        { "name": "to_string", "isBase": true },
-        { "name": "add", "isBase": true },
-        { "name": "return", "isBase": true }
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "return",
+          "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
       ]
     },
     {
       "name": "dart_std",
       "functions": [
-        { "name": "invoke", "isBase": true }
+        {
+          "name": "invoke",
+          "isBase": true
+        }
       ]
     },
     {
@@ -27,31 +56,112 @@
           "name": "adder",
           "inputType": "int",
           "body": {
-            "call": { "module": "std", "function": "return", "input": { "messageCreation": { "fields": [
-              { "name": "value", "value": {
-                "lambda": {
-                  "name": "",
-                  "body": {
-                    "lambda": {
-                      "name": "",
-                      "body": {
-                        "call": { "module": "std", "function": "add", "input": { "messageCreation": { "fields": [
-                          { "name": "left", "value": { "call": { "module": "std", "function": "add", "input": { "messageCreation": { "fields": [
-                            { "name": "left", "value": { "reference": { "name": "a" } } },
-                            { "name": "right", "value": { "reference": { "name": "b" } } }
-                          ] } } } } },
-                          { "name": "right", "value": { "reference": { "name": "c" } } }
-                        ] } } }
-                      },
-                      "metadata": { "kind": "lambda", "expression_body": true, "has_return": true, "params": [ { "name": "c", "type": "int" } ] }
+            "call": {
+              "module": "std",
+              "function": "return",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    {
+                      "name": "value",
+                      "value": {
+                        "lambda": {
+                          "name": "",
+                          "body": {
+                            "lambda": {
+                              "name": "",
+                              "body": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "add",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "add",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "a"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "b"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "reference": {
+                                              "name": "c"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              },
+                              "metadata": {
+                                "kind": "lambda",
+                                "expression_body": true,
+                                "has_return": true,
+                                "params": [
+                                  {
+                                    "name": "c",
+                                    "type": "int"
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          "metadata": {
+                            "kind": "lambda",
+                            "expression_body": true,
+                            "has_return": true,
+                            "params": [
+                              {
+                                "name": "b",
+                                "type": "int"
+                              }
+                            ]
+                          }
+                        }
+                      }
                     }
-                  },
-                  "metadata": { "kind": "lambda", "expression_body": true, "has_return": true, "params": [ { "name": "b", "type": "int" } ] }
+                  ]
                 }
-              } }
-            ] } } }
+              }
+            }
           },
-          "metadata": { "kind": "function", "params": [ { "name": "a", "type": "int" } ] }
+          "metadata": {
+            "kind": "function",
+            "params": [
+              {
+                "name": "a",
+                "type": "int"
+              }
+            ]
+          }
         },
         {
           "name": "main",
@@ -61,37 +171,143 @@
                 {
                   "let": {
                     "name": "add10",
-                    "value": { "call": { "function": "adder", "input": { "messageCreation": { "fields": [
-                      { "name": "arg0", "value": { "literal": { "intValue": "10" } } }
-                    ] } } } },
-                    "metadata": { "keyword": "final" }
+                    "value": {
+                      "call": {
+                        "function": "adder",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "10"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
                   }
                 },
                 {
                   "let": {
                     "name": "add10_20",
-                    "value": { "call": { "module": "dart_std", "function": "invoke", "input": { "messageCreation": { "fields": [
-                      { "name": "callee", "value": { "reference": { "name": "add10" } } },
-                      { "name": "arg0", "value": { "literal": { "intValue": "20" } } }
-                    ] } } } },
-                    "metadata": { "keyword": "final" }
+                    "value": {
+                      "call": {
+                        "module": "dart_std",
+                        "function": "invoke",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "callee",
+                                "value": {
+                                  "reference": {
+                                    "name": "add10"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "20"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
                   }
                 },
-                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
-                  { "name": "message", "value": { "call": { "module": "std", "function": "to_string", "input": { "messageCreation": { "fields": [
-                    { "name": "value", "value": { "call": { "module": "dart_std", "function": "invoke", "input": { "messageCreation": { "fields": [
-                      { "name": "callee", "value": { "reference": { "name": "add10_20" } } },
-                      { "name": "arg0", "value": { "literal": { "intValue": "30" } } }
-                    ] } } } } }
-                  ] } } } } }
-                ] } } } } }
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "dart_std",
+                                              "function": "invoke",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "callee",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "add10_20"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "arg0",
+                                                      "value": {
+                                                        "literal": {
+                                                          "intValue": "30"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
               ]
             }
           },
-          "metadata": { "kind": "function" }
+          "metadata": {
+            "kind": "function"
+          }
         }
       ],
-      "moduleImports": [ { "name": "std" }, { "name": "dart_std" } ]
+      "moduleImports": [
+        {
+          "name": "std"
+        },
+        {
+          "name": "dart_std"
+        }
+      ]
     }
   ],
   "entryModule": "main",

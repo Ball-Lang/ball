@@ -18,6 +18,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ball_base/ball_base.dart' show encodeBallFileJson;
 import 'package:ball_encoder/encoder.dart';
 
 Future<void> main(List<String> args) async {
@@ -63,7 +64,7 @@ Future<void> main(List<String> args) async {
       final program = DartEncoder().encode(source);
 
       File('${outDir.path}/$name.ball.json').writeAsStringSync(
-        const JsonEncoder.withIndent('  ').convert(program.toProto3Json()),
+        const JsonEncoder.withIndent('  ').convert(encodeBallFileJson(program)),
       );
 
       final r = Process.runSync(

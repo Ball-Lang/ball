@@ -15,6 +15,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ball_base/ball_base.dart'
+    show encodeBallFileBinary, encodeBallFileJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_encoder/encoder.dart';
 
@@ -97,17 +99,17 @@ void main(List<String> args) {
       ...userModules,
     ]);
 
-  // Write proto3 JSON.
-  final jsonOutput = program.toProto3Json();
+  // Write proto3 JSON (self-describing Any envelope).
+  final jsonOutput = encodeBallFileJson(program);
   final jsonString = const JsonEncoder.withIndent('  ').convert(jsonOutput);
   File('$outputDir/ball_protobuf.json')
     ..parent.createSync(recursive: true)
     ..writeAsStringSync('$jsonString\n');
 
-  // Write binary protobuf.
+  // Write binary protobuf (serialized Any).
   File(
     '$outputDir/ball_protobuf.bin',
-  ).writeAsBytesSync(program.writeToBuffer());
+  ).writeAsBytesSync(encodeBallFileBinary(program));
 
   // Summary.
   var totalFunctions = 0;

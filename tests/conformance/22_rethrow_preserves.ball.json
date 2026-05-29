@@ -1,17 +1,43 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "22_rethrow_preserves",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
-      ],
       "functions": [
-        { "name": "print", "isBase": true },
-        { "name": "try", "isBase": true },
-        { "name": "throw", "isBase": true },
-        { "name": "rethrow", "isBase": true }
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "try",
+          "isBase": true
+        },
+        {
+          "name": "throw",
+          "isBase": true
+        },
+        {
+          "name": "rethrow",
+          "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
       ]
     },
     {
@@ -55,7 +81,14 @@
                                                         "messageCreation": {
                                                           "typeName": "",
                                                           "fields": [
-                                                            { "name": "value", "value": { "literal": { "stringValue": "boom" } } }
+                                                            {
+                                                              "name": "value",
+                                                              "value": {
+                                                                "literal": {
+                                                                  "stringValue": "boom"
+                                                                }
+                                                              }
+                                                            }
                                                           ]
                                                         }
                                                       }
@@ -76,7 +109,14 @@
                                                     "messageCreation": {
                                                       "typeName": "",
                                                       "fields": [
-                                                        { "name": "variable", "value": { "literal": { "stringValue": "e" } } },
+                                                        {
+                                                          "name": "variable",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "e"
+                                                            }
+                                                          }
+                                                        },
                                                         {
                                                           "name": "body",
                                                           "value": {
@@ -87,7 +127,12 @@
                                                                     "call": {
                                                                       "module": "std",
                                                                       "function": "rethrow",
-                                                                      "input": { "messageCreation": { "typeName": "", "fields": [] } }
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "typeName": "",
+                                                                          "fields": []
+                                                                        }
+                                                                      }
                                                                     }
                                                                   }
                                                                 }
@@ -123,7 +168,14 @@
                                 "messageCreation": {
                                   "typeName": "",
                                   "fields": [
-                                    { "name": "variable", "value": { "literal": { "stringValue": "e" } } },
+                                    {
+                                      "name": "variable",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "e"
+                                        }
+                                      }
+                                    },
                                     {
                                       "name": "body",
                                       "value": {
@@ -138,7 +190,14 @@
                                                     "messageCreation": {
                                                       "typeName": "PrintInput",
                                                       "fields": [
-                                                        { "name": "message", "value": { "reference": { "name": "e" } } }
+                                                        {
+                                                          "name": "message",
+                                                          "value": {
+                                                            "reference": {
+                                                              "name": "e"
+                                                            }
+                                                          }
+                                                        }
                                                       ]
                                                     }
                                                   }
@@ -164,7 +223,11 @@
           }
         }
       ],
-      "moduleImports": [ { "name": "std" } ]
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
     }
   ],
   "entryModule": "main",

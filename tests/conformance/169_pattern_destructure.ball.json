@@ -1,314 +1,324 @@
 {
- "name": "encoded",
- "version": "1.0.0",
- "modules": [
-  {
-   "name": "std",
-   "types": [
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
     {
-     "name": "PrintInput",
-     "field": [
-      {
-       "name": "message",
-       "number": 1,
-       "label": "LABEL_OPTIONAL",
-       "type": "TYPE_STRING"
-      }
-     ]
-    },
-    {
-     "name": "SwitchCase",
-     "field": [
-      {
-       "name": "value",
-       "number": 1,
-       "label": "LABEL_OPTIONAL",
-       "type": "TYPE_MESSAGE"
-      },
-      {
-       "name": "result",
-       "number": 2,
-       "label": "LABEL_OPTIONAL",
-       "type": "TYPE_MESSAGE"
-      }
-     ]
-    },
-    {
-     "name": "SwitchInput",
-     "field": [
-      {
-       "name": "value",
-       "number": 1,
-       "label": "LABEL_OPTIONAL",
-       "type": "TYPE_MESSAGE"
-      },
-      {
-       "name": "cases",
-       "number": 2,
-       "label": "LABEL_REPEATED",
-       "type": "TYPE_MESSAGE"
-      },
-      {
-       "name": "default",
-       "number": 3,
-       "label": "LABEL_OPTIONAL",
-       "type": "TYPE_MESSAGE"
-      }
-     ]
-    }
-   ],
-   "functions": [
-    {
-     "name": "print",
-     "isBase": true
-    },
-    {
-     "name": "switch",
-     "isBase": true
-    },
-    {
-     "name": "to_string",
-     "isBase": true
-    },
-    {
-     "name": "switch_expr",
-     "isBase": true
-    }
-   ]
-  },
-  {
-   "name": "main",
-   "functions": [
-    {
-     "name": "getShape",
-     "inputType": "int",
-     "outputType": "String",
-     "body": {
-      "call": {
-       "module": "std",
-       "function": "switch_expr",
-       "input": {
-        "messageCreation": {
-         "typeName": "SwitchInput",
-         "fields": [
-          {
-           "name": "subject",
-           "value": {
-            "reference": {
-             "name": "n"
-            }
-           }
-          },
-          {
-           "name": "cases",
-           "value": {
-            "literal": {
-             "listValue": {
-              "elements": [
-               {
-                "messageCreation": {
-                 "fields": [
-                  {
-                   "name": "value",
-                   "value": {
-                    "literal": {
-                     "intValue": "1"
-                    }
-                   }
-                  },
-                  {
-                   "name": "body",
-                   "value": {
-                    "literal": {
-                     "stringValue": "circle"
-                    }
-                   }
-                  }
-                 ]
-                }
-               },
-               {
-                "messageCreation": {
-                 "fields": [
-                  {
-                   "name": "value",
-                   "value": {
-                    "literal": {
-                     "intValue": "2"
-                    }
-                   }
-                  },
-                  {
-                   "name": "body",
-                   "value": {
-                    "literal": {
-                     "stringValue": "square"
-                    }
-                   }
-                  }
-                 ]
-                }
-               },
-               {
-                "messageCreation": {
-                 "fields": [
-                  {
-                   "name": "value",
-                   "value": {
-                    "literal": {
-                     "intValue": "3"
-                    }
-                   }
-                  },
-                  {
-                   "name": "body",
-                   "value": {
-                    "literal": {
-                     "stringValue": "triangle"
-                    }
-                   }
-                  }
-                 ]
-                }
-               },
-               {
-                "messageCreation": {
-                 "fields": [
-                  {
-                   "name": "is_default",
-                   "value": {
-                    "literal": {
-                     "boolValue": true
-                    }
-                   }
-                  },
-                  {
-                   "name": "body",
-                   "value": {
-                    "literal": {
-                     "stringValue": "unknown"
-                    }
-                   }
-                  }
-                 ]
-                }
-               }
-              ]
-             }
-            }
-           }
-          }
-         ]
-        }
-       }
-      }
-     },
-     "metadata": {
-      "kind": "function",
-      "params": [
-       {
-        "name": "n",
-        "type": "int"
-       }
-      ],
-      "case_pattern": "shape: String"
-     }
-    },
-    {
-     "name": "main",
-     "outputType": "void",
-     "body": {
-      "block": {
-       "statements": [
+      "name": "std",
+      "functions": [
         {
-         "expression": {
-          "call": {
-           "module": "std",
-           "function": "print",
-           "input": {
-            "messageCreation": {
-             "typeName": "PrintInput",
-             "fields": [
-              {
-               "name": "message",
-               "value": {
-                "call": {
-                 "function": "getShape",
-                 "input": {
-                  "messageCreation": {
-                   "fields": [
-                    {
-                     "name": "arg0",
-                     "value": {
-                      "literal": {
-                       "intValue": "2"
-                      }
-                     }
-                    }
-                   ]
-                  }
-                 }
-                }
-               }
-              }
-             ]
-            }
-           }
-          }
-         }
+          "name": "print",
+          "isBase": true
         },
         {
-         "expression": {
-          "call": {
-           "module": "std",
-           "function": "print",
-           "input": {
-            "messageCreation": {
-             "typeName": "PrintInput",
-             "fields": [
-              {
-               "name": "message",
-               "value": {
-                "call": {
-                 "function": "getShape",
-                 "input": {
-                  "messageCreation": {
-                   "fields": [
-                    {
-                     "name": "arg0",
-                     "value": {
-                      "literal": {
-                       "intValue": "5"
-                      }
-                     }
-                    }
-                   ]
-                  }
-                 }
-                }
-               }
-              }
-             ]
-            }
-           }
-          }
-         }
+          "name": "switch",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "switch_expr",
+          "isBase": true
         }
-       ]
-      }
-     },
-     "metadata": {
-      "kind": "function"
-     }
-    }
-   ],
-   "moduleImports": [
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "SwitchCase",
+          "descriptor": {
+            "name": "SwitchCase",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              },
+              {
+                "name": "result",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              }
+            ]
+          }
+        },
+        {
+          "name": "SwitchInput",
+          "descriptor": {
+            "name": "SwitchInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              },
+              {
+                "name": "cases",
+                "number": 2,
+                "label": "LABEL_REPEATED",
+                "type": "TYPE_MESSAGE"
+              },
+              {
+                "name": "default",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE"
+              }
+            ]
+          }
+        }
+      ]
+    },
     {
-     "name": "std"
+      "name": "main",
+      "functions": [
+        {
+          "name": "getShape",
+          "inputType": "int",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "switch_expr",
+              "input": {
+                "messageCreation": {
+                  "typeName": "SwitchInput",
+                  "fields": [
+                    {
+                      "name": "subject",
+                      "value": {
+                        "reference": {
+                          "name": "n"
+                        }
+                      }
+                    },
+                    {
+                      "name": "cases",
+                      "value": {
+                        "literal": {
+                          "listValue": {
+                            "elements": [
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "value",
+                                      "value": {
+                                        "literal": {
+                                          "intValue": "1"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "circle"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "value",
+                                      "value": {
+                                        "literal": {
+                                          "intValue": "2"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "square"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "value",
+                                      "value": {
+                                        "literal": {
+                                          "intValue": "3"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "triangle"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "is_default",
+                                      "value": {
+                                        "literal": {
+                                          "boolValue": true
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "unknown"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "params": [
+              {
+                "name": "n",
+                "type": "int"
+              }
+            ],
+            "case_pattern": "shape: String"
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "getShape",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "2"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "getShape",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "5"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
     }
-   ]
-  }
- ],
- "entryModule": "main",
- "entryFunction": "main"
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
 }

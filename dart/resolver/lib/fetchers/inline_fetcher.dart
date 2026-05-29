@@ -3,15 +3,16 @@ library;
 
 import 'dart:convert';
 
+import 'package:ball_base/ball_base.dart'
+    show decodeModuleBinary, decodeModuleJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 
 Module fetchInline(InlineSource source) {
   if (source.hasProtoBytes()) {
-    return Module.fromBuffer(source.protoBytes);
+    return decodeModuleBinary(source.protoBytes);
   }
   if (source.hasJson()) {
-    return Module()
-      ..mergeFromProto3Json(jsonDecode(source.json), ignoreUnknownFields: true);
+    return decodeModuleJson(jsonDecode(source.json));
   }
   throw StateError('InlineSource has neither proto_bytes nor json');
 }

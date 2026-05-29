@@ -17,7 +17,7 @@ Module buildStdTimeModule() {
   // Types
   // ============================================================
 
-  module.types.addAll([
+  module.typeDefs.addAll(<google.DescriptorProto>[
     _type('FormatTimestampInput', [
       _intField('timestamp_ms', 1),
       _stringField('format', 2),
@@ -27,7 +27,7 @@ Module buildStdTimeModule() {
       _stringField('format', 2),
     ]),
     _type('DurationInput', [_intField('left', 1), _intField('right', 2)]),
-  ]);
+  ].map((d) => TypeDefinition()..name = d.name..descriptor = d));
 
   // ============================================================
   // Functions

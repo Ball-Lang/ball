@@ -6,7 +6,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ball_base/gen/ball/v1/ball.pb.dart';
+import 'package:ball_base/ball_base.dart' show decodeProgramJson;
 import 'package:ball_engine/engine.dart';
 import 'package:test/test.dart';
 
@@ -49,10 +49,9 @@ void main() {
       );
       if (name == '197_memory_limit') {
         test(name, () async {
-          final jsonMap =
-              jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
-          final program = Program()
-            ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
+          final program = decodeProgramJson(
+            jsonDecode(testFile.readAsStringSync()),
+          );
 
           await expectLater(
             BallEngine(program, maxMemoryBytes: 1000).run(),
@@ -69,10 +68,9 @@ void main() {
       }
       if (name == '200_resource_exhaustion_protection') {
         test(name, () async {
-          final jsonMap =
-              jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
-          final program = Program()
-            ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
+          final program = decodeProgramJson(
+            jsonDecode(testFile.readAsStringSync()),
+          );
 
           await expectLater(
             BallEngine(program, maxMemoryBytes: 1000).run(),
@@ -89,10 +87,9 @@ void main() {
       }
       if (name == '196_timeout') {
         test(name, () async {
-          final jsonMap =
-              jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
-          final program = Program()
-            ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
+          final program = decodeProgramJson(
+            jsonDecode(testFile.readAsStringSync()),
+          );
 
           await expectLater(
             BallEngine(program, timeoutMs: 1).run(),
@@ -109,10 +106,9 @@ void main() {
       }
       if (name == '202_sandbox_mode') {
         test(name, () async {
-          final jsonMap =
-              jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
-          final program = Program()
-            ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
+          final program = decodeProgramJson(
+            jsonDecode(testFile.readAsStringSync()),
+          );
 
           await expectLater(
             BallEngine(program, sandbox: true).run(),
@@ -129,10 +125,9 @@ void main() {
       }
       if (name == '201_input_validation') {
         test(name, () async {
-          final jsonMap =
-              jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
-          final program = Program()
-            ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
+          final program = decodeProgramJson(
+            jsonDecode(testFile.readAsStringSync()),
+          );
 
           expect(
             () => BallEngine(program),
@@ -175,10 +170,9 @@ void main() {
       if (!expectedFile.existsSync()) continue;
 
       test(name, () async {
-        final jsonMap =
-            jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
-        final program = Program()
-          ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
+        final program = decodeProgramJson(
+          jsonDecode(testFile.readAsStringSync()),
+        );
 
         final lines = <String>[];
         await BallEngine(program, stdout: lines.add).run();
@@ -203,10 +197,9 @@ void main() {
       if (!sourceFile.existsSync()) continue;
 
       test(name, () async {
-        final jsonMap =
-            jsonDecode(testFile.readAsStringSync()) as Map<String, dynamic>;
-        final program = Program()
-          ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
+        final program = decodeProgramJson(
+          jsonDecode(testFile.readAsStringSync()),
+        );
 
         final lines = <String>[];
         await BallEngine(program, stdout: lines.add).run();

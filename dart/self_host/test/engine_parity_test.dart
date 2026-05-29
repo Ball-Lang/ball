@@ -16,7 +16,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ball_base/gen/ball/v1/ball.pb.dart';
+import 'package:ball_base/ball_base.dart' show Program, decodeProgramJson;
 import 'package:ball_engine/engine.dart' as live;
 import 'package:ball_self_host_tests/engine_roundtrip.dart' as rt;
 import 'package:test/test.dart';
@@ -51,8 +51,7 @@ void main() {
       final name = f.uri.pathSegments.last.replaceAll('.ball.json', '');
       if (skipFixtures.contains(name)) continue;
       test(name, () async {
-        final json = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
-        final program = Program()..mergeFromProto3Json(json);
+        final program = decodeProgramJson(jsonDecode(f.readAsStringSync()));
 
         final liveOut = await _runLive(program);
         final rtOut = await _runRoundTripped(program);

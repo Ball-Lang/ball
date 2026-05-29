@@ -24,7 +24,7 @@ Module buildDartStdModule() {
   // Types (input message types for Dart-specific functions)
   // ============================================================
 
-  module.types.addAll([
+  module.typeDefs.addAll(<google.DescriptorProto>[
     _type('NullAwareAccessInput', [
       _exprField('target', 1),
       _stringField('field', 2),
@@ -66,7 +66,7 @@ Module buildDartStdModule() {
     _type('SymbolInput', [_stringField('value', 1)]),
     _type('TypeLiteralInput', [_stringField('type', 1)]),
     _type('LabeledInput', [_stringField('label', 1), _exprField('body', 2)]),
-  ]);
+  ].map((d) => TypeDefinition()..name = d.name..descriptor = d));
 
   // ============================================================
   // Functions — Dart-specific

@@ -347,11 +347,6 @@ class BallEngine {
 
   void _buildLookupTables() {
     for (final module in program.modules) {
-      for (final type in module.types) {
-        _types[type.name] = type;
-        final tc = type.name.indexOf(':');
-        if (tc >= 0) _types[type.name.substring(tc + 1)] = type;
-      }
       for (final td in module.typeDefs) {
         if (td.hasDescriptor()) {
           _types[td.name] = td.descriptor;

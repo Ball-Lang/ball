@@ -1,31 +1,44 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "list_filled",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
+      "functions": [
         {
-          "name": "PrintInput",
-          "field": [
-            {
-              "name": "message",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "for_in",
+          "isBase": true
         }
       ],
-      "functions": [
-        { "name": "print", "isBase": true },
-        { "name": "for_in", "isBase": true }
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
       ]
     },
     {
       "name": "dart_std",
       "functions": [
-        { "name": "list_filled", "isBase": true }
+        {
+          "name": "list_filled",
+          "isBase": true
+        }
       ]
     },
     {
@@ -49,11 +62,19 @@
                             "fields": [
                               {
                                 "name": "length",
-                                "value": { "literal": { "intValue": "3" } }
+                                "value": {
+                                  "literal": {
+                                    "intValue": "3"
+                                  }
+                                }
                               },
                               {
                                 "name": "value",
-                                "value": { "literal": { "stringValue": "x" } }
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "x"
+                                  }
+                                }
                               }
                             ]
                           }
@@ -72,11 +93,19 @@
                           "fields": [
                             {
                               "name": "variable",
-                              "value": { "literal": { "stringValue": "value" } }
+                              "value": {
+                                "literal": {
+                                  "stringValue": "value"
+                                }
+                              }
                             },
                             {
                               "name": "iterable",
-                              "value": { "reference": { "name": "values" } }
+                              "value": {
+                                "reference": {
+                                  "name": "values"
+                                }
+                              }
                             },
                             {
                               "name": "body",
@@ -90,7 +119,11 @@
                                       "fields": [
                                         {
                                           "name": "message",
-                                          "value": { "reference": { "name": "value" } }
+                                          "value": {
+                                            "reference": {
+                                              "name": "value"
+                                            }
+                                          }
                                         }
                                       ]
                                     }
@@ -110,8 +143,12 @@
         }
       ],
       "moduleImports": [
-        { "name": "std" },
-        { "name": "dart_std" }
+        {
+          "name": "std"
+        },
+        {
+          "name": "dart_std"
+        }
       ]
     }
   ],

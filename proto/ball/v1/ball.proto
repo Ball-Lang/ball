@@ -48,13 +48,6 @@ message Module {
   // Unique module name (e.g., "std", "main", "my_lib")
   string name = 1;
 
-  // Message types defined using protobuf's own descriptor format.
-  // This ensures types are truly language-agnostic — protobuf already
-  // defines how each type maps to every target language's native types
-  // (e.g. int32 → int in Dart, int in Python, int32_t in C++, number in JS).
-  // See: https://protobuf.dev/reference/protobuf/google.protobuf/#DescriptorProto
-  repeated google.protobuf.DescriptorProto types = 2;
-
   // Enum types defined using protobuf's own enum descriptor format.
   repeated google.protobuf.EnumDescriptorProto enums = 7;
 
@@ -337,8 +330,9 @@ enum ModuleEncoding {
 //     messages, enums, and oneof — all cross-language
 //   - No need to reinvent type mappings for C++, Python, Dart, etc.
 //
-// Types are defined in Module.types as google.protobuf.DescriptorProto
-// messages, and Module.enums as google.protobuf.EnumDescriptorProto.
+// Types are defined in Module.type_defs as TypeDefinition messages (each
+// wrapping a google.protobuf.DescriptorProto), and Module.enums as
+// google.protobuf.EnumDescriptorProto.
 //
 // In JSON format, a type looks like:
 //   {

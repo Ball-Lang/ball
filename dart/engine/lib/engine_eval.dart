@@ -624,8 +624,11 @@ extension BallEngineEval on BallEngine {
     // ── Map / message field access ─────────────────────────────
     if (objectMap != null) {
       if (objectMap.containsKey(fieldName)) {
-        final direct = objectMap[fieldName];
-        if (direct != null) return direct;
+        // A present field is returned even when its value is null: a
+        // present-but-null field shadows inherited/super values and is NOT
+        // "field not found". (Previously a null value fell through and could
+        // raise a spurious field-not-found error for a field that exists.)
+        return objectMap[fieldName];
       }
 
       // Walk the __super__ chain for inherited fields.
@@ -633,8 +636,7 @@ extension BallEngineEval on BallEngine {
       var superMap = _asMap(superObj);
       while (superMap != null) {
         if (superMap.containsKey(fieldName)) {
-          final inherited = superMap[fieldName];
-          if (inherited != null) return inherited;
+          return superMap[fieldName];
         }
         superObj = superMap['__super__'];
         superMap = _asMap(superObj);

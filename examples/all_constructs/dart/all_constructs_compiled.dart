@@ -3,72 +3,71 @@
 // Target: Dart
 
 int add(int a, int b) => (a + b);
-
 int subtract(int a, int b) => (a - b);
-
 int multiply(int a, int b) => (a * b);
-
 double divide(double a, double b) => (a / b);
-
 int intDivide(int a, int b) => (a ~/ b);
-
 int modulo(int a, int b) => (a % b);
-
-int negate(int x) => (-x);
+int negate(int input) {
+  int x = input;
+  return -x;
+}
 
 bool lessThan(int a, int b) => (a < b);
-
 bool greaterThan(int a, int b) => (a > b);
-
 bool lessOrEqual(int a, int b) => (a <= b);
-
 bool greaterOrEqual(int a, int b) => (a >= b);
-
 bool isEqual(int a, int b) => (a == b);
-
 bool isNotEqual(int a, int b) => (a != b);
-
 bool logicalAnd(bool a, bool b) => (a && b);
-
 bool logicalOr(bool a, bool b) => (a || b);
-
-bool logicalNot(bool a) => (!a);
+bool logicalNot(bool input) {
+  bool a = input;
+  return !a;
+}
 
 int bitwiseAnd(int a, int b) => (a & b);
-
 int bitwiseOr(int a, int b) => (a | b);
-
 int bitwiseXor(int a, int b) => (a ^ b);
-
 int leftShift(int a, int b) => (a << b);
-
 int rightShift(int a, int b) => (a >> b);
-
-int bitwiseNot(int x) => (~x);
+int bitwiseNot(int input) {
+  int x = input;
+  return ~x;
+}
 
 String concat(String a, String b) => (a + b);
-
-String classify(int n) {
+String classify(int input) {
+  int n = input;
   if ((n < 0)) {
     return 'negative';
-  } else   if ((n == 0)) {
+  } else if ((n == 0)) {
     return 'zero';
   } else {
     return 'positive';
   }
 }
 
-String ternary(bool flag) => (flag ? 'yes' : 'no');
+String ternary(bool input) {
+  bool flag = input;
+  if (flag) {
+    return 'yes';
+  } else {
+    return 'no';
+  }
+}
 
-int sumRange(int n) {
+int sumRange(int input) {
+  int n = input;
   var total = 0;
-  for (var i = 0; (i < n); (i++)) {
+  for (var i = 0; (i < n); i++) {
     total = (total + i);
   }
   return total;
 }
 
-int whileLoop(int n) {
+int whileLoop(int input) {
+  int n = input;
   var count = 0;
   while ((count < n)) {
     count = (count + 1);
@@ -76,38 +75,42 @@ int whileLoop(int n) {
   return count;
 }
 
-int factorial(int n) {
+int factorial(int input) {
+  int n = input;
   if ((n <= 1)) {
     return 1;
   }
   return (n * factorial((n - 1)));
 }
 
-int localVars(int x) {
+int localVars(int input) {
+  int x = input;
   final a = (x + 1);
   final b = (a * 2);
   final c = (b - 3);
   return c;
 }
 
-int nested(int x) {
+int nested(int input) {
+  int x = input;
   return add(multiply(x, 2), subtract(x, 1));
 }
 
-String multiStep(int n) {
+String multiStep(int input) {
+  int n = input;
   final doubled = (n * 2);
   final asStr = doubled.toString();
   return ('Result: ' + asStr.toString());
 }
 
 void main() {
-  print(add(3, 4).toString());
-  print(subtract(10, 3).toString());
-  print(multiply(5, 6).toString());
-  print(divide(10.0, 3.0).toString());
+  print((add(3, 4)).toString());
+  print((subtract(10, 3)).toString());
+  print((multiply(5, 6)).toString());
+  print((divide(10.0, 3.0)).toString());
   print(intDivide(10, 3).toString());
-  print(modulo(10, 3).toString());
-  print(negate(5).toString());
+  print((modulo(10, 3)).toString());
+  print((negate(5)).toString());
   print(lessThan(1, 2).toString());
   print(greaterThan(3, 2).toString());
   print(lessOrEqual(2, 2).toString());
@@ -124,7 +127,7 @@ void main() {
   print(rightShift(8, 2).toString());
   print(bitwiseNot(0).toString());
   print(concat('Hello, ', 'World!'));
-  print(classify((-5)));
+  print(classify(-5));
   print(classify(0));
   print(classify(7));
   print(ternary(true));

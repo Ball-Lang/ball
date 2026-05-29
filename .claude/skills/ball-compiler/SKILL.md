@@ -21,7 +21,7 @@ Program (protobuf)
   → Build lookup tables (types, functions by name)
   → Identify base modules (std, std_collections, std_io, dart_std)
   → Generate imports from module metadata
-  → Generate types from typeDefs[] (preferred) or types[]
+  → Generate types from typeDefs[]
   → Generate functions (walk expression trees)
   → Generate entry point (main)
 ```
@@ -63,7 +63,9 @@ std.assign    → target = value
 3. Add compilation logic in the compiler's base function dispatcher
 4. Add interpretation logic in the engine's std dispatcher
 5. Add test in `dart/engine/test/engine_test.dart`
-6. If C++: implement in both `cpp/compiler/` AND `cpp/engine/`
+6. If C++ is affected: implement in `cpp/compiler/src/`, then regenerate the self-hosted engine
+   `dart/self_host/lib/engine_rt.cpp` (`cd dart && dart run compiler/tool/compile_engine_cpp.dart --monolithic`)
+   and re-run C++ self-host conformance. (There is no native `cpp/engine/` — the engine is self-hosted.)
 
 ## Control Flow — MUST Use Lazy Evaluation
 
@@ -89,6 +91,13 @@ Read `metadata.kind` on TypeDefinition to determine what to emit:
 | enum | `enum Foo` | `enum class Foo` | `class Foo(Enum)` | `enum Foo` |
 | mixin | `mixin Foo` | N/A | mixin class | N/A |
 | extension | `extension on T` | N/A | N/A | N/A |
+
+## Creating a New Compiler for a New Language
+
+If you're building a Ball compiler for an entirely new target language (not modifying Dart/TS/C++),
+follow the **new-ball-language** skill (`.claude/skills/new-ball-language/SKILL.md`), Phase 2.
+That playbook covers the full lifecycle including directory scaffold, package setup, CI, and
+conformance testing. This skill focuses on the compiler internals once you're ready to implement.
 
 ## Common Mistakes
 

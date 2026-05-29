@@ -21,14 +21,14 @@ Module buildStdIoModule() {
   // Types
   // ============================================================
 
-  module.types.addAll([
+  module.typeDefs.addAll(<google.DescriptorProto>[
     _type('PrintErrorInput', [_stringField('message', 1)]),
     _type('ExitInput', [_intField('code', 1)]),
     _type('PanicInput', [_stringField('message', 1)]),
     _type('SleepInput', [_intField('milliseconds', 1)]),
     _type('RandomIntInput', [_intField('min', 1), _intField('max', 2)]),
     _type('EnvGetInput', [_stringField('name', 1)]),
-  ]);
+  ].map((d) => TypeDefinition()..name = d.name..descriptor = d));
 
   // ============================================================
   // Functions

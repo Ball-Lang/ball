@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Ball is a programming language where every program is a Protocol Buffer message (`proto/ball/v1/ball.proto` is the single source of truth). Compilers translate Ball programs into target-language source, encoders do the reverse, and engines interpret Ball programs directly. Dart is the mature reference implementation; C++ is a prototype; Go/Python/TS/Java/C# currently ship proto bindings only.
 
-## Gemeral Rules to follow (CRITICAL)
+## General Rules to follow (CRITICAL)
 
 - Avoid anti-patterns, follow best practices
 - Maximize performance and minimize memory usage where possible, but not at the cost of readability or maintainability.
@@ -45,11 +45,14 @@ cd ts/engine && npm test
 # TS compiler tests (including compiled engine conformance)
 cd ts/compiler && npm install && npm test
 
-# Regenerate compiled TS engine from self-hosted Ball source
+# Regenerate compiled TS engine from self-hosted Ball source.
+# engine.ball.json is a self-describing google.protobuf.Any envelope
+# ({"@type":"…/ball.v1.Program", …}); strip @type before compiling.
 cd ts/compiler && node --experimental-strip-types -e "
 const {readFileSync, writeFileSync} = require('fs');
 const {compile} = require('./src/index.ts');
-const program = JSON.parse(readFileSync('../../dart/self_host/engine.ball.json', 'utf8'));
+function unwrapBallFile(json){ if(json===null||typeof json!=='object'||Array.isArray(json))return json; const t=json['@type']; if(t===undefined)return json; const b={}; for(const[k,v]of Object.entries(json)){if(k!=='@type')b[k]=v;} return b; }
+const program = unwrapBallFile(JSON.parse(readFileSync('../../dart/self_host/engine.ball.json', 'utf8')));
 const ts = compile(program);
 writeFileSync('../engine/src/compiled_engine.ts', '// @ts-nocheck — auto-generated\n' + ts);
 "
@@ -83,7 +86,7 @@ Five packages resolved as a workspace:
 - `ball_engine` — tree-walking interpreter. `StdModuleHandler` dispatches `std`/`dart_std`; custom modules implement `BallModuleHandler`.
 - `ball_cli` — CLI entry point.
 
-Types are emitted from `typeDefs[]` (preferred) or the legacy `types[]` + `_meta_*` functions path.
+Types are emitted from `typeDefs[]` only — each `TypeDefinition` carries the protobuf descriptor plus a cosmetic `metadata` bag. The former `Module.types` field (bare descriptors) and the `_meta_*` function hack were removed; `typeDefs[]` is the single type-declaration path.
 
 ### C++ prototype (`cpp/`)
 - `BallValue = std::any`, `BallList = std::vector<BallValue>`, `BallMap = std::map<std::string, BallValue>` (ordered — **not** `unordered_map`).
@@ -102,6 +105,27 @@ Four packages (no workspace manager — each has its own `node_modules`):
 
 ### Standard library modules
 `std` (118 fns: arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops), `std_collections` (53 list/map fns), `std_io` (10 console/process/time/random), `std_memory` (38 linear-memory fns for C/C++ interop), `dart_std` (~18 Dart-specific: cascade, null_aware_access, invoke, spread, etc.).
+
+## Adding a New Language
+
+To add full Ball support for a new programming language (compiler + encoder + engine + CLI +
+conformance + CI/CD), follow the **new-ball-language** skill at
+`.claude/skills/new-ball-language/SKILL.md`. It has 8 phases:
+
+1. **Directory scaffold & proto bindings** — create `<lang>/` tree, add to `buf.gen.yaml`
+2. **Compiler** (Ball → target language) — expression compilation + base function dispatch
+3. **Encoder** (target language → Ball) — parser integration + AST-to-Ball mapping
+4. **Engine** — self-hosted (recommended: compile `dart/self_host/engine.ball.json`) or hand-written
+5. **CLI** — `ball run`, `ball compile`, `ball encode` subcommands
+6. **Conformance tests** — wire `tests/conformance/*.ball.json`, output `Results: N passed, M failed, T total`
+7. **CI/CD** — add jobs to `ci.yml` and `conformance-matrix.yml`
+8. **Documentation** — `<lang>/AGENTS.md`, `.claude/rules/<lang>.md`, update root docs
+
+Supporting configs:
+
+- Agent: `.claude/agents/ball-lang-bootstrapper.md` — orchestrates the full bootstrap
+- Rule: `.claude/rules/new-language.md` — auto-activates when editing new language dirs
+- Existing skills (`ball-compiler`, `ball-encoder`, `ball-engine`) cover component internals
 
 ## Typical Feature Workflow
 

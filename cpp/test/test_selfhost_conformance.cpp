@@ -21,6 +21,7 @@
 // Now include protobuf headers for JSON parsing of Ball programs.
 // These are separate from the engine_rt runtime types.
 #include "ball/v1/ball.pb.h"
+#include "ball_file.h"
 #include "google/protobuf/util/json_util.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/reflection.h"
@@ -254,14 +255,13 @@ static std::string read_file_str(const fs::path& p) {
 
 static bool run_one(const fs::path& program_path, const fs::path& expected_path,
                     std::string& failure_msg) {
-    // Parse JSON -> protobuf
+    // Parse the self-describing Any envelope -> Program protobuf.
     auto json = read_file_str(program_path);
     ball::v1::Program program;
-    google::protobuf::util::JsonParseOptions opts;
-    opts.ignore_unknown_fields = true;
-    auto status = google::protobuf::util::JsonStringToMessage(json, &program, opts);
-    if (!status.ok()) {
-        failure_msg = "JSON parse failed: " + std::string(status.message());
+    try {
+        program = ball::DecodeProgram(program_path.string(), json);
+    } catch (const ball::BallFileFormatException& e) {
+        failure_msg = std::string("ball file decode failed: ") + e.what();
         return false;
     }
 

@@ -28,6 +28,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ball_base/ball_base.dart' show encodeBallFileJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_compiler/compiler.dart';
 // ts_compiler.dart was deleted — the canonical TS compiler lives in
@@ -304,10 +305,11 @@ void main() {
         final source = fixture.readAsStringSync();
         final program = DartEncoder().encode(source);
 
-        // Persist the generated ball.json so other tests/tools can see it.
+        // Persist the generated ball.json (self-describing Any envelope) so
+        // other tests/tools can see it.
         final jsonOut = File('${ballJsonOutDir.path}/$name.ball.json');
         jsonOut.writeAsStringSync(
-          const JsonEncoder.withIndent('  ').convert(program.toProto3Json()),
+          const JsonEncoder.withIndent('  ').convert(encodeBallFileJson(program)),
         );
         // Also persist the baseline as an expected_output.txt file next
         // to the generated .ball.json. Lets downstream C++ harnesses

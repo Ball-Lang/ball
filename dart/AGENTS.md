@@ -1,7 +1,5 @@
 # Dart Implementation Agents
 
-**Generated:** 2026-05-05 | **Commit:** e9d2668 | **Branch:** main
-
 When working in the Dart packages. The Dart implementation is the **reference** — all other languages mirror it.
 
 ## Package Layout

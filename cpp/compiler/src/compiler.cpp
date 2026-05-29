@@ -1652,6 +1652,17 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 return "(ball_set(" + tgt + ", std::string(ball_to_string(BallDyn(" + idx + "))), std::any(" + val + ")), " + val + ")";
             }
         }
+        // Plain identifier (lvalue) target with `=`: use ball_assign so a
+        // std::string target assigned a BallDyn routes through ball_to_string
+        // (gcc/clang reject the ambiguous std::string::operator=(BallDyn)).
+        // Only for Reference targets — ball_assign binds target by lvalue ref,
+        // whereas other targets (e.g. a null-safe ternary) compile to a
+        // temporary BallDyn that must keep the direct rvalue operator=. Compound
+        // ops (+=, -=, …) also assign directly.
+        if (op == "=" && target_expr &&
+            target_expr->expr_case() == ball::v1::Expression::kReference) {
+            return "ball_assign(" + target + ", " + val + ")";
+        }
         return "(" + target + " " + op + " " + val + ")";
     }
 

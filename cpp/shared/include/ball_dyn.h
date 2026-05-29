@@ -1095,6 +1095,22 @@ inline std::string ball_to_string(const BallDyn& d) {
     return static_cast<std::string>(d);
 }
 
+// Assignment-as-expression for plain (non-field/index) targets. `std::string =
+// BallDyn` is ambiguous under gcc/clang: BallDyn->std::string and BallDyn->char
+// go through different conversion operators, so std::string::operator=(const
+// string&) and operator=(char) are indistinguishable user-conversion sequences.
+// Route a std::string target through ball_to_string; every other target type
+// assigns directly. Returns the assigned value, since Dart `=` is an expression.
+inline std::string ball_assign(std::string& target, const BallDyn& value) {
+    target = ball_to_string(value);
+    return target;
+}
+template <typename T, typename U>
+inline T& ball_assign(T& target, U&& value) {
+    target = std::forward<U>(value);
+    return target;
+}
+
 // Allow std::regex(BallDyn) by providing conversion helper
 inline std::regex ball_to_regex(const BallDyn& d) { return std::regex(ball_to_string(d)); }
 inline std::regex ball_to_regex(const std::string& s) { return std::regex(s); }

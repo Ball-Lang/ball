@@ -1304,6 +1304,27 @@ static bool _exprHasReturnOrLabel(const ball::v1::Expression& e) {
         case E::kCall: {
             const auto& fn = e.call().function();
             if (fn == "return" || fn == "labeled") return true;
+            // Labeled break/continue compile to a `goto __ball_*_<label>`,
+            // whose target label is planted by the *enclosing* loop in
+            // statement context. A goto cannot cross the IIFE boundary of an
+            // expression-context loop, so a body containing one must fall back
+            // to the stub. Unlabeled break/continue act on the loop natively
+            // and are fine inside the IIFE — don't flag those.
+            if (fn == "break" || fn == "continue") {
+                if (e.call().has_input() &&
+                    e.call().input().expr_case() == E::kMessageCreation) {
+                    for (const auto& f :
+                         e.call().input().message_creation().fields()) {
+                        if (f.name() == "label" && f.has_value() &&
+                            f.value().expr_case() == E::kLiteral &&
+                            f.value().literal().value_case() ==
+                                ball::v1::Literal::kStringValue &&
+                            !f.value().literal().string_value().empty()) {
+                            return true;
+                        }
+                    }
+                }
+            }
             return e.call().has_input() && _exprHasReturnOrLabel(e.call().input());
         }
         case E::kLambda:
@@ -2959,7 +2980,16 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                 return;
             }
         }
+        // Compiling the expression here is a pre-computation used only by the
+        // non-control-flow fallback at the end of this function; every
+        // control-flow case below emits via emit_line and returns early. The
+        // pre-computation can recurse into nested loops (compile_block_statements
+        // → compile_statement) which consume `pending_label_`. Save and restore
+        // it so a wrapping `labeled` loop still sees its label when its own
+        // statement-context handler runs.
+        auto saved_pending_label = pending_label_;
         auto expr_str = compile_expr(stmt.expression());
+        pending_label_ = saved_pending_label;
         // Special handling for return in statement context
         if (stmt.expression().expr_case() == ball::v1::Expression::kCall) {
             const auto& call = stmt.expression().call();

@@ -829,14 +829,18 @@ TEST(compile_try_catch_typed_dispatches_by_type) {
 }
 
 TEST(compile_throw_uses_ball_exception) {
-    // Plain `throw "boom"` should emit BallException with default type
-    // "Exception", not std::runtime_error.
+    // Plain `throw "boom"` should raise a BallException with the default type
+    // "Exception", not std::runtime_error. A non-message value is routed
+    // through `_ball_make_exception(type, value)` (which returns a
+    // BallException) so the original thrown payload survives to the catch side
+    // (`e["value"]`) and an intervening `rethrow` doesn't double-wrap it.
     auto prog = build_program(
         std_call("throw", make_msg("", {
             {"value", lit_string("boom")}
         })));
     auto out = compile_program(prog);
-    ASSERT_CONTAINS(out, "throw BallException(\"Exception\"s");
+    ASSERT_CONTAINS(out, "throw _ball_make_exception(\"Exception\"s");
+    ASSERT_CONTAINS(out, "\"boom\"s");
 }
 
 TEST(compile_base64_encode_decode_roundtrip) {

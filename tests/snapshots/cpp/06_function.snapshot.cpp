@@ -15,6 +15,13 @@
 #include <stdexcept>
 #include <cassert>
 #include <regex>
+#include <fstream>
+#include <iomanip>
+#include <cstdlib>
+#include <memory>
+#include <thread>
+#include <chrono>
+#include <random>
 
 using namespace std::string_literals;
 
@@ -46,6 +53,12 @@ using namespace std::string_literals;
 struct BallException : public std::runtime_error {
     std::string type_name;
     std::map<std::string, std::string> fields;
+    // Arbitrary thrown payload (the engine's `BallException(typeName, value)`),
+    // preserved so a catch handler can read the real thrown value — not just
+    // the stringified message. has_payload distinguishes "no payload" from a
+    // payload that happens to be a null/empty value.
+    std::any value;
+    bool has_payload = false;
     BallException(std::string t, std::string msg)
         : std::runtime_error(msg), type_name(std::move(t)) {}
     BallException(std::string t, std::string msg,
@@ -70,6 +83,7 @@ inline std::string ball_to_string(const char* s) { return s; }
 inline std::string ball_to_string(double d) {
     if (d != d) return "NaN";
     if (d > 1e308 || d < -1e308) return d < 0 ? "-Infinity" : "Infinity";
+    if (d == 0.0 && std::signbit(d)) return "-0.0";
     if (d == static_cast<double>(static_cast<long long>(d)) && d < 1e16 && d > -1e16) {
         return std::to_string(static_cast<long long>(d)) + ".0";
     }
@@ -84,10 +98,214 @@ inline std::string ball_to_string(double d) {
     return s;
 }
 
+// ── UTF-16 string semantics (Dart parity) ──
+// Dart strings are sequences of UTF-16 code units: `.length`, `s[i]`, and
+// `substring(a, b)` index by code unit, NOT by byte. Compiled programs store
+// strings as UTF-8 std::string, so length/substring must convert. ASCII strings
+// (1 byte == 1 code unit) hit a fast path: when every byte is < 0x80 these are
+// no-ops. A BMP char (e.g. CJK 你) is 3 UTF-8 bytes == 1 UTF-16 unit; an astral
+// char (e.g. emoji 😀) is 4 UTF-8 bytes == 2 UTF-16 units (a surrogate pair).
+
+// Number of UTF-16 code units in a UTF-8 string.
+inline int64_t ball_u16_length(const std::string& s) {
+    int64_t units = 0;
+    for (size_t i = 0; i < s.size();) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c < 0x80) { i += 1; units += 1; }
+        else if ((c >> 5) == 0x6) { i += 2; units += 1; }
+        else if ((c >> 4) == 0xE) { i += 3; units += 1; }
+        else if ((c >> 3) == 0x1E) { i += 4; units += 2; }  // astral -> surrogate pair
+        else { i += 1; units += 1; }  // invalid byte: treat as 1
+    }
+    return units;
+}
+
+// Map a UTF-16 code-unit index to a byte offset in the UTF-8 string. An index
+// that lands in the middle of a surrogate pair (astral char) clamps to the start
+// of that char's bytes. An index past the end returns s.size().
+inline size_t ball_u16_to_byte(const std::string& s, int64_t u16idx) {
+    if (u16idx <= 0) return 0;
+    int64_t units = 0;
+    for (size_t i = 0; i < s.size();) {
+        if (units >= u16idx) return i;
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c < 0x80) { i += 1; units += 1; }
+        else if ((c >> 5) == 0x6) { i += 2; units += 1; }
+        else if ((c >> 4) == 0xE) { i += 3; units += 1; }
+        else if ((c >> 3) == 0x1E) { i += 4; units += 2; }
+        else { i += 1; units += 1; }
+    }
+    return s.size();
+}
+
+// Dart `s.substring(start[, end])` indexed by UTF-16 code units, returning UTF-8.
+// end < 0 means "to end of string".
+inline std::string ball_u16_substring(const std::string& s, int64_t start, int64_t end) {
+    size_t bstart = ball_u16_to_byte(s, start);
+    size_t bend = (end < 0) ? s.size() : ball_u16_to_byte(s, end);
+    if (bend < bstart) bend = bstart;
+    return s.substr(bstart, bend - bstart);
+}
+
+// Dart `s.codeUnitAt(i)` — the UTF-16 code unit at index i. For an astral char
+// this returns the high surrogate at its first index and the low surrogate at
+// the next; we compute the full code point then derive the surrogate.
+inline int64_t ball_u16_code_unit_at(const std::string& s, int64_t u16idx) {
+    int64_t units = 0;
+    for (size_t i = 0; i < s.size();) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        int64_t cp; int adv; int nunits;
+        if (c < 0x80) { cp = c; adv = 1; nunits = 1; }
+        else if ((c >> 5) == 0x6 && i + 1 < s.size()) {
+            cp = ((c & 0x1F) << 6) | (static_cast<unsigned char>(s[i+1]) & 0x3F); adv = 2; nunits = 1;
+        } else if ((c >> 4) == 0xE && i + 2 < s.size()) {
+            cp = ((c & 0x0F) << 12) | ((static_cast<unsigned char>(s[i+1]) & 0x3F) << 6) |
+                 (static_cast<unsigned char>(s[i+2]) & 0x3F); adv = 3; nunits = 1;
+        } else if ((c >> 3) == 0x1E && i + 3 < s.size()) {
+            cp = ((c & 0x07) << 18) | ((static_cast<unsigned char>(s[i+1]) & 0x3F) << 12) |
+                 ((static_cast<unsigned char>(s[i+2]) & 0x3F) << 6) |
+                 (static_cast<unsigned char>(s[i+3]) & 0x3F); adv = 4; nunits = 2;
+        } else { cp = c; adv = 1; nunits = 1; }
+        if (nunits == 1) {
+            if (units == u16idx) return cp;
+        } else {
+            // Astral: high surrogate at `units`, low surrogate at `units+1`.
+            int64_t v = cp - 0x10000;
+            if (units == u16idx) return 0xD800 + (v >> 10);
+            if (units + 1 == u16idx) return 0xDC00 + (v & 0x3FF);
+        }
+        units += nunits;
+        i += adv;
+    }
+    return 0;
+}
+
+// Dart double.toInt()/truncate() with int64 clamping (matches cpp/engine).
+inline int64_t ball_double_to_int64(double d) {
+    constexpr double kMaxD = 9223372036854775808.0;
+    constexpr double kMinD = -9223372036854775808.0;
+    if (d >= kMaxD) return static_cast<int64_t>(9223372036854775807LL);
+    if (d <= kMinD) return (std::numeric_limits<int64_t>::min)();
+    int64_t r = static_cast<int64_t>(d);
+    if (d > 0.0 && r < 0) return static_cast<int64_t>(9223372036854775807LL);
+    return r;
+}
+
 // Forward declare for vector recursion before the template catch-all.
 template<typename T> inline std::string ball_to_string(const std::vector<T>& v);
 
 template<typename T> inline std::string ball_to_string(T v) { return std::to_string(v); }
+
+// Type aliases needed by ball_to_string(const std::any&) below.
+using BallValue_RT = std::any;
+using BallMap_RT = std::map<std::string, std::any>;
+using BallList_RT = std::vector<std::any>;
+using BallFunc_RT = std::function<std::any(std::any)>;
+
+// Helper to unwrap the inner std::any from a BallDyn stored in std::any.
+// On MSVC, implicit conversion of BallDyn to const std::any& may use
+// std::any's template constructor, wrapping the BallDyn object in std::any
+// instead of extracting BallDyn::_val. This helper detects and unwraps.
+struct _BallDynUnwrapper {
+    // Unwrap a BallDyn stored inside std::any (MSVC's BallDyn-in-any quirk).
+    // RECURSIVE: a value can be wrapped more than once
+    // (std::any(BallDyn(std::any(BallDyn(x))))) when a BallDyn is round-tripped
+    // through std::any multiple times (e.g. bind -> scope -> lookup -> field
+    // access). A single unwrap would leave a still-BallDyn-typed value, so every
+    // typeid check downstream would miss and unguarded any_casts would throw
+    // bad_any_cast. Peel every BallDyn layer until the real underlying value.
+    static const std::any& unwrap(const std::any& v) {
+        const std::any* cur = &v;
+        while (cur->has_value() && _unwrap_fn) {
+            auto* result = _unwrap_fn(*cur);
+            if (!result) break;
+            cur = result;
+        }
+        return *cur;
+    }
+    using UnwrapFn = const std::any* (*)(const std::any&);
+    static inline UnwrapFn _unwrap_fn = nullptr;
+};
+
+// Coerce a predicate result (filter/where/any/all callbacks) to bool WITHOUT
+// throwing. The compiled filter lambdas previously did
+// `std::any_cast<bool>(std::any(fn(e)))`, which throws bad_any_cast whenever the
+// predicate returns a non-bool (a BallDyn wrapping a bool, an int, etc.) — a
+// recurring MSVC BallDyn-in-any hazard. This unwraps and accepts bool / int /
+// double / non-empty truthiness, returning false for empty/unknown.
+inline bool _ball_pred_true(const std::any& raw) {
+    const std::any& v = _BallDynUnwrapper::unwrap(raw);
+    if (!v.has_value()) return false;
+    if (v.type() == typeid(bool)) return std::any_cast<bool>(v);
+    if (v.type() == typeid(int64_t)) return std::any_cast<int64_t>(v) != 0;
+    if (v.type() == typeid(int)) return std::any_cast<int>(v) != 0;
+    if (v.type() == typeid(double)) return std::any_cast<double>(v) != 0.0;
+    return true;  // non-null, non-numeric → truthy (matches Dart-ish coercion)
+}
+
+
+// Reference-semantic program lists are stored shared_ptr-backed (BallListRef)
+// inside BallDyn. That handle type is declared only in ball_dyn.h (compiled
+// programs), NOT in the native engine, so this header cannot name it. It instead
+// consults a registered function pointer (populated by ball_dyn.h) that maps a
+// std::any holding a handle to a pointer to the underlying std::vector. In the
+// native engine the pointer stays null and every call is a no-op, so native
+// behavior is identical. Returns nullptr when `v` is not a list handle.
+struct _BallRefDeref {
+    using ListFn = const std::vector<std::any>* (*)(const std::any&);
+    static inline ListFn _list_fn = nullptr;
+    static const std::vector<std::any>* list(const std::any& v) {
+        return _list_fn ? _list_fn(v) : nullptr;
+    }
+    // Reference-semantic OOP instances. A BallObjectRef (shared_ptr<BallObject>)
+    // lets every holder of a copied BallDyn observe in-place field mutations
+    // (e.g. a setter writing `self._celsius`). The deref function maps a std::any
+    // holding a BallObjectRef handle to its underlying field map (the BallObject's
+    // base BallMap, refreshed with __type__/__super__). Registered by ball_dyn.h;
+    // null and a no-op in the native engine.
+    using ObjMapFn = const std::map<std::string, std::any>* (*)(const std::any&);
+    static inline ObjMapFn _obj_map_fn = nullptr;
+    static const std::map<std::string, std::any>* obj_map(const std::any& v) {
+        return _obj_map_fn ? _obj_map_fn(v) : nullptr;
+    }
+};
+
+// std::any — attempt known types, fallback to type name.
+// Extension point for BallOrderedMap string conversion (set by ball_dyn.h).
+inline std::string (*_ball_to_string_ext)(const std::any&) = nullptr;
+
+inline std::string ball_to_string(const std::any& v) {
+    if (!v.has_value()) return "null";
+    // Unwrap BallDyn if present (MSVC wrapping issue)
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    if (&u != &v) return ball_to_string(u);
+    if (v.type() == typeid(int64_t)) return std::to_string(std::any_cast<int64_t>(v));
+    if (v.type() == typeid(int)) return std::to_string(std::any_cast<int>(v));
+    if (v.type() == typeid(double)) return ball_to_string(std::any_cast<double>(v));
+    if (v.type() == typeid(bool)) return ball_to_string(std::any_cast<bool>(v));
+    if (v.type() == typeid(std::string)) return std::any_cast<std::string>(v);
+    if (v.type() == typeid(const char*)) return std::any_cast<const char*>(v);
+    if (v.type() == typeid(BallList_RT)) return ball_to_string(std::any_cast<const BallList_RT&>(v));
+    if (const BallList_RT* lp = _BallRefDeref::list(v)) return ball_to_string(*lp);
+    if (v.type() == typeid(BallMap_RT)) {
+        auto& m = std::any_cast<const BallMap_RT&>(v);
+        std::string out = "{";
+        bool first = true;
+        for (auto it = m.begin(); it != m.end(); ++it) {
+            if (it->first.find("__") == 0 || it->first == "type_args") continue;
+            if (!first) out += ", ";
+            out += it->first + ": " + ball_to_string(it->second);
+            first = false;
+        }
+        out += "}";
+        return out;
+    }
+    if (_ball_to_string_ext) {
+        auto ext = _ball_to_string_ext(v);
+        if (!ext.empty()) return ext;
+    }
+    return "<any>";
+}
 
 // Lists render as Dart-style `[a, b, c]`. Each element uses
 // ball_to_string so nested structures / bools / doubles all follow
@@ -105,26 +323,3589 @@ inline std::string ball_to_string(const std::vector<T>& v) {
     return out;
 }
 
+// ================================================================
+// Type-check helpers for compiled Ball programs
+// ================================================================
+//
+// These free functions mirror ball::is_map, ball::is_list, etc. from
+// ball_shared.h but live in the global namespace so compiled programs
+// (which embed this header, not ball_shared.h) can use them.
+
+inline bool ball_is_int(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    return u.has_value() && u.type() == typeid(int64_t);
+}
+inline bool ball_is_double(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    return u.has_value() && u.type() == typeid(double);
+}
+inline bool ball_is_string(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    return u.has_value() && u.type() == typeid(std::string);
+}
+inline bool ball_is_bool(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    return u.has_value() && u.type() == typeid(bool);
+}
+inline bool ball_is_list(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    return u.has_value() &&
+           (u.type() == typeid(BallList_RT) || _BallRefDeref::list(u) != nullptr);
+}
+// BallObject is defined later in this header (it `extends BallMap`). These
+// accessors let the type-predicate helpers below treat a BallObject as the
+// map it is, even though they are compiled before BallObject's definition.
+bool _ball_any_is_object(const std::any& u);
+const std::map<std::string, std::any>* _ball_object_base_map(const std::any& u);
+
+// Extension point for BallOrderedMap map-type check (set by ball_dyn.h).
+inline bool (*_ball_is_map_ext)(const std::any&) = nullptr;
+
+inline bool ball_is_map(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    // A BallObject IS-A BallMap (Dart: `class BallObject extends BallMap`), so
+    // the engine's `v is Map<String,Object?>` / `_asMap` paths must see it as a
+    // map. Without this, instance fields never bind into method scopes.
+    if (u.has_value() &&
+        (u.type() == typeid(BallMap_RT) || _ball_any_is_object(u)))
+        return true;
+    if (_ball_is_map_ext && u.has_value() && _ball_is_map_ext(u)) return true;
+    return false;
+}
+inline bool ball_is_function(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    return u.has_value() && u.type() == typeid(BallFunc_RT);
+}
+
+// Dart Object.runtimeType.toString() for primitives. Uses std::any so this
+// header stays self-contained (no BallDyn dependency). BallDyn values convert
+// to std::any via operator std::any() before reaching here.
+inline std::string ball_runtime_type_name(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    if (ball_is_int(u)) return "int";
+    if (ball_is_double(u)) return "double";
+    if (ball_is_string(u)) return "String";
+    if (ball_is_bool(u)) return "bool";
+    if (ball_is_list(u)) return "List";
+    if (ball_is_map(u)) return "Map";
+    if (!u.has_value()) return "Null";
+    return "Object";
+}
+
+inline bool ball_natural_less(const std::any& a, const std::any& b) {
+    auto& ua = _BallDynUnwrapper::unwrap(a);
+    auto& ub = _BallDynUnwrapper::unwrap(b);
+    bool a_num = ua.type() == typeid(int64_t) || ua.type() == typeid(double);
+    bool b_num = ub.type() == typeid(int64_t) || ub.type() == typeid(double);
+    if (a_num && b_num) {
+        double da = ua.type() == typeid(int64_t) ? static_cast<double>(std::any_cast<int64_t>(ua)) : std::any_cast<double>(ua);
+        double db = ub.type() == typeid(int64_t) ? static_cast<double>(std::any_cast<int64_t>(ub)) : std::any_cast<double>(ub);
+        return da < db;
+    }
+    return ball_to_string(a) < ball_to_string(b);
+}
+
+// RAII guard implementing Dart `finally` semantics. The cleanup callable runs
+// when the guard leaves scope — on EVERY exit path: normal fall-through, a
+// `return` inside the guarded block, or exception unwinding. C++ has no
+// `finally`, so the compiler wraps try/finally bodies in one of these. Using a
+// guard (rather than emitting the cleanup after the try/catch) is essential:
+// a `return` inside the body would otherwise skip post-block cleanup entirely.
+template <class F>
+struct BallFinallyGuard {
+    F fn;
+    bool active;
+    explicit BallFinallyGuard(F f) : fn(std::move(f)), active(true) {}
+    ~BallFinallyGuard() { if (active) fn(); }
+    BallFinallyGuard(BallFinallyGuard&& o) noexcept
+        : fn(std::move(o.fn)), active(o.active) { o.active = false; }
+    BallFinallyGuard(const BallFinallyGuard&) = delete;
+    BallFinallyGuard& operator=(const BallFinallyGuard&) = delete;
+};
+template <class F>
+BallFinallyGuard<F> make_ball_finally(F f) { return BallFinallyGuard<F>(std::move(f)); }
+
+// Construct a BallException carrying an arbitrary payload (the engine's
+// `BallException(typeName, value)`). The payload is unwrapped first so the
+// stored value is the real underlying object (string/map/...), not a BallDyn
+// re-wrapped inside std::any (MSVC's static_cast<std::any>(BallDyn) quirk). A
+// matching catch handler reads the value back via _ball_exception_to_dyn.
+inline BallException _ball_make_exception(const std::string& type_name,
+                                          const std::any& value) {
+    const std::any& u = _BallDynUnwrapper::unwrap(value);
+    // `rethrow` (compiled as `throw <caught-var>`) hands us an exception that
+    // was already reconstructed into a DYN map by _ball_exception_to_dyn:
+    // {__type__: "BallException", typeName: ..., value: ...}. Re-wrapping the
+    // whole map would double-nest it (a catch would then see the map as the
+    // thrown value). Detect that shape and re-raise the ORIGINAL typeName +
+    // value so the payload survives an arbitrary number of rethrows.
+    if (u.has_value() && u.type() == typeid(BallMap_RT)) {
+        const auto& m = std::any_cast<const BallMap_RT&>(u);
+        auto tit = m.find("__type__");
+        if (tit != m.end()) {
+            const std::any& tv = _BallDynUnwrapper::unwrap(tit->second);
+            if (tv.type() == typeid(std::string) &&
+                std::any_cast<const std::string&>(tv) == "BallException") {
+                std::string inner_type = type_name;
+                auto nit = m.find("typeName");
+                if (nit != m.end()) {
+                    const std::any& nv = _BallDynUnwrapper::unwrap(nit->second);
+                    if (nv.type() == typeid(std::string))
+                        inner_type = std::any_cast<const std::string&>(nv);
+                }
+                std::any inner_val;
+                bool has_inner = false;
+                auto vit = m.find("value");
+                if (vit != m.end()) { inner_val = _BallDynUnwrapper::unwrap(vit->second); has_inner = true; }
+                BallException e(inner_type, ball_to_string(inner_val));
+                e.value = inner_val;
+                e.has_payload = has_inner;
+                return e;
+            }
+        }
+    }
+    BallException e(type_name, ball_to_string(u));
+    e.value = u;
+    e.has_payload = true;
+    return e;
+}
+
+// Check if a value is a FlowSignal (a map with a "kind" field).
+inline bool ball_is_flow_signal(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    if (!u.has_value() || u.type() != typeid(BallMap_RT)) return false;
+    const auto& m = std::any_cast<const BallMap_RT&>(u);
+    return m.count("kind") > 0;
+}
+
+// Compare type names accounting for module-qualified forms.
+inline bool ball_type_name_matches(const std::string& obj_type, const std::string& check_type) {
+    if (obj_type == check_type) return true;
+    auto colon1 = obj_type.find(':');
+    if (colon1 != std::string::npos && obj_type.substr(colon1 + 1) == check_type) return true;
+    auto colon2 = check_type.find(':');
+    if (colon2 != std::string::npos && check_type.substr(colon2 + 1) == obj_type) return true;
+    if (colon1 != std::string::npos && colon2 != std::string::npos) {
+        return obj_type.substr(colon1 + 1) == check_type.substr(colon2 + 1);
+    }
+    return false;
+}
+
+// Generator: sync*/async* functions collect yielded values here. Reference
+// semantics via shared_ptr so that binding the generator into a scope and
+// yielding into it later both mutate the same underlying list (matching the
+// Dart engine's object-reference model). See yield_ / yieldAll in ball_dyn.h.
+struct BallGenerator {
+    std::shared_ptr<std::vector<std::any>> values =
+        std::make_shared<std::vector<std::any>>();
+    bool completed = false;
+};
+
+// Extension point for BallOrderedMap type matching (set by ball_dyn.h).
+inline bool (*_ball_object_type_matches_ext)(const std::any&, const std::string&) = nullptr;
+
+// Check if a map value's __type__ matches a type name (walks __super__ chain).
+inline bool ball_object_type_matches(const std::any& value, const std::string& type) {
+    auto& u = _BallDynUnwrapper::unwrap(value);
+    if (u.has_value() && u.type() == typeid(BallGenerator)) {
+        return ball_type_name_matches("BallGenerator", type);
+    }
+    if (!u.has_value()) return false;
+    // Accept both a raw BallMap and a BallObject (a user class instance) — the
+    // BallObject's base map carries `__type__`/`__super__`, so `x is Point`
+    // resolves through the same walk. We deliberately do NOT report a match for
+    // the literal name "BallMap" here: `_asMap` checks `is BallMap` first and
+    // expects a raw-map shape, which the second (`ball_is_map`) branch supplies.
+    const BallMap_RT* mptr = nullptr;
+    if (u.type() == typeid(BallMap_RT)) {
+        mptr = &std::any_cast<const BallMap_RT&>(u);
+    } else {
+        mptr = _ball_object_base_map(u);
+    }
+    if (!mptr) {
+        if (_ball_object_type_matches_ext)
+            return _ball_object_type_matches_ext(u, type);
+        return false;
+    }
+    const auto& m = *mptr;
+    auto it = m.find("__type__");
+    if (it != m.end() && it->second.has_value()) {
+        auto& tv = _BallDynUnwrapper::unwrap(it->second);
+        if (tv.type() == typeid(std::string)) {
+            if (ball_type_name_matches(std::any_cast<const std::string&>(tv), type)) return true;
+        }
+    }
+    auto sit = m.find("__super__");
+    std::any super_obj = (sit != m.end()) ? sit->second : std::any{};
+    while (super_obj.has_value()) {
+        auto& su = _BallDynUnwrapper::unwrap(super_obj);
+        const BallMap_RT* smptr = (su.type() == typeid(BallMap_RT))
+            ? &std::any_cast<const BallMap_RT&>(su)
+            : _ball_object_base_map(su);
+        if (!smptr) break;
+        const auto& sm = *smptr;
+        auto st = sm.find("__type__");
+        if (st != sm.end() && st->second.has_value()) {
+            auto& stv = _BallDynUnwrapper::unwrap(st->second);
+            if (stv.type() == typeid(std::string)) {
+                if (ball_type_name_matches(std::any_cast<const std::string&>(stv), type)) return true;
+            }
+        }
+        auto ss = sm.find("__super__");
+        super_obj = (ss != sm.end()) ? ss->second : std::any{};
+    }
+    return false;
+}
+
+// ================================================================
+// Dart protobuf API bridge helpers
+// ================================================================
+//
+// The Dart Ball engine (self-hosted) uses Dart protobuf APIs like
+// `expr.whichExpr()`, `func.hasBody()`, `Expression_Expr.call`, etc.
+// When the Dart engine is compiled to Ball IR and then to C++, these
+// calls appear in the generated code. The functions below provide C++
+// implementations that work on the `std::any`-based map representation
+// that the Ball compiler uses for all unknown types.
+//
+// All Ball objects at runtime are either primitive values or
+// std::map<std::string, std::any> / std::unordered_map<std::string, std::any>.
+
+// Helper to check if a std::any holds a map with a given key that has a value.
+// Mirrors Dart protobuf `hasX()` methods.
+inline bool ball_has_field(const std::any& obj, const std::string& field) {
+    if (!obj.has_value()) return false;
+    if (obj.type() == typeid(std::map<std::string, std::any>)) {
+        auto& m = std::any_cast<const std::map<std::string, std::any>&>(obj);
+        auto it = m.find(field);
+        return it != m.end() && it->second.has_value();
+    }
+    if (obj.type() == typeid(std::unordered_map<std::string, std::any>)) {
+        auto& m = std::any_cast<const std::unordered_map<std::string, std::any>&>(obj);
+        auto it = m.find(field);
+        return it != m.end() && it->second.has_value();
+    }
+    return false;
+}
+
+// Dart protobuf oneof discriminators — return a string tag indicating which
+// oneof variant is set. These operate on the map representation used by the
+// Ball interpreter for Expression, Literal, Value, etc. objects.
+inline std::string ball_which_expr(const std::any& obj) {
+    if (!obj.has_value()) return "notSet";
+    if (obj.type() == typeid(std::map<std::string, std::any>)) {
+        auto& m = std::any_cast<const std::map<std::string, std::any>&>(obj);
+        if (m.count("call") && m.at("call").has_value()) return "call";
+        if (m.count("literal") && m.at("literal").has_value()) return "literal";
+        if (m.count("reference") && m.at("reference").has_value()) return "reference";
+        if (m.count("fieldAccess") && m.at("fieldAccess").has_value()) return "fieldAccess";
+        if (m.count("messageCreation") && m.at("messageCreation").has_value()) return "messageCreation";
+        if (m.count("block") && m.at("block").has_value()) return "block";
+        if (m.count("lambda") && m.at("lambda").has_value()) return "lambda";
+    }
+    if (obj.type() == typeid(std::unordered_map<std::string, std::any>)) {
+        auto& m = std::any_cast<const std::unordered_map<std::string, std::any>&>(obj);
+        if (m.count("call") && m.at("call").has_value()) return "call";
+        if (m.count("literal") && m.at("literal").has_value()) return "literal";
+        if (m.count("reference") && m.at("reference").has_value()) return "reference";
+        if (m.count("fieldAccess") && m.at("fieldAccess").has_value()) return "fieldAccess";
+        if (m.count("messageCreation") && m.at("messageCreation").has_value()) return "messageCreation";
+        if (m.count("block") && m.at("block").has_value()) return "block";
+        if (m.count("lambda") && m.at("lambda").has_value()) return "lambda";
+    }
+    return "notSet";
+}
+
+inline std::string ball_which_value(const std::any& obj) {
+    if (!obj.has_value()) return "notSet";
+    if (obj.type() == typeid(std::map<std::string, std::any>)) {
+        auto& m = std::any_cast<const std::map<std::string, std::any>&>(obj);
+        if (m.count("intValue") && m.at("intValue").has_value()) return "intValue";
+        if (m.count("doubleValue") && m.at("doubleValue").has_value()) return "doubleValue";
+        if (m.count("stringValue") && m.at("stringValue").has_value()) return "stringValue";
+        if (m.count("boolValue") && m.at("boolValue").has_value()) return "boolValue";
+        if (m.count("bytesValue") && m.at("bytesValue").has_value()) return "bytesValue";
+        if (m.count("listValue") && m.at("listValue").has_value()) return "listValue";
+    }
+    if (obj.type() == typeid(std::unordered_map<std::string, std::any>)) {
+        auto& m = std::any_cast<const std::unordered_map<std::string, std::any>&>(obj);
+        if (m.count("intValue") && m.at("intValue").has_value()) return "intValue";
+        if (m.count("doubleValue") && m.at("doubleValue").has_value()) return "doubleValue";
+        if (m.count("stringValue") && m.at("stringValue").has_value()) return "stringValue";
+        if (m.count("boolValue") && m.at("boolValue").has_value()) return "boolValue";
+        if (m.count("bytesValue") && m.at("bytesValue").has_value()) return "bytesValue";
+        if (m.count("listValue") && m.at("listValue").has_value()) return "listValue";
+    }
+    return "notSet";
+}
+
+inline std::string ball_which_kind(const std::any& obj) {
+    if (!obj.has_value()) return "notSet";
+    if (obj.type() == typeid(std::map<std::string, std::any>)) {
+        auto& m = std::any_cast<const std::map<std::string, std::any>&>(obj);
+        if (m.count("nullValue") && m.at("nullValue").has_value()) return "nullValue";
+        if (m.count("numberValue") && m.at("numberValue").has_value()) return "numberValue";
+        if (m.count("stringValue") && m.at("stringValue").has_value()) return "stringValue";
+        if (m.count("boolValue") && m.at("boolValue").has_value()) return "boolValue";
+        if (m.count("structValue") && m.at("structValue").has_value()) return "structValue";
+        if (m.count("listValue") && m.at("listValue").has_value()) return "listValue";
+    }
+    if (obj.type() == typeid(std::unordered_map<std::string, std::any>)) {
+        auto& m = std::any_cast<const std::unordered_map<std::string, std::any>&>(obj);
+        if (m.count("nullValue") && m.at("nullValue").has_value()) return "nullValue";
+        if (m.count("numberValue") && m.at("numberValue").has_value()) return "numberValue";
+        if (m.count("stringValue") && m.at("stringValue").has_value()) return "stringValue";
+        if (m.count("boolValue") && m.at("boolValue").has_value()) return "boolValue";
+        if (m.count("structValue") && m.at("structValue").has_value()) return "structValue";
+        if (m.count("listValue") && m.at("listValue").has_value()) return "listValue";
+    }
+    return "notSet";
+}
+
+inline std::string ball_which_source(const std::any& obj) {
+    if (!obj.has_value()) return "notSet";
+    if (obj.type() == typeid(std::map<std::string, std::any>)) {
+        auto& m = std::any_cast<const std::map<std::string, std::any>&>(obj);
+        if (m.count("httpSource") && m.at("httpSource").has_value()) return "httpSource";
+        if (m.count("fileSource") && m.at("fileSource").has_value()) return "fileSource";
+        if (m.count("inlineSource") && m.at("inlineSource").has_value()) return "inlineSource";
+        if (m.count("gitSource") && m.at("gitSource").has_value()) return "gitSource";
+    }
+    if (obj.type() == typeid(std::unordered_map<std::string, std::any>)) {
+        auto& m = std::any_cast<const std::unordered_map<std::string, std::any>&>(obj);
+        if (m.count("httpSource") && m.at("httpSource").has_value()) return "httpSource";
+        if (m.count("fileSource") && m.at("fileSource").has_value()) return "fileSource";
+        if (m.count("inlineSource") && m.at("inlineSource").has_value()) return "inlineSource";
+        if (m.count("gitSource") && m.at("gitSource").has_value()) return "gitSource";
+    }
+    return "notSet";
+}
+
+inline std::string ball_which_stmt(const std::any& obj) {
+    if (!obj.has_value()) return "notSet";
+    if (obj.type() == typeid(std::map<std::string, std::any>)) {
+        auto& m = std::any_cast<const std::map<std::string, std::any>&>(obj);
+        if (m.count("let") && m.at("let").has_value()) return "let";
+        if (m.count("expression") && m.at("expression").has_value()) return "expression";
+    }
+    if (obj.type() == typeid(std::unordered_map<std::string, std::any>)) {
+        auto& m = std::any_cast<const std::unordered_map<std::string, std::any>&>(obj);
+        if (m.count("let") && m.at("let").has_value()) return "let";
+        if (m.count("expression") && m.at("expression").has_value()) return "expression";
+    }
+    return "notSet";
+}
+
+// ── Collection helpers ──
+
+// Convert any iterable-like value to a std::vector<std::any>.
+template<typename T>
+inline std::vector<std::any> ball_to_list(const std::vector<T>& v) {
+    std::vector<std::any> result;
+    result.reserve(v.size());
+    for (const auto& el : v) result.push_back(std::any(el));
+    return result;
+}
+inline std::vector<std::any> ball_to_list(const std::any& v) {
+    if (v.type() == typeid(std::vector<std::any>))
+        return std::any_cast<std::vector<std::any>>(v);
+    if (const std::vector<std::any>* lp = _BallRefDeref::list(v))
+        return *lp;
+    if (v.type() == typeid(std::vector<std::string>)) {
+        auto& sv = std::any_cast<const std::vector<std::string>&>(v);
+        std::vector<std::any> r;
+        for (auto& s : sv) r.push_back(std::any(s));
+        return r;
+    }
+    return {};
+}
+
+// Remove duplicates (set-like).
+template<typename T>
+inline std::vector<T> ball_to_set(const std::vector<T>& v) {
+    std::vector<T> result;
+    for (const auto& el : v) {
+        bool found = false;
+        for (const auto& r : result) {
+            // Simple equality for common types
+            if constexpr (std::is_same_v<T, std::any>) {
+                // For std::any, compare by string representation
+                if (ball_to_string(el) == ball_to_string(r)) { found = true; break; }
+            } else {
+                if (el == r) { found = true; break; }
+            }
+        }
+        if (!found) result.push_back(el);
+    }
+    return result;
+}
+
+// Filter elements.
+template<typename T, typename F>
+inline std::vector<T> ball_where(const std::vector<T>& v, F pred) {
+    std::vector<T> result;
+    for (const auto& el : v) {
+        if (pred(el)) result.push_back(el);
+    }
+    return result;
+}
+
+// Transform elements.
+template<typename T, typename F>
+inline auto ball_map(const std::vector<T>& v, F fn) {
+    using R = decltype(fn(std::declval<T>()));
+    std::vector<R> result;
+    result.reserve(v.size());
+    for (const auto& el : v) result.push_back(fn(el));
+    return result;
+}
+
+// Check if all elements satisfy a predicate.
+template<typename T, typename F>
+inline bool ball_every(const std::vector<T>& v, F pred) {
+    for (const auto& el : v) {
+        if (!pred(el)) return false;
+    }
+    return true;
+}
+
+// Append all elements from src to dst.
+template<typename T>
+inline void ball_add_all(std::vector<T>& dst, const std::vector<T>& src) {
+    dst.insert(dst.end(), src.begin(), src.end());
+}
+// Overload for maps.
+template<typename K, typename V>
+inline void ball_add_all(std::map<K, V>& dst, const std::map<K, V>& src) {
+    for (const auto& [k, v] : src) dst[k] = v;
+}
+template<typename K, typename V>
+inline void ball_add_all(std::unordered_map<K, V>& dst, const std::unordered_map<K, V>& src) {
+    for (const auto& [k, v] : src) dst[k] = v;
+}
+
+// Put a value in a map only if the key is absent.
+template<typename M, typename K, typename F>
+inline void ball_put_if_absent(M& m, const K& key, F factory) {
+    if (m.count(key) == 0) m[key] = factory();
+}
+
+// Take first N elements.
+template<typename T>
+inline std::vector<T> ball_take(const std::vector<T>& v, int64_t n) {
+    auto end = std::min(static_cast<size_t>(n), v.size());
+    return std::vector<T>(v.begin(), v.begin() + end);
+}
+
+// Skip first N elements.
+template<typename T>
+inline std::vector<T> ball_skip(const std::vector<T>& v, int64_t n) {
+    auto start = std::min(static_cast<size_t>(n), v.size());
+    return std::vector<T>(v.begin() + start, v.end());
+}
+
+// Build a map from a list of key-value pairs.
+inline std::map<std::string, std::any> ball_from_entries(const std::vector<std::any>& entries) {
+    std::map<std::string, std::any> result;
+    for (const auto& e : entries) {
+        if (e.type() == typeid(std::map<std::string, std::any>)) {
+            auto& m = std::any_cast<const std::map<std::string, std::any>&>(e);
+            auto kit = m.find("key");
+            auto vit = m.find("value");
+            if (kit != m.end() && vit != m.end()) {
+                result[std::any_cast<std::string>(kit->second)] = vit->second;
+            }
+        }
+    }
+    return result;
+}
+
+// ── Regex helpers ──
+
+// Find first regex match — returns a std::any wrapping match data or empty.
+inline std::any ball_first_match(const std::regex& re, const std::string& s) {
+    std::smatch m;
+    if (std::regex_search(s, m, re)) {
+        std::vector<std::any> groups;
+        for (size_t i = 0; i < m.size(); ++i) {
+            groups.push_back(std::any(m[i].str()));
+        }
+        return std::any(groups);
+    }
+    return std::any{};
+}
+
+// Extract a capture group from a match result.
+inline std::string ball_group(const std::any& match, int64_t idx) {
+    if (!match.has_value()) return "";
+    if (match.type() == typeid(std::vector<std::any>)) {
+        auto& groups = std::any_cast<const std::vector<std::any>&>(match);
+        if (idx >= 0 && static_cast<size_t>(idx) < groups.size()) {
+            return std::any_cast<std::string>(groups[idx]);
+        }
+    }
+    return "";
+}
+
+// Find all regex matches — returns a vector of match data.
+inline std::vector<std::any> ball_all_matches(const std::regex& re, const std::string& s) {
+    std::vector<std::any> results;
+    auto it = std::sregex_iterator(s.begin(), s.end(), re);
+    for (; it != std::sregex_iterator(); ++it) {
+        std::vector<std::any> groups;
+        for (size_t i = 0; i < it->size(); ++i) {
+            groups.push_back(std::any((*it)[i].str()));
+        }
+        results.push_back(std::any(groups));
+    }
+    return results;
+}
+
+// ── Dart tryParse ──
+// tryParse(type, str) — attempt to parse a string as int or double.
+// Returns the parsed value on success, or std::any{} on failure.
+inline std::any ball_try_parse(const std::any& type_tag, const std::string& s) {
+    std::string tag;
+    if (type_tag.type() == typeid(std::string))
+        tag = std::any_cast<std::string>(type_tag);
+    else
+        tag = ball_to_string(type_tag);
+    if (tag == "int" || tag == "int_") {
+        try { return std::any(static_cast<int64_t>(std::stoll(s))); }
+        catch (...) { return std::any{}; }
+    }
+    if (tag == "double" || tag == "double_" || tag == "num") {
+        try { return std::any(std::stod(s)); }
+        catch (...) { return std::any{}; }
+    }
+    return std::any{};
+}
+
+// ── Generic field-set helper ──
+// Works for both BallDyn (uses .set()) and std::map<std::string, std::any>
+// (uses operator[]=).
+class BallDyn;  // forward
+template<typename T>
+inline void ball_set(T& obj, const std::string& key, const std::any& value) {
+    obj[key] = value;
+}
+// BallDyn specialization uses the .set() method
+// (defined after BallDyn class definition, see ball_dyn.h)
+template<typename T>
+inline void ball_set(T& obj, int64_t idx, const std::any& value) {
+    obj[idx] = value;
+}
+
+// ── BallDyn overload for ball_to_string ──
+// (forward declared; BallDyn must be defined before this is used)
+// Placed here so it's available in both engine and compiled programs.
+class BallDyn;
+inline std::string ball_to_string(const BallDyn& d);
+// Implemented after BallDyn is defined — see ball_dyn.h or the
+// generated preamble where both headers are spliced in sequence.
+
+// ================================================================
+// Self-hosted engine compatibility stubs
+// ================================================================
+//
+// The self-hosted Ball engine (compiled from Dart → Ball → C++)
+// references Dart-specific types and functions that don't exist in
+// C++. These stubs provide minimal implementations so the generated
+// code compiles. They are only used by the self-hosted engine, not
+// by normal compiled Ball programs.
+
+// ── JSON encode/decode stubs ──
+// Dart's `JsonEncoder` / `JsonDecoder` classes with a `convert()`
+// method. In compiled C++ we stub them to do basic
+// ball_to_string / passthrough.
+// GCC defines __const__ as a macro alias for `const`, which breaks a field
+// literally named __const__. Use json_const instead; self-host init sites use
+// designated initializers with .json_const = true.
+struct JsonEncoder {
+    bool json_const = false;
+};
+struct JsonDecoder {
+    bool json_const = false;
+};
+
+// Escape a string per JSON rules (quotes, backslash, control chars).
+inline std::string _ball_json_escape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 2);
+    out += '"';
+    for (char c : s) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    static const char* hex = "0123456789abcdef";
+                    unsigned char uc = static_cast<unsigned char>(c);
+                    out += "\\u00";
+                    out += hex[(uc >> 4) & 0xF];
+                    out += hex[uc & 0xF];
+                } else {
+                    out += c;
+                }
+        }
+    }
+    out += '"';
+    return out;
+}
+
+// Extension point for ordered-map JSON encoding. Set by ball_dyn.h after
+// BallOrderedMap is defined. Returns non-empty string if the type was handled.
+inline std::string (*_ball_json_encode_ext_fn)(const std::any&) = nullptr;
+
+// Recursively serialize a (already _toJsonSafe-processed) BallDyn/std::any to
+// JSON. Maps -> {"k":v}, lists -> [..], strings quoted+escaped, ints without a
+// trailing .0, doubles via ball_to_string, bools/null literally. Internal keys
+// (starting with "__" or "type_args") are skipped to match the Dart engine.
+inline std::string _ball_json_encode(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    if (!u.has_value()) return "null";
+    if (u.type() == typeid(bool)) return std::any_cast<bool>(u) ? "true" : "false";
+    if (u.type() == typeid(int64_t)) return std::to_string(std::any_cast<int64_t>(u));
+    if (u.type() == typeid(int)) return std::to_string(std::any_cast<int>(u));
+    if (u.type() == typeid(double)) return ball_to_string(std::any_cast<double>(u));
+    if (u.type() == typeid(std::string)) return _ball_json_escape(std::any_cast<const std::string&>(u));
+    if (u.type() == typeid(const char*)) return _ball_json_escape(std::string(std::any_cast<const char*>(u)));
+    auto encode_list = [](const BallList_RT& list) {
+        std::string out = "[";
+        bool first = true;
+        for (const auto& e : list) {
+            if (!first) out += ",";
+            out += _ball_json_encode(e);
+            first = false;
+        }
+        out += "]";
+        return out;
+    };
+    if (u.type() == typeid(BallList_RT)) return encode_list(std::any_cast<const BallList_RT&>(u));
+    if (const BallList_RT* lp = _BallRefDeref::list(u)) return encode_list(*lp);
+    if (u.type() == typeid(BallMap_RT)) {
+        auto& m = std::any_cast<const BallMap_RT&>(u);
+        std::string out = "{";
+        bool first = true;
+        for (auto it = m.begin(); it != m.end(); ++it) {
+            if (it->first.rfind("__", 0) == 0 || it->first == "type_args") continue;
+            if (!first) out += ",";
+            out += _ball_json_escape(it->first) + ":" + _ball_json_encode(it->second);
+            first = false;
+        }
+        out += "}";
+        return out;
+    }
+    if (_ball_json_encode_ext_fn) {
+        auto ext = _ball_json_encode_ext_fn(u);
+        if (!ext.empty()) return ext;
+    }
+    return _ball_json_escape(ball_to_string(u));
+}
+
+// Bounded recursive-descent JSON parser. Produces BallMap_RT for objects,
+// BallList_RT for arrays, int64_t/double/bool/std::string/empty for scalars.
+inline std::any _ball_json_parse(const std::string& s, size_t& i, int depth);
+inline void _ball_json_skip_ws(const std::string& s, size_t& i) {
+    while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) ++i;
+}
+inline std::string _ball_json_parse_string(const std::string& s, size_t& i) {
+    std::string out;
+    ++i;  // opening quote
+    while (i < s.size() && s[i] != '"') {
+        char c = s[i++];
+        if (c == '\\' && i < s.size()) {
+            char e = s[i++];
+            switch (e) {
+                case 'n': out += '\n'; break;
+                case 'r': out += '\r'; break;
+                case 't': out += '\t'; break;
+                case 'b': out += '\b'; break;
+                case 'f': out += '\f'; break;
+                case '/': out += '/'; break;
+                case '"': out += '"'; break;
+                case '\\': out += '\\'; break;
+                case 'u': {
+                    if (i + 4 <= s.size()) {
+                        unsigned code = static_cast<unsigned>(std::stoul(s.substr(i, 4), nullptr, 16));
+                        i += 4;
+                        // Encode as UTF-8 (BMP only; matches the common cases).
+                        if (code < 0x80) out += static_cast<char>(code);
+                        else if (code < 0x800) {
+                            out += static_cast<char>(0xC0 | (code >> 6));
+                            out += static_cast<char>(0x80 | (code & 0x3F));
+                        } else {
+                            out += static_cast<char>(0xE0 | (code >> 12));
+                            out += static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+                            out += static_cast<char>(0x80 | (code & 0x3F));
+                        }
+                    }
+                    break;
+                }
+                default: out += e;
+            }
+        } else {
+            out += c;
+        }
+    }
+    if (i < s.size()) ++i;  // closing quote
+    return out;
+}
+inline std::any _ball_json_parse(const std::string& s, size_t& i, int depth) {
+    if (depth > 256) return std::any{};
+    _ball_json_skip_ws(s, i);
+    if (i >= s.size()) return std::any{};
+    char c = s[i];
+    if (c == '{') {
+        ++i;
+        BallMap_RT obj;
+        _ball_json_skip_ws(s, i);
+        if (i < s.size() && s[i] == '}') { ++i; return std::any(std::move(obj)); }
+        while (i < s.size()) {
+            _ball_json_skip_ws(s, i);
+            std::string key = (i < s.size() && s[i] == '"') ? _ball_json_parse_string(s, i) : std::string();
+            _ball_json_skip_ws(s, i);
+            if (i < s.size() && s[i] == ':') ++i;
+            obj[key] = _ball_json_parse(s, i, depth + 1);
+            _ball_json_skip_ws(s, i);
+            if (i < s.size() && s[i] == ',') { ++i; continue; }
+            if (i < s.size() && s[i] == '}') { ++i; break; }
+            break;
+        }
+        return std::any(std::move(obj));
+    }
+    if (c == '[') {
+        ++i;
+        BallList_RT arr;
+        _ball_json_skip_ws(s, i);
+        if (i < s.size() && s[i] == ']') { ++i; return std::any(std::move(arr)); }
+        while (i < s.size()) {
+            arr.push_back(_ball_json_parse(s, i, depth + 1));
+            _ball_json_skip_ws(s, i);
+            if (i < s.size() && s[i] == ',') { ++i; continue; }
+            if (i < s.size() && s[i] == ']') { ++i; break; }
+            break;
+        }
+        return std::any(std::move(arr));
+    }
+    if (c == '"') return std::any(_ball_json_parse_string(s, i));
+    if (s.compare(i, 4, "true") == 0) { i += 4; return std::any(true); }
+    if (s.compare(i, 5, "false") == 0) { i += 5; return std::any(false); }
+    if (s.compare(i, 4, "null") == 0) { i += 4; return std::any{}; }
+    // Number.
+    size_t start = i;
+    bool is_double = false;
+    if (i < s.size() && (s[i] == '-' || s[i] == '+')) ++i;
+    while (i < s.size() && ((s[i] >= '0' && s[i] <= '9') ||
+                            s[i] == '.' || s[i] == 'e' || s[i] == 'E' ||
+                            s[i] == '+' || s[i] == '-')) {
+        if (s[i] == '.' || s[i] == 'e' || s[i] == 'E') is_double = true;
+        ++i;
+    }
+    std::string num = s.substr(start, i - start);
+    if (num.empty()) { ++i; return std::any{}; }
+    try {
+        if (is_double) return std::any(std::stod(num));
+        return std::any(static_cast<int64_t>(std::stoll(num)));
+    } catch (...) {
+        try { return std::any(std::stod(num)); } catch (...) {}
+    }
+    return std::any{};
+}
+
+inline std::string convert(const JsonEncoder&, const std::any& value) {
+    return _ball_json_encode(value);
+}
+inline std::any convert(const JsonDecoder&, const std::string& text) {
+    size_t i = 0;
+    return _ball_json_parse(text, i, 0);
+}
+
+// ── utf8 / base64 codec stubs ──
+// Dart uses `utf8.encode(s)` / `utf8.decode(bytes)` and
+// `base64.encode(bytes)` / `base64.decode(s)`.
+struct Utf8Codec {
+    std::vector<std::any> encode(const std::string& s) const {
+        std::vector<std::any> result;
+        for (unsigned char c : s) result.push_back(std::any(static_cast<int64_t>(c)));
+        return result;
+    }
+    std::string decode(const std::vector<std::any>& bytes) const {
+        std::string result;
+        for (const auto& b : bytes) {
+            if (b.type() == typeid(int64_t))
+                result += static_cast<char>(std::any_cast<int64_t>(b));
+        }
+        return result;
+    }
+};
+inline std::vector<std::any> encode(const Utf8Codec& c, const std::string& s) { return c.encode(s); }
+inline std::string decode(const Utf8Codec& c, const std::vector<std::any>& b) { return c.decode(b); }
+
+struct Base64Codec {
+    std::string encode(const std::vector<std::any>& bytes) const {
+        static const char* alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        std::vector<uint8_t> raw;
+        for (const auto& b : bytes) {
+            if (b.type() == typeid(int64_t)) raw.push_back(static_cast<uint8_t>(std::any_cast<int64_t>(b)));
+        }
+        std::string o;
+        size_t i = 0;
+        for (; i + 3 <= raw.size(); i += 3) {
+            o += alphabet[(raw[i] >> 2) & 0x3f];
+            o += alphabet[((raw[i] & 0x3) << 4) | ((raw[i+1] >> 4) & 0xf)];
+            o += alphabet[((raw[i+1] & 0xf) << 2) | ((raw[i+2] >> 6) & 0x3)];
+            o += alphabet[raw[i+2] & 0x3f];
+        }
+        if (i < raw.size()) {
+            o += alphabet[(raw[i] >> 2) & 0x3f];
+            if (i + 1 == raw.size()) {
+                o += alphabet[(raw[i] & 0x3) << 4]; o += "==";
+            } else {
+                o += alphabet[((raw[i] & 0x3) << 4) | ((raw[i+1] >> 4) & 0xf)];
+                o += alphabet[(raw[i+1] & 0xf) << 2]; o += '=';
+            }
+        }
+        return o;
+    }
+    std::vector<std::any> decode(const std::string& s) const {
+        static int tbl[256] = {};
+        static bool inited = false;
+        if (!inited) {
+            for (int j = 0; j < 256; j++) tbl[j] = -1;
+            const char* a = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            for (int j = 0; j < 64; j++) tbl[(unsigned char)a[j]] = j;
+            inited = true;
+        }
+        std::vector<std::any> o;
+        int v = 0, bits = 0;
+        for (char c : s) {
+            if (c == '=' || c == '\n' || c == '\r' || c == ' ' || c == '\t') continue;
+            int d = tbl[(unsigned char)c]; if (d < 0) continue;
+            v = (v << 6) | d; bits += 6;
+            if (bits >= 8) { bits -= 8; o.push_back(std::any(static_cast<int64_t>((v >> bits) & 0xff))); }
+        }
+        return o;
+    }
+};
+inline std::string encode(const Base64Codec& c, const std::vector<std::any>& b) { return c.encode(b); }
+inline std::vector<std::any> decode(const Base64Codec& c, const std::string& s) { return c.decode(s); }
+
+// BallDyn overloads for codec functions
+class BallDyn;
+inline std::vector<std::any> encode(const Utf8Codec& c, const BallDyn& s);
+inline std::string decode(const Utf8Codec& c, const BallDyn& bytes);
+inline std::string encode(const Base64Codec& c, const BallDyn& bytes);
+inline std::vector<std::any> decode(const Base64Codec& c, const BallDyn& s);
+
+// Global instances matching Dart's top-level `utf8` and `base64`.
+inline Utf8Codec utf8;
+inline Base64Codec base64;
+
+// ── Function type stub ──
+// Dart code references `Function` as a type. In C++ it doesn't exist
+// as a standalone identifier. `apply(Function, callee, args)` in the
+// self-hosted engine wraps a dynamic function call.
+struct FunctionType {};
+inline FunctionType Function;
+inline std::any apply(const FunctionType&, const std::any& callee, const std::vector<std::any>& args) {
+    // Attempt to call the callee as a BallFunc with the first argument (or null).
+    // Unwrap first: under MSVC a BallDyn passed where a std::any is expected is
+    // stored as typeid(BallDyn) rather than its inner std::function, so checking
+    // the type directly on `callee` would miss every dynamically-stored closure
+    // (e.g. lambdas pushed into a list and called via dart_std.invoke). The
+    // unwrapper yields the real underlying std::function. Mirror the unwrap on
+    // the arguments too, so the callee receives a clean value rather than a
+    // doubly-wrapped BallDyn.
+    const std::any& fnAny = _BallDynUnwrapper::unwrap(callee);
+    if (fnAny.type() == typeid(std::function<std::any(std::any)>)) {
+        auto& fn = std::any_cast<const std::function<std::any(std::any)>&>(fnAny);
+        if (args.empty()) return fn(std::any{});
+        return fn(_BallDynUnwrapper::unwrap(args[0]));
+    }
+    return std::any{};
+}
+
+// ── Map.from stub ──
+// Dart `Map.from(otherMap)` creates a copy. The encoder emits it as
+// `Map_from{.__type_args__=..., .arg0=input}` — a struct constructor.
+// We provide a minimal struct that extracts the map from the input.
+struct Map_from {
+    std::string __type_args__;
+    std::any arg0;
+
+    // Forward map-like operations to the underlying value
+    int64_t size() const {
+        if (arg0.type() == typeid(std::map<std::string, std::any>))
+            return std::any_cast<const std::map<std::string, std::any>&>(arg0).size();
+        if (arg0.type() == typeid(std::unordered_map<std::string, std::any>))
+            return std::any_cast<const std::unordered_map<std::string, std::any>&>(arg0).size();
+        return 0;
+    }
+    bool empty() const { return size() == 0; }
+    std::any operator[](const std::string& key) const {
+        if (arg0.type() == typeid(std::map<std::string, std::any>)) {
+            auto& m = std::any_cast<const std::map<std::string, std::any>&>(arg0);
+            auto it = m.find(key); return it != m.end() ? it->second : std::any{};
+        }
+        if (arg0.type() == typeid(std::unordered_map<std::string, std::any>)) {
+            auto& m = std::any_cast<const std::unordered_map<std::string, std::any>&>(arg0);
+            auto it = m.find(key); return it != m.end() ? it->second : std::any{};
+        }
+        return std::any{};
+    }
+};
+
+// ── io.FileMode stub ──
+// Dart's `FileMode.append` etc. The self-hosted engine references
+// `io_FileMode["append"]`. Provide as a map.
+inline std::map<std::string, std::any> io_FileMode = {
+    {"append", std::any(std::string("append"))},
+    {"write", std::any(std::string("write"))},
+    {"read", std::any(std::string("read"))},
+};
+
+// ── File I/O stubs ──
+// The self-hosted engine calls `File(path)`, `readAsStringSync(file)`,
+// `writeAsStringSync(file, content)`, etc. Provide stubs.
+struct File {
+    std::string path;
+    File(const std::string& p) : path(p) {}
+    File(const std::any& p) : path(ball_to_string(p)) {}
+    File(const BallDyn& p);  // defined in ball_dyn.h
+};
+inline std::string readAsStringSync(const File& f) {
+    std::ifstream ifs(f.path);
+    return std::string((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+}
+inline void writeAsStringSync(const File& f, const std::string& content, const std::any& = {}) {
+    std::ofstream ofs(f.path);
+    ofs << content;
+}
+inline void writeAsStringSync(const File& f, const std::any& content, const std::any& = {}) {
+    std::ofstream ofs(f.path);
+    ofs << ball_to_string(content);
+}
+inline std::vector<std::any> readAsBytesSync(const File& f) {
+    std::ifstream ifs(f.path, std::ios::binary);
+    std::vector<std::any> result;
+    char c;
+    while (ifs.get(c)) result.push_back(std::any(static_cast<int64_t>(static_cast<unsigned char>(c))));
+    return result;
+}
+inline void writeAsBytesSync(const File& f, const std::any&) {
+    // Stub — byte write not fully implemented
+}
+inline bool existsSync(const File& f) {
+    std::ifstream ifs(f.path);
+    return ifs.good();
+}
+// BallDyn overload in ball_dyn.h
+inline void writeAsStringSync(const File& f, const BallDyn& content, const std::any& = {});
+
+// ── Directory stubs ──
+struct Directory {
+    std::string path;
+    Directory(const std::string& p) : path(p) {}
+    Directory(const std::any& p) : path(ball_to_string(p)) {}
+    Directory(const BallDyn& p);  // defined in ball_dyn.h
+};
+inline std::vector<std::any> listSync(const Directory& d) {
+    std::vector<std::any> result;
+    // Stub: directory listing not implemented
+    return result;
+}
+inline void createSync(const Directory& d, bool recursive = false) {
+    // Stub: directory creation not implemented
+}
+inline bool existsSync(const Directory& d) {
+    return false;
+}
+
+inline void deleteSync(const File& f) {
+    std::remove(f.path.c_str());
+}
+
+// ── Scope/bind/child stubs ──
+// The self-hosted engine uses `child(scope)`, `bind(scope, name, value)`,
+// `resolve(scope, name)` for scope chain management. These are methods
+// on the BallEngine class, but sometimes the compiler emits them as
+// free function calls. We provide free-function overloads.
+inline std::any child(const std::any& scope) {
+    // Create a new scope with the parent set
+    std::map<std::string, std::any> newScope;
+    newScope["__parent__"] = scope;
+    return std::any(newScope);
+}
+inline std::any bind(std::any& scope, const std::any& name, const std::any& value) {
+    if (scope.type() == typeid(std::map<std::string, std::any>)) {
+        std::any_cast<std::map<std::string, std::any>&>(scope)[ball_to_string(name)] = value;
+    }
+    return std::any{};
+}
+// Forward declaration; BallDyn defined later
+class BallDyn;
+// Overloads for BallDyn arguments — defined after BallDyn class
+inline std::any resolve(const std::any& scope, const std::string& name) {
+    if (scope.type() == typeid(std::map<std::string, std::any>)) {
+        auto& m = std::any_cast<const std::map<std::string, std::any>&>(scope);
+        auto it = m.find(name);
+        if (it != m.end()) return it->second;
+        auto pit = m.find("__parent__");
+        if (pit != m.end()) return resolve(pit->second, name);
+    }
+    return std::any{};
+}
+// Overload for BallDyn resolver + import
+inline std::any resolve(const std::any&, const std::any&) {
+    return std::any{};  // Stub: lazy module resolution not supported in compiled mode
+}
+
+// ── Scope exit stubs ──
+// The Ball IR for _runScopeExits has a bug where it references `expr` and
+// `evalScope` which are not defined. Declare dummies so the code compiles.
+// The actual scope exit evaluation won't work correctly but the engine
+// will compile without errors.
+inline std::any expr;
+inline std::any evalScope;
+
+// ── has_value / empty free functions ──
+// Some generated code calls .has_value() or .empty() on std::string,
+// which doesn't have has_value(). Provide free-function overloads.
+// (These are found by ADL only if needed)
+
+// ── toUtc stub ──
+// Dart's DateTime.now().toUtc() — returns the same map (already UTC in C++)
+inline std::map<std::string, std::any> toUtc(const std::map<std::string, std::any>& dt) {
+    return dt;
+}
+inline std::any toUtc(const std::any& dt) {
+    if (dt.type() == typeid(std::map<std::string, std::any>))
+        return dt;
+    return std::any{};
+}
+
+// ── Object type stub ──
+// Dart uses `Object` as a base type. Emit as a string.
+inline std::string Object = "Object";
+
+// ── Math function aliases ──
+// The sanitize_name function appends _ to stdlib collision names,
+// so user code references sqrt_, pow_, etc. These wrap the real functions.
+inline double sqrt_(double v) { return std::sqrt(v); }
+inline double pow_(double a, double b) { return std::pow(a, b); }
+inline double log_(double v) { return std::log(v); }
+inline double exp_(double v) { return std::exp(v); }
+inline double sin_(double v) { return std::sin(v); }
+inline double cos_(double v) { return std::cos(v); }
+inline double tan_(double v) { return std::tan(v); }
+inline double atan_(double v) { return std::atan(v); }
+inline double atan2_(double a, double b) { return std::atan2(a, b); }
+// BallDyn overloads for math
+inline double sqrt_(const std::any& v) { return std::sqrt(v.type() == typeid(double) ? std::any_cast<double>(v) : static_cast<double>(std::any_cast<int64_t>(v))); }
+inline double pow_(const std::any& a, const std::any& b) {
+    double da = a.type() == typeid(double) ? std::any_cast<double>(a) : static_cast<double>(std::any_cast<int64_t>(a));
+    double db = b.type() == typeid(double) ? std::any_cast<double>(b) : static_cast<double>(std::any_cast<int64_t>(b));
+    return std::pow(da, db);
+}
+inline double log_(const std::any& v) { return log_(v.type() == typeid(double) ? std::any_cast<double>(v) : static_cast<double>(std::any_cast<int64_t>(v))); }
+inline double exp_(const std::any& v) { return exp_(v.type() == typeid(double) ? std::any_cast<double>(v) : static_cast<double>(std::any_cast<int64_t>(v))); }
+inline double sin_(const std::any& v) { return sin_(v.type() == typeid(double) ? std::any_cast<double>(v) : static_cast<double>(std::any_cast<int64_t>(v))); }
+inline double cos_(const std::any& v) { return cos_(v.type() == typeid(double) ? std::any_cast<double>(v) : static_cast<double>(std::any_cast<int64_t>(v))); }
+inline double tan_(const std::any& v) { return tan_(v.type() == typeid(double) ? std::any_cast<double>(v) : static_cast<double>(std::any_cast<int64_t>(v))); }
+inline double atan_(const std::any& v) { return atan_(v.type() == typeid(double) ? std::any_cast<double>(v) : static_cast<double>(std::any_cast<int64_t>(v))); }
+inline double atan2_(const std::any& a, const std::any& b) {
+    double da = a.type() == typeid(double) ? std::any_cast<double>(a) : static_cast<double>(std::any_cast<int64_t>(a));
+    double db = b.type() == typeid(double) ? std::any_cast<double>(b) : static_cast<double>(std::any_cast<int64_t>(b));
+    return std::atan2(da, db);
+}
+
+// ── handles/call: defined in ball_dyn.h after BallDyn class ──
+// Forward declarations only (no stubs — BallDyn overloads are the only implementations)
+class BallDyn; // forward declare
+inline bool handles(const BallDyn& handler, const BallDyn& module);
+template<typename E>
+inline BallDyn call(const BallDyn& handler, const BallDyn& function, const BallDyn& input, E&& engine_fn);
+
+// ── Dart async/time/math stubs ──
+// Future.delayed — just sleep synchronously
+struct DurationType { int64_t milliseconds = 0; };
+using Duration = DurationType;
+struct FutureType {};
+inline FutureType Future;
+inline std::any delayed(const FutureType&, const DurationType& d) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(d.milliseconds));
+    return std::any{};
+}
+
+// DateTime.now() — returns a map with millisecondsSinceEpoch
+struct DateTimeType {};
+inline DateTimeType DateTime;
+inline std::map<std::string, std::any> now(const DateTimeType&) {
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    return {{"millisecondsSinceEpoch", std::any(static_cast<int64_t>(ms))}};
+}
+
+// Random — simple wrappers around C++ random
+struct RandomType {
+    mutable std::mt19937_64 gen{std::random_device{}()};
+};
+inline int64_t nextInt(const RandomType& r, int64_t max_) {
+    return std::uniform_int_distribution<int64_t>(0, max_ - 1)(r.gen);
+}
+// Overload for BallDyn max
+inline int64_t nextInt(const RandomType& r, const std::any& max_val) {
+    int64_t mx = 100;
+    if (max_val.type() == typeid(int64_t)) mx = std::any_cast<int64_t>(max_val);
+    return nextInt(r, mx);
+}
+inline double nextDouble(const RandomType& r) {
+    return std::uniform_real_distribution<double>(0.0, 1.0)(r.gen);
+}
+
+// stderr_ — print to stderr (name collision avoidance with C macro)
+inline void stderr_(const std::string& msg) {
+    std::cerr << msg << std::endl;
+}
+inline void stderr_(const std::any& msg) {
+    std::cerr << ball_to_string(msg) << std::endl;
+}
+
+// ── registerScopeExit stub ──
+inline void registerScopeExit(const std::any&, const std::any&, const std::any&) {}
+
+// ── Future.then stub ──
+// Dart's Future.then(callback) — in synchronous C++ simulation, just call immediately
+template<typename F>
+inline void then(const std::any&, F callback) {
+    // Synchronous stub: ignore (future already resolved)
+}
+
+// _envGet stub — wraps std::getenv
+inline std::string _envGet(const std::string& name) {
+    auto v = std::getenv(name.c_str());
+    return v ? std::string(v) : std::string();
+}
+inline std::string _envGet(const std::any& name) {
+    return _envGet(ball_to_string(name));
+}
+
+// ── List.generate ──
+// Dart's List.generate(count, generator) → builds a list by calling generator(i) for i in 0..count-1.
+// The type argument (e.g. "List") is ignored.
+// List.generate defined in ball_dyn.h after BallDyn class
+
+// ── ball_to_set / set ops for BallDyn ──
+// Defined in ball_dyn.h after BallDyn class definition.
+
+// ── String.fromCharCode ──
+inline std::string fromCharCode(const std::string&, int64_t code) {
+    return std::string(1, static_cast<char>(code));
+}
+inline std::string fromCharCode(const std::string& tag, const std::any& code_val) {
+    int64_t code = 0;
+    if (code_val.type() == typeid(int64_t)) code = std::any_cast<int64_t>(code_val);
+    else if (code_val.type() == typeid(double)) code = static_cast<int64_t>(std::any_cast<double>(code_val));
+    return fromCharCode(tag, code);
+}
+
+// ── DateTime methods ──
+// fromMillisecondsSinceEpoch(DateTime, ms, isUtc)
+inline std::map<std::string, std::any> fromMillisecondsSinceEpoch(const DateTimeType&, int64_t ms, bool = false) {
+    return {{"millisecondsSinceEpoch", std::any(ms)}};
+}
+inline std::map<std::string, std::any> fromMillisecondsSinceEpoch(const DateTimeType& dt, const std::any& ms_val, const std::any& = {}) {
+    int64_t ms = 0;
+    if (ms_val.type() == typeid(int64_t)) ms = std::any_cast<int64_t>(ms_val);
+    else if (ms_val.type() == typeid(double)) ms = static_cast<int64_t>(std::any_cast<double>(ms_val));
+    return fromMillisecondsSinceEpoch(dt, ms);
+}
+
+// toIso8601String(dt_map) — format DateTime as ISO 8601
+inline std::string toIso8601String(const std::map<std::string, std::any>& dt) {
+    auto it = dt.find("millisecondsSinceEpoch");
+    if (it == dt.end()) return "1970-01-01T00:00:00.000Z";
+    int64_t ms = 0;
+    if (it->second.type() == typeid(int64_t)) ms = std::any_cast<int64_t>(it->second);
+    time_t secs = ms / 1000;
+    int millis = static_cast<int>(ms % 1000);
+    struct tm t;
+#ifdef _WIN32
+    gmtime_s(&t, &secs);
+#else
+    gmtime_r(&secs, &t);
+#endif
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &t);
+    char out[40];
+    std::snprintf(out, sizeof(out), "%s.%03dZ", buf, millis);
+    return std::string(out);
+}
+inline std::string toIso8601String(const std::any& dt_val) {
+    if (dt_val.type() == typeid(std::map<std::string, std::any>))
+        return toIso8601String(std::any_cast<const std::map<std::string, std::any>&>(dt_val));
+    return "1970-01-01T00:00:00.000Z";
+}
+
+// parse(DateTime, str) — parse ISO 8601 string to DateTime map
+inline std::map<std::string, std::any> parse(const DateTimeType&, const std::string& str) {
+    struct tm t = {};
+    int millis = 0;
+    // Try parsing ISO 8601 format
+    if (sscanf(str.c_str(), "%d-%d-%dT%d:%d:%d.%dZ",
+               &t.tm_year, &t.tm_mon, &t.tm_mday,
+               &t.tm_hour, &t.tm_min, &t.tm_sec, &millis) >= 6) {
+        t.tm_year -= 1900;
+        t.tm_mon -= 1;
+#ifdef _WIN32
+        time_t secs = _mkgmtime(&t);
+#else
+        time_t secs = timegm(&t);
+#endif
+        int64_t ms = static_cast<int64_t>(secs) * 1000 + millis;
+        return {{"millisecondsSinceEpoch", std::any(ms)}};
+    }
+    return {{"millisecondsSinceEpoch", std::any(static_cast<int64_t>(0))}};
+}
+inline std::map<std::string, std::any> parse(const DateTimeType& dt, const std::any& str_val) {
+    return parse(dt, ball_to_string(str_val));
+}
+
+// ── jsonEncode / toProto3Json stubs ──
+// Dart's `jsonEncode(x)` serialises a value to a JSON string.
+// `toProto3Json(program)` converts a proto message to its proto3-JSON shape;
+// since our C++ representation is already in map form, we just return it.
+//
+// jsonEncode is used in _validateProgramLimits to compute the byte size of
+// the serialised program. A best-effort ball_to_string conversion is fine.
+class BallDyn;
+inline std::string jsonEncode(const std::any& value) {
+    return ball_to_string(value);
+}
+inline std::string jsonEncode(const BallDyn& value);  // defined in ball_dyn.h
+inline std::any toProto3Json(const std::any& program) {
+    return program;
+}
+inline std::any toProto3Json(const BallDyn& program);  // defined in ball_dyn.h
+
+// ── fold free function ──
+// Dart's Iterable.fold(initialValue, combine) — reduce over a list.
+// Used in _trackMemoryAllocation for string_split result.
+// fold() templates are defined in ball_dyn.h after the BallDyn class.
+template<typename Iter, typename Init, typename Fn>
+BallDyn fold(const Iter& iter, const std::string& type_tag, Init init, Fn fn);
+template<typename Iter, typename Init, typename Fn>
+BallDyn fold(const Iter& iter, Init init, Fn fn);
+inline BallDyn ball_fold(const BallDyn& iter, const BallDyn& init, const BallDyn& fn);
+
+// ── ball_container_size ──
+// Returns the size() of containers; returns 0 for non-container types
+// (e.g., when a stub produces `int(0)` as a placeholder).
+// Used so _trackMemoryAllocation(ball_container_size(result) * N) compiles
+// even when result is an int stub rather than a real string/list.
+template<typename T>
+inline int64_t ball_container_size(const T& v) {
+    if constexpr (requires { v.size(); }) {
+        return static_cast<int64_t>(v.size());
+    } else {
+        return 0LL;
+    }
+}
+
+// ── List_filled struct ──
+// Dart's List.filled(length, value) creates a fixed-length list.
+// The compiler emits: List_filled{.__type_args__=..., .arg0=length, .arg1=fill}
+// We provide a struct that constructs and acts as a BallList.
+struct List_filled {
+    std::string __type_args__;
+    std::any arg0;  // length
+    std::any arg1;  // fill value
+
+    // Length of arg0, unwrapping the BallDyn-in-std::any case (MSVC stores a
+    // BallDyn inside std::any rather than its underlying int, so a bare
+    // type-check on arg0 misses every int and yields 0 → empty list).
+    int64_t _len() const {
+        const std::any& a0 = _BallDynUnwrapper::unwrap(arg0);
+        if (a0.type() == typeid(int64_t)) return std::any_cast<int64_t>(a0);
+        if (a0.type() == typeid(double)) return static_cast<int64_t>(std::any_cast<double>(a0));
+        return 0;
+    }
+    // Convert to a vector<any> of the requested length filled with arg1.
+    operator std::vector<std::any>() const {
+        int64_t n = _len();
+        return std::vector<std::any>(static_cast<size_t>(n < 0 ? 0 : n),
+                                     _BallDynUnwrapper::unwrap(arg1));
+    }
+    // Size query — needed for _trackMemoryAllocation expressions.
+    int64_t size() const {
+        int64_t n = _len();
+        return n < 0 ? 0 : n;
+    }
+};
+// BallDyn overload for List_filled — defined in ball_dyn.h after BallDyn class
+
+// ── BallObject ──
+// Dart: class BallObject extends BallMap { ... }
+// BallMap is std::map<std::string, std::any>.  We provide a correct C++
+// version where `entries` refers to the base std::map storage via `*this`.
+// The compiler skips generating this type (it's in runtime_types).
+using BallMap = std::map<std::string, std::any>;
+// Coerces a std::any (possibly a BallDyn wrapping a map, due to MSVC's
+// BallDyn-in-std::any quirk) into a BallMap. Forward-declared here; defined in
+// ball_dyn.h after BallDyn / _BallDynUnwrapper are complete.
+BallMap _ballAnyToMap(const std::any& v);
+struct BallObject : public BallMap {
+    std::string typeName;
+    std::any superObject;
+    BallMap fields;
+    BallMap methods;
+
+    BallObject() = default;
+    // Accept std::any for every field so the compiler can pass BallDyn values
+    // (which carry maps/strings) without needing per-field BallDyn conversions.
+    BallObject(std::any tn,
+               std::any super_obj = std::any{},
+               std::any flds = std::any{},
+               std::any meths = std::any{})
+        : typeName(ball_to_string(tn)),
+          superObject(std::move(super_obj)),
+          fields(_ballAnyToMap(flds)),
+          methods(_ballAnyToMap(meths))
+    {
+        _refreshEntries();
+    }
+
+    // `entries` in Dart refers to the Map's own entries (i.e., *this in C++).
+    // Methods that set entries do so via (*this)[key] = value.
+    BallMap& _refreshEntries() {
+        this->clear();
+        this->insert(fields.begin(), fields.end());
+        (*this)["__type__"] = std::any(typeName);
+        (*this)["__super__"] = superObject;
+        (*this)["__fields__"] = std::any(fields);
+        (*this)["__methods__"] = std::any(methods);
+        return *this;
+    }
+
+    void setField(const std::string& name, const std::any& value) {
+        fields[name] = value;
+        (*this)[name] = value;
+    }
+    void setField(const std::any& name, const std::any& value) {
+        setField(ball_to_string(name), value);
+    }
+
+    void __op_set_index__(const std::string& key, const std::any& value) {
+        if (key == "__super__") {
+            superObject = value;
+            (*this)[key] = value;
+            return;
+        }
+        if (key == "__methods__") {
+            methods.clear();
+            if (value.type() == typeid(BallMap)) {
+                methods = std::any_cast<const BallMap&>(value);
+            }
+            (*this)[key] = std::any(methods);
+            return;
+        }
+        if (!key.empty() && !(key.size() >= 2 && key[0] == '_' && key[1] == '_')) {
+            fields[key] = value;
+        }
+        (*this)[key] = value;
+    }
+    void __op_set_index__(const std::any& key, const std::any& value) {
+        __op_set_index__(ball_to_string(key), value);
+    }
+};
+
+// Reference-semantic OOP instance handle. Mirrors BallListRef: a copied BallDyn
+// shares the underlying BallObject, so a setter mutating `self._celsius` is
+// visible to every other holder of the instance (the caller's variable, etc.).
+// `self` is bound only in the method SCOPE (never as an owning instance-map
+// entry), so there is no self-referential cycle.
+using BallObjectRef = std::shared_ptr<BallObject>;
+
+// Definitions for the forward-declared accessors used by ball_is_map /
+// ball_object_type_matches above. `u` is already an unwrapped std::any.
+inline bool _ball_any_is_object(const std::any& u) {
+    return u.has_value() &&
+           (u.type() == typeid(BallObject) ||
+            u.type() == typeid(BallObjectRef) ||
+            _BallRefDeref::obj_map(u) != nullptr);
+}
+inline const std::map<std::string, std::any>* _ball_object_base_map(
+    const std::any& u) {
+    if (u.has_value() && u.type() == typeid(BallObject)) {
+        // BallObject's base IS the field map (refreshed with __type__/__super__).
+        return &static_cast<const BallMap&>(std::any_cast<const BallObject&>(u));
+    }
+    if (u.has_value() && u.type() == typeid(BallObjectRef)) {
+        const BallObjectRef& ref = std::any_cast<const BallObjectRef&>(u);
+        if (ref) return &static_cast<const BallMap&>(*ref);
+    }
+    if (const std::map<std::string, std::any>* m = _BallRefDeref::obj_map(u))
+        return m;
+    return nullptr;
+}
+
 #endif  // BALL_EMIT_RUNTIME_H
+
+// ball_dyn.h -- Dynamic value type for Ball compiled programs.
+//
+// BallDyn is a JavaScript-like dynamic value type that wraps std::any and
+// provides operator overloading for field access, arithmetic, comparison,
+// string operations, and iteration. It enables compiled Ball programs that
+// use dynamic typing (e.g., the self-hosted Ball engine) to work in C++.
+//
+// Usage: BallDyn values can hold any type (int64_t, double, std::string,
+// bool, vectors, maps, functions, etc.) and support transparent access.
+
+#ifndef BALL_DYN_H
+#define BALL_DYN_H
+
+#include <any>
+#include <cstdint>
+#include <functional>
+#include <iostream>
+#include <map>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+// Insertion-ordered string map (Dart LinkedHashMap semantics).
+struct BallOrderedMap {
+    std::vector<std::pair<std::string, std::any>> entries_;
+    std::map<std::string, size_t> index_;
+
+    using key_type = std::string;
+    using mapped_type = std::any;
+    using value_type = std::pair<std::string, std::any>;
+    using iterator = std::vector<value_type>::iterator;
+    using const_iterator = std::vector<value_type>::const_iterator;
+
+    std::any& operator[](const std::string& key) {
+        auto it = index_.find(key);
+        if (it == index_.end()) {
+            index_[key] = entries_.size();
+            entries_.emplace_back(key, std::any{});
+        }
+        return entries_[index_[key]].second;
+    }
+
+    const std::any& operator[](const std::string& key) const {
+        return entries_.at(index_.at(key)).second;
+    }
+
+    const std::any& at(const std::string& key) const {
+        return entries_.at(index_.at(key)).second;
+    }
+
+    iterator begin() { return entries_.begin(); }
+    iterator end() { return entries_.end(); }
+    const_iterator begin() const { return entries_.begin(); }
+    const_iterator end() const { return entries_.end(); }
+
+    size_t size() const { return entries_.size(); }
+    bool empty() const { return entries_.empty(); }
+    void clear() { entries_.clear(); index_.clear(); }
+    size_t count(const std::string& key) const { return index_.count(key); }
+
+    iterator find(const std::string& key) {
+        auto it = index_.find(key);
+        return it == index_.end() ? end() : entries_.begin() + static_cast<std::ptrdiff_t>(it->second);
+    }
+    const_iterator find(const std::string& key) const {
+        auto it = index_.find(key);
+        return it == index_.end() ? end() : entries_.begin() + static_cast<std::ptrdiff_t>(it->second);
+    }
+
+    void erase(const std::string& key) {
+        auto it = index_.find(key);
+        if (it == index_.end()) return;
+        size_t idx = it->second;
+        entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(idx));
+        index_.erase(it);
+        for (size_t i = idx; i < entries_.size(); ++i)
+            index_[entries_[i].first] = i;
+    }
+
+    template<class InputIt>
+    void insert(InputIt first, InputIt last) {
+        for (; first != last; ++first)
+            (*this)[first->first] = first->second;
+    }
+};
+
+using BallMap = std::map<std::string, std::any>;
+using BallUMap = std::unordered_map<std::string, std::any>;
+using BallList = std::vector<std::any>;
+// Reference-semantic PROGRAM ordered maps (_ballUserMap / _stdMapCreate). Mirrors
+// BallListRef: copies of a BallDyn share the underlying map so map_set mutations
+// on a passed reference are visible to the caller's scoped variable.
+using BallOrderedMapRef = std::shared_ptr<BallOrderedMap>;
+using BallFunc = std::function<std::any(std::any)>;
+// BallScope: shared-pointer-based scope for reference semantics in scope chains.
+// Scopes created via child() use this so parent mutations are visible to children.
+using BallScope = std::shared_ptr<BallMap>;
+
+// Reference-semantic PROGRAM lists. The Dart reference engine wraps lists in a
+// BallList object (a reference type), so `list[i]=v` / push / sort mutate in place
+// and every holder observes it. A by-value std::vector inside BallDyn::_val is
+// copied whenever a BallDyn is copied (e.g. reading a variable out of a scope, or
+// passing a list to a helper function), so in-place mutation is lost. Storing the
+// vector shared_ptr-backed (BallListRef) restores reference semantics — copies of
+// the BallDyn share the underlying vector. Mirrors the BallScope precedent. This is
+// confined to BallDyn (compiled programs); the native C++ engine never produces a
+// BallListRef, so its behavior and the direct-conformance baseline are unaffected.
+using BallListRef = std::shared_ptr<BallList>;
+
+// Unique marker for Dart engine `_sentinel` (dispatch not found). Must not
+// compare equal to null/empty BallDyn() returned by void builtin methods.
+struct BallDispatchNotFound {};
+
+class BallDyn {
+public:
+    std::any _val;
+
+    // Constructors
+    BallDyn() : _val() {}
+    BallDyn(std::any v) : _val(std::move(v)) {
+        // Recursively unwrap nested BallDyn to prevent double-wrapping.
+        // e.g. std::any(BallDyn(std::any(BallDyn(x)))) -> x
+        while (_val.type() == typeid(BallDyn)) {
+            _val = std::any_cast<const BallDyn&>(_val)._val;
+        }
+    }
+    // Constructor from callable (wraps as BallFunc for std::any storage)
+    template<typename F, std::enable_if_t<
+        !std::is_same_v<std::decay_t<F>, BallDyn> &&
+        !std::is_same_v<std::decay_t<F>, std::any> &&
+        !std::is_same_v<std::decay_t<F>, BallFunc> &&
+        !std::is_same_v<std::decay_t<F>, const char*> &&
+        !std::is_same_v<std::decay_t<F>, std::string> &&
+        !std::is_arithmetic_v<std::decay_t<F>> &&
+        !std::is_same_v<std::decay_t<F>, BallMap> &&
+        !std::is_same_v<std::decay_t<F>, BallOrderedMap> &&
+        !std::is_same_v<std::decay_t<F>, BallOrderedMapRef> &&
+        !std::is_same_v<std::decay_t<F>, BallList> &&
+        !std::is_same_v<std::decay_t<F>, std::regex> &&
+        !std::is_base_of_v<BallDyn, std::decay_t<F>> &&
+        std::is_class_v<std::decay_t<F>> &&
+        (std::is_invocable_v<std::decay_t<F>, std::any> ||
+         std::is_invocable_v<std::decay_t<F>, BallDyn>), int> = 0>
+    BallDyn(F&& f) {
+        _val = BallFunc([fn = std::forward<F>(f)](std::any arg) mutable -> std::any {
+            if constexpr (std::is_invocable_v<std::decay_t<F>, std::any>) {
+                if constexpr (std::is_void_v<std::invoke_result_t<std::decay_t<F>, std::any>>) {
+                    fn(arg);
+                    return std::any{};
+                } else {
+                    return std::any(fn(arg));
+                }
+            } else if constexpr (std::is_void_v<std::invoke_result_t<std::decay_t<F>, BallDyn>>) {
+                fn(BallDyn(arg));
+                return std::any{};
+            } else {
+                return std::any(BallDyn(fn(BallDyn(arg)))._val);
+            }
+        });
+    }
+    BallDyn(int64_t v) : _val(v) {}
+    BallDyn(int v) : _val(static_cast<int64_t>(v)) {}
+    // Any other integral type widens to int64_t. Crucially this covers
+    // `long long` on platforms where `int64_t` is `long` (gcc/Linux): there a
+    // `long long` argument matches none of the int64_t/int/double/bool ctors
+    // exactly and gcc reports the construction (and every `BallDyn == long long`
+    // comparison, which routes through this conversion) as ambiguous. The
+    // enable_if excludes the types already handled above, so on MSVC — where
+    // `int64_t` IS `long long` — this template never collides with BallDyn(int64_t).
+    template <typename T,
+              std::enable_if_t<std::is_integral_v<T> &&
+                                   !std::is_same_v<T, bool> &&
+                                   !std::is_same_v<T, int> &&
+                                   !std::is_same_v<T, int64_t>,
+                               int> = 0>
+    BallDyn(T v) : _val(static_cast<int64_t>(v)) {}
+    BallDyn(double v) : _val(v) {}
+    BallDyn(bool v) : _val(v) {}
+    BallDyn(const std::string& v) : _val(v) {}
+    BallDyn(std::string&& v) : _val(std::move(v)) {}
+    BallDyn(const char* v) : _val(std::string(v)) {}
+    BallDyn(BallMap v) : _val(std::move(v)) {}
+    BallDyn(BallOrderedMap v)
+        : _val(BallOrderedMapRef(std::make_shared<BallOrderedMap>(std::move(v)))) {}
+    BallDyn(BallOrderedMapRef v) : _val(std::move(v)) {}
+    BallDyn(BallUMap v) : _val(std::move(v)) {}
+    // A program LIST is stored shared_ptr-backed: a fresh handle is allocated at
+    // construction; subsequent BallDyn copies share it, so in-place mutation
+    // (sort, push/pop, index-assign) is visible to every holder.
+    BallDyn(BallList v) : _val(BallListRef(std::make_shared<BallList>(std::move(v)))) {}
+    BallDyn(BallListRef v) : _val(std::move(v)) {}
+    BallDyn(BallFunc v) : _val(std::move(v)) {}
+    // List.filled(length, value) lowers to a List_filled aggregate (defined in
+    // ball_emit_runtime.h, always spliced before this header in compiled programs).
+    BallDyn(const List_filled& lf)
+        : _val(BallListRef(std::make_shared<BallList>(std::vector<std::any>(lf)))) {}
+    // A user-class INSTANCE is stored shared_ptr-backed (BallObjectRef): a fresh
+    // handle is allocated at construction; subsequent BallDyn copies share it, so
+    // a setter mutating `self._field` is visible to every holder (caller's var,
+    // aliases). Mirrors BallListRef. Maps stay by-value (a shared instance map
+    // would create self-referential `self` cycles).
+    BallDyn(BallObject v) : _val(BallObjectRef(std::make_shared<BallObject>(std::move(v)))) {}
+    BallDyn(BallObjectRef v) : _val(std::move(v)) {}
+
+    // ── Reference-semantic list accessors ──
+    // Return a pointer to the underlying vector whether stored by-value (legacy /
+    // native interop) or shared_ptr-backed (BallListRef). nullptr if not a list.
+    BallList* _listPtr() {
+        if (_val.type() == typeid(BallListRef)) return std::any_cast<BallListRef&>(_val).get();
+        if (_val.type() == typeid(BallList)) return &std::any_cast<BallList&>(_val);
+        return nullptr;
+    }
+    const BallList* _listPtr() const {
+        if (_val.type() == typeid(BallListRef)) return std::any_cast<const BallListRef&>(_val).get();
+        if (_val.type() == typeid(BallList)) return &std::any_cast<const BallList&>(_val);
+        return nullptr;
+    }
+    bool _isList() const { return _val.type() == typeid(BallListRef) || _val.type() == typeid(BallList); }
+
+    // ── Reference-semantic ordered-map accessors ──
+    BallOrderedMap* _orderedMapPtr() {
+        if (_val.type() == typeid(BallOrderedMapRef))
+            return std::any_cast<BallOrderedMapRef&>(_val).get();
+        if (_val.type() == typeid(BallOrderedMap))
+            return &std::any_cast<BallOrderedMap&>(_val);
+        return nullptr;
+    }
+    const BallOrderedMap* _orderedMapPtr() const {
+        if (_val.type() == typeid(BallOrderedMapRef))
+            return std::any_cast<const BallOrderedMapRef&>(_val).get();
+        if (_val.type() == typeid(BallOrderedMap))
+            return &std::any_cast<const BallOrderedMap&>(_val);
+        return nullptr;
+    }
+
+    // ── Reference-semantic instance accessors ──
+    BallObject* _objPtr() {
+        if (_val.type() == typeid(BallObjectRef)) return std::any_cast<BallObjectRef&>(_val).get();
+        if (_val.type() == typeid(BallObject)) return &std::any_cast<BallObject&>(_val);
+        return nullptr;
+    }
+    const BallObject* _objPtr() const {
+        if (_val.type() == typeid(BallObjectRef)) return std::any_cast<const BallObjectRef&>(_val).get();
+        if (_val.type() == typeid(BallObject)) return &std::any_cast<const BallObject&>(_val);
+        return nullptr;
+    }
+
+    // Copy/move — BallScope (shared_ptr<BallMap>) deep-copies ONLY when the scope
+    // has NO __parent__ key (i.e., it's a root/function scope being copied for a
+    // new function call). Scopes WITH __parent__ (child scopes) share via shared_ptr
+    // to maintain parent-child reference links.
+    BallDyn(const BallDyn& o) : _val(o._val) {
+        if (_val.type() == typeid(BallScope)) {
+            auto& sp = std::any_cast<const BallScope&>(_val);
+            // Deep-copy root scopes (no __parent__) to prevent function param leakage.
+            // Child scopes (with __parent__) keep sharing for reference semantics.
+            if (sp && sp->find("__parent__") == sp->end()) {
+                _val = std::any(std::make_shared<BallMap>(*sp));
+            }
+        }
+    }
+    BallDyn(BallDyn&& o) noexcept : _val(std::move(o._val)) {}
+    BallDyn& operator=(const BallDyn& o) {
+        _val = o._val;
+        if (_val.type() == typeid(BallScope)) {
+            auto& sp = std::any_cast<const BallScope&>(_val);
+            if (sp && sp->find("__parent__") == sp->end()) {
+                _val = std::any(std::make_shared<BallMap>(*sp));
+            }
+        }
+        return *this;
+    }
+    BallDyn& operator=(BallDyn&& o) noexcept { _val = std::move(o._val); return *this; }
+
+    // Assign from common types
+    BallDyn& operator=(int64_t v) { _val = v; return *this; }
+    BallDyn& operator=(int v) { _val = static_cast<int64_t>(v); return *this; }
+    // Other integral types (e.g. `long long` on gcc/clang where int64_t is
+    // `long`): widen to int64_t. Without this, `BallDyn = <long long>` is
+    // ambiguous between operator=(int64_t) and operator=(int).
+    template <typename T,
+              std::enable_if_t<std::is_integral_v<T> && !std::is_same_v<T, bool> &&
+                                   !std::is_same_v<T, int> &&
+                                   !std::is_same_v<T, int64_t>,
+                               int> = 0>
+    BallDyn& operator=(T v) { _val = static_cast<int64_t>(v); return *this; }
+    BallDyn& operator=(double v) { _val = v; return *this; }
+    BallDyn& operator=(bool v) { _val = v; return *this; }
+    BallDyn& operator=(const std::string& v) { _val = v; return *this; }
+    BallDyn& operator=(const char* v) { _val = std::string(v); return *this; }
+
+    // Implicit conversion to std::any
+    operator std::any() const { return _val; }
+    // Conversion to size_t (for substr etc.)
+    operator size_t() const { return static_cast<size_t>(static_cast<int64_t>(*this)); }
+
+    // Truthiness (like JavaScript)
+    bool has_value() const { return _val.has_value(); }
+    explicit operator bool() const {
+        if (!_val.has_value()) return false;
+        if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val);
+        if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val) != 0;
+        if (_val.type() == typeid(int)) return std::any_cast<int>(_val) != 0;
+        if (_val.type() == typeid(double)) return std::any_cast<double>(_val) != 0.0;
+        if (_val.type() == typeid(std::string)) return !std::any_cast<const std::string&>(_val).empty();
+        return true;  // non-null = truthy
+    }
+
+    // Type queries
+    const std::type_info& type() const { return _val.type(); }
+
+    // String conversion
+    operator std::string() const {
+        if (!_val.has_value()) return "null";
+        if (_val.type() == typeid(std::string)) return std::any_cast<std::string>(_val);
+        if (_val.type() == typeid(const char*)) return std::any_cast<const char*>(_val);
+        if (_val.type() == typeid(int64_t)) return std::to_string(std::any_cast<int64_t>(_val));
+        if (_val.type() == typeid(int)) return std::to_string(std::any_cast<int>(_val));
+        if (_val.type() == typeid(double)) {
+            // Delegate to ball_to_string(double) so NaN/Infinity and Dart-style
+            // formatting (e.g. `6.0`, trailing-zero trimming) are handled in one
+            // place. The naive `static_cast<long long>` guard below mis-handled
+            // Infinity (UB cast) and printed "inf".
+            return ball_to_string(std::any_cast<double>(_val));
+        }
+        if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) ? "true" : "false";
+        // List: Dart-style [a, b, c]
+        if (const BallList* vp = _listPtr()) {
+            const auto& v = *vp;
+            std::string out = "[";
+            bool first = true;
+            for (const auto& el : v) {
+                if (!first) out += ", ";
+                out += ball_to_string(el);
+                first = false;
+            }
+            out += "]";
+            return out;
+        }
+        // Map/Scope: Dart-style {key: value, ...}
+        if (_val.type() == typeid(BallScope)) {
+            auto& sp = std::any_cast<const BallScope&>(_val);
+            std::string out = "{";
+            bool first = true;
+            for (const auto& [k, v] : *sp) {
+                if (k.find("__") == 0 || k == "type_args") continue;
+                if (!first) out += ", ";
+                out += k + ": " + ball_to_string(v);
+                first = false;
+            }
+            out += "}";
+            return out;
+        }
+        if (_val.type() == typeid(BallMap)) {
+            auto& m = std::any_cast<const BallMap&>(_val);
+            std::string out = "{";
+            bool first = true;
+            for (const auto& [k, v] : m) {
+                if (k.find("__") == 0 || k == "type_args") continue;
+                if (!first) out += ", ";
+                out += k + ": " + ball_to_string(v);
+                first = false;
+            }
+            out += "}";
+            return out;
+        }
+        if (const BallOrderedMap* omp = _orderedMapPtr()) {
+            std::string out = "{";
+            bool first = true;
+            for (const auto& [k, v] : omp->entries_) {
+                if (k.find("__") == 0 || k == "type_args") continue;
+                if (!first) out += ", ";
+                out += k + ": " + ball_to_string(v);
+                first = false;
+            }
+            out += "}";
+            return out;
+        }
+        return "<dynamic>";
+    }
+
+    // Numeric conversion
+    operator int64_t() const {
+        if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val);
+        if (_val.type() == typeid(int)) return std::any_cast<int>(_val);
+        if (_val.type() == typeid(double)) return static_cast<int64_t>(std::any_cast<double>(_val));
+        if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) ? 1 : 0;
+        return 0;
+    }
+    operator double() const {
+        if (_val.type() == typeid(double)) return std::any_cast<double>(_val);
+        if (_val.type() == typeid(int64_t)) return static_cast<double>(std::any_cast<int64_t>(_val));
+        if (_val.type() == typeid(int)) return static_cast<double>(std::any_cast<int>(_val));
+        return 0.0;
+    }
+
+    // Field/index access via operator[]
+    // Returns a copy of the field value. For mutation, use the set() method.
+    BallDyn operator[](const std::string& key) const {
+        if (_val.type() == typeid(BallGenerator)) {
+            if (key == "values")
+                return BallDyn(BallList(*std::any_cast<const BallGenerator&>(_val).values));
+            return BallDyn();
+        }
+        if (const BallObject* op = _objPtr()) {
+            // BallObject IS-A BallMap; its base map holds fields + __type__ etc.
+            const BallMap& m = static_cast<const BallMap&>(*op);
+            auto it = m.find(key);
+            if (it != m.end()) return BallDyn(it->second);
+            return BallDyn();
+        }
+        if (_val.type() == typeid(BallScope)) {
+            auto& sp = std::any_cast<const BallScope&>(_val);
+            auto it = sp->find(key);
+            if (it != sp->end()) return BallDyn(it->second);
+            return BallDyn();
+        }
+        if (_val.type() == typeid(BallMap)) {
+            auto& m = const_cast<BallMap&>(std::any_cast<const BallMap&>(_val));
+            return BallDyn(m[key]);
+        }
+        if (const BallOrderedMap* omp = _orderedMapPtr()) {
+            auto it = omp->index_.find(key);
+            if (it == omp->index_.end()) return BallDyn();
+            return BallDyn(omp->entries_[it->second].second);
+        }
+        if (_val.type() == typeid(BallUMap)) {
+            auto& m = const_cast<BallUMap&>(std::any_cast<const BallUMap&>(_val));
+            return BallDyn(m[key]);
+        }
+        return BallDyn();
+    }
+
+    // Index access for vectors and strings
+    BallDyn operator[](int64_t idx) const {
+        if (const BallList* vp = _listPtr()) {
+            const auto& v = *vp;
+            if (idx >= 0 && static_cast<size_t>(idx) < v.size())
+                return BallDyn(v[idx]);
+            // Out-of-range list index: Dart's native `List[i]` throws a
+            // RangeError. The self-host engine relies on that native throw
+            // (its `_stdIndex` does `listTarget[_toInt(index)]` with no bounds
+            // check) so a `catch (RangeError)` handler can fire. Mirror it with
+            // a RangeError-typed BallException; the message matches Dart's
+            // `RangeError (index): ...` shape closely enough for stringified
+            // catches. Throwing only on a confirmed list receiver keeps the
+            // blast radius tight (internal correct reads never go out of range).
+            throw BallException(
+                "RangeError",
+                "RangeError (index): Index out of range: index should be less than " +
+                    std::to_string(v.size()) + ": " + std::to_string(idx));
+        }
+        if (_val.type() == typeid(std::vector<std::string>)) {
+            auto& v = std::any_cast<const std::vector<std::string>&>(_val);
+            if (idx >= 0 && static_cast<size_t>(idx) < v.size())
+                return BallDyn(std::any(v[idx]));
+        }
+        // String character access (Dart: str[i] returns single-char string)
+        if (_val.type() == typeid(std::string)) {
+            auto& s = std::any_cast<const std::string&>(_val);
+            if (idx >= 0 && static_cast<size_t>(idx) < s.size())
+                return BallDyn(std::string(1, s[idx]));
+        }
+        return BallDyn();
+    }
+
+    // Mutation: set a field in the underlying map/list.
+    // `obj.set("key", value)` modifies the map entry in-place.
+    void set(const std::string& key, const std::any& value) {
+        const std::any& u = _BallDynUnwrapper::unwrap(value);
+        if (_val.type() == typeid(BallScope)) {
+            (*std::any_cast<BallScope&>(_val))[key] = u;
+        } else if (BallObject* op = _objPtr()) {
+            // Mutate through the shared handle so all holders observe the write.
+            op->__op_set_index__(key, u);
+        } else if (_val.type() == typeid(BallMap)) {
+            if (u.type() == typeid(BallObject)) {
+                std::any_cast<BallMap&>(_val)[key] = std::any(BallObjectRef(
+                    std::make_shared<BallObject>(std::any_cast<const BallObject&>(u))));
+            } else {
+                std::any_cast<BallMap&>(_val)[key] = u;
+            }
+        } else if (BallOrderedMap* omp = _orderedMapPtr()) {
+            if (u.type() == typeid(BallObject)) {
+                (*omp)[key] = std::any(BallObjectRef(
+                    std::make_shared<BallObject>(std::any_cast<const BallObject&>(u))));
+            } else {
+                (*omp)[key] = u;
+            }
+        } else if (_val.type() == typeid(BallUMap)) {
+            std::any_cast<BallUMap&>(_val)[key] = u;
+        } else if (!_val.has_value()) {
+            // Dart `final _setters = {}` compiles to default-empty BallDyn; lazily
+            // allocate a map so ball_set/_buildLookupTables can populate it.
+            _val = BallMap{{key, value}};
+        } else if (BallList* vp = _listPtr()) {
+            // Index assignment `list[i] = val` is emitted with the index
+            // stringified (the emitter doesn't distinguish list vs map keys),
+            // so a numeric key on a list must set the element in place —
+            // otherwise in-place mutations (e.g. sorts) silently no-op.
+            auto& v = *vp;
+            try {
+                long long idx = std::stoll(key);
+                if (idx >= 0 && static_cast<size_t>(idx) < v.size())
+                    v[static_cast<size_t>(idx)] = value;
+            } catch (...) {}
+        }
+    }
+    void set(const std::string& key, const BallDyn& value) {
+        set(key, value._val);
+    }
+    void set(int64_t idx, const std::any& value) {
+        if (BallList* vp = _listPtr()) {
+            auto& v = *vp;
+            if (idx >= 0 && static_cast<size_t>(idx) < v.size())
+                v[idx] = value;
+        }
+    }
+
+    // BallDyn-keyed access: convert key to string and delegate
+    BallDyn operator[](const BallDyn& key) const {
+        // An integer key on a list/string must use positional indexing — the
+        // engine's `list[i]` read passes _toInt(i) as a BallDyn(int64_t), and
+        // stringifying it ("3") would miss list elements entirely. Maps stay
+        // string-keyed (Ball maps are string-keyed; the engine stringifies int
+        // keys before map access). Unwrap to defeat MSVC's BallDyn-in-any wrap.
+        auto& u = _BallDynUnwrapper::unwrap(key._val);
+        if (u.type() == typeid(int64_t) &&
+            (_isList() ||
+             _val.type() == typeid(std::string) ||
+             _val.type() == typeid(std::vector<std::string>))) {
+            return (*this)[std::any_cast<int64_t>(u)];
+        }
+        return (*this)[static_cast<std::string>(key)];
+    }
+    void set(const BallDyn& key, const BallDyn& value) {
+        set(static_cast<std::string>(key), value._val);
+    }
+
+    // Map operations
+    size_t count(const std::string& key) const {
+        if (_val.type() == typeid(BallScope))
+            return std::any_cast<const BallScope&>(_val)->count(key);
+        if (const BallObject* op = _objPtr())
+            return static_cast<const BallMap&>(*op).count(key);
+        if (_val.type() == typeid(BallMap))
+            return std::any_cast<const BallMap&>(_val).count(key);
+        if (const BallOrderedMap* omp = _orderedMapPtr()) return omp->count(key);
+        if (_val.type() == typeid(BallUMap))
+            return std::any_cast<const BallUMap&>(_val).count(key);
+        return 0;
+    }
+    // BallDyn-keyed count — compiled programs pass dynamic keys to containsKey.
+    size_t count(const BallDyn& key) const {
+        return count(static_cast<std::string>(key));
+    }
+    // Dart Map.containsKey parity for self-host engine (BallOrderedMapRef / BallMap).
+    bool containsKey(const BallDyn& key) const { return count(key) > 0; }
+    bool containsKey(const std::string& key) const { return count(key) > 0; }
+
+    // Instance field write — routes through BallObject::setField when [this]
+    // holds a BallObjectRef, otherwise falls back to map set().
+    void setField(const std::string& field, const BallDyn& val) {
+        if (BallObject* op = _objPtr()) {
+            op->setField(field, val._val);
+            return;
+        }
+        set(field, val._val);
+    }
+    void setField(const std::string& field, const std::any& val) {
+        if (BallObject* op = _objPtr()) {
+            op->setField(field, val);
+            return;
+        }
+        set(field, val);
+    }
+
+    // Collection operations
+    bool empty() const {
+        if (!_val.has_value()) return true;
+        if (_val.type() == typeid(std::string)) return std::any_cast<const std::string&>(_val).empty();
+        if (const BallList* vp = _listPtr()) return vp->empty();
+        if (_val.type() == typeid(BallScope)) return std::any_cast<const BallScope&>(_val)->empty();
+        if (_val.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(_val).empty();
+        if (const BallOrderedMap* omp = _orderedMapPtr()) return omp->empty();
+        if (_val.type() == typeid(BallUMap)) return std::any_cast<const BallUMap&>(_val).empty();
+        return false;
+    }
+
+    int64_t size() const {
+        if (_val.type() == typeid(std::string)) return std::any_cast<const std::string&>(_val).size();
+        if (const BallList* vp = _listPtr()) return vp->size();
+        if (_val.type() == typeid(BallScope)) return std::any_cast<const BallScope&>(_val)->size();
+        if (_val.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(_val).size();
+        if (const BallOrderedMap* omp = _orderedMapPtr()) return omp->size();
+        if (_val.type() == typeid(BallUMap)) return std::any_cast<const BallUMap&>(_val).size();
+        return 0;
+    }
+
+    void push_back(const BallDyn& v) {
+        if (BallList* vp = _listPtr()) vp->push_back(v._val);
+    }
+
+    BallDyn front() const {
+        if (const BallList* vp = _listPtr()) {
+            const auto& l = *vp;
+            return l.empty() ? BallDyn() : BallDyn(l.front());
+        }
+        return BallDyn();
+    }
+
+    BallDyn back() const {
+        if (const BallList* vp = _listPtr()) {
+            const auto& l = *vp;
+            return l.empty() ? BallDyn() : BallDyn(l.back());
+        }
+        return BallDyn();
+    }
+
+    void erase(const std::string& key) {
+        if (_val.type() == typeid(BallScope))
+            std::any_cast<BallScope&>(_val)->erase(key);
+        else if (_val.type() == typeid(BallMap))
+            std::any_cast<BallMap&>(_val).erase(key);
+        else if (BallOrderedMap* omp = _orderedMapPtr())
+            omp->erase(key);
+        else if (_val.type() == typeid(BallUMap))
+            std::any_cast<BallUMap&>(_val).erase(key);
+    }
+    void push_back(const std::any& val) {
+        if (BallList* vp = _listPtr()) vp->push_back(val);
+    }
+    void pop_back() {
+        if (BallList* vp = _listPtr()) {
+            auto& v = *vp;
+            if (!v.empty()) v.pop_back();
+        }
+    }
+    void erase(const BallDyn& val) {
+        if (BallList* vp = _listPtr()) {
+            auto& v = *vp;
+            auto s = ball_to_string(val._val);
+            v.erase(std::remove_if(v.begin(), v.end(), [&](const std::any& x) {
+                return ball_to_string(x) == s;
+            }), v.end());
+        } else if (_val.type() == typeid(BallMap)) {
+            std::any_cast<BallMap&>(_val).erase(static_cast<std::string>(val));
+        }
+    }
+
+    // String operations
+    std::string substr(int64_t pos) const {
+        if (_val.type() == typeid(std::string))
+            return std::any_cast<const std::string&>(_val).substr(pos);
+        return "";
+    }
+    std::string substr(int64_t pos, int64_t len) const {
+        if (_val.type() == typeid(std::string))
+            return std::any_cast<const std::string&>(_val).substr(pos, len);
+        return "";
+    }
+    size_t find(const std::string& s, size_t pos = 0) const {
+        if (_val.type() == typeid(std::string))
+            return std::any_cast<const std::string&>(_val).find(s, pos);
+        return std::string::npos;
+    }
+
+    // Comparison
+    bool operator==(const BallDyn& o) const {
+        if (!_val.has_value() && !o._val.has_value()) return true;
+        if (!_val.has_value() || !o._val.has_value()) return false;
+        const std::any& ua = _BallDynUnwrapper::unwrap(_val);
+        const std::any& ub = _BallDynUnwrapper::unwrap(o._val);
+        if (ua.type() == typeid(BallObjectRef) && ub.type() == typeid(BallObjectRef)) {
+            return std::any_cast<const BallObjectRef&>(ua) ==
+                   std::any_cast<const BallObjectRef&>(ub);
+        }
+        if (ua.type() == typeid(BallObjectRef) || ub.type() == typeid(BallObjectRef)) {
+            return false;
+        }
+        // Reference-semantic instances compare by pointer identity (Dart
+        // `identical` / default `==`): two BallDyns are equal iff they share the
+        // same underlying BallObject handle.
+        if (const BallObject* a = _objPtr()) {
+            const BallObject* b = o._objPtr();
+            return b != nullptr && a == b;
+        }
+        if (o._objPtr() != nullptr) return false;
+        // List equality before storage-type check: BallListRef vs BallList may
+        // alias the same vector (e.g. outer[0] == outer[1] with shared refs).
+        if (const BallList* ap = _listPtr()) {
+            const BallList* bp = o._listPtr();
+            if (!bp) return false;
+            if (ap == bp) return true;
+            if (ap->size() != bp->size()) return false;
+            for (size_t i = 0; i < ap->size(); ++i) {
+                if (BallDyn((*ap)[i]) != BallDyn((*bp)[i])) return false;
+            }
+            return true;
+        }
+        if (_val.type() != o._val.type()) return false;
+        if (_val.type() == typeid(BallDispatchNotFound)) return true;
+        if (_val.type() == typeid(BallListRef) && o._val.type() == typeid(BallListRef)) {
+            return std::any_cast<const BallListRef&>(_val) ==
+                   std::any_cast<const BallListRef&>(o._val);
+        }
+        if (_val.type() == typeid(BallList) && o._val.type() == typeid(BallList)) {
+            const BallList& la = std::any_cast<const BallList&>(_val);
+            const BallList& lb = std::any_cast<const BallList&>(o._val);
+            if (&la == &lb) return true;
+            if (la.size() != lb.size()) return false;
+            for (size_t i = 0; i < la.size(); ++i) {
+                if (BallDyn(la[i]) != BallDyn(lb[i])) return false;
+            }
+            return true;
+        }
+        if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val) == std::any_cast<int64_t>(o._val);
+        if (_val.type() == typeid(double)) return std::any_cast<double>(_val) == std::any_cast<double>(o._val);
+        if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) == std::any_cast<bool>(o._val);
+        if (_val.type() == typeid(std::string)) return std::any_cast<const std::string&>(_val) == std::any_cast<const std::string&>(o._val);
+        return false;
+    }
+    bool operator!=(const BallDyn& o) const { return !(*this == o); }
+    bool operator==(const std::string& s) const {
+        if (_val.type() == typeid(std::string)) return std::any_cast<const std::string&>(_val) == s;
+        return false;
+    }
+    bool operator!=(const std::string& s) const { return !(*this == s); }
+    bool operator==(const char* s) const { return *this == std::string(s); }
+    bool operator!=(const char* s) const { return !(*this == std::string(s)); }
+    bool operator==(int64_t v) const {
+        if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val) == v;
+        return false;
+    }
+    bool operator!=(int64_t v) const { return !(*this == v); }
+    bool operator==(int v) const { return *this == static_cast<int64_t>(v); }
+    bool operator!=(int v) const { return !(*this == static_cast<int64_t>(v)); }
+    // Other integral types (`long long` on gcc/clang): compare as int64_t.
+    // Without this, `BallDyn == <long long>` is ambiguous (int64_t vs int).
+    template <typename T,
+              std::enable_if_t<std::is_integral_v<T> && !std::is_same_v<T, bool> &&
+                                   !std::is_same_v<T, int> &&
+                                   !std::is_same_v<T, int64_t>,
+                               int> = 0>
+    bool operator==(T v) const { return *this == static_cast<int64_t>(v); }
+    template <typename T,
+              std::enable_if_t<std::is_integral_v<T> && !std::is_same_v<T, bool> &&
+                                   !std::is_same_v<T, int> &&
+                                   !std::is_same_v<T, int64_t>,
+                               int> = 0>
+    bool operator!=(T v) const { return !(*this == static_cast<int64_t>(v)); }
+    bool operator==(bool v) const {
+        if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) == v;
+        return false;
+    }
+    bool operator!=(bool v) const { return !(*this == v); }
+    bool operator==(double v) const {
+        if (_val.type() == typeid(double)) return std::any_cast<double>(_val) == v;
+        return false;
+    }
+    bool operator!=(double v) const { return !(*this == v); }
+    friend bool operator==(const std::string& s, const BallDyn& d) { return d == s; }
+    friend bool operator!=(const std::string& s, const BallDyn& d) { return d != s; }
+    friend bool operator==(int64_t v, const BallDyn& d) { return d == v; }
+    friend bool operator!=(int64_t v, const BallDyn& d) { return d != v; }
+
+    // Arithmetic operators for BallDyn
+    BallDyn operator+(const BallDyn& o) const {
+        // String concatenation
+        if (_val.type() == typeid(std::string) || o._val.type() == typeid(std::string))
+            return BallDyn(static_cast<std::string>(*this) + static_cast<std::string>(o));
+        // Integer arithmetic
+        if (_val.type() == typeid(int64_t) && o._val.type() == typeid(int64_t))
+            return BallDyn(std::any_cast<int64_t>(_val) + std::any_cast<int64_t>(o._val));
+        // Double arithmetic
+        return BallDyn(static_cast<double>(*this) + static_cast<double>(o));
+    }
+    BallDyn operator-(const BallDyn& o) const {
+        if (_val.type() == typeid(int64_t) && o._val.type() == typeid(int64_t))
+            return BallDyn(std::any_cast<int64_t>(_val) - std::any_cast<int64_t>(o._val));
+        return BallDyn(static_cast<double>(*this) - static_cast<double>(o));
+    }
+    BallDyn operator*(const BallDyn& o) const {
+        if (_val.type() == typeid(int64_t) && o._val.type() == typeid(int64_t))
+            return BallDyn(std::any_cast<int64_t>(_val) * std::any_cast<int64_t>(o._val));
+        // Dart semantics: String * int repeats the string (count<=0 => "").
+        if (_val.type() == typeid(std::string) && o._val.type() == typeid(int64_t)) {
+            const std::string& s = std::any_cast<const std::string&>(_val);
+            int64_t n = std::any_cast<int64_t>(o._val);
+            std::string out;
+            if (n > 0) { out.reserve(s.size() * static_cast<size_t>(n)); for (int64_t k = 0; k < n; ++k) out += s; }
+            return BallDyn(std::move(out));
+        }
+        return BallDyn(static_cast<double>(*this) * static_cast<double>(o));
+    }
+    BallDyn operator/(const BallDyn& o) const {
+        if (_val.type() == typeid(int64_t) && o._val.type() == typeid(int64_t))
+            return BallDyn(std::any_cast<int64_t>(_val) / std::any_cast<int64_t>(o._val));
+        return BallDyn(static_cast<double>(*this) / static_cast<double>(o));
+    }
+    BallDyn operator%(const BallDyn& o) const {
+        if (_val.type() == typeid(int64_t) && o._val.type() == typeid(int64_t))
+            return BallDyn(std::any_cast<int64_t>(_val) % std::any_cast<int64_t>(o._val));
+        return BallDyn(static_cast<int64_t>(static_cast<double>(*this)) %
+                       static_cast<int64_t>(static_cast<double>(o)));
+    }
+    BallDyn operator-() const {
+        if (_val.type() == typeid(int64_t)) return BallDyn(-std::any_cast<int64_t>(_val));
+        if (_val.type() == typeid(double)) return BallDyn(-std::any_cast<double>(_val));
+        return BallDyn();
+    }
+    // Comparison operators for ordering
+    bool operator<(const BallDyn& o) const {
+        if (_val.type() == typeid(int64_t) && o._val.type() == typeid(int64_t))
+            return std::any_cast<int64_t>(_val) < std::any_cast<int64_t>(o._val);
+        if (_val.type() == typeid(std::string) && o._val.type() == typeid(std::string))
+            return std::any_cast<const std::string&>(_val) < std::any_cast<const std::string&>(o._val);
+        return static_cast<double>(*this) < static_cast<double>(o);
+    }
+    bool operator>(const BallDyn& o) const { return o < *this; }
+    bool operator<=(const BallDyn& o) const { return !(o < *this); }
+    bool operator>=(const BallDyn& o) const { return !(*this < o); }
+
+    // Arithmetic with int64_t
+    BallDyn operator+(int64_t v) const {
+        if (_val.type() == typeid(int64_t)) return BallDyn(std::any_cast<int64_t>(_val) + v);
+        return BallDyn(static_cast<double>(*this) + v);
+    }
+    BallDyn operator-(int64_t v) const {
+        if (_val.type() == typeid(int64_t)) return BallDyn(std::any_cast<int64_t>(_val) - v);
+        return BallDyn(static_cast<double>(*this) - v);
+    }
+    BallDyn operator*(int64_t v) const {
+        if (_val.type() == typeid(int64_t)) return BallDyn(std::any_cast<int64_t>(_val) * v);
+        return BallDyn(static_cast<double>(*this) * v);
+    }
+    BallDyn operator/(int64_t v) const {
+        if (_val.type() == typeid(int64_t)) return BallDyn(std::any_cast<int64_t>(_val) / v);
+        return BallDyn(static_cast<double>(*this) / v);
+    }
+    BallDyn operator%(int64_t v) const {
+        if (_val.type() == typeid(int64_t)) return BallDyn(std::any_cast<int64_t>(_val) % v);
+        return BallDyn(static_cast<int64_t>(static_cast<double>(*this)) % v);
+    }
+    BallDyn operator/(double v) const {
+        return BallDyn(static_cast<double>(*this) / v);
+    }
+    friend BallDyn operator+(int64_t v, const BallDyn& d) { return d + v; }
+    friend BallDyn operator-(int64_t v, const BallDyn& d) { return BallDyn(v) - d; }
+    friend BallDyn operator*(int64_t v, const BallDyn& d) { return d * v; }
+    friend BallDyn operator/(int64_t v, const BallDyn& d) { return BallDyn(v) / d; }
+    friend BallDyn operator/(double v, const BallDyn& d) { return BallDyn(v / static_cast<double>(d)); }
+    friend BallDyn operator%(int64_t v, const BallDyn& d) { return BallDyn(v) % d; }
+    // Compound assignment of a BallDyn into an int64_t accumulator (e.g.
+    // `_memoryUsedBytes += bytes` where bytes is a BallDyn). Without this the
+    // built-in += is ambiguous because BallDyn converts to both int64_t and double.
+    friend int64_t& operator+=(int64_t& l, const BallDyn& d) { l += static_cast<int64_t>(d); return l; }
+
+    // Comparison with int64_t
+    bool operator<(int64_t v) const { return *this < BallDyn(v); }
+    bool operator>(int64_t v) const { return *this > BallDyn(v); }
+    bool operator<=(int64_t v) const { return *this <= BallDyn(v); }
+    bool operator>=(int64_t v) const { return *this >= BallDyn(v); }
+    friend bool operator<(int64_t v, const BallDyn& d) { return BallDyn(v) < d; }
+    friend bool operator>(int64_t v, const BallDyn& d) { return BallDyn(v) > d; }
+
+    // Increment/decrement
+    BallDyn& operator++() {
+        if (_val.type() == typeid(int64_t)) _val = std::any_cast<int64_t>(_val) + 1;
+        else if (_val.type() == typeid(double)) _val = std::any_cast<double>(_val) + 1.0;
+        return *this;
+    }
+    BallDyn operator++(int) { auto old = *this; ++(*this); return old; }
+    BallDyn& operator--() {
+        if (_val.type() == typeid(int64_t)) _val = std::any_cast<int64_t>(_val) - 1;
+        else if (_val.type() == typeid(double)) _val = std::any_cast<double>(_val) - 1.0;
+        return *this;
+    }
+    BallDyn operator--(int) { auto old = *this; --(*this); return old; }
+
+    // Bitwise operators
+    BallDyn operator&(const BallDyn& o) const { return BallDyn(static_cast<int64_t>(*this) & static_cast<int64_t>(o)); }
+    BallDyn operator|(const BallDyn& o) const { return BallDyn(static_cast<int64_t>(*this) | static_cast<int64_t>(o)); }
+    BallDyn operator^(const BallDyn& o) const { return BallDyn(static_cast<int64_t>(*this) ^ static_cast<int64_t>(o)); }
+    BallDyn operator~() const { return BallDyn(~static_cast<int64_t>(*this)); }
+    BallDyn operator<<(const BallDyn& o) const { return BallDyn(static_cast<int64_t>(*this) << static_cast<int64_t>(o)); }
+    BallDyn operator>>(const BallDyn& o) const { return BallDyn(static_cast<int64_t>(*this) >> static_cast<int64_t>(o)); }
+    BallDyn operator&(int64_t v) const { return BallDyn(static_cast<int64_t>(*this) & v); }
+    BallDyn operator|(int64_t v) const { return BallDyn(static_cast<int64_t>(*this) | v); }
+    BallDyn operator^(int64_t v) const { return BallDyn(static_cast<int64_t>(*this) ^ v); }
+    BallDyn operator<<(int64_t v) const { return BallDyn(static_cast<int64_t>(*this) << v); }
+    BallDyn operator>>(int64_t v) const { return BallDyn(static_cast<int64_t>(*this) >> v); }
+
+    // String field access (Dart protobuf style: e.g. literal.stringValue)
+    // Returns the value as a string, or empty if not a string.
+    BallDyn __get_stringValue() const {
+        // For protobuf-style access: obj["stringValue"] already works via operator[].
+        // This is a convenience for `.stringValue` field access syntax.
+        return (*this)["stringValue"s];
+    }
+
+    // indexOf: find an element in a BallDyn list, or a substring in a string.
+    int64_t indexOf(const BallDyn& needle) const {
+        if (const BallList* vp = _listPtr()) {
+            const auto& v = *vp;
+            for (size_t i = 0; i < v.size(); i++) {
+                BallDyn el(v[i]);
+                if (el == needle) return static_cast<int64_t>(i);
+            }
+            return -1;
+        }
+        if (_val.type() == typeid(std::string) && needle._val.type() == typeid(std::string)) {
+            auto& s = std::any_cast<const std::string&>(_val);
+            auto& n = std::any_cast<const std::string&>(needle._val);
+            auto pos = s.find(n);
+            return pos == std::string::npos ? -1 : static_cast<int64_t>(pos);
+        }
+        return -1;
+    }
+
+    // Iteration support (for range-based for loops over lists)
+    struct Iterator {
+        const BallList* list;
+        size_t idx;
+        BallDyn operator*() const { return BallDyn((*list)[idx]); }
+        Iterator& operator++() { ++idx; return *this; }
+        bool operator!=(const Iterator& o) const { return idx != o.idx; }
+    };
+    Iterator begin() const {
+        if (const BallList* vp = _listPtr()) return {vp, 0};
+        static BallList empty;
+        return {&empty, 0};
+    }
+    Iterator end() const {
+        if (const BallList* vp = _listPtr()) return {vp, vp->size()};
+        static BallList empty;
+        return {&empty, 0};
+    }
+
+    // Function call
+    BallDyn operator()() const {
+        if (_val.type() == typeid(BallFunc)) {
+            return BallDyn(std::any_cast<const BallFunc&>(_val)(std::any{}));
+        }
+        return BallDyn();
+    }
+    BallDyn operator()(const BallDyn& arg) const {
+        if (_val.type() == typeid(BallFunc)) {
+            return BallDyn(std::any_cast<const BallFunc&>(_val)(arg._val));
+        }
+        return BallDyn();
+    }
+};
+
+inline BallDyn ball_dispatch_not_found() {
+    return BallDyn(std::any(BallDispatchNotFound{}));
+}
+inline bool ball_is_dispatch_not_found(const BallDyn& v) {
+    return v._val.has_value() && v._val.type() == typeid(BallDispatchNotFound);
+}
+
+// Register BallDyn unwrapper so ball_is_* functions can detect BallDyn
+// stored inside std::any (MSVC implicit conversion issue).
+namespace {
+struct _BallDynUnwrapRegistrar {
+    _BallDynUnwrapRegistrar() {
+        _BallDynUnwrapper::_unwrap_fn = [](const std::any& v) -> const std::any* {
+            if (v.type() == typeid(BallDyn)) {
+                return &std::any_cast<const BallDyn&>(v)._val;
+            }
+            return nullptr;
+        };
+        // Registration complete - ball_is_* functions can now detect BallDyn in std::any
+        // Register the reference-semantic list deref hook so helpers in
+        // ball_emit_runtime.h (which can't name BallListRef) reach the underlying
+        // vector of shared_ptr-backed program lists.
+        _BallRefDeref::_list_fn = [](const std::any& v) -> const std::vector<std::any>* {
+            if (v.type() == typeid(BallListRef)) return std::any_cast<const BallListRef&>(v).get();
+            return nullptr;
+        };
+        _BallRefDeref::_obj_map_fn = [](const std::any& v) -> const std::map<std::string, std::any>* {
+            if (v.type() == typeid(BallObjectRef)) {
+                const BallObjectRef& ref = std::any_cast<const BallObjectRef&>(v);
+                if (ref) return &static_cast<const BallMap&>(*ref);
+            }
+            return nullptr;
+        };
+    }
+};
+static _BallDynUnwrapRegistrar _ball_dyn_unwrap_registrar;
+}
+
+// Free deref helper: pointer to the underlying vector whether `u` (already an
+// UNWRAPPED std::any) holds the list by-value or shared_ptr-backed. nullptr else.
+inline const BallList* _ballAnyListPtr(const std::any& u) {
+    if (u.type() == typeid(BallListRef)) return std::any_cast<const BallListRef&>(u).get();
+    if (u.type() == typeid(BallList)) return &std::any_cast<const BallList&>(u);
+    return nullptr;
+}
+inline BallList* _ballAnyListPtr(std::any& u) {
+    if (u.type() == typeid(BallListRef)) return std::any_cast<BallListRef&>(u).get();
+    if (u.type() == typeid(BallList)) return &std::any_cast<BallList&>(u);
+    return nullptr;
+}
+
+// Coerce a std::any into a BallMap, unwrapping a BallDyn first if MSVC stored
+// the BallDyn inside the std::any. Used by BallObject's constructor so that
+// `BallObject(typeName, super, fields, methods)` accepts BallDyn field values.
+inline BallMap _ballAnyToMap(const std::any& v) {
+    const std::any& u = _BallDynUnwrapper::unwrap(v);
+    if (!u.has_value()) return {};
+    if (u.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(u);
+    if (u.type() == typeid(BallObject)) {
+        return static_cast<const BallMap&>(std::any_cast<const BallObject&>(u));
+    }
+    if (u.type() == typeid(BallObjectRef)) {
+        const BallObjectRef& ref = std::any_cast<const BallObjectRef&>(u);
+        if (ref) return static_cast<const BallMap&>(*ref);
+        return {};
+    }
+    if (u.type() == typeid(std::unordered_map<std::string, std::any>)) {
+        BallMap r;
+        for (const auto& [k, val] : std::any_cast<const std::unordered_map<std::string, std::any>&>(u)) {
+            r[k] = val;
+        }
+        return r;
+    }
+    return {};
+}
+
+// addAll on a BallDyn receiver (e.g. cascade `map..addAll(other)`). Mutates the
+// receiver in place: merges map entries, or appends list elements.
+inline void ball_add_all(BallDyn& dst, const BallDyn& src) {
+    std::any s = static_cast<std::any>(src);
+    const std::any& su = _BallDynUnwrapper::unwrap(s);
+    if (!su.has_value()) return;
+    if (su.type() == typeid(BallMap)) {
+        for (const auto& [k, v] : std::any_cast<const BallMap&>(su)) dst.set(k, v);
+    } else if (su.type() == typeid(std::unordered_map<std::string, std::any>)) {
+        for (const auto& [k, v] : std::any_cast<const std::unordered_map<std::string, std::any>&>(su)) dst.set(k, v);
+    } else if (const BallList* lp = _ballAnyListPtr(su)) {
+        for (const auto& el : *lp) dst.push_back(el);
+    }
+}
+
+// list.clear() / map.clear() — mutate the receiver in place to empty.
+inline void ball_clear(BallDyn& v) {
+    if (BallList* lp = v._listPtr()) lp->clear();
+    else if (v._val.type() == typeid(BallMap)) std::any_cast<BallMap&>(v._val).clear();
+    else if (v._val.type() == typeid(std::unordered_map<std::string, std::any>))
+        std::any_cast<std::unordered_map<std::string, std::any>&>(v._val).clear();
+}
+inline void ball_clear(BallDyn&&) {}  // rvalue receiver: nothing to clear
+
+// map.putIfAbsent(key, ifAbsent): Dart's signature takes a factory callable
+// (`V Function()`), not a value, so the third argument is invoked lazily only
+// when the key is absent. Templated to accept either a C++ lambda or a BallDyn
+// function value.
+template <typename F>
+inline BallDyn ball_map_put_if_absent(BallDyn& m, const BallDyn& key, F ifAbsent) {
+    std::string k = static_cast<std::string>(key);
+    if (m.count(k) == 0) m.set(k, static_cast<std::any>(BallDyn(ifAbsent())));
+    return m[k];
+}
+template <typename F>
+inline BallDyn ball_map_put_if_absent(BallDyn&& m, const BallDyn& key, F ifAbsent) {
+    std::string k = static_cast<std::string>(key);
+    return m.count(k) == 0 ? BallDyn(ifAbsent()) : m[k];
+}
+
+// Generator yields — the engine calls `gen.yield_(v)` / `gen.yieldAll(xs)`,
+// which the compiler lowers to free calls `yield_(gen, v)` / `yieldAll(gen, xs)`.
+// gen wraps a BallGenerator (reference type), so pushes mutate the shared list.
+inline BallDyn yield_(const BallDyn& gen, const BallDyn& value) {
+    // Materialize the std::any into a NAMED local first. Passing the temporary
+    // `static_cast<std::any>(gen)` directly to unwrap() returns a reference that
+    // dangles once the full-expression's temporary is destroyed — the type-test
+    // below then reads `void` and every yield is silently dropped (empty
+    // generator). Binding the temporary to `genAny` keeps it alive across the
+    // unwrap + push_back.
+    std::any genAny = static_cast<std::any>(gen);
+    const std::any& u = _BallDynUnwrapper::unwrap(genAny);
+    if (u.type() == typeid(BallGenerator)) {
+        std::any_cast<const BallGenerator&>(u).values->push_back(static_cast<std::any>(value));
+    }
+    return BallDyn();
+}
+inline BallDyn yieldAll(const BallDyn& gen, const BallDyn& items) {
+    // See yield_(): unwrap must operate on a named local, not a temporary.
+    std::any genAny = static_cast<std::any>(gen);
+    const std::any& u = _BallDynUnwrapper::unwrap(genAny);
+    if (u.type() == typeid(BallGenerator)) {
+        auto& vals = *std::any_cast<const BallGenerator&>(u).values;
+        for (const auto& it : items) vals.push_back(static_cast<std::any>(it));
+    }
+    return BallDyn();
+}
+
+// Dart's Iterable.indexWhere(test) — first index where test(el) is truthy, else -1.
+template <typename Fn>
+inline int64_t indexWhere(const BallDyn& list, Fn pred) {
+    int64_t i = 0;
+    for (const auto& el : list) {
+        if (static_cast<bool>(pred(BallDyn(el)))) return i;
+        ++i;
+    }
+    return -1;
+}
+
+// Stream output
+inline std::ostream& operator<<(std::ostream& os, const BallDyn& d) {
+    return os << static_cast<std::string>(d);
+}
+
+// ball_to_string overload for BallDyn
+inline std::string ball_to_string(const BallDyn& d) {
+    return static_cast<std::string>(d);
+}
+
+// Assignment-as-expression for plain (non-field/index) targets. `std::string =
+// BallDyn` is ambiguous under gcc/clang: BallDyn->std::string and BallDyn->char
+// go through different conversion operators, so std::string::operator=(const
+// string&) and operator=(char) are indistinguishable user-conversion sequences.
+// Route a std::string target through ball_to_string; every other target type
+// assigns directly. Returns the assigned value, since Dart `=` is an expression.
+template <typename T, typename U>
+inline T& ball_assign(T& target, U&& value) {
+    if constexpr (std::is_same_v<T, std::string>) {
+        // std::string = BallDyn is ambiguous under gcc/clang (the
+        // BallDyn->std::string and BallDyn->char user conversions go through
+        // different operators). Route through ball_to_string. A single template
+        // with if-constexpr avoids the overload-resolution race where an rvalue
+        // value binds to the generic `U&&` rather than a `const BallDyn&`.
+        target = ball_to_string(value);
+    } else {
+        target = std::forward<U>(value);
+    }
+    return target;
+}
+
+// Allow std::regex(BallDyn) by providing conversion helper
+inline std::regex ball_to_regex(const BallDyn& d) { return std::regex(ball_to_string(d)); }
+inline std::regex ball_to_regex(const std::string& s) { return std::regex(s); }
+inline const std::regex& ball_to_regex(const std::regex& r) { return r; }
+// Alias for Dart's RegExp constructor — returns BallDyn wrapping the string
+// so it can be used both as regex (via ball_to_regex) and as string
+inline BallDyn RegExp(const BallDyn& d) { return d; }
+inline BallDyn RegExp(const std::string& s) { return BallDyn(s); }
+
+// Regex overloads for BallDyn
+inline std::any ball_first_match(const BallDyn& pattern, const BallDyn& input) {
+    return ball_first_match(std::regex(ball_to_string(pattern)), ball_to_string(input));
+}
+inline std::any ball_first_match(const std::regex& re, const BallDyn& input) {
+    return ball_first_match(re, ball_to_string(input));
+}
+inline std::vector<std::any> ball_all_matches(const BallDyn& pattern, const BallDyn& input) {
+    return ball_all_matches(std::regex(ball_to_string(pattern)), ball_to_string(input));
+}
+inline std::vector<std::any> ball_all_matches(const std::regex& re, const BallDyn& input) {
+    return ball_all_matches(re, ball_to_string(input));
+}
+inline std::string ball_group(const BallDyn& match, int64_t idx) {
+    return ball_group(match._val, idx);
+}
+
+// bind/child/resolve overloads for BallDyn.
+// Exact-match string-key overloads beat std::bind (ADL template) for emitted
+// `bind(scope, "self"s, self)` — fixes the self-binding gate in method bodies.
+inline BallDyn ball_scope_bind(BallDyn& scope, const std::string& name, const BallDyn& value) {
+    scope.set(name, value._val);
+    return BallDyn();
+}
+inline BallDyn ball_scope_bind(BallDyn& scope, const BallDyn& name, const BallDyn& value) {
+    scope.set(static_cast<std::string>(name), value._val);
+    return BallDyn();
+}
+inline BallDyn bind(BallDyn& scope, const std::any& name, const std::any& value) {
+    scope.set(ball_to_string(name), value);
+    return BallDyn();
+}
+inline BallDyn bind(BallDyn& scope, const BallDyn& name, const BallDyn& value) {
+    scope.set(static_cast<std::string>(name), value._val);
+    return BallDyn();
+}
+inline BallDyn bind(BallDyn& scope, const std::string& name, const BallDyn& value) {
+    scope.set(name, value._val);
+    return BallDyn();
+}
+inline BallDyn bind(BallDyn& scope, const std::string& name, const std::any& value) {
+    scope.set(name, value);
+    return BallDyn();
+}
+inline BallDyn bind(BallDyn& scope, const char* name, const BallDyn& value) {
+    scope.set(std::string(name), value._val);
+    return BallDyn();
+}
+inline BallDyn bind(BallDyn& scope, const char* name, const std::any& value) {
+    scope.set(std::string(name), value);
+    return BallDyn();
+}
+// child() creates a new scope linked to the parent with reference semantics.
+// Takes by REFERENCE so that upgrading a BallMap parent to BallScope (shared_ptr)
+// happens in-place on the caller's variable — mutations through the child's
+// parent chain then propagate back to the original scope.
+inline BallDyn child(BallDyn& scope) {
+    // Upgrade parent IN PLACE to BallScope for reference semantics
+    if (scope._val.type() == typeid(BallMap)) {
+        auto sp = std::make_shared<BallMap>(std::move(std::any_cast<BallMap&>(scope._val)));
+        scope._val = std::any(sp);
+    }
+    BallScope parentScope;
+    if (scope._val.type() == typeid(BallScope)) {
+        parentScope = std::any_cast<const BallScope&>(scope._val);
+    }
+    auto childMap = std::make_shared<BallMap>();
+    if (parentScope) {
+        (*childMap)["__parent__"] = std::any(parentScope);
+    }
+    return BallDyn(std::any(childMap));
+}
+// Rvalue overload for temporaries like child(BallDyn(_globalScope))
+inline BallDyn child(BallDyn&& scope) {
+    return child(scope);
+}
+
+// Helper: get the parent BallScope from a scope's __parent__ entry.
+// Returns the shared_ptr (or empty if not found).
+inline BallScope _ball_get_parent_scope(const BallDyn& scope) {
+    BallMap* m = nullptr;
+    if (scope._val.type() == typeid(BallScope)) {
+        m = std::any_cast<const BallScope&>(scope._val).get();
+    } else if (scope._val.type() == typeid(BallMap)) {
+        m = &const_cast<BallMap&>(std::any_cast<const BallMap&>(scope._val));
+    }
+    if (!m) return nullptr;
+    auto it = m->find("__parent__");
+    if (it == m->end()) return nullptr;
+    if (it->second.type() == typeid(BallScope)) {
+        return std::any_cast<const BallScope&>(it->second);
+    }
+    return nullptr;
+}
+
+// Helper: check if a key exists in a scope (without inserting default entry)
+inline bool _ball_scope_has_key(const BallDyn& scope, const std::string& key) {
+    if (scope._val.type() == typeid(BallScope)) {
+        auto& sp = std::any_cast<const BallScope&>(scope._val);
+        return sp->count(key) > 0;
+    }
+    if (scope._val.type() == typeid(BallMap)) {
+        return std::any_cast<const BallMap&>(scope._val).count(key) > 0;
+    }
+    return false;
+}
+
+// Helper: mutate a key in a scope's underlying BallMap
+inline void _ball_scope_set(const BallDyn& scope, const std::string& key, const std::any& value) {
+    if (scope._val.type() == typeid(BallScope)) {
+        (*std::any_cast<const BallScope&>(scope._val))[key] = value;
+    }
+    // BallMap case handled by BallDyn::set()
+}
+inline std::any resolve(const BallDyn& scope, const std::string& name) {
+    return resolve(scope._val, name);
+}
+// nextDouble overload for BallDyn (wrapping RandomType)
+inline double nextDouble(const BallDyn&) {
+    static RandomType fallback_random;
+    return nextDouble(fallback_random);
+}
+inline int64_t nextInt(const BallDyn&, int64_t max_) {
+    static RandomType fallback_random;
+    return nextInt(fallback_random, max_);
+}
+inline int64_t nextInt(const BallDyn& r, const BallDyn& max_) {
+    return nextInt(r, static_cast<int64_t>(max_));
+}
+
+// ── Self-hosted engine type stubs ──
+// Types from the Dart Ball engine that are compiled to C++ but lack
+// protobuf descriptors (so the compiler can't emit their struct bodies).
+// Defined here as BallDyn wrappers so they inherit all BallDyn operations.
+// Macro for defining a BallDyn-derived stub type with all constructors.
+#define BALL_DYN_STUB(Name) \
+    struct Name : public BallDyn { \
+        using BallDyn::BallDyn; \
+        using BallDyn::operator=; \
+        Name() : BallDyn() {} \
+        Name(const BallDyn& d) : BallDyn(d) {} \
+        Name(BallDyn&& d) : BallDyn(std::move(d)) {} \
+        Name& operator=(const BallDyn& d) { BallDyn::operator=(d); return *this; } \
+    }
+
+BALL_DYN_STUB(_FlowSignal);
+BALL_DYN_STUB(_Scope);
+BALL_DYN_STUB(BallRuntimeError);
+BALL_DYN_STUB(BallFuture);
+// BallGenerator is a real runtime struct (ball_emit_runtime.h) with a shared
+// values list — NOT a BallDyn stub — so sync*/async* yields mutate shared state.
+BALL_DYN_STUB(_ExitSignal);
+BALL_DYN_STUB(BallModuleHandler);
+BALL_DYN_STUB(StdModuleHandler);
+
+#undef BALL_DYN_STUB
+
+// ── ball_where / ball_map overloads for BallDyn ──
+template<typename F>
+inline BallList ball_where(const BallDyn& v, F pred) {
+    BallList result;
+    for (auto it = v.begin(); it != v.end(); ++it) {
+        BallDyn el = *it;
+        if (pred(el._val)) result.push_back(el._val);
+    }
+    return result;
+}
+template<typename F>
+inline BallList ball_map(const BallDyn& v, F fn) {
+    BallList result;
+    for (auto it = v.begin(); it != v.end(); ++it) {
+        BallDyn el = *it;
+        result.push_back(fn(el._val));
+    }
+    return result;
+}
+
+// ball_set specialization for BallDyn — uses .set() method
+// since BallDyn::operator[] returns by value.
+template<>
+inline void ball_set<BallDyn>(BallDyn& obj, const std::string& key, const std::any& value) {
+    // Unwrap BallDyn stored in std::any (MSVC wrapping issue)
+    auto& u = _BallDynUnwrapper::unwrap(value);
+    obj.set(key, u);
+}
+template<>
+inline void ball_set<BallDyn>(BallDyn& obj, int64_t idx, const std::any& value) {
+    auto& u = _BallDynUnwrapper::unwrap(value);
+    obj.set(idx, u);
+}
+// ball_set accepting temporary BallDyn (modifies a copy — use for side-effect contexts)
+inline void ball_set(BallDyn&& obj, const std::string& key, const std::any& value) {
+    auto& u = _BallDynUnwrapper::unwrap(value);
+    obj.set(key, u);
+}
+// ball_set with BallDyn value
+inline void ball_set(BallDyn& obj, const std::string& key, const BallDyn& value) {
+    obj.set(key, value._val);
+}
+inline void ball_set(BallDyn& obj, const BallDyn& key, const BallDyn& value) {
+    obj.set(static_cast<std::string>(key), value._val);
+}
+// ball_set for std::map with BallDyn key
+inline void ball_set(std::map<std::string, std::any>& m, const BallDyn& key, const std::any& value) {
+    auto& u = _BallDynUnwrapper::unwrap(value);
+    m[static_cast<std::string>(key)] = u;
+}
+inline void ball_set(std::unordered_map<std::string, std::any>& m, const BallDyn& key, const std::any& value) {
+    auto& u = _BallDynUnwrapper::unwrap(value);
+    m[static_cast<std::string>(key)] = u;
+}
+
+// ball_is_* BallDyn overloads are in the C++ compiler preamble only
+// (to avoid ambiguity with the native engine)
+
+// ── handles/call for module handlers (override stubs from ball_emit_runtime.h) ──
+inline bool handles(const BallDyn& handler, const BallDyn& module) {
+    auto mod = ball_to_string(BallDyn(module));
+    return mod == "std" || mod == "dart_std" || mod == "std_collections" ||
+           mod == "std_io" || mod == "std_memory" || mod == "std_convert" ||
+           mod == "std_fs" || mod == "std_time" || mod == "std_concurrency" ||
+           mod == "cpp_std" || mod.empty();
+}
+template<typename E>
+inline BallDyn call(const BallDyn& handler, const BallDyn& function, const BallDyn& input, E&& engine_fn) {
+    auto fn = ball_to_string(BallDyn(function));
+    auto dispatch = handler["_dispatch"s];
+    if (dispatch.has_value()) {
+        auto func = dispatch[fn];
+        if (func.has_value()) return func(input);
+    }
+    throw std::runtime_error("Unknown std function: " + fn);
+}
+
+
+// 3-arg set() — Dart's scope.set(name, val) compiled as free function.
+// Mirrors Dart _Scope.set(): if the variable exists in the current scope,
+// update it there. Otherwise walk the parent chain (via BallScope shared_ptr)
+// to find the scope that owns it and update in-place. If not found anywhere,
+// bind in the current scope.
+inline BallDyn set(BallDyn& scope, const BallDyn& name, const BallDyn& value) {
+    auto key = static_cast<std::string>(name);
+    // Check if current scope has the key (without inserting)
+    if (_ball_scope_has_key(scope, key)) {
+        scope.set(key, value._val);
+        return BallDyn();
+    }
+    // Walk parent chain via BallScope (shared_ptr<BallMap>) for mutable access
+    BallScope parent = _ball_get_parent_scope(scope);
+    while (parent) {
+        if (parent->count(key) > 0) {
+            (*parent)[key] = value._val;
+            return BallDyn();
+        }
+        // Get next parent
+        auto it = parent->find("__parent__");
+        if (it != parent->end() && it->second.type() == typeid(BallScope)) {
+            parent = std::any_cast<const BallScope&>(it->second);
+        } else {
+            break;
+        }
+    }
+    // Not found in any parent — create in current scope
+    scope.set(key, value._val);
+    return BallDyn();
+}
+inline std::any set(std::any& scope, const std::any& name, const std::any& value) {
+    if (scope.type() == typeid(BallMap)) {
+        std::any_cast<BallMap&>(scope)[ball_to_string(name)] = value;
+    }
+    return std::any{};
+}
+
+// identical — Dart's identity comparison
+inline bool identical(const BallDyn& a, const BallDyn& b) { return a == b; }
+inline bool identical(const std::any& a, const std::any& b) {
+    const std::any& ua = _BallDynUnwrapper::unwrap(a);
+    const std::any& ub = _BallDynUnwrapper::unwrap(b);
+    if (_ball_any_is_object(ua) || _ball_any_is_object(ub)) {
+        return BallDyn(a) == BallDyn(b);
+    }
+    return ball_to_string(a) == ball_to_string(b);
+}
+
+// File/Directory constructors from BallDyn
+inline File::File(const BallDyn& p) : path(ball_to_string(p)) {}
+inline Directory::Directory(const BallDyn& p) : path(ball_to_string(p)) {}
+inline void writeAsStringSync(const File& f, const BallDyn& content, const std::any&) {
+    std::ofstream ofs(f.path);
+    ofs << ball_to_string(content);
+}
+
+// setAll — Dart's List.setAll(index, iterable): copy elements into list
+inline void setAll(BallDyn& target, int64_t index, const BallDyn& source) {
+    BallList* dstp = target._listPtr();
+    const BallList* srcp = source._listPtr();
+    if (dstp && srcp) {
+        auto& dst = *dstp;
+        const auto& src = *srcp;
+        for (size_t i = 0; i < src.size() && (index + i) < dst.size(); i++) {
+            dst[index + i] = src[i];
+        }
+    }
+}
+
+// String substr helper — handles BallDyn args for length
+inline std::string ball_substr(const std::string& s, int64_t pos, const BallDyn& len = BallDyn()) {
+    if (len.has_value()) return s.substr(pos, static_cast<size_t>(static_cast<int64_t>(len)));
+    return s.substr(pos);
+}
+
+// ── Dart-semantic length / substring / codeUnitAt on a BallDyn ──
+// For STRINGS these use UTF-16 code-unit indexing (Dart parity, ASCII fast path);
+// for lists/maps `ball_length` falls back to element count. The string helpers
+// take a BallDyn so the compiler can emit them uniformly for `s.length` /
+// `s.substring(...)` without first knowing the static type.
+inline int64_t ball_length(const BallDyn& v) {
+    if (v._val.type() == typeid(std::string))
+        return ball_u16_length(std::any_cast<const std::string&>(v._val));
+    return v.size();  // list / map / set / scope element count
+}
+// Overloads for statically-typed receivers so `.length` keeps compiling when the
+// compiler knows the concrete type (raw std::string, or a typed container).
+inline int64_t ball_length(const std::string& s) { return ball_u16_length(s); }
+template<typename T>
+inline int64_t ball_length(const std::vector<T>& v) { return static_cast<int64_t>(v.size()); }
+template<typename K, typename V>
+inline int64_t ball_length(const std::map<K, V>& m) { return static_cast<int64_t>(m.size()); }
+inline std::string ball_string_substring(const BallDyn& v, int64_t start, const BallDyn& end = BallDyn()) {
+    std::string s = static_cast<std::string>(v);
+    return ball_u16_substring(s, start, end.has_value() ? static_cast<int64_t>(end) : -1);
+}
+inline int64_t ball_code_unit_at(const BallDyn& v, int64_t i) {
+    return ball_u16_code_unit_at(static_cast<std::string>(v), i);
+}
+
+// String concatenation
+inline std::string operator+(const std::string& s, const BallDyn& d) {
+    return s + static_cast<std::string>(d);
+}
+inline std::string operator+(const BallDyn& d, const std::string& s) {
+    return static_cast<std::string>(d) + s;
+}
+
+// ── Codec BallDyn overloads ──
+inline std::vector<std::any> encode(const Utf8Codec& c, const BallDyn& s) {
+    return c.encode(static_cast<std::string>(s));
+}
+inline std::string decode(const Utf8Codec& c, const BallDyn& bytes) {
+    if (const BallList* lp = bytes._listPtr()) return c.decode(*lp);
+    return "";
+}
+inline std::string encode(const Base64Codec& c, const BallDyn& bytes) {
+    if (const BallList* lp = bytes._listPtr()) return c.encode(*lp);
+    return "";
+}
+inline std::vector<std::any> decode(const Base64Codec& c, const BallDyn& s) {
+    return c.decode(static_cast<std::string>(s));
+}
+
+// ── ball_to_set(BallDyn) ──
+inline BallDyn ball_to_set(const BallDyn& d) {
+    if (const BallList* lp = d._listPtr()) {
+        return BallDyn(ball_to_set(*lp));
+    }
+    return d;
+}
+
+// ── Set operations on BallDyn ──
+inline BallDyn union_(const BallDyn& a, const BallDyn& b) {
+    BallList sa, sb;
+    if (const BallList* lp = a._listPtr()) sa = *lp;
+    if (const BallList* lp = b._listPtr()) sb = *lp;
+    for (auto& e : sb) {
+        bool found = false;
+        for (auto& x : sa) { if (ball_to_string(x) == ball_to_string(e)) { found = true; break; } }
+        if (!found) sa.push_back(e);
+    }
+    return BallDyn(sa);
+}
+inline BallDyn intersection(const BallDyn& a, const BallDyn& b) {
+    BallList sa, sb;
+    if (const BallList* lp = a._listPtr()) sa = *lp;
+    if (const BallList* lp = b._listPtr()) sb = *lp;
+    BallList result;
+    for (auto& e : sa) {
+        for (auto& x : sb) { if (ball_to_string(x) == ball_to_string(e)) { result.push_back(e); break; } }
+    }
+    return BallDyn(result);
+}
+inline BallDyn difference(const BallDyn& a, const BallDyn& b) {
+    BallList sa, sb;
+    if (const BallList* lp = a._listPtr()) sa = *lp;
+    if (const BallList* lp = b._listPtr()) sb = *lp;
+    BallList result;
+    for (auto& e : sa) {
+        bool found = false;
+        for (auto& x : sb) { if (ball_to_string(x) == ball_to_string(e)) { found = true; break; } }
+        if (!found) result.push_back(e);
+    }
+    return BallDyn(result);
+}
+
+// ── fromCharCode / toIso8601String BallDyn overloads ──
+inline std::string fromCharCode(const std::string& tag, const BallDyn& code) {
+    return fromCharCode(tag, static_cast<int64_t>(code));
+}
+inline std::string toIso8601String(const BallDyn& dt) {
+    return toIso8601String(dt._val);
+}
+inline std::map<std::string, std::any> fromMillisecondsSinceEpoch(const DateTimeType& dt, const BallDyn& ms, bool = false) {
+    return fromMillisecondsSinceEpoch(dt, static_cast<int64_t>(ms));
+}
+inline std::map<std::string, std::any> fromMillisecondsSinceEpoch(const DateTimeType& dt, const BallDyn& ms, const BallDyn&) {
+    return fromMillisecondsSinceEpoch(dt, static_cast<int64_t>(ms));
+}
+inline std::map<std::string, std::any> parse(const DateTimeType& dt, const BallDyn& str) {
+    return parse(dt, static_cast<std::string>(str));
+}
+
+// ── List.generate ──
+template<typename F>
+inline BallDyn generate(const std::string&, int64_t count, F fn) {
+    BallList result;
+    result.reserve(count);
+    for (int64_t i = 0; i < count; ++i) {
+        result.push_back(std::any(fn(BallDyn(i))));
+    }
+    return BallDyn(result);
+}
+template<typename F>
+inline BallDyn generate(const std::string& tag, const BallDyn& count, F fn) {
+    return generate(tag, static_cast<int64_t>(count), fn);
+}
+template<typename F>
+inline BallDyn generate(const std::string& tag, const std::any& count_val, F fn) {
+    int64_t count = 0;
+    if (count_val.type() == typeid(int64_t)) count = std::any_cast<int64_t>(count_val);
+    else if (count_val.type() == typeid(double)) count = static_cast<int64_t>(std::any_cast<double>(count_val));
+    return generate(tag, count, fn);
+}
+
+// ── ball_take / ball_skip for BallDyn ──
+inline BallDyn ball_take(const BallDyn& v, int64_t n) {
+    if (const BallList* lp = v._listPtr()) {
+        return BallDyn(ball_take(*lp, n));
+    }
+    return v;
+}
+inline BallDyn ball_skip(const BallDyn& v, int64_t n) {
+    if (const BallList* lp = v._listPtr()) {
+        return BallDyn(ball_skip(*lp, n));
+    }
+    return v;
+}
+
+// ── Caught-exception reconstruction ──
+// Rebuild the engine's BallException value-shape from a thrown C++
+// BallException so catch bodies can read `e["value"]` / `e["typeName"]` and
+// `e is BallException` (ball_object_type_matches(e, "BallException")) works.
+// Defined here (end of ball_dyn.h) because they return a BallDyn; BallException
+// itself is declared earlier in ball_emit_runtime.h (always spliced first).
+inline BallDyn _ball_exception_to_dyn(const BallException& e) {
+    std::map<std::string, std::any> m;
+    m["__type__"] = std::any(std::string("BallException"));
+    m["typeName"] = std::any(e.type_name);
+    m["value"] = e.has_payload ? e.value : std::any(std::string(e.what()));
+    m["message"] = std::any(std::string(e.what()));
+    BallDyn d;
+    d._val = std::any(std::move(m));
+    return d;
+}
+inline BallDyn _ball_caught_to_dyn(const std::exception& ex) {
+    if (auto* be = dynamic_cast<const BallException*>(&ex))
+        return _ball_exception_to_dyn(*be);
+    return BallDyn(std::string(ex.what()));
+}
+
+// ── Insertion-ordered map helpers (Dart LinkedHashMap / runtime map_create) ──
+inline const BallOrderedMap* _ballAnyOrderedMapPtr(const std::any& u) {
+    if (u.type() == typeid(BallOrderedMapRef))
+        return std::any_cast<const BallOrderedMapRef&>(u).get();
+    if (u.type() == typeid(BallOrderedMap))
+        return &std::any_cast<const BallOrderedMap&>(u);
+    return nullptr;
+}
+inline BallOrderedMap* _ballAnyOrderedMapPtr(std::any& u) {
+    if (u.type() == typeid(BallOrderedMapRef))
+        return std::any_cast<BallOrderedMapRef&>(u).get();
+    if (u.type() == typeid(BallOrderedMap))
+        return &std::any_cast<BallOrderedMap&>(u);
+    return nullptr;
+}
+
+// Register BallOrderedMap extensions for runtime helpers in ball_emit_runtime.h.
+inline const bool _ball_ordered_map_extensions_registered = []() {
+    _ball_is_map_ext = [](const std::any& u) -> bool {
+        return _ballAnyOrderedMapPtr(u) != nullptr;
+    };
+    _ball_to_string_ext = [](const std::any& v) -> std::string {
+        const BallOrderedMap* omp = _ballAnyOrderedMapPtr(v);
+        if (!omp) return "";
+        std::string out = "{";
+        bool first = true;
+        for (const auto& [k, val] : omp->entries_) {
+            if (k.rfind("__", 0) == 0 || k == "type_args") continue;
+            if (!first) out += ", ";
+            out += k + ": " + ball_to_string(val);
+            first = false;
+        }
+        out += "}";
+        return out;
+    };
+    _ball_json_encode_ext_fn = [](const std::any& u) -> std::string {
+        const BallOrderedMap* omp = _ballAnyOrderedMapPtr(u);
+        if (!omp) return "";
+        std::string out = "{";
+        bool first = true;
+        for (const auto& [k, v] : omp->entries_) {
+            if (k.rfind("__", 0) == 0 || k == "type_args") continue;
+            if (!first) out += ",";
+            out += _ball_json_escape(k) + ":" + _ball_json_encode(v);
+            first = false;
+        }
+        out += "}";
+        return out;
+    };
+    _ball_object_type_matches_ext = [](const std::any& u, const std::string& type) -> bool {
+        const BallOrderedMap* omp = _ballAnyOrderedMapPtr(u);
+        if (!omp) return false;
+        auto it = omp->index_.find("__type__");
+        if (it == omp->index_.end()) return false;
+        auto& tv = _BallDynUnwrapper::unwrap(omp->entries_[it->second].second);
+        if (tv.type() == typeid(std::string)) {
+            if (ball_type_name_matches(std::any_cast<const std::string&>(tv), type))
+                return true;
+        }
+        auto sit = omp->index_.find("__super__");
+        if (sit != omp->index_.end()) {
+            return ball_object_type_matches(omp->entries_[sit->second].second, type);
+        }
+        return false;
+    };
+    return true;
+}();
+
+// ball_is_map BallDyn overload — recognizes BallOrderedMap. Named ball_is_map_dyn
+// to avoid ambiguity with ball_is_map(const std::any&) via BallDyn::operator std::any().
+inline bool ball_is_map_dyn(const BallDyn& v) {
+    const std::any& u = _BallDynUnwrapper::unwrap(v._val);
+    if (u.type() == typeid(BallOrderedMapRef)) return true;
+    if (u.type() == typeid(BallOrderedMap)) return true;
+    return u.has_value() &&
+           (u.type() == typeid(BallMap) || _ball_any_is_object(u));
+}
+
+// Map iteration helpers — moved from compiler preamble (MSVC 64KB limit).
+// Support BallMap, BallOrderedMap, and BallObject base maps.
+inline BallDyn ball_map_entries(const BallDyn& v) {
+    std::vector<std::any> r;
+    try {
+        auto a0 = static_cast<std::any>(v);
+        const std::any& a = _BallDynUnwrapper::unwrap(a0);
+        if (const BallOrderedMap* omp = _ballAnyOrderedMapPtr(a)) {
+            for (const auto& [k, val] : omp->entries_) {
+                BallMap e;
+                e["key"] = std::any(k);
+                e["value"] = val;
+                r.push_back(std::any(e));
+            }
+        } else {
+            const BallMap* mp = nullptr;
+            if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
+            else { mp = _ball_object_base_map(a); }
+            if (mp) {
+                for (const auto& [k, val] : *mp) {
+                    BallMap e;
+                    e["key"] = std::any(k);
+                    e["value"] = val;
+                    r.push_back(std::any(e));
+                }
+            }
+        }
+    } catch (...) {}
+    return BallDyn(BallList(r));
+}
+inline BallDyn ball_map_keys(const BallDyn& v) {
+    std::vector<std::any> r;
+    try {
+        auto a0 = static_cast<std::any>(v);
+        const std::any& a = _BallDynUnwrapper::unwrap(a0);
+        if (const BallOrderedMap* omp = _ballAnyOrderedMapPtr(a)) {
+            for (const auto& [k, val] : omp->entries_) r.push_back(std::any(k));
+        } else {
+            const BallMap* mp = nullptr;
+            if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
+            else { mp = _ball_object_base_map(a); }
+            if (mp) { for (const auto& [k, val] : *mp) r.push_back(std::any(k)); }
+        }
+    } catch (...) {}
+    return BallDyn(BallList(r));
+}
+inline BallDyn ball_map_values(const BallDyn& v) {
+    std::vector<std::any> r;
+    try {
+        auto a0 = static_cast<std::any>(v);
+        const std::any& a = _BallDynUnwrapper::unwrap(a0);
+        if (const BallOrderedMap* omp = _ballAnyOrderedMapPtr(a)) {
+            for (const auto& [k, val] : omp->entries_) r.push_back(val);
+        } else {
+            const BallMap* mp = nullptr;
+            if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
+            else { mp = _ball_object_base_map(a); }
+            if (mp) { for (const auto& [k, val] : *mp) r.push_back(val); }
+        }
+    } catch (...) {}
+    return BallDyn(BallList(r));
+}
+
+// ── fold free function ──
+// Dart's Iterable.fold(initialValue, combine) — reduce over a list.
+template<typename Iter, typename Init, typename Fn>
+inline BallDyn _ballFoldImpl(const Iter& iter, Init init, Fn fn) {
+    BallDyn acc{std::any(init)};
+    try {
+        std::any a = static_cast<std::any>(BallDyn(iter));
+        if (a.type() == typeid(std::vector<std::any>)) {
+            const auto& v = std::any_cast<const std::vector<std::any>&>(a);
+            for (const auto& el : v) acc = fn(acc, BallDyn(el));
+        }
+    } catch (...) {}
+    return acc;
+}
+template<typename Iter, typename Init, typename Fn>
+inline BallDyn fold(const Iter& iter, const std::string& /*type_tag*/, Init init, Fn fn) {
+    return _ballFoldImpl(iter, init, fn);
+}
+template<typename Iter, typename Init, typename Fn>
+inline BallDyn fold(const Iter& iter, Init init, Fn fn) {
+    return _ballFoldImpl(iter, init, fn);
+}
+
+// ================================================================
+#endif  // BALL_DYN_H
+
+
+// Proto-compat helpers for ball_proto method dispatch
+using namespace std::string_literals;
+inline bool _bd_has(const BallDyn& obj, const std::string& f) { return obj[f].has_value(); }
+inline bool hasMetadata(const BallDyn& o) { return _bd_has(o,"metadata"); }
+inline bool hasBody(const BallDyn& o) { return _bd_has(o,"body"); }
+inline bool hasInput(const BallDyn& o) { return _bd_has(o,"input"); }
+inline bool hasDescriptor(const BallDyn& o) { return _bd_has(o,"descriptor"); }
+inline bool hasResult(const BallDyn& o) { return _bd_has(o,"result"); }
+inline bool hasStringValue(const BallDyn& o) { return _bd_has(o,"stringValue"); }
+inline bool hasBoolValue(const BallDyn& o) { return _bd_has(o,"boolValue"); }
+inline bool hasNumberValue(const BallDyn& o) { return _bd_has(o,"numberValue"); }
+inline bool hasListValue(const BallDyn& o) { return _bd_has(o,"listValue"); }
+inline bool hasCall(const BallDyn& o) { return _bd_has(o,"call"); }
+inline bool hasObject(const BallDyn& o) { return _bd_has(o,"object"); }
+inline bool hasValue(const BallDyn& o) { return _bd_has(o,"value"); }
+inline bool hasNullValue(const BallDyn&) { return false; }
+inline bool hasStructValue(const BallDyn& o) { return _bd_has(o,"structValue"); }
+inline bool hasMatch(const BallDyn&) { return false; }
+inline bool hasXxx(const BallDyn&) { return false; }
+inline std::string whichExpr(const BallDyn& o) {
+  if (_bd_has(o,"call")) return "call";
+  if (_bd_has(o,"literal")) return "literal";
+  if (_bd_has(o,"reference")) return "reference";
+  if (_bd_has(o,"fieldAccess")) return "fieldAccess";
+  if (_bd_has(o,"messageCreation")) return "messageCreation";
+  if (_bd_has(o,"block")) return "block";
+  if (_bd_has(o,"lambda")) return "lambda";
+  return "notSet";
+}
+inline std::string whichValue(const BallDyn& o) {
+  if (_bd_has(o,"intValue")) return "intValue";
+  if (_bd_has(o,"doubleValue")) return "doubleValue";
+  if (_bd_has(o,"stringValue")) return "stringValue";
+  if (_bd_has(o,"boolValue")) return "boolValue";
+  if (_bd_has(o,"listValue")) return "listValue";
+  return "notSet";
+}
+inline std::string whichStmt(const BallDyn& o) {
+  if (_bd_has(o,"let")) return "let";
+  if (_bd_has(o,"expression")) return "expression";
+  return "notSet";
+}
+inline std::string whichKind(const BallDyn& o) {
+  if (_bd_has(o,"nullValue")) return "nullValue";
+  if (_bd_has(o,"numberValue")) return "numberValue";
+  if (_bd_has(o,"stringValue")) return "stringValue";
+  if (_bd_has(o,"boolValue")) return "boolValue";
+  if (_bd_has(o,"structValue")) return "structValue";
+  if (_bd_has(o,"listValue")) return "listValue";
+  return "notSet";
+}
+inline std::string whichSource(const BallDyn&) { return "notSet"; }
+inline std::string whichXxx(const BallDyn&) { return "notSet"; }
+
+// Dart protobuf Program.writeToBuffer() — approximate byte size for limit checks.
+inline std::string writeToBuffer(const BallDyn& program) {
+  return jsonEncode(program);
+}
+
+// Instance field write for compiled engine helpers (_syncFieldToSelf, etc.).
+inline void ball_object_set_field(BallDyn obj, const std::string& field,
+                                    const BallDyn& val) {
+  obj.setField(field, val);
+}
+
+// List/Map copy helpers for List.of / Map.from
+// Std function to operator mapping (used by _tryOperatorOverride).
+// Must be a BallMap (std::map<string, any>) — the engine reads it via
+// `BallDyn(_stdFunctionToOperator)[function]`, and BallDyn::operator[] only
+// recognizes std::map<string, any> (a std::map<string, string> would not be
+// read as a map, so every lookup returned a null BallDyn and the operator
+// override never fired). Values are std::string wrapped in std::any.
+const std::map<std::string, std::any> _stdFunctionToOperator = {
+  {"equals", std::any(std::string("=="))}, {"not_equals", std::any(std::string("!="))},
+  {"add", std::any(std::string("+"))}, {"subtract", std::any(std::string("-"))},
+  {"multiply", std::any(std::string("*"))}, {"divide", std::any(std::string("~/"))},
+  {"divide_double", std::any(std::string("/"))}, {"modulo", std::any(std::string("%"))},
+  {"less_than", std::any(std::string("<"))}, {"greater_than", std::any(std::string(">"))},
+  {"lte", std::any(std::string("<="))}, {"gte", std::any(std::string(">="))},
+  {"index", std::any(std::string("[]"))}
+};
+
+// Built-in type names (used by _evalReference to skip class lookups)
+const std::vector<std::string> _builtinTypeNames = {
+  "int", "double", "num", "String", "bool", "List", "Map", "Set",
+  "Null", "void", "Object", "dynamic", "Function", "Future", "Stream",
+  "Iterable", "Iterator", "Type", "Symbol", "Never"
+};
+
+// concat helper (BallDyn-safe, handles both lists and maps)
+inline BallDyn ball_concat(const BallDyn& a, const BallDyn& b) {
+  // Unwrap any BallDyn-in-std::any wrapping (MSVC quirk) so the type checks and
+  // any_casts below see the real BallMap/BallList rather than typeid(BallDyn).
+  auto aa0 = static_cast<std::any>(a);
+  auto ba0 = static_cast<std::any>(b);
+  const std::any& aa = _BallDynUnwrapper::unwrap(aa0);
+  const std::any& ba = _BallDynUnwrapper::unwrap(ba0);
+  // Map concat: merge maps
+  if (aa.type() == typeid(BallMap) || ba.type() == typeid(BallMap)) {
+    BallMap result;
+    try { auto ma = std::any_cast<BallMap>(aa); for (auto& p : ma) result[p.first] = p.second; } catch(...) {}
+    try { auto mb = std::any_cast<BallMap>(ba); for (auto& p : mb) result[p.first] = p.second; } catch(...) {}
+    return BallDyn(result);
+  }
+  // List concat — deref shared_ptr-backed (reference-semantic) lists. Builds a
+  // NEW list, matching Dart's `a + b` copy semantics (operands unchanged).
+  BallList result;
+  if (const BallList* la = _ballAnyListPtr(aa)) result.insert(result.end(), la->begin(), la->end());
+  if (const BallList* lb = _ballAnyListPtr(ba)) result.insert(result.end(), lb->begin(), lb->end());
+  return BallDyn(result);
+}
+
+// std::map overload for ball_concat (when methods is a map)
+inline std::map<std::string,std::any> ball_concat(const std::map<std::string,std::any>& a, const std::map<std::string,std::any>& b) {
+  auto r = a;
+  for (auto& p : b) r[p.first] = p.second;
+  return r;
+}
+
+// vector overloads for ball_concat
+inline std::vector<std::any> ball_concat(const std::vector<std::any>& a, const BallDyn& b) {
+  auto r = a;
+  auto b0 = static_cast<std::any>(b);
+  const std::any& bu = _BallDynUnwrapper::unwrap(b0);
+  if (const BallList* lb = _ballAnyListPtr(bu)) { r.insert(r.end(), lb->begin(), lb->end()); }
+  else { r.push_back(bu); }
+  return r;
+}
+inline std::vector<std::any> ball_concat(const std::vector<std::any>& a, const std::vector<std::any>& b) {
+  auto r = a;
+  r.insert(r.end(), b.begin(), b.end());
+  return r;
+}
+
+// Allow ball_concat(map, BallDyn) and ball_concat(BallDyn, map)
+inline std::map<std::string,std::any> ball_concat(const std::map<std::string,std::any>& a, const BallDyn& b) {
+  auto r = a;
+  try { auto mb = std::any_cast<BallMap>(static_cast<std::any>(b)); for (auto& p : mb) r[p.first] = p.second; } catch(...) {}
+  return r;
+}
+
+// ball_is_* BallDyn overloads: ball_is_map(const BallDyn&) lives in ball_dyn.h
+// (BallOrderedMap-aware). Only list/function overloads remain here.
+inline bool ball_is_list(BallDyn& v) { return ball_is_list(static_cast<const BallDyn&>(v)); }
+inline bool ball_is_string(BallDyn& v) { return ball_is_string(static_cast<const BallDyn&>(v)); }
+inline bool ball_is_function(BallDyn& v) { return ball_is_function(static_cast<const BallDyn&>(v)); }
+
+// ball_set with BallDyn keys: handled by wrapping key in ball_to_string() at call site
+
+// ball_set is used with comma operator for expression context:
+// (ball_set(obj, key, val), val)  — sets and returns the value
+
+// cast helper (Dart as operator — no-op in dynamic C++)
+inline BallDyn cast(const BallDyn& v, const std::string&) { return v; }
+
+// BallDyn from vector<string> conversion
+inline BallDyn ball_wrap_list(const std::vector<std::string>& v) {
+  BallList result;
+  for (const auto& s : v) result.push_back(std::any(s));
+  return BallDyn(result);
+}
+
+// elementAt helper (Iterable.elementAt)
+inline BallDyn elementAt(const BallDyn& list, int64_t index) {
+  return list[index];
+}
+
+// num/int/double parse helpers
+inline BallDyn parse(const std::string& type, const BallDyn& val) {
+  auto s = ball_to_string(val);
+  try {
+    if (type == "num" || type == "double") return BallDyn(std::stod(s));
+    return BallDyn(static_cast<int64_t>(std::stoll(s)));
+  } catch (...) { return BallDyn(); }
+}
+
+// Scope method helpers (ball_proto routes scope.has/lookup as standalone)
+// These walk the parent chain using BallScope (shared_ptr<BallMap>) for
+// reference semantics — parent mutations are visible to children.
+inline bool has(const BallDyn& scope, const BallDyn& name) {
+  auto key = ball_to_string(name);
+  if (_ball_scope_has_key(scope, key)) return true;
+  auto bindings = scope["_bindings"s];
+  if (bindings.has_value() && static_cast<BallDyn>(bindings)[key].has_value()) return true;
+  // Walk parent chain via BallScope shared_ptr
+  BallScope parent = _ball_get_parent_scope(scope);
+  while (parent) {
+    if (parent->count(key) > 0) return true;
+    auto it = parent->find("__parent__");
+    if (it != parent->end() && it->second.type() == typeid(BallScope)) {
+      parent = std::any_cast<const BallScope&>(it->second);
+    } else {
+      break;
+    }
+  }
+  // Legacy fallback: __parent__ stored as value copy
+  if (!parent) {
+    auto parentVal = scope["__parent__"s];
+    if (!parentVal.has_value()) parentVal = scope["_parent"s];
+    if (parentVal.has_value()) return has(parentVal, name);
+  }
+  return false;
+}
+inline BallDyn lookup(const BallDyn& scope, const BallDyn& name) {
+  auto key = ball_to_string(name);
+  // Check direct binding first
+  if (_ball_scope_has_key(scope, key)) return scope[key];
+  // Check _bindings sub-map
+  auto bindings = scope["_bindings"s];
+  if (bindings.has_value()) {
+    auto val = static_cast<BallDyn>(bindings)[key];
+    if (val.has_value()) return val;
+  }
+  // Walk parent chain via BallScope shared_ptr (sees live mutations)
+  BallScope parent = _ball_get_parent_scope(scope);
+  while (parent) {
+    auto it = parent->find(key);
+    if (it != parent->end()) return BallDyn(it->second);
+    // Check next parent
+    auto pit = parent->find("__parent__");
+    if (pit != parent->end() && pit->second.type() == typeid(BallScope)) {
+      parent = std::any_cast<const BallScope&>(pit->second);
+    } else {
+      break;
+    }
+  }
+  // Legacy fallback: __parent__ stored as value copy
+  if (!parent) {
+    auto parentVal = scope["__parent__"s];
+    if (!parentVal.has_value()) parentVal = scope["_parent"s];
+    if (parentVal.has_value()) return lookup(parentVal, name);
+  }
+  return BallDyn();
+}
+
+// List manipulation helpers for BallDyn. These mutate the shared list in place
+// (reference semantics, matching Dart's `list.insert`/`list.removeAt`) and return
+// the same handle so callers that reassign the result still observe the change.
+inline BallDyn ball_list_insert(BallDyn list, int64_t idx, BallDyn elem) {
+  if (BallList* v = list._listPtr()) {
+    if (idx >= 0 && idx <= static_cast<int64_t>(v->size())) v->insert(v->begin()+idx, std::any(elem));
+  }
+  return list;
+}
+// Dart's List.removeAt returns the REMOVED element (and mutates in place).
+inline BallDyn ball_list_remove_at(BallDyn list, int64_t idx) {
+  if (BallList* v = list._listPtr()) {
+    if (idx >= 0 && idx < static_cast<int64_t>(v->size())) {
+      BallDyn removed = BallDyn((*v)[static_cast<size_t>(idx)]);
+      v->erase(v->begin()+idx);
+      return removed;
+    }
+  }
+  return BallDyn();
+}
+// Dart's List.removeLast pops the last element in place and returns it.
+inline BallDyn ball_list_pop(BallDyn list) {
+  if (BallList* v = list._listPtr()) {
+    if (!v->empty()) {
+      BallDyn removed = BallDyn(v->back());
+      v->pop_back();
+      return removed;
+    }
+  }
+  return BallDyn();
+}
+// Single BallDyn-param overload: int64_t arguments convert via BallDyn(int64_t)
+// implicitly, so a mix of int64_t/BallDyn call arguments stays unambiguous
+// (two overloads — one int64_t, one BallDyn — caused C2666 ambiguity).
+inline BallDyn ball_sublist(const BallDyn& list, const BallDyn& start, const BallDyn& end_val = BallDyn()) {
+  if (const BallList* vp = list._listPtr()) {
+    const auto& v = *vp;
+    int64_t size = static_cast<int64_t>(v.size());
+    int64_t s = start.has_value() ? static_cast<int64_t>(start) : 0;
+    int64_t e = end_val.has_value() ? static_cast<int64_t>(end_val) : size;
+    s = std::max(int64_t(0), std::min(s, size));
+    e = std::max(int64_t(0), std::min(e, size));
+    if (s > e) s = e;
+    return BallDyn(BallList(v.begin()+s, v.begin()+e));
+  }
+  return BallDyn(BallList{});
+}
+// ball_take / ball_skip defined in ball_dyn.h
+
+// indexOf for vector<string> (used by _builtinTypeNames.contains)
+inline int64_t ball_index_of(const std::vector<std::string>& v, const BallDyn& elem) {
+  auto s = ball_to_string(BallDyn(elem));
+  for (size_t i = 0; i < v.size(); i++) if (v[i] == s) return static_cast<int64_t>(i);
+  return -1;
+}
+
+// indexOf helper: works on both strings and vectors
+inline int64_t ball_index_of(const BallDyn& container, const BallDyn& element) {
+  auto& c = container._val;
+  if (c.type() == typeid(std::string)) {
+    auto& s = std::any_cast<const std::string&>(c);
+    auto& e = element._val;
+    std::string needle;
+    if (e.type() == typeid(std::string)) needle = std::any_cast<const std::string&>(e);
+    else needle = ball_to_string(element);
+    auto pos = s.find(needle);
+    return pos != std::string::npos ? static_cast<int64_t>(pos) : -1LL;
+  }
+  if (const BallList* lp = container._listPtr()) {
+    const auto& list = *lp;
+    for (size_t i = 0; i < list.size(); i++) {
+      if (ball_to_string(BallDyn(list[i])) == ball_to_string(element)) return static_cast<int64_t>(i);
+    }
+    return -1LL;
+  }
+  return -1LL;
+}
+
+inline BallDyn ball_list_copy(const BallDyn& v) {
+  if (const BallList* lp = v._listPtr()) return BallDyn(BallList(*lp));
+  return v;
+}
+inline BallDyn ball_map_copy(const BallDyn& v) {
+  try {
+    auto a = static_cast<std::any>(v);
+    const std::any& u = _BallDynUnwrapper::unwrap(a);
+    if (u.type() == typeid(BallOrderedMapRef))
+      return BallDyn(BallOrderedMapRef(std::make_shared<BallOrderedMap>(
+          *std::any_cast<const BallOrderedMapRef&>(u))));
+    if (u.type() == typeid(BallOrderedMap))
+      return BallDyn(BallOrderedMap(std::any_cast<const BallOrderedMap&>(u)));
+    if (u.type() == typeid(BallMap))
+      return BallDyn(BallMap(std::any_cast<const BallMap&>(u)));
+  } catch(...) {}
+  return v;
+}
 
 namespace {
 
-int64_t add(int64_t a, int64_t b);
-int64_t square(int64_t x);
+BallDyn add(int64_t a, int64_t b);
+BallDyn square(int64_t x);
 
-int64_t add(int64_t a, int64_t b) {
+BallDyn add(int64_t a, int64_t b) {
     return (a + b);
+    return BallDyn();
 }
 
-int64_t square(int64_t x) {
+BallDyn square(int64_t x) {
     auto& input = x;
     return (x * x);
+    return BallDyn();
 }
 
 } // namespace
 
 int main() {
-    std::cout << ball_to_string(add(2LL, 3LL)) << std::endl;
-    std::cout << ball_to_string(square(7LL)) << std::endl;
+    std::cout << ball_to_string(ball_to_string(add(2LL, 3LL))) << std::endl;
+    std::cout << ball_to_string(ball_to_string(square(7LL))) << std::endl;
     return 0;
 }

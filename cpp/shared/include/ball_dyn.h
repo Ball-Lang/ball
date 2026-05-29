@@ -1036,14 +1036,23 @@ inline BallDyn ball_map_put_if_absent(BallDyn&& m, const BallDyn& key, F ifAbsen
 // which the compiler lowers to free calls `yield_(gen, v)` / `yieldAll(gen, xs)`.
 // gen wraps a BallGenerator (reference type), so pushes mutate the shared list.
 inline BallDyn yield_(const BallDyn& gen, const BallDyn& value) {
-    const std::any& u = _BallDynUnwrapper::unwrap(static_cast<std::any>(gen));
+    // Materialize the std::any into a NAMED local first. Passing the temporary
+    // `static_cast<std::any>(gen)` directly to unwrap() returns a reference that
+    // dangles once the full-expression's temporary is destroyed — the type-test
+    // below then reads `void` and every yield is silently dropped (empty
+    // generator). Binding the temporary to `genAny` keeps it alive across the
+    // unwrap + push_back.
+    std::any genAny = static_cast<std::any>(gen);
+    const std::any& u = _BallDynUnwrapper::unwrap(genAny);
     if (u.type() == typeid(BallGenerator)) {
         std::any_cast<const BallGenerator&>(u).values->push_back(static_cast<std::any>(value));
     }
     return BallDyn();
 }
 inline BallDyn yieldAll(const BallDyn& gen, const BallDyn& items) {
-    const std::any& u = _BallDynUnwrapper::unwrap(static_cast<std::any>(gen));
+    // See yield_(): unwrap must operate on a named local, not a temporary.
+    std::any genAny = static_cast<std::any>(gen);
+    const std::any& u = _BallDynUnwrapper::unwrap(genAny);
     if (u.type() == typeid(BallGenerator)) {
         auto& vals = *std::any_cast<const BallGenerator&>(u).values;
         for (const auto& it : items) vals.push_back(static_cast<std::any>(it));

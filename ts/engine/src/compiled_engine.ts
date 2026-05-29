@@ -3496,26 +3496,9 @@ export class BallEngine {
       }
     }
     this._trackMemoryAllocation((fields.length * _ballMapEntryBytes));
-    if (!fields['__type__'] || !this._findTypeDef(msg.typeName)) {
-        const __fnKey = this._currentModule + '.' + msg.typeName;
-        const __fnMatch = this._functions[__fnKey];
-        if (__fnMatch != null && !__fnMatch.isBase && __fnMatch.hasBody()) {
-          return this._callFunction(this._currentModule, __fnMatch, fields);
-        }
-        // Try searching all functions for a matching suffix
-        // e.g., typeName="main:_gcd" should match "main.main:Fraction._gcd"
-        const __bareType = String(msg.typeName).indexOf(':') >= 0 ? String(msg.typeName).substring(String(msg.typeName).indexOf(':') + 1) : String(msg.typeName);
-        for (const __fk of Object.keys(this._functions)) {
-          if (__fk.endsWith('.' + __bareType) || __fk.endsWith('.' + msg.typeName)) {
-            const __fm = this._functions[__fk];
-            if (__fm && !__fm.isBase && __fm.hasBody()) {
-              return this._callFunction(this._currentModule, __fm, fields);
-            }
-          }
-        }
-      }
-      return fields;
-    }
+    let instanceMap = ((__cascade_self__) => { __cascade_self__.addAll(fields); return __cascade_self__; })(_ballUserMap());
+    return instanceMap.cast();
+  }
 
   _findTypeDef(typeName: any): any {
     const input = typeName;

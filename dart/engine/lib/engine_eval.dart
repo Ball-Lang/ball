@@ -1190,7 +1190,16 @@ extension BallEngineEval on BallEngine {
       }
     }
     _trackMemoryAllocation(fields.length * _ballMapEntryBytes);
-    return BallMap(fields);
+    // Reference-semantic instance map for typeDef-less classes (e.g. StringBuffer).
+    // A plain map literal lowers to a by-value std::map in the C++ self-host, so
+    // method mutations on `self` (e.g. `sb.write` → `self['__buffer__'] = …`) hit a
+    // throwaway copy and are lost. Routing through _ballUserMap() (→ a shared
+    // BallOrderedMap in C++) makes the instance map reference-semantic so mutations
+    // persist. In the Dart reference engine this is behavior-preserving (still a
+    // Map carrying the same entries). Self-cycle-safe: this fallthrough never stores
+    // `self` into the map — only the typeDef BallObject path (above) can do that.
+    final instanceMap = _ballUserMap()..addAll(fields);
+    return BallMap(instanceMap.cast<String, Object?>());
   }
 
   /// Find a TypeDefinition by name across all modules.

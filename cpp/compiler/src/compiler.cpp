@@ -5,6 +5,7 @@
 #include "ball_dyn_embed.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -126,6 +127,109 @@ static std::map<std::string, std::string> extract_param_defaults(
         }
     }
     return result;
+}
+
+// Per-parameter spec aligned 1:1 with extract_params(): the param's C++-relevant
+// Dart type, whether it is optional (optional-positional or optional-named, but
+// NOT required-named), and the Dart source of its default value. Used to emit
+// C++ default arguments for optional params so call sites that omit them
+// compile — an `auto&&` forwarding reference cannot carry a default, so optional
+// params are pinned to a concrete type instead.
+struct ParamSpec {
+    std::string type;   // Dart type source, e.g. "bool" (may be empty)
+    bool optional = false;
+    std::string def;    // Dart default expr, e.g. "false" (may be empty)
+};
+
+static std::vector<ParamSpec> extract_param_specs(
+    const google::protobuf::Struct& metadata) {
+    std::vector<ParamSpec> result;
+    auto it = metadata.fields().find("params");
+    if (it == metadata.fields().end() ||
+        it->second.kind_case() != google::protobuf::Value::kListValue) {
+        return result;
+    }
+    // Mirror extract_params()'s skip conditions exactly so indices stay aligned.
+    for (const auto& elem : it->second.list_value().values()) {
+        if (elem.kind_case() != google::protobuf::Value::kStructValue) continue;
+        const auto& sf = elem.struct_value().fields();
+        auto name_it = sf.find("name");
+        if (name_it == sf.end() || name_it->second.string_value().empty()) continue;
+        ParamSpec ps;
+        auto sget = [&](const char* k) -> std::string {
+            auto i = sf.find(k);
+            return (i != sf.end() &&
+                    i->second.kind_case() == google::protobuf::Value::kStringValue)
+                       ? i->second.string_value() : std::string();
+        };
+        auto bget = [&](const char* k) -> bool {
+            auto i = sf.find(k);
+            return i != sf.end() &&
+                   i->second.kind_case() == google::protobuf::Value::kBoolValue &&
+                   i->second.bool_value();
+        };
+        ps.type = sget("type");
+        ps.def = sget("default");
+        const bool required_named = bget("is_required_named");
+        ps.optional =
+            (bget("is_optional") || bget("is_optional_named")) && !required_named;
+        result.push_back(ps);
+    }
+    return result;
+}
+
+// Translate a Dart default-value literal into a C++ initializer expression for
+// the given (already C++-mapped) parameter type. Handles the literal forms the
+// engine actually uses (bool / int / double / string / null); falls back to a
+// safe value-initialization for anything else.
+static std::string cpp_param_default(const std::string& cpp_type,
+                                     const std::string& raw) {
+    std::string d = raw;
+    const size_t b = d.find_first_not_of(" \t\r\n");
+    const size_t e = d.find_last_not_of(" \t\r\n");
+    d = (b == std::string::npos) ? std::string() : d.substr(b, e - b + 1);
+    const bool is_null = d.empty() || d == "null";
+    auto is_int = [](const std::string& s) {
+        if (s.empty()) return false;
+        size_t i = (s[0] == '-' || s[0] == '+') ? 1 : 0;
+        if (i >= s.size()) return false;
+        for (; i < s.size(); ++i)
+            if (!std::isdigit(static_cast<unsigned char>(s[i]))) return false;
+        return true;
+    };
+    auto is_double = [](const std::string& s) {
+        bool dot = false, digit = false;
+        size_t i = (!s.empty() && (s[0] == '-' || s[0] == '+')) ? 1 : 0;
+        for (; i < s.size(); ++i) {
+            if (s[i] == '.') { if (dot) return false; dot = true; }
+            else if (std::isdigit(static_cast<unsigned char>(s[i]))) digit = true;
+            else return false;
+        }
+        return dot && digit;
+    };
+    auto unquote = [](const std::string& s) -> std::string {
+        if (s.size() >= 2 && (s.front() == '\'' || s.front() == '"') &&
+            (s.back() == '\'' || s.back() == '"'))
+            return s.substr(1, s.size() - 2);
+        return s;
+    };
+    if (cpp_type == "bool") return (d == "true") ? "true" : "false";
+    if (cpp_type == "int64_t" || cpp_type == "int") return is_int(d) ? d : "0";
+    if (cpp_type == "double")
+        return is_double(d) ? d : (is_int(d) ? d + ".0" : "0.0");
+    if (cpp_type.rfind("std::function", 0) == 0) return "{}";
+    if (cpp_type == "std::string")
+        return is_null ? "{}" : "std::string(\"" + unquote(d) + "\")";
+    if (cpp_type == "BallDyn") {
+        if (is_null) return "BallDyn()";
+        if (d == "true" || d == "false") return "BallDyn(" + d + ")";
+        if (is_int(d)) return "BallDyn(static_cast<int64_t>(" + d + "))";
+        if (is_double(d)) return "BallDyn(" + d + ")";
+        if (d.size() >= 2 && (d.front() == '\'' || d.front() == '"'))
+            return "BallDyn(std::string(\"" + unquote(d) + "\"))";
+        return "BallDyn()";
+    }
+    return "{}";
 }
 
 std::map<std::string, std::string> CppCompiler::read_meta(const ball::v1::FunctionDefinition& func) {
@@ -2421,8 +2525,14 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         if (fn == "collection_for") {
             auto* body_expr = get_message_field_expr(call, "body");
             if (body_expr && _bodyProducesMapEntries(*body_expr)) {
-                // Map comprehension: build a std::map<std::string,std::any>.
-                std::string result = "[&]() -> BallDyn { std::map<std::string,std::any> __m; for (auto " +
+                // Map comprehension: build an insertion-ordered BallOrderedMap
+                // (NOT a key-sorted std::map). Dart map comprehensions preserve
+                // insertion order (LinkedHashMap); a std::map re-sorts keys,
+                // which corrupts e.g. JSON encoding order (`{"name":..,"age":..}`
+                // became `{"age":..,"name":..}`). BallOrderedMap::operator[] is
+                // assignable, so compile_map_entry_insert works unchanged, and
+                // `BallDyn(BallOrderedMap)` wraps it reference-semantically.
+                std::string result = "[&]() -> BallDyn { BallOrderedMap __m; for (auto " +
                     vn + " : BallDyn(" + iter + ")) { ";
                 if (_isMapEntrySentinel(*body_expr)) {
                     // Direct map entry: e.key: e.value
@@ -4282,9 +4392,32 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             out_ << map_return_type(*func) << " " << sanitize_name(method_name) << "(";
         }
         auto params = func->has_metadata() ? extract_params(func->metadata()) : std::vector<std::string>{};
+        auto param_specs = func->has_metadata()
+                               ? extract_param_specs(func->metadata())
+                               : std::vector<ParamSpec>{};
+        // Emit one method parameter. Required params stay `auto&&` (perfect
+        // forwarding, matching the rest of the engine); an optional param is
+        // pinned to a concrete type and — on its declaration — given its Dart
+        // default so call sites that omit it compile. `with_default` is false
+        // for the out-of-line definition (C++ forbids repeating the default).
+        auto emit_method_param = [&](size_t i, bool with_default) {
+            std::string pname = sanitize_name(params[i]);
+            const bool optional = i < param_specs.size() && param_specs[i].optional;
+            if (!optional) {
+                out_ << "auto&& " << pname;
+                return;
+            }
+            std::string t = (!param_specs[i].type.empty())
+                                ? map_type(param_specs[i].type)
+                                : "BallDyn";
+            if (t == "auto&&" || t == "auto") t = "BallDyn";
+            out_ << t << " " << pname;
+            if (with_default)
+                out_ << " = " << cpp_param_default(t, param_specs[i].def);
+        };
         for (size_t i = 0; i < params.size(); i++) {
             if (i > 0) out_ << ", ";
-            out_ << "auto&& " << sanitize_name(params[i]);
+            emit_method_param(i, /*with_default=*/true);
         }
 
         if (split_mode_ && func->has_body()) {
@@ -4306,7 +4439,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             }
             for (size_t i = 0; i < params.size(); i++) {
                 if (i > 0) out_ << ", ";
-                out_ << "auto&& " << sanitize_name(params[i]);
+                emit_method_param(i, /*with_default=*/false);
             }
             out_ << ") {\n";
             indent_++;
@@ -4390,7 +4523,13 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         emit_indent();
         out_ << return_type << " " << name << "(BallDyn gen) {\n";
         indent_++;
-        emit_line("const std::any& u = _BallDynUnwrapper::unwrap(static_cast<std::any>(gen));");
+        // Bind the std::any to a NAMED local before unwrap — passing the
+        // temporary `static_cast<std::any>(gen)` directly returns a reference
+        // into a destroyed temporary, so the type-test reads `void` and the
+        // generator's collected values come back empty. (Mirrors yield_/yieldAll
+        // in ball_dyn.h.)
+        emit_line("std::any genAny = static_cast<std::any>(gen);");
+        emit_line("const std::any& u = _BallDynUnwrapper::unwrap(genAny);");
         emit_line("if (u.type() == typeid(BallGenerator))");
         emit_line("    return BallDyn(ball_list_copy(*std::any_cast<const BallGenerator&>(u).values));");
         emit_line("return BallDyn(BallList{});");

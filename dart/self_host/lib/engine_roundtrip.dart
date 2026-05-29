@@ -2430,7 +2430,8 @@ class BallEngine {
       }
     }
     _trackMemoryAllocation((fields.length * _ballMapEntryBytes));
-    return BallMap(fields);
+    final instanceMap = (_ballUserMap()..addAll(fields));
+    return BallMap(instanceMap.cast<String, Object?>());
   }
 
   ({String? superclass, List<String> fieldNames})? _findTypeDef(String input) {

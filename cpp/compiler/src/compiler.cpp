@@ -690,7 +690,7 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
         if (all_digits) {
             int idx = std::stoi(field.substr(1)) - 1;
             if (idx >= 0) {
-                return "(BallDyn(" + obj + "))[" + std::to_string(idx) + "LL]";
+                return "static_cast<BallDyn>(" + obj + ")[" + std::to_string(idx) + "LL]";
             }
         }
     }
@@ -708,10 +708,13 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     // Wrapping in BallDyn ensures the access works on std::any values
     // (from map lookups) as well as BallDyn and std::map types.
     // The BallDyn constructor accepts std::any, so this is safe for all types.
-    // Parenthesize the cast: `BallDyn(ident)[...]` is the most-vexing-parse
-    // under gcc/clang (read as an array declaration of `ident`); `(BallDyn(...))`
-    // forces the functional-cast/expression reading.
-    return "(BallDyn(" + obj + "))[\"" + field + "\"s]";
+    // static_cast<BallDyn>(obj)["field"s] rather than BallDyn(obj)["field"s]:
+    // the explicit static_cast is unambiguously an expression (the functional-
+    // cast form is the most-vexing-parse under gcc/clang, and nested forms read
+    // as a function returning an array), while preserving identical operator[]
+    // dispatch (a plain helper changed key-overload resolution and regressed
+    // enum lookups).
+    return "static_cast<BallDyn>(" + obj + ")[\"" + field + "\"s]";
 }
 
 std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreation& msg) {
@@ -1929,7 +1932,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             current_class_methods_.count(sanitize_name(target_expr->reference().name())) > 0) {
             target = sanitize_name(target_expr->reference().name()) + "()";
         }
-        return "(BallDyn(" + target + "))[" + idx + "]";
+        return "static_cast<BallDyn>(" + target + ")[" + idx + "]";
     }
 
     // ── Math ──
@@ -2250,7 +2253,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         auto target = get_message_field(call, "target");
         auto index = get_message_field(call, "index");
         if (!index.empty()) {
-            return "BallDyn(" + target + ".has_value() ? (BallDyn(" + target + "))[" + index + "] : BallDyn())";
+            return "BallDyn(" + target + ".has_value() ? static_cast<BallDyn>(" + target + ")[" + index + "] : BallDyn())";
         }
         return target;
     }
@@ -3817,7 +3820,7 @@ inline bool has(const BallDyn& scope, const BallDyn& name) {
   auto key = ball_to_string(name);
   if (_ball_scope_has_key(scope, key)) return true;
   auto bindings = scope["_bindings"s];
-  if (bindings.has_value() && (BallDyn(bindings))[key].has_value()) return true;
+  if (bindings.has_value() && static_cast<BallDyn>(bindings)[key].has_value()) return true;
   // Walk parent chain via BallScope shared_ptr
   BallScope parent = _ball_get_parent_scope(scope);
   while (parent) {
@@ -3844,7 +3847,7 @@ inline BallDyn lookup(const BallDyn& scope, const BallDyn& name) {
   // Check _bindings sub-map
   auto bindings = scope["_bindings"s];
   if (bindings.has_value()) {
-    auto val = (BallDyn(bindings))[key];
+    auto val = static_cast<BallDyn>(bindings)[key];
     if (val.has_value()) return val;
   }
   // Walk parent chain via BallScope shared_ptr (sees live mutations)
@@ -5455,9 +5458,8 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "map_get") {
         auto map = get_message_field(call, "map");
         auto key = get_message_field(call, "key");
-        // Parenthesize: when `map` is `BallDyn(ident)`, `BallDyn(ident)[key]` is
-        // the most-vexing-parse under gcc/clang (array declaration of `ident`).
-        return "(" + map + ")[" + key + "]";
+        // static_cast avoids the most-vexing-parse when `map` is BallDyn(ident).
+        return "static_cast<BallDyn>(" + map + ")[" + key + "]";
     }
     if (fn == "map_set") {
         auto map = get_message_field(call, "map");

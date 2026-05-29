@@ -2,15 +2,19 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ball_base/ball_base.dart' show decodeProgramJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_engine/engine.dart';
 import 'package:test/test.dart';
 
 /// Load a ball program from a JSON file.
+///
+/// Ball files are self-describing `google.protobuf.Any` envelopes (a top-level
+/// `@type` key); decode through [decodeProgramJson] so the envelope is unwrapped
+/// (and unknown fields tolerated) rather than feeding the raw map — which still
+/// carries `@type` — straight into `mergeFromProto3Json`.
 Program loadProgram(String path) {
-  final json =
-      jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
-  return Program()..mergeFromProto3Json(json);
+  return decodeProgramJson(jsonDecode(File(path).readAsStringSync()));
 }
 
 /// Run a program through the engine and capture stdout lines.
@@ -40,45 +44,57 @@ Program buildProgram({
 }) {
   final stdModule = {
     'name': 'std',
-    'types': [
+    // typeDefs[] is the single type-declaration path (the legacy `types[]`
+    // field was removed from the schema). Each TypeDefinition wraps a
+    // DescriptorProto under `descriptor`.
+    'typeDefs': [
       {
         'name': 'PrintInput',
-        'field': [
-          {
-            'name': 'message',
-            'number': 1,
-            'label': 'LABEL_OPTIONAL',
-            'type': 'TYPE_STRING',
-          },
-        ],
+        'descriptor': {
+          'name': 'PrintInput',
+          'field': [
+            {
+              'name': 'message',
+              'number': 1,
+              'label': 'LABEL_OPTIONAL',
+              'type': 'TYPE_STRING',
+            },
+          ],
+        },
       },
       {
         'name': 'BinaryInput',
-        'field': [
-          {
-            'name': 'left',
-            'number': 1,
-            'label': 'LABEL_OPTIONAL',
-            'type': 'TYPE_INT64',
-          },
-          {
-            'name': 'right',
-            'number': 2,
-            'label': 'LABEL_OPTIONAL',
-            'type': 'TYPE_INT64',
-          },
-        ],
+        'descriptor': {
+          'name': 'BinaryInput',
+          'field': [
+            {
+              'name': 'left',
+              'number': 1,
+              'label': 'LABEL_OPTIONAL',
+              'type': 'TYPE_INT64',
+            },
+            {
+              'name': 'right',
+              'number': 2,
+              'label': 'LABEL_OPTIONAL',
+              'type': 'TYPE_INT64',
+            },
+          ],
+        },
       },
       {
         'name': 'UnaryInput',
-        'field': [
-          {
-            'name': 'value',
-            'number': 1,
-            'label': 'LABEL_OPTIONAL',
-            'type': 'TYPE_STRING',
-          },
-        ],
+        'descriptor': {
+          'name': 'UnaryInput',
+          'field': [
+            {
+              'name': 'value',
+              'number': 1,
+              'label': 'LABEL_OPTIONAL',
+              'type': 'TYPE_STRING',
+            },
+          ],
+        },
       },
     ],
     'functions': [

@@ -5,30 +5,6 @@
   "modules": [
     {
       "name": "std",
-      "types": [
-        {
-          "name": "PrintInput",
-          "field": [
-            {
-              "name": "message",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        },
-        {
-          "name": "UnaryInput",
-          "field": [
-            {
-              "name": "value",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        }
-      ],
       "functions": [
         {
           "name": "try",
@@ -47,7 +23,37 @@
           "isBase": true
         }
       ],
-      "description": "Universal standard library base module"
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "main",

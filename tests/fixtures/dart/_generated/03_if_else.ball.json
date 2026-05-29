@@ -5,36 +5,6 @@
   "modules": [
     {
       "name": "std",
-      "types": [
-        {
-          "name": "PrintInput",
-          "field": [
-            {
-              "name": "message",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        },
-        {
-          "name": "BinaryInput",
-          "field": [
-            {
-              "name": "left",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_INT64"
-            },
-            {
-              "name": "right",
-              "number": 2,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_INT64"
-            }
-          ]
-        }
-      ],
       "functions": [
         {
           "name": "if",
@@ -53,7 +23,43 @@
           "isBase": true
         }
       ],
-      "description": "Universal standard library base module"
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "main",

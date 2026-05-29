@@ -577,6 +577,54 @@ std::string CppCompiler::compile_literal(const ball::v1::Literal& lit) {
     }
 }
 
+// Recursively collect the (raw) names of every `let` binding and lambda
+// parameter declared in an expression tree. Used to populate
+// `declared_locals_` so a reference to a local named `num` / `int` / `String`
+// etc. resolves to the variable instead of the Dart type-object string. Does
+// not descend into nested user functions (they manage their own scope), but
+// DOES descend into lambdas and blocks since those share the function's frame.
+static void _collect_declared_locals(const ball::v1::Expression& e,
+                                     std::unordered_set<std::string>& out) {
+    using E = ball::v1::Expression;
+    switch (e.expr_case()) {
+        case E::kBlock:
+            for (const auto& s : e.block().statements()) {
+                if (s.has_let()) {
+                    out.insert(s.let().name());
+                    _collect_declared_locals(s.let().value(), out);
+                } else if (s.has_expression()) {
+                    _collect_declared_locals(s.expression(), out);
+                }
+            }
+            if (e.block().has_result()) _collect_declared_locals(e.block().result(), out);
+            return;
+        case E::kCall:
+            if (e.call().has_input()) _collect_declared_locals(e.call().input(), out);
+            return;
+        case E::kLambda:
+            // A lambda is a FunctionDefinition (proto field `lambda`); its body
+            // shares this function's C++ frame (captured by reference), so its
+            // `let`s belong to the same local scope.
+            if (e.lambda().has_body()) _collect_declared_locals(e.lambda().body(), out);
+            return;
+        case E::kMessageCreation:
+            for (const auto& f : e.message_creation().fields())
+                if (f.has_value()) _collect_declared_locals(f.value(), out);
+            return;
+        case E::kFieldAccess:
+            if (e.field_access().has_object())
+                _collect_declared_locals(e.field_access().object(), out);
+            return;
+        case E::kLiteral:
+            if (e.literal().value_case() == ball::v1::Literal::kListValue)
+                for (const auto& el : e.literal().list_value().elements())
+                    _collect_declared_locals(el, out);
+            return;
+        default:
+            return;
+    }
+}
+
 std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
     // Dart's `this` → C++ `(*this)` (dereference the pointer for value semantics)
     if (ref.name() == "this") return "(*this)";
@@ -585,16 +633,21 @@ std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
     // Dart sentinel object → unique dispatch-not-found marker (not null BallDyn)
     if (ref.name() == "_sentinel") return "ball_dispatch_not_found()";
     // Dart type objects used as values (e.g., int.tryParse, double.tryParse)
-    // → emit as string constants representing the type name.
-    if (ref.name() == "int") return "\"int\"s";
-    if (ref.name() == "double") return "\"double\"s";
-    if (ref.name() == "num") return "\"num\"s";
-    if (ref.name() == "String") return "\"String\"s";
-    if (ref.name() == "bool") return "\"bool\"s";
-    // Dart collection type constructors used as values
-    if (ref.name() == "Map") return "\"Map\"s";
-    if (ref.name() == "List") return "\"List\"s";
-    if (ref.name() == "Set") return "\"Set\"s";
+    // → emit as string constants representing the type name. A local variable
+    // or parameter with the same name shadows the type object — common for
+    // `num`, less so for the others — so skip this when the name is a declared
+    // local in the current function (otherwise `num` would emit `"num"s`).
+    if (declared_locals_.count(ref.name()) == 0) {
+        if (ref.name() == "int") return "\"int\"s";
+        if (ref.name() == "double") return "\"double\"s";
+        if (ref.name() == "num") return "\"num\"s";
+        if (ref.name() == "String") return "\"String\"s";
+        if (ref.name() == "bool") return "\"bool\"s";
+        // Dart collection type constructors used as values
+        if (ref.name() == "Map") return "\"Map\"s";
+        if (ref.name() == "List") return "\"List\"s";
+        if (ref.name() == "Set") return "\"Set\"s";
+    }
     // If the reference is to a sibling method in the current class,
     // wrap it in a lambda to bind `this`. Bare member function names
     // can't be stored as std::any / passed as values in C++.
@@ -2966,16 +3019,27 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
         out_ << "auto " << ball_local_var_name(sanitize_name(stmt.let().name())) << " = BallDyn("
              << compile_expr(stmt.let().value()) << ");\n";
     } else if (stmt.has_expression()) {
-        // Block expressions used as statements: if the block has only
-        // let bindings (no result expression), emit them inline so the
-        // variables are visible in the enclosing scope. This is needed
-        // for Dart record pattern destructuring which encodes as a block
-        // with multiple let bindings.
+        // Block expressions used as statements (no result expression):
+        //   * If EVERY statement is a `let`, this is Dart record-pattern
+        //     destructuring (`var (a, b) = rec;`) — emit the bindings inline so
+        //     they stay visible to the enclosing scope.
+        //   * Otherwise it is an explicit lexical scope (`{ var x = …; … }`) —
+        //     wrap in C++ braces so its `let`s shadow rather than redefine
+        //     same-named variables in the enclosing scope.
         if (stmt.expression().expr_case() == ball::v1::Expression::kBlock) {
             const auto& block = stmt.expression().block();
             if (!block.has_result()) {
-                for (const auto& s : block.statements()) {
-                    compile_statement(s);
+                bool all_lets = block.statements_size() > 0;
+                for (const auto& s : block.statements())
+                    if (!s.has_let()) { all_lets = false; break; }
+                if (all_lets) {
+                    for (const auto& s : block.statements()) compile_statement(s);
+                } else {
+                    emit_line("{");
+                    indent_++;
+                    for (const auto& s : block.statements()) compile_statement(s);
+                    indent_--;
+                    emit_line("}");
                 }
                 return;
             }
@@ -4860,6 +4924,13 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         emit_line("auto& input = " + sanitize_name(params[0]) + ";");
     }
 
+    // Record this function's locals (params + every `let`) so references to a
+    // local named `num`/`int`/`String`/… resolve to the variable rather than
+    // the Dart type-object string literal.
+    declared_locals_.clear();
+    for (const auto& p : params) declared_locals_.insert(p);
+    if (func.has_body()) _collect_declared_locals(func.body(), declared_locals_);
+
     if (func.has_body()) {
         if (func.body().expr_case() == ball::v1::Expression::kBlock) {
             for (const auto& s : func.body().block().statements())
@@ -4874,6 +4945,7 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     if (return_type != "void") {
         emit_line("return BallDyn();");
     }
+    declared_locals_.clear();
 
     indent_--;
     emit_line("}");
@@ -4893,7 +4965,10 @@ void CppCompiler::emit_top_level_var(const ball::v1::FunctionDefinition& func) {
     if (meta.count("is_final") && meta["is_final"] == "true") modifier = "const auto";
 
     const std::string name = sanitize_name(func.name());
+    declared_locals_.clear();
+    if (func.has_body()) _collect_declared_locals(func.body(), declared_locals_);
     const std::string init = func.has_body() ? compile_expr(func.body()) : "0";
+    declared_locals_.clear();
     emit_indent();
     // A namespace-scope (non-local) lambda may not carry a [&]/[=] capture
     // default under gcc/clang. When a top-level initializer is such an IIFE
@@ -4913,6 +4988,11 @@ void CppCompiler::emit_top_level_var(const ball::v1::FunctionDefinition& func) {
 void CppCompiler::emit_main(const ball::v1::FunctionDefinition& entry) {
     emit_line("int main() {");
     indent_++;
+
+    // Record main's locals so a `let num` (etc.) shadows the Dart type-object
+    // string-literal special-casing in compile_reference.
+    declared_locals_.clear();
+    if (entry.has_body()) _collect_declared_locals(entry.body(), declared_locals_);
 
     if (entry.has_body()) {
         if (entry.body().expr_case() == ball::v1::Expression::kBlock) {

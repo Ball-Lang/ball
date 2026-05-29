@@ -262,6 +262,25 @@ inline std::string ball_to_string(const std::any& v) {
     if (const BallList_RT* lp = _BallRefDeref::list(v)) return ball_to_string(*lp);
     if (v.type() == typeid(BallMap_RT)) {
         auto& m = std::any_cast<const BallMap_RT&>(v);
+        // A reified BallException (bound by `catch(e)` via _ball_exception_to_dyn)
+        // stringifies to its original thrown value: Dart's `print(e)` / "$e"
+        // shows the thrown object, not the internal
+        // {typeName, value, message} reification. The map shape is retained so
+        // `e["value"]`, `e["typeName"]` and `e is BallException` still work for
+        // code (including the self-host engine) that inspects it.
+        {
+            auto tit = m.find("__type__");
+            if (tit != m.end()) {
+                const std::any& tu = _BallDynUnwrapper::unwrap(tit->second);
+                if (tu.type() == typeid(std::string) &&
+                    std::any_cast<const std::string&>(tu) == "BallException") {
+                    auto vit = m.find("value");
+                    if (vit != m.end()) return ball_to_string(vit->second);
+                    auto mit = m.find("message");
+                    if (mit != m.end()) return ball_to_string(mit->second);
+                }
+            }
+        }
         std::string out = "{";
         bool first = true;
         for (auto it = m.begin(); it != m.end(); ++it) {

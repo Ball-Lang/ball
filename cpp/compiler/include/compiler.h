@@ -185,6 +185,9 @@ private:
         if (!e) e = get_message_field_expr(call, "value");
         return e ? compile_expr(*e) : "BallDyn()";
     }
+    // Compile a map entry sentinel expression as a map insertion statement.
+    std::string compile_map_entry_insert(const ball::v1::Expression& expr,
+                                          const std::string& map_var);
     std::string sanitize_name(const std::string& name);
     std::string indent_str();
     // Resolve a class's constructor parameter names (in declaration order) so

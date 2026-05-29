@@ -15,7 +15,7 @@ name: Regression Gates
 #   * Dart encoder           : exactly DART_ENCODER_EXPECTED passed / 0 failed
 #   * Dart compiler          : exactly DART_COMPILER_EXPECTED passed / 0 failed
 #                              (--exclude-tags slow, matching ci.yml)
-#   * C++ self-host tally     : PASS must not drop below 208 (of 227 fixtures)
+#   * C++ self-host tally     : PASS must not drop below 209 (of 227 fixtures)
 #                              — blocking only when the Linux native build is green
 #
 # Action versions verified 2026-05-25 against the upstream release pages:
@@ -45,7 +45,7 @@ env:
   DART_ENGINE_MIN_PASS: "566"
   DART_ENCODER_EXPECTED: "116"
   DART_COMPILER_EXPECTED: "88"
-  CPP_SELFHOST_MIN_PASS: "208"
+  CPP_SELFHOST_MIN_PASS: "209"
 
 jobs:
   # ──────────────────────────────────────────────────
@@ -271,7 +271,7 @@ jobs:
   # summary line that the script does, then enforces the floor.
   # ──────────────────────────────────────────────────
   cpp-selfhost-tally:
-    name: C++ Self-Host Tally (PASS >= 208)
+    name: C++ Self-Host Tally (PASS >= 209)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

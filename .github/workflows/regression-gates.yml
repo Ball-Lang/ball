@@ -45,7 +45,7 @@ env:
   DART_ENGINE_MIN_PASS: "566"
   DART_ENCODER_EXPECTED: "116"
   DART_COMPILER_EXPECTED: "88"
-  CPP_SELFHOST_MIN_PASS: "209"
+  CPP_SELFHOST_MIN_PASS: "211"
 
 jobs:
   # ──────────────────────────────────────────────────
@@ -271,7 +271,7 @@ jobs:
   # summary line that the script does, then enforces the floor.
   # ──────────────────────────────────────────────────
   cpp-selfhost-tally:
-    name: C++ Self-Host Tally (PASS >= 209)
+    name: C++ Self-Host Tally (PASS >= 211)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

@@ -1122,10 +1122,11 @@ inline BallDyn bind(BallDyn& scope, const char* name, const std::any& value) {
     return BallDyn();
 }
 // child() creates a new scope linked to the parent with reference semantics.
-// Pass-by-value so `child(BallDyn(_globalScope))` (rvalue parent) upgrades the
-// parent copy to BallScope instead of falling through to the legacy copy path.
-inline BallDyn child(BallDyn scope) {
-    // Ensure the parent uses BallScope (shared_ptr<BallMap>) for reference semantics
+// Takes by REFERENCE so that upgrading a BallMap parent to BallScope (shared_ptr)
+// happens in-place on the caller's variable — mutations through the child's
+// parent chain then propagate back to the original scope.
+inline BallDyn child(BallDyn& scope) {
+    // Upgrade parent IN PLACE to BallScope for reference semantics
     if (scope._val.type() == typeid(BallMap)) {
         auto sp = std::make_shared<BallMap>(std::move(std::any_cast<BallMap&>(scope._val)));
         scope._val = std::any(sp);
@@ -1139,6 +1140,10 @@ inline BallDyn child(BallDyn scope) {
         (*childMap)["__parent__"] = std::any(parentScope);
     }
     return BallDyn(std::any(childMap));
+}
+// Rvalue overload for temporaries like child(BallDyn(_globalScope))
+inline BallDyn child(BallDyn&& scope) {
+    return child(scope);
 }
 
 // Helper: get the parent BallScope from a scope's __parent__ entry.
@@ -1531,6 +1536,7 @@ inline BallDyn _ball_exception_to_dyn(const BallException& e) {
     m["__type__"] = std::any(std::string("BallException"));
     m["typeName"] = std::any(e.type_name);
     m["value"] = e.has_payload ? e.value : std::any(std::string(e.what()));
+    m["message"] = std::any(std::string(e.what()));
     BallDyn d;
     d._val = std::any(std::move(m));
     return d;
@@ -1556,6 +1562,58 @@ inline BallOrderedMap* _ballAnyOrderedMapPtr(std::any& u) {
         return &std::any_cast<BallOrderedMap&>(u);
     return nullptr;
 }
+
+// Register BallOrderedMap extensions for runtime helpers in ball_emit_runtime.h.
+inline const bool _ball_ordered_map_extensions_registered = []() {
+    _ball_is_map_ext = [](const std::any& u) -> bool {
+        return _ballAnyOrderedMapPtr(u) != nullptr;
+    };
+    _ball_to_string_ext = [](const std::any& v) -> std::string {
+        const BallOrderedMap* omp = _ballAnyOrderedMapPtr(v);
+        if (!omp) return "";
+        std::string out = "{";
+        bool first = true;
+        for (const auto& [k, val] : omp->entries_) {
+            if (k.rfind("__", 0) == 0 || k == "type_args") continue;
+            if (!first) out += ", ";
+            out += k + ": " + ball_to_string(val);
+            first = false;
+        }
+        out += "}";
+        return out;
+    };
+    _ball_json_encode_ext_fn = [](const std::any& u) -> std::string {
+        const BallOrderedMap* omp = _ballAnyOrderedMapPtr(u);
+        if (!omp) return "";
+        std::string out = "{";
+        bool first = true;
+        for (const auto& [k, v] : omp->entries_) {
+            if (k.rfind("__", 0) == 0 || k == "type_args") continue;
+            if (!first) out += ",";
+            out += _ball_json_escape(k) + ":" + _ball_json_encode(v);
+            first = false;
+        }
+        out += "}";
+        return out;
+    };
+    _ball_object_type_matches_ext = [](const std::any& u, const std::string& type) -> bool {
+        const BallOrderedMap* omp = _ballAnyOrderedMapPtr(u);
+        if (!omp) return false;
+        auto it = omp->index_.find("__type__");
+        if (it == omp->index_.end()) return false;
+        auto& tv = _BallDynUnwrapper::unwrap(omp->entries_[it->second].second);
+        if (tv.type() == typeid(std::string)) {
+            if (ball_type_name_matches(std::any_cast<const std::string&>(tv), type))
+                return true;
+        }
+        auto sit = omp->index_.find("__super__");
+        if (sit != omp->index_.end()) {
+            return ball_object_type_matches(omp->entries_[sit->second].second, type);
+        }
+        return false;
+    };
+    return true;
+}();
 
 // ball_is_map BallDyn overload — recognizes BallOrderedMap. Named ball_is_map_dyn
 // to avoid ambiguity with ball_is_map(const std::any&) via BallDyn::operator std::any().

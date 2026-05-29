@@ -2,6 +2,7 @@
 /// When encoded to Ball IR, provides protobuf for any target language.
 library;
 
+export 'edition.dart';
 export 'wire_varint.dart';
 export 'wire_fixed.dart';
 export 'wire_bytes.dart';

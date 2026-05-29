@@ -1,0 +1,2 @@
+protoc 28.2 (max edition 2023)
+libprotoc 28.2

@@ -1061,25 +1061,35 @@ void main() {
     });
 
     test('resolveFeatures applies overrides', () {
+      // Features are overridable on edition 2023 (proto2/proto3 features are
+      // FIXED and cannot be overridden — protoc rejects that).
       final resolved = resolveFeatures(
-        'proto3',
-        {'field_presence': 'EXPLICIT'},
+        '2023',
+        {'field_presence': 'IMPLICIT'},
         null,
         null,
       );
-      expect(resolved['field_presence'], 'EXPLICIT');
-      // Others still proto3 default.
+      expect(resolved['field_presence'], 'IMPLICIT');
+      // Others still edition-2023 default.
       expect(resolved['enum_type'], 'OPEN');
     });
 
     test('resolveFeatures field-level overrides win', () {
       final resolved = resolveFeatures(
-        'proto3',
+        '2023',
+        {'field_presence': 'IMPLICIT'},
         {'field_presence': 'EXPLICIT'},
         {'field_presence': 'IMPLICIT'},
-        {'field_presence': 'LEGACY_REQUIRED'},
       );
-      expect(resolved['field_presence'], 'LEGACY_REQUIRED');
+      expect(resolved['field_presence'], 'IMPLICIT');
+    });
+
+    test('overriding a FIXED feature on proto3 throws', () {
+      expect(
+        () => resolveFeatures('proto3', {'field_presence': 'EXPLICIT'}, null,
+            null),
+        throwsA(isA<ArgumentError>()),
+      );
     });
 
     test('hasExplicitPresence', () {

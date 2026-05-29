@@ -27,7 +27,20 @@ So the realistic delivery vehicle is **three layers, in order**:
 
 **Explicitly out of scope (separate decision, see §7):** migrating `proto/ball/v1/ball.proto` itself from `syntax = "proto3"` to `edition = "2023"`. That is a *consumer-side* change with breaking-check and codegen ramifications across all 7 bindings; the engine work here does not require it and should not be coupled to it.
 
-What we are NOT building: a new package, a new std module, or a protoc plugin. The engine is a library of Ball functions living inside the already-published `ball_protobuf` program.
+What we are NOT building: a new package, a new std module, or a protoc plugin. The engine is a library of Ball functions living inside the already-published `ball_protobuf` library module.
+
+### 2.1 Packaging: a `Module`, not a `Program` (decided)
+
+`ball_protobuf` is currently emitted by `gen_ball_protobuf.dart` as a **`Program` with `entry_function = ""`** — a category error: a `Program` implies an executable entry point, but the protobuf engine is reusable library code with no entry point. The only reason it was a Program is that `Program` is the sole schema message that holds `modules[]`, and the engine spans 12 modules. It is **not yet consumed/run anywhere**, so we fix it cleanly.
+
+**Decision: emit `ball_protobuf` as a single facade `Module`** whose `module_imports[]` embed the implementation modules via **`InlineSource`** (`proto/ball/v1/ball.proto` — `InlineSource` is documented for *"Self-contained programs (single-file distribution)"*). This:
+- yields a real `Module` (no fake `entry_module`/`entry_function`),
+- stays a single self-contained file (dependencies embedded inline),
+- preserves the internal multi-module structure,
+- uses Ball's native module system (`ModuleImport` + `InlineSource`) — **no schema change**, and
+- drops the bundled `std`/`dart_std`/`std_collections`/`proto` modules (a library does not bundle std; the consuming program/engine provides them).
+
+`gen_ball_protobuf.dart` changes from `Program()..modules.addAll([...])` to building a facade `Module` with `moduleImports` carrying each implementation module inline (`InlineSource(proto_bytes: module.writeToBuffer())`), wrapped in the existing `Any` envelope as `ball.v1.Module`.
 
 ---
 
@@ -239,6 +252,14 @@ Each phase is independently reviewable and leaves the tree green.
 6. **Custom Ball feature extension — in or out?** We could claim a FeatureSet extension number (≥10000, via a PR to protocolbuffers/protobuf) for a Ball-specific feature. Significant external dependency, almost certainly not needed. **Recommend: out of scope.**
 
 ---
+
+## 8. Distribution: publish compiled packages to native registries
+
+The consumer-facing payoff: once `ball_protobuf` (the Editions-capable engine) compiles to each target, **publish the compiled output as a native package** in that ecosystem's registry — pub.dev (Dart, near-term), then nuget (C#), npm (TS), etc. Each ecosystem gets a Ball-generated protobuf-with-Editions library, even where the native protobuf lib lacks Editions. This maps onto the schema's `RegistrySource` (resolve a Ball module from pub/npm/nuget). Sequenced as a follow-on after the Phase 6 portability milestone:
+
+- **Per-target package scaffolding** — emit `pubspec.yaml` (Dart), `package.json` (TS), `.csproj`/`.nuspec` (C#) wrapping the compiled `ball_protobuf` output, with versioning tied to the Ball release (0.3.0+) and the supported edition range.
+- **Publish pipeline** — a CI release job per registry (`dart pub publish` first; nuget/npm later). Provenance/integrity via the existing `ModuleImport.integrity` (sha256) story.
+- **Open question (defer):** package naming + ownership on each registry, and whether to publish the raw compiled source or a thin hand-written wrapper around it.
 
 ### Key file references (all real, verified)
 - Engine source (author here): `dart/shared/lib/protobuf/editions.dart` (existing stub), `marshal.dart`, `unmarshal.dart`, `json_codec.dart`, `protobuf.dart` (barrel), `conformance.dart`

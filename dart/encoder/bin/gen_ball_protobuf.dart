@@ -23,6 +23,7 @@ import 'package:ball_encoder/encoder.dart';
 /// Protobuf source files to encode, in dependency order.
 /// Each path is relative to the ball_base package root (dart/shared/).
 const _sourceFiles = [
+  'lib/protobuf/edition.dart',
   'lib/protobuf/wire_varint.dart',
   'lib/protobuf/wire_fixed.dart',
   'lib/protobuf/wire_bytes.dart',

@@ -690,7 +690,7 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
         if (all_digits) {
             int idx = std::stoi(field.substr(1)) - 1;
             if (idx >= 0) {
-                return "BallDyn(" + obj + ")[" + std::to_string(idx) + "LL]";
+                return "(BallDyn(" + obj + "))[" + std::to_string(idx) + "LL]";
             }
         }
     }
@@ -708,7 +708,10 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     // Wrapping in BallDyn ensures the access works on std::any values
     // (from map lookups) as well as BallDyn and std::map types.
     // The BallDyn constructor accepts std::any, so this is safe for all types.
-    return "BallDyn(" + obj + ")[\"" + field + "\"s]";
+    // Parenthesize the cast: `BallDyn(ident)[...]` is the most-vexing-parse
+    // under gcc/clang (read as an array declaration of `ident`); `(BallDyn(...))`
+    // forces the functional-cast/expression reading.
+    return "(BallDyn(" + obj + "))[\"" + field + "\"s]";
 }
 
 std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreation& msg) {
@@ -1926,7 +1929,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             current_class_methods_.count(sanitize_name(target_expr->reference().name())) > 0) {
             target = sanitize_name(target_expr->reference().name()) + "()";
         }
-        return "BallDyn(" + target + ")[" + idx + "]";
+        return "(BallDyn(" + target + "))[" + idx + "]";
     }
 
     // ── Math ──
@@ -2247,7 +2250,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         auto target = get_message_field(call, "target");
         auto index = get_message_field(call, "index");
         if (!index.empty()) {
-            return "BallDyn(" + target + ".has_value() ? BallDyn(" + target + ")[" + index + "] : BallDyn())";
+            return "BallDyn(" + target + ".has_value() ? (BallDyn(" + target + "))[" + index + "] : BallDyn())";
         }
         return target;
     }

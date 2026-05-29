@@ -276,6 +276,15 @@ public:
     // Assign from common types
     BallDyn& operator=(int64_t v) { _val = v; return *this; }
     BallDyn& operator=(int v) { _val = static_cast<int64_t>(v); return *this; }
+    // Other integral types (e.g. `long long` on gcc/clang where int64_t is
+    // `long`): widen to int64_t. Without this, `BallDyn = <long long>` is
+    // ambiguous between operator=(int64_t) and operator=(int).
+    template <typename T,
+              std::enable_if_t<std::is_integral_v<T> && !std::is_same_v<T, bool> &&
+                                   !std::is_same_v<T, int> &&
+                                   !std::is_same_v<T, int64_t>,
+                               int> = 0>
+    BallDyn& operator=(T v) { _val = static_cast<int64_t>(v); return *this; }
     BallDyn& operator=(double v) { _val = v; return *this; }
     BallDyn& operator=(bool v) { _val = v; return *this; }
     BallDyn& operator=(const std::string& v) { _val = v; return *this; }
@@ -727,6 +736,20 @@ public:
     bool operator!=(int64_t v) const { return !(*this == v); }
     bool operator==(int v) const { return *this == static_cast<int64_t>(v); }
     bool operator!=(int v) const { return !(*this == static_cast<int64_t>(v)); }
+    // Other integral types (`long long` on gcc/clang): compare as int64_t.
+    // Without this, `BallDyn == <long long>` is ambiguous (int64_t vs int).
+    template <typename T,
+              std::enable_if_t<std::is_integral_v<T> && !std::is_same_v<T, bool> &&
+                                   !std::is_same_v<T, int> &&
+                                   !std::is_same_v<T, int64_t>,
+                               int> = 0>
+    bool operator==(T v) const { return *this == static_cast<int64_t>(v); }
+    template <typename T,
+              std::enable_if_t<std::is_integral_v<T> && !std::is_same_v<T, bool> &&
+                                   !std::is_same_v<T, int> &&
+                                   !std::is_same_v<T, int64_t>,
+                               int> = 0>
+    bool operator!=(T v) const { return !(*this == static_cast<int64_t>(v)); }
     bool operator==(bool v) const {
         if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) == v;
         return false;
@@ -1101,13 +1124,18 @@ inline std::string ball_to_string(const BallDyn& d) {
 // string&) and operator=(char) are indistinguishable user-conversion sequences.
 // Route a std::string target through ball_to_string; every other target type
 // assigns directly. Returns the assigned value, since Dart `=` is an expression.
-inline std::string ball_assign(std::string& target, const BallDyn& value) {
-    target = ball_to_string(value);
-    return target;
-}
 template <typename T, typename U>
 inline T& ball_assign(T& target, U&& value) {
-    target = std::forward<U>(value);
+    if constexpr (std::is_same_v<T, std::string>) {
+        // std::string = BallDyn is ambiguous under gcc/clang (the
+        // BallDyn->std::string and BallDyn->char user conversions go through
+        // different operators). Route through ball_to_string. A single template
+        // with if-constexpr avoids the overload-resolution race where an rvalue
+        // value binds to the generic `U&&` rather than a `const BallDyn&`.
+        target = ball_to_string(value);
+    } else {
+        target = std::forward<U>(value);
+    }
     return target;
 }
 

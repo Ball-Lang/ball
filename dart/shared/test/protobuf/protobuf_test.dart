@@ -1086,8 +1086,12 @@ void main() {
 
     test('overriding a FIXED feature on proto3 throws', () {
       expect(
-        () => resolveFeatures('proto3', {'field_presence': 'EXPLICIT'}, null,
-            null),
+        () => resolveFeatures(
+          'proto3',
+          {'field_presence': 'EXPLICIT'},
+          null,
+          null,
+        ),
         throwsA(isA<ArgumentError>()),
       );
     });

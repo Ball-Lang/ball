@@ -175,8 +175,7 @@ extension BallEngineInvocation on BallEngine {
 
       // Detect async functions for error-wrapping.
       final isAsync =
-          func.hasMetadata() &&
-          _metadataBool(func.metadata.fields['is_async']);
+          func.hasMetadata() && _metadataBool(func.metadata.fields['is_async']);
 
       Object? finalResult;
       if (isAsync && !isGenFunc) {

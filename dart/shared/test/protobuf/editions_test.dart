@@ -56,8 +56,10 @@ void main() {
     });
 
     test('PROTO2 resolves via LEGACY', () {
-      expect(baseFeaturesForEdition(editionProto2),
-          baseFeaturesForEdition(editionLegacy));
+      expect(
+        baseFeaturesForEdition(editionProto2),
+        baseFeaturesForEdition(editionLegacy),
+      );
     });
 
     test('PROTO3', () {
@@ -81,8 +83,10 @@ void main() {
     });
 
     test('EDITION_2024 runtime features identical to 2023', () {
-      expect(baseFeaturesForEdition(edition2024),
-          baseFeaturesForEdition(edition2023));
+      expect(
+        baseFeaturesForEdition(edition2024),
+        baseFeaturesForEdition(edition2023),
+      );
     });
 
     test('every edition resolves all six runtime features', () {
@@ -95,8 +99,11 @@ void main() {
       ]) {
         final f = baseFeaturesForEdition(ed);
         for (final key in featureKeys()) {
-          expect(f.containsKey(key), isTrue,
-              reason: '$key missing for ${editionToName(ed)}');
+          expect(
+            f.containsKey(key),
+            isTrue,
+            reason: '$key missing for ${editionToName(ed)}',
+          );
         }
       }
     });
@@ -118,8 +125,10 @@ void main() {
 
   group('resolveFileFeatures', () {
     test('no overrides == base', () {
-      expect(resolveFileFeatures(edition2023, null),
-          baseFeaturesForEdition(edition2023));
+      expect(
+        resolveFileFeatures(edition2023, null),
+        baseFeaturesForEdition(edition2023),
+      );
     });
 
     test('overriding an overridable feature applies', () {
@@ -141,8 +150,10 @@ void main() {
     });
 
     test('edition out of range throws', () {
-      expect(() => resolveFileFeatures(editionUnknown, null),
-          throwsArgumentError);
+      expect(
+        () => resolveFileFeatures(editionUnknown, null),
+        throwsArgumentError,
+      );
       expect(() => resolveFileFeatures(editionUnstable, null), returnsNormally);
     });
   });
@@ -157,9 +168,14 @@ void main() {
         featureFieldPresence: fieldPresenceImplicit,
       });
       expect(field[featureEnumType], enumTypeClosed); // inherited from message
-      expect(field[featureFieldPresence], fieldPresenceImplicit); // own override
-      expect(field[featureRepeatedFieldEncoding],
-          repeatedFieldEncodingPacked); // from edition base
+      expect(
+        field[featureFieldPresence],
+        fieldPresenceImplicit,
+      ); // own override
+      expect(
+        field[featureRepeatedFieldEncoding],
+        repeatedFieldEncodingPacked,
+      ); // from edition base
     });
   });
 
@@ -176,47 +192,77 @@ void main() {
     });
 
     test('unknown edition throws', () {
-      expect(() => resolveFeatures('proto9', null, null, null),
-          throwsArgumentError);
+      expect(
+        () => resolveFeatures('proto9', null, null, null),
+        throwsArgumentError,
+      );
     });
   });
 
   group('legacy inference', () {
     test('proto2 required -> LEGACY_REQUIRED', () {
       final f = inferLegacyFieldFeatures(
-          'LABEL_REQUIRED', 'TYPE_INT32', false, null, editionProto2);
+        'LABEL_REQUIRED',
+        'TYPE_INT32',
+        false,
+        null,
+        editionProto2,
+      );
       expect(f[featureFieldPresence], fieldPresenceLegacyRequired);
     });
 
     test('proto3 singular scalar -> IMPLICIT', () {
       final f = inferLegacyFieldFeatures(
-          'LABEL_OPTIONAL', 'TYPE_INT32', false, null, editionProto3);
+        'LABEL_OPTIONAL',
+        'TYPE_INT32',
+        false,
+        null,
+        editionProto3,
+      );
       expect(f[featureFieldPresence], fieldPresenceImplicit);
     });
 
     test('proto3 optional -> EXPLICIT', () {
       final f = inferLegacyFieldFeatures(
-          'LABEL_OPTIONAL', 'TYPE_INT32', true, null, editionProto3);
+        'LABEL_OPTIONAL',
+        'TYPE_INT32',
+        true,
+        null,
+        editionProto3,
+      );
       expect(f[featureFieldPresence], fieldPresenceExplicit);
     });
 
     test('group type -> DELIMITED', () {
       final f = inferLegacyFieldFeatures(
-          'LABEL_OPTIONAL', 'TYPE_GROUP', false, null, editionProto2);
+        'LABEL_OPTIONAL',
+        'TYPE_GROUP',
+        false,
+        null,
+        editionProto2,
+      );
       expect(f[featureMessageEncoding], messageEncodingDelimited);
     });
 
     test('packed option', () {
       expect(
         inferLegacyFieldFeatures(
-            'LABEL_REPEATED', 'TYPE_INT32', false, 'true', editionProto2)[
-                featureRepeatedFieldEncoding],
+          'LABEL_REPEATED',
+          'TYPE_INT32',
+          false,
+          'true',
+          editionProto2,
+        )[featureRepeatedFieldEncoding],
         repeatedFieldEncodingPacked,
       );
       expect(
         inferLegacyFieldFeatures(
-            'LABEL_REPEATED', 'TYPE_INT32', false, 'false', editionProto3)[
-                featureRepeatedFieldEncoding],
+          'LABEL_REPEATED',
+          'TYPE_INT32',
+          false,
+          'false',
+          editionProto3,
+        )[featureRepeatedFieldEncoding],
         repeatedFieldEncodingExpanded,
       );
     });
@@ -226,7 +272,12 @@ void main() {
       // presence on top of the proto2 (LEGACY) base.
       final base = resolveFileFeatures(editionProto2, null);
       final inferred = inferLegacyFieldFeatures(
-          'LABEL_REQUIRED', 'TYPE_STRING', false, null, editionProto2);
+        'LABEL_REQUIRED',
+        'TYPE_STRING',
+        false,
+        null,
+        editionProto2,
+      );
       // Legacy inference is applied as the field's own (fixed-exempt) features:
       final resolved = <String, String>{};
       resolved.addAll(base);
@@ -253,71 +304,84 @@ void main() {
       expect(isOpenEnum({featureEnumType: enumTypeOpen}), isTrue);
       expect(isClosedEnum({featureEnumType: enumTypeClosed}), isTrue);
       expect(
-          isPackedRepeated(
-              {featureRepeatedFieldEncoding: repeatedFieldEncodingPacked}),
-          isTrue);
+        isPackedRepeated({
+          featureRepeatedFieldEncoding: repeatedFieldEncodingPacked,
+        }),
+        isTrue,
+      );
       expect(
-          isExpandedRepeated(
-              {featureRepeatedFieldEncoding: repeatedFieldEncodingExpanded}),
-          isTrue);
-      expect(isDelimited({featureMessageEncoding: messageEncodingDelimited}),
-          isTrue);
+        isExpandedRepeated({
+          featureRepeatedFieldEncoding: repeatedFieldEncodingExpanded,
+        }),
+        isTrue,
+      );
       expect(
-          requiresUtf8Validation({featureUtf8Validation: utf8ValidationVerify}),
-          isTrue);
+        isDelimited({featureMessageEncoding: messageEncodingDelimited}),
+        isTrue,
+      );
+      expect(
+        requiresUtf8Validation({featureUtf8Validation: utf8ValidationVerify}),
+        isTrue,
+      );
       expect(jsonFormatIsAllow({featureJsonFormat: jsonFormatAllow}), isTrue);
     });
   });
 
   group('marshal honors resolved features (Phase 3)', () {
-    test('EXPLICIT presence serializes a default scalar; IMPLICIT elides it',
-        () {
-      final explicit = [
-        {
-          'name': 'x',
-          'number': 1,
-          'type': 'TYPE_INT32',
-          'features': {featureFieldPresence: fieldPresenceExplicit},
-        },
-      ];
-      final implicit = [
-        {
-          'name': 'x',
-          'number': 1,
-          'type': 'TYPE_INT32',
-          'features': {featureFieldPresence: fieldPresenceImplicit},
-        },
-      ];
-      final none = [
-        {'name': 'x', 'number': 1, 'type': 'TYPE_INT32'},
-      ];
+    test(
+      'EXPLICIT presence serializes a default scalar; IMPLICIT elides it',
+      () {
+        final explicit = [
+          {
+            'name': 'x',
+            'number': 1,
+            'type': 'TYPE_INT32',
+            'features': {featureFieldPresence: fieldPresenceExplicit},
+          },
+        ];
+        final implicit = [
+          {
+            'name': 'x',
+            'number': 1,
+            'type': 'TYPE_INT32',
+            'features': {featureFieldPresence: fieldPresenceImplicit},
+          },
+        ];
+        final none = [
+          {'name': 'x', 'number': 1, 'type': 'TYPE_INT32'},
+        ];
 
-      // Explicit presence: a set-but-default (0) value IS on the wire.
-      expect(marshal({'x': 0}, explicit), isNotEmpty);
-      // Implicit presence (proto3): default elided.
-      expect(marshal({'x': 0}, implicit), isEmpty);
-      // No features key → unchanged proto3 behavior (back-compat).
-      expect(marshal({'x': 0}, none), isEmpty);
-      // Non-default value always serialized regardless.
-      expect(marshal({'x': 7}, implicit), isNotEmpty);
-    });
+        // Explicit presence: a set-but-default (0) value IS on the wire.
+        expect(marshal({'x': 0}, explicit), isNotEmpty);
+        // Implicit presence (proto3): default elided.
+        expect(marshal({'x': 0}, implicit), isEmpty);
+        // No features key → unchanged proto3 behavior (back-compat).
+        expect(marshal({'x': 0}, none), isEmpty);
+        // Non-default value always serialized regardless.
+        expect(marshal({'x': 7}, implicit), isNotEmpty);
+      },
+    );
 
     test('PACKED vs EXPANDED differ on the wire; readers accept both', () {
       List<Map<String, Object?>> desc(String enc) => [
-            {
-              'name': 'a',
-              'number': 1,
-              'type': 'TYPE_INT32',
-              'label': 'LABEL_REPEATED',
-              'repeated': true,
-              'features': {featureRepeatedFieldEncoding: enc},
-            },
-          ];
+        {
+          'name': 'a',
+          'number': 1,
+          'type': 'TYPE_INT32',
+          'label': 'LABEL_REPEATED',
+          'repeated': true,
+          'features': {featureRepeatedFieldEncoding: enc},
+        },
+      ];
       final packedDesc = desc(repeatedFieldEncodingPacked);
       final expandedDesc = desc(repeatedFieldEncodingExpanded);
 
-      final packed = marshal({'a': [1, 2, 3]}, packedDesc);
-      final expanded = marshal({'a': [1, 2, 3]}, expandedDesc);
+      final packed = marshal({
+        'a': [1, 2, 3],
+      }, packedDesc);
+      final expanded = marshal({
+        'a': [1, 2, 3],
+      }, expandedDesc);
 
       // Different wire encodings (one LEN blob vs three tagged records).
       expect(packed, isNot(equals(expanded)));
@@ -341,7 +405,15 @@ void main() {
         },
       ];
       // The 0 element must survive (proto3 elision would drop it).
-      expect(unmarshal(marshal({'a': [1, 0, 3]}, desc), desc)['a'], [1, 0, 3]);
+      expect(
+        unmarshal(
+          marshal({
+            'a': [1, 0, 3],
+          }, desc),
+          desc,
+        )['a'],
+        [1, 0, 3],
+      );
     });
 
     test('EXPLICIT default scalar round-trips as a present 0', () {

@@ -17,17 +17,23 @@ Module buildStdTimeModule() {
   // Types
   // ============================================================
 
-  module.typeDefs.addAll(<google.DescriptorProto>[
-    _type('FormatTimestampInput', [
-      _intField('timestamp_ms', 1),
-      _stringField('format', 2),
-    ]),
-    _type('ParseTimestampInput', [
-      _stringField('value', 1),
-      _stringField('format', 2),
-    ]),
-    _type('DurationInput', [_intField('left', 1), _intField('right', 2)]),
-  ].map((d) => TypeDefinition()..name = d.name..descriptor = d));
+  module.typeDefs.addAll(
+    <google.DescriptorProto>[
+      _type('FormatTimestampInput', [
+        _intField('timestamp_ms', 1),
+        _stringField('format', 2),
+      ]),
+      _type('ParseTimestampInput', [
+        _stringField('value', 1),
+        _stringField('format', 2),
+      ]),
+      _type('DurationInput', [_intField('left', 1), _intField('right', 2)]),
+    ].map(
+      (d) => TypeDefinition()
+        ..name = d.name
+        ..descriptor = d,
+    ),
+  );
 
   // ============================================================
   // Functions

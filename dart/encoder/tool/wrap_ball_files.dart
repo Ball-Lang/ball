@@ -24,8 +24,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ball_base/ball_base.dart'
-    show programTypeUrl, moduleTypeUrl;
+import 'package:ball_base/ball_base.dart' show programTypeUrl, moduleTypeUrl;
 
 void main(List<String> args) {
   final repoRoot = _findRepoRoot();

@@ -18,14 +18,20 @@ Module buildStdConvertModule() {
   // Types
   // ============================================================
 
-  module.typeDefs.addAll(<google.DescriptorProto>[
-    _type('JsonEncodeInput', [_exprField('value', 1)]),
-    _type('JsonDecodeInput', [_stringField('value', 1)]),
-    _type('Utf8EncodeInput', [_stringField('value', 1)]),
-    _type('Utf8DecodeInput', [_bytesField('value', 1)]),
-    _type('Base64EncodeInput', [_bytesField('value', 1)]),
-    _type('Base64DecodeInput', [_stringField('value', 1)]),
-  ].map((d) => TypeDefinition()..name = d.name..descriptor = d));
+  module.typeDefs.addAll(
+    <google.DescriptorProto>[
+      _type('JsonEncodeInput', [_exprField('value', 1)]),
+      _type('JsonDecodeInput', [_stringField('value', 1)]),
+      _type('Utf8EncodeInput', [_stringField('value', 1)]),
+      _type('Utf8DecodeInput', [_bytesField('value', 1)]),
+      _type('Base64EncodeInput', [_bytesField('value', 1)]),
+      _type('Base64DecodeInput', [_stringField('value', 1)]),
+    ].map(
+      (d) => TypeDefinition()
+        ..name = d.name
+        ..descriptor = d,
+    ),
+  );
 
   // ============================================================
   // Functions

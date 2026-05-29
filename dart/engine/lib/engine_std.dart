@@ -952,7 +952,8 @@ extension BallEngineStd on BallEngine {
         return val;
       },
       'yield': (i) => _FlowSignal('yield', value: _extractUnaryArg(i)),
-      'yield_each': (i) => _FlowSignal('yield_each', value: _extractUnaryArg(i)),
+      'yield_each': (i) =>
+          _FlowSignal('yield_each', value: _extractUnaryArg(i)),
 
       // Literals
       'symbol': (i) => _extractField(i, 'value'),

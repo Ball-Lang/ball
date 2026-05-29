@@ -224,67 +224,67 @@ List<int> marshalField(
   switch (type) {
     case 'TYPE_INT32':
       final v = _toInt(value);
-      if (!repeated &&v == 0) return buffer;
+      if (!repeated && v == 0) return buffer;
       encodeInt32Field(buffer, fieldNumber, v);
     case 'TYPE_INT64':
       final v = _toInt(value);
-      if (!repeated &&v == 0) return buffer;
+      if (!repeated && v == 0) return buffer;
       encodeInt64Field(buffer, fieldNumber, v);
     case 'TYPE_UINT32':
       final v = _toInt(value);
-      if (!repeated &&v == 0) return buffer;
+      if (!repeated && v == 0) return buffer;
       encodeUint32Field(buffer, fieldNumber, v);
     case 'TYPE_UINT64':
       final v = _toInt(value);
-      if (!repeated &&v == 0) return buffer;
+      if (!repeated && v == 0) return buffer;
       encodeUint64Field(buffer, fieldNumber, v);
     case 'TYPE_SINT32':
       final v = _toInt(value);
-      if (!repeated &&v == 0) return buffer;
+      if (!repeated && v == 0) return buffer;
       encodeSint32Field(buffer, fieldNumber, v);
     case 'TYPE_SINT64':
       final v = _toInt(value);
-      if (!repeated &&v == 0) return buffer;
+      if (!repeated && v == 0) return buffer;
       encodeSint64Field(buffer, fieldNumber, v);
     case 'TYPE_BOOL':
       final v = value as bool;
-      if (!repeated &&!v) return buffer;
+      if (!repeated && !v) return buffer;
       encodeBoolField(buffer, fieldNumber, v);
     case 'TYPE_ENUM':
       final v = _toInt(value);
-      if (!repeated &&v == 0) return buffer;
+      if (!repeated && v == 0) return buffer;
       encodeEnumField(buffer, fieldNumber, v);
     case 'TYPE_FIXED32':
       final v = _toInt(value);
-      if (!repeated &&v == 0) return buffer;
+      if (!repeated && v == 0) return buffer;
       encodeFixed32Field(buffer, fieldNumber, v);
     case 'TYPE_FIXED64':
       final v = _toInt(value);
-      if (!repeated &&v == 0) return buffer;
+      if (!repeated && v == 0) return buffer;
       encodeFixed64Field(buffer, fieldNumber, v);
     case 'TYPE_SFIXED32':
       final v = _toInt(value);
-      if (!repeated &&v == 0) return buffer;
+      if (!repeated && v == 0) return buffer;
       encodeSfixed32Field(buffer, fieldNumber, v);
     case 'TYPE_SFIXED64':
       final v = _toInt(value);
-      if (!repeated &&v == 0) return buffer;
+      if (!repeated && v == 0) return buffer;
       encodeSfixed64Field(buffer, fieldNumber, v);
     case 'TYPE_FLOAT':
       final v = _toDouble(value);
-      if (!repeated &&identical(v, 0.0)) return buffer;
+      if (!repeated && identical(v, 0.0)) return buffer;
       encodeFloatField(buffer, fieldNumber, v);
     case 'TYPE_DOUBLE':
       final v = _toDouble(value);
-      if (!repeated &&identical(v, 0.0)) return buffer;
+      if (!repeated && identical(v, 0.0)) return buffer;
       encodeDoubleField(buffer, fieldNumber, v);
     case 'TYPE_STRING':
       final v = value as String;
-      if (!repeated &&v.isEmpty) return buffer;
+      if (!repeated && v.isEmpty) return buffer;
       encodeStringField(buffer, fieldNumber, v);
     case 'TYPE_BYTES':
       final v = value as List<int>;
-      if (!repeated &&v.isEmpty) return buffer;
+      if (!repeated && v.isEmpty) return buffer;
       encodeBytesField(buffer, fieldNumber, v);
     case 'TYPE_MESSAGE':
       // Value is either pre-encoded bytes (List<int>) or a map that needs

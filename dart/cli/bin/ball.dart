@@ -611,8 +611,7 @@ void _build(List<String> args) {
       for (final m in prog.modules) {
         if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty)
           continue;
-        if (m.functions.isEmpty && m.typeDefs.isEmpty)
-          continue;
+        if (m.functions.isEmpty && m.typeDefs.isEmpty) continue;
         stderr.writeln('OK');
         return m;
       }
@@ -844,8 +843,7 @@ Future<void> _resolve(List<String> args) async {
       for (final m in program.modules) {
         if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty)
           continue;
-        if (m.functions.isEmpty && m.typeDefs.isEmpty)
-          continue;
+        if (m.functions.isEmpty && m.typeDefs.isEmpty) continue;
         return m;
       }
       throw StateError(

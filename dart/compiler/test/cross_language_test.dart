@@ -309,7 +309,9 @@ void main() {
         // other tests/tools can see it.
         final jsonOut = File('${ballJsonOutDir.path}/$name.ball.json');
         jsonOut.writeAsStringSync(
-          const JsonEncoder.withIndent('  ').convert(encodeBallFileJson(program)),
+          const JsonEncoder.withIndent(
+            '  ',
+          ).convert(encodeBallFileJson(program)),
         );
         // Also persist the baseline as an expected_output.txt file next
         // to the generated .ball.json. Lets downstream C++ harnesses

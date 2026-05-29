@@ -71,8 +71,7 @@ Future<void> main(List<String> args) async {
         final allBase =
             m.functions.every((f) => f.isBase) && m.functions.isNotEmpty;
         if (allBase) return false;
-        if (m.functions.isEmpty && m.typeDefs.isEmpty)
-          return false;
+        if (m.functions.isEmpty && m.typeDefs.isEmpty) return false;
         if (m.name == '__assets__') return false;
         return true;
       }).length;

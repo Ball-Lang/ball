@@ -132,7 +132,8 @@ List<Map<String, Object?>> _defaultsTable() {
   edition2023Overridable[featureRepeatedFieldEncoding] =
       repeatedFieldEncodingPacked;
   edition2023Overridable[featureUtf8Validation] = utf8ValidationVerify;
-  edition2023Overridable[featureMessageEncoding] = messageEncodingLengthPrefixed;
+  edition2023Overridable[featureMessageEncoding] =
+      messageEncodingLengthPrefixed;
   edition2023Overridable[featureJsonFormat] = jsonFormatAllow;
 
   // 2024 runtime features identical to 2023.

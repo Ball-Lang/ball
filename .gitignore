@@ -19,6 +19,11 @@ Thumbs.db
 .dart_tool/
 .packages
 pubspec.lock
+# Commit the Dart workspace lock so CI resolves the SAME, known-good dependency
+# versions as local. Without it, `dart pub get` fresh-resolves newer deps, which
+# has repeatedly broken CI (analyzer error churn, BallDouble/num, formatter drift)
+# while passing locally.
+!dart/pubspec.lock
 build/
 
 # ----------------------------------

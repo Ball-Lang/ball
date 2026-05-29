@@ -66,10 +66,7 @@ jobs:
         run: cd ts/compiler && npm ci && npm run build
 
       - name: Analyze
-        # Errors and warnings still fail the build; advisory info-level lints do
-        # not (newer analyzer releases keep adding info lints — e.g.
-        # use_null_aware_elements — which would otherwise break CI spuriously).
-        run: dart analyze --no-fatal-warnings --no-fatal-infos dart/
+        run: dart analyze --no-fatal-warnings dart/
 
       - name: Format check
         run: dart format --set-exit-if-changed dart/

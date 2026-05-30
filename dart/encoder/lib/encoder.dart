@@ -994,7 +994,7 @@ class DartEncoder {
     final params = member.parameters;
     if (params != null && params.parameters.isNotEmpty) {
       final first = params.parameters.first;
-      if (first is ast.SimpleFormalParameter && first.type != null) {
+      if (first is ast.RegularFormalParameter && first.type != null) {
         def.inputType = first.type!.toSource();
       }
     }
@@ -1408,10 +1408,10 @@ class DartEncoder {
       final repParam = params.first;
       meta['rep_type'] = repParam.isNamed
           ? repParam.toSource()
-          : (repParam is ast.SimpleFormalParameter
+          : (repParam is ast.RegularFormalParameter
                 ? (repParam.type?.toSource() ?? 'dynamic')
                 : repParam.toSource());
-      if (repParam is ast.SimpleFormalParameter) {
+      if (repParam is ast.RegularFormalParameter) {
         if (repParam.name == null) {
           _warn(
             'Representation parameter has no name',
@@ -1556,7 +1556,7 @@ class DartEncoder {
     final params = decl.functionExpression.parameters;
     if (params != null && params.parameters.isNotEmpty) {
       final first = params.parameters.first;
-      if (first is ast.SimpleFormalParameter && first.type != null) {
+      if (first is ast.RegularFormalParameter && first.type != null) {
         def.inputType = first.type!.toSource();
       }
     }
@@ -1719,7 +1719,7 @@ class DartEncoder {
             FieldValuePair()
               ..name = 'label'
               ..value = (Expression()
-                ..literal = (Literal()..stringValue = stmt.label!.name)),
+                ..literal = (Literal()..stringValue = stmt.label!.name.lexeme)),
         ]);
     }
     if (stmt is ast.ContinueStatement) {
@@ -1730,7 +1730,7 @@ class DartEncoder {
             FieldValuePair()
               ..name = 'label'
               ..value = (Expression()
-                ..literal = (Literal()..stringValue = stmt.label!.name)),
+                ..literal = (Literal()..stringValue = stmt.label!.name.lexeme)),
         ]);
     }
     if (stmt is ast.AssertStatement) {
@@ -1764,7 +1764,7 @@ class DartEncoder {
             ..name = 'label'
             ..value = (Expression()
               ..literal = (Literal()
-                ..stringValue = stmt.labels.first.label.name)),
+                ..stringValue = stmt.labels.first.name.lexeme)),
           FieldValuePair()
             ..name = 'body'
             ..value = (Expression()
@@ -2724,10 +2724,10 @@ class DartEncoder {
       return Expression()..reference = (Reference()..name = 'super');
     }
 
-    // ---- Named expression (in argument lists) ----
-    if (expr is ast.NamedExpression) {
-      return _encodeExpr(expr.expression);
-    }
+    // Named arguments / record fields are unwrapped to their inner expression
+    // by their container encoders (_encodeArgList / _encodeRecordLiteral) before
+    // reaching here; analyzer 13 removed NamedExpression, so there is no longer a
+    // standalone named-expression node to handle in _encodeExpr.
 
     // ---- Switch expression ----
     if (expr is ast.SwitchExpression) {
@@ -3572,17 +3572,19 @@ class DartEncoder {
     final fields = <FieldValuePair>[];
     var positionalIndex = 0;
     for (final field in expr.fields) {
-      if (field is ast.NamedExpression) {
+      // analyzer 13: RecordLiteral.fields are RecordLiteralField; named fields
+      // are RecordLiteralNamedField (NamedExpression was removed).
+      if (field is ast.RecordLiteralNamedField) {
         fields.add(
           FieldValuePair()
-            ..name = field.name.label.name
-            ..value = _encodeExpr(field.expression),
+            ..name = field.name.lexeme
+            ..value = _encodeExpr(field.fieldExpression),
         );
       } else {
         fields.add(
           FieldValuePair()
             ..name = '\$$positionalIndex'
-            ..value = _encodeExpr(field),
+            ..value = _encodeExpr(field.fieldExpression),
         );
         positionalIndex++;
       }
@@ -4125,17 +4127,20 @@ class DartEncoder {
     final result = <FieldValuePair>[];
     var positionalIndex = 0;
     for (final arg in argList.arguments) {
-      if (arg is ast.NamedExpression) {
+      // analyzer 13: ArgumentList.arguments are Argument nodes; named args are
+      // NamedArgument (NamedExpression was removed), positional args wrap the
+      // value in `.expression`.
+      if (arg is ast.NamedArgument) {
         result.add(
           FieldValuePair()
-            ..name = arg.name.label.name
-            ..value = _encodeExpr(arg.expression),
+            ..name = arg.name.lexeme
+            ..value = _encodeExpr(arg.argumentExpression),
         );
       } else {
         result.add(
           FieldValuePair()
             ..name = 'arg$positionalIndex'
-            ..value = _encodeExpr(arg),
+            ..value = _encodeExpr(arg.argumentExpression),
         );
         positionalIndex++;
       }
@@ -4201,23 +4206,16 @@ class DartEncoder {
     final paramList = <Map<String, Object>>[];
     for (final p in params.parameters) {
       final pm = <String, Object>{'name': p.name?.lexeme ?? '_'};
-      if (p is ast.SimpleFormalParameter && p.type != null) {
+      if (p is ast.RegularFormalParameter && p.type != null) {
         pm['type'] = p.type!.toSource();
-      } else if (p is ast.DefaultFormalParameter) {
-        final inner = p.parameter;
-        if (inner is ast.SimpleFormalParameter && inner.type != null) {
-          pm['type'] = inner.type!.toSource();
-        }
-        if (p.defaultValue != null) {
-          pm['default'] = p.defaultValue!.toSource();
-        }
-        if (inner is ast.FieldFormalParameter) {
-          pm['is_this'] = true;
-          if (inner.type != null) pm['type'] = inner.type!.toSource();
-        }
-        if (inner is ast.SuperFormalParameter) {
-          pm['is_super'] = true;
-        }
+      }
+      // analyzer 13 removed DefaultFormalParameter; an optional parameter's
+      // default value now lives on the FormalParameter's `defaultClause`
+      // directly (no wrapper node). The is_this / is_super / type cases are
+      // handled by the standalone checks below.
+      final defaultClause = p.defaultClause;
+      if (defaultClause != null) {
+        pm['default'] = defaultClause.value.toSource();
       }
       if (p is ast.FieldFormalParameter) {
         pm['is_this'] = true;

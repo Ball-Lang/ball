@@ -1,0 +1,10 @@
+# Dev/CI conformance harness — imports ball_base (a dev-dependency) and the
+# generated descriptor types; not part of the published runtime.
+tool/
+# Upstream-conformance failure list + docs (CI artifact, not runtime).
+conformance/
+# The conformance request loop is a dev/CLI harness: it imports dart:io and is
+# deliberately NOT exported by the barrel. Keep it out of the published archive
+# so the public API stays the pure-Dart runtime (dart:core/convert/typed_data)
+# and the package's platform surface isn't dragged onto dart:io.
+lib/conformance.dart

@@ -2,7 +2,7 @@
 
 Core protobuf types and std module builders for the [Ball programming language](https://ball-lang.dev).
 
-`ball_base` is the foundation package that every Ball tool depends on. It re-exports the generated protobuf types defined in `proto/ball/v1/ball.proto` and provides canonical builders for the universal standard library modules (`std`, `std_collections`, `std_io`, `std_memory`).
+`ball_base` is the foundation package that every Ball tool depends on. It exposes the generated protobuf types defined in `proto/ball/v1/ball.proto`, canonical builders for the standard-library modules (`std`, `std_collections`, `std_io`, `std_memory`, `std_concurrency`, `std_convert`, `std_fs`, `std_time`), and re-exports the Editions-capable protobuf runtime from [`ball_protobuf`](https://pub.dev/packages/ball_protobuf) (which was extracted into its own package).
 
 ## Install
 
@@ -30,11 +30,13 @@ void main() {
 |--------|---------|
 | `Program`, `Module`, `Expression`, `FunctionDefinition`, `Literal`, ... | Buf-generated `ball.v1` proto types |
 | `DescriptorProto`, `FieldDescriptorProto` | Re-exported `google.protobuf` descriptor types |
-| `buildStdModule()` | Universal `std` module (arithmetic, logic, control flow, ~73 base fns) |
-| `buildStdCollectionsModule()` | `std_collections` (~43 list/map fns) |
-| `buildStdIoModule()` | `std_io` (~10 console/process/time fns) |
-| `buildStdMemoryModule()` | `std_memory` (~30 linear-memory fns for C/C++ interop) |
-| `analyzeCapabilities`, `checkPolicy` | Static capability analysis over a `Program` |
+| `buildStdModule()` | Universal `std` module (arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops) |
+| `buildStdCollectionsModule()`, `buildStdMemoryModule()` | `std_collections` (list/map) and `std_memory` (linear memory for C/C++ interop) |
+| `buildStdIoModule()`, `buildStdConcurrencyModule()`, `buildStdConvertModule()`, `buildStdFsModule()`, `buildStdTimeModule()` | The platform std modules: io, concurrency, convert, fs, time |
+| `buildBallProtoModule()` | The `ball_proto` module |
+| `marshal`, `unmarshal`, Editions resolver, … | Re-exported from [`ball_protobuf`](https://pub.dev/packages/ball_protobuf) |
+| `BallFile`, `decodeBallFileBinary`, `encodeBallFileJson`, … | Read/write `.ball.json` / `.ball.bin` (Any-enveloped `Program`/`Module`) |
+| `analyzeCapabilities`, `checkPolicy`, `analyzeTermination` | Static capability + termination analysis over modules |
 
 ## Design notes
 

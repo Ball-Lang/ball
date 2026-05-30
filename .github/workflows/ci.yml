@@ -129,6 +129,62 @@ jobs:
         run: ctest --test-dir cpp/build --output-on-failure -C Release
 
   # ──────────────────────────────────────────────────
+  # Upstream protobuf conformance (Editions) — drive ball_protobuf's
+  # feature-aware codecs through the REAL protobuf conformance_test_runner for
+  # TestAllTypesEdition2023. The runner is POSIX-only (fork/pipe) → Ubuntu only.
+  # ──────────────────────────────────────────────────
+  editions-conformance-upstream:
+    name: Upstream Conformance (Editions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install nlohmann-json
+        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
+
+      - name: Install dependencies
+        run: cd dart && dart pub get
+
+      # Builds only the conformance_test_runner target (protobuf + abseil +
+      # conformance harness). It statically links the TestAllTypes* descriptors,
+      # so we need not feed it our .proto — it already knows the message types.
+      - name: Configure CMake (conformance runner)
+        run: cmake -S cpp -B cpp/build-conformance -Dprotobuf_BUILD_CONFORMANCE=ON -DCMAKE_BUILD_TYPE=Release
+
+      # Bounded parallelism (-j 2): an unbounded `-j` spawns dozens of protobuf's
+      # huge translation units at once (command_line_interface.cc etc.) and
+      # exhausts the runner's memory. Two at a time stays well under 16 GB.
+      - name: Build conformance_test_runner
+        run: cmake --build cpp/build-conformance --target conformance_test_runner --config Release -j 2
+
+      # The conformance program: builds the descriptor registry (with resolved
+      # editions features) from the checked-in FileDescriptorSet and drives our
+      # codecs. Compiled to a native exe so the runner spawns it cheaply.
+      - name: Compile the conformance program
+        run: dart compile exe dart/ball_protobuf/tool/conformance_main.dart -o ball_conformance
+
+      - name: Run upstream conformance (Editions)
+        run: |
+          set -euo pipefail
+          runner=$(find cpp/build-conformance -name conformance_test_runner -type f | head -1)
+          if [ -z "$runner" ]; then echo "::error::conformance_test_runner not built"; exit 1; fi
+          echo "runner: $runner"
+          # The program walks up from CWD (repo root) to find the checked-in
+          # FileDescriptorSet, so it needs no args — this runner build takes the
+          # test program as the final positional arg (no `--` separator). Tests
+          # we don't yet pass are listed in failure_list_ball.txt; the runner
+          # exits non-zero on any UNEXPECTED pass or failure, so the list must
+          # stay exact (burn it down as codec/bridge gaps are fixed).
+          "$runner" --maximum_edition 2023 \
+            --failure_list dart/ball_protobuf/conformance/failure_list_ball.txt \
+            ./ball_conformance
+
+  # ──────────────────────────────────────────────────
   # TypeScript — build + test
   # ──────────────────────────────────────────────────
   typescript:

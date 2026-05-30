@@ -1114,11 +1114,54 @@ extension BallEngineEval on BallEngine {
 
         return instance;
       } else {
+        // Guard against unbounded constructor recursion: a constructor body
+        // that re-creates its own type (e.g. the implicit `class Foo {}` whose
+        // `Foo.new` body is `messageCreation Foo{}`) must resolve to the
+        // instance under construction, NOT re-invoke the constructor. Without
+        // this, `Foo() is Foo` infinitely recurses → Stack Overflow (which
+        // hangs the Dart test suite on Linux, where the unhandled async error
+        // is never collected). Mirrors the typeDef-path guard above.
+        if (scope.has('self') &&
+            scope.has('__constructor_type__') &&
+            scope.lookup('__constructor_type__') == msg.typeName) {
+          final self = scope.lookup('self');
+          if (_asMap(self) != null) return self;
+        }
+
         // Check if this type has a constructor — if so, invoke it to build
         // the instance properly (maps arg0/arg1/... to named fields via is_this).
         final ctorEntry = _constructors[msg.typeName];
         if (ctorEntry != null) {
-          return _callFunction(ctorEntry.module, ctorEntry.func, fields);
+          // Pass a shell instance as `self` so the constructor body's own
+          // `Type{}` hits the guard above (via `__constructor_type__`, bound in
+          // _callFunction for `kind: constructor`) instead of recursing.
+          final instanceFields = <String, Object?>{};
+          for (final entry in fields.entries) {
+            if (!entry.key.startsWith('arg')) {
+              instanceFields[entry.key] = entry.value;
+            }
+          }
+          final methods = _resolveTypeMethodsWithInheritance(msg.typeName);
+          final instance = BallObject(
+            typeName: msg.typeName,
+            superObject: null,
+            fields: instanceFields,
+            methods: methods.cast<String, Object?>(),
+          );
+          final ctorInput = <String, Object?>{}
+            ..addAll(fields)
+            ..['self'] = instance;
+          final constructed = await _callFunction(
+            ctorEntry.module,
+            ctorEntry.func,
+            ctorInput,
+          );
+          final constructedMap = _asMap(constructed);
+          if (constructedMap != null &&
+              constructedMap.containsKey('__type__')) {
+            return constructed;
+          }
+          return instance;
         }
 
         fields['__type__'] = msg.typeName;

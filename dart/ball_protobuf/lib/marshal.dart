@@ -30,6 +30,7 @@
 ///   - https://protobuf.dev/programming-guides/proto3/#maps
 library;
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'editions.dart';
@@ -39,6 +40,7 @@ import 'wire_bytes.dart';
 import 'field_int.dart';
 import 'field_fixed.dart';
 import 'field_len.dart';
+import 'unmarshal.dart' show unknownFieldsKey;
 
 // ---------------------------------------------------------------------------
 // Wire type constants
@@ -186,20 +188,28 @@ List<int> marshal(
           if (delimited) {
             encodeGroupField(buffer, fieldNumber, subBytes);
           } else {
-            encodeMessageField(buffer, fieldNumber, subBytes);
+            // Force-emit each element, including an empty submessage:
+            // encodeMessageField would drop a zero-length one and misalign the
+            // array (e.g. a repeated wrapper element holding the value 0).
+            encodeTag(buffer, fieldNumber, _wtLen);
+            encodeBytes(buffer, subBytes);
           }
         }
       } else if (type == 'TYPE_STRING') {
-        // Repeated strings are not packed — each is a separate LEN field.
+        // Repeated strings are not packed — each is a separate LEN field, and
+        // every element is emitted (even ""), so indices stay aligned.
         for (final item in list) {
           if (item == null) continue;
-          encodeStringField(buffer, fieldNumber, item as String);
+          encodeTag(buffer, fieldNumber, _wtLen);
+          encodeBytes(buffer, utf8.encode(item as String));
         }
       } else if (type == 'TYPE_BYTES') {
-        // Repeated bytes are not packed — each is a separate LEN field.
+        // Repeated bytes are not packed — each is a separate LEN field, every
+        // element emitted (even empty).
         for (final item in list) {
           if (item == null) continue;
-          encodeBytesField(buffer, fieldNumber, item as List<int>);
+          encodeTag(buffer, fieldNumber, _wtLen);
+          encodeBytes(buffer, item as List<int>);
         }
       } else if (features != null && isExpandedRepeated(features)) {
         // Expanded scalar repeated (proto2 / EXPANDED override): each element
@@ -218,7 +228,10 @@ List<int> marshal(
 
     // Singular field. With EXPLICIT/LEGACY_REQUIRED presence the value is
     // serialized even when it equals the type default (proto3/IMPLICIT elides).
-    // A DELIMITED message field is emitted as a group (wire type 3/4).
+    // A *set* oneof member is also always serialized (its presence on the wire
+    // is what selects the oneof case) — value==null was already skipped above,
+    // so a present member here is a set one. A DELIMITED message field is
+    // emitted as a group (wire type 3/4).
     final msgDescriptor =
         field['messageDescriptor'] as List<Map<String, Object?>>?;
     marshalField(
@@ -226,11 +239,18 @@ List<int> marshal(
       fieldNumber,
       type,
       value,
-      explicitPresence: features != null && hasExplicitPresence(features),
+      explicitPresence:
+          field['oneof'] != null ||
+          (features != null && hasExplicitPresence(features)),
       delimited: features != null && isDelimited(features),
       messageDescriptor: msgDescriptor,
     );
   }
+
+  // Re-emit any retained unknown fields (raw tag+value bytes captured by
+  // unmarshal), preserving them across a binary round-trip.
+  final unknown = message[unknownFieldsKey];
+  if (unknown is List<int>) buffer.addAll(unknown);
 
   return buffer;
 }

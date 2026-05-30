@@ -184,6 +184,12 @@ Map<String, int> decodeTag(List<int> buffer, int offset) {
     shift += 7;
 
     if ((byte & 0x80) == 0) {
+      // Reject a non-minimal (overlong) tag: a multi-byte varint whose final
+      // byte is 0x00 carries no bits and is redundant. A minimal encoding never
+      // ends in a zero continuation (the sole exception, value 0, is one byte).
+      if (bytesRead > 1 && byte == 0) {
+        throw FormatException('Overlong (non-minimal) tag at offset $offset');
+      }
       break;
     }
 

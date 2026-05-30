@@ -275,8 +275,10 @@ Map<String, Object?> _buildField(
       };
       if (valF.type == FieldDescriptorProto_Type.TYPE_MESSAGE) {
         m['messageDescriptor'] = registry[_strip(valF.typeName)];
+        m['valueTypeName'] = _strip(valF.typeName);
       } else if (valF.type == FieldDescriptorProto_Type.TYPE_ENUM) {
         m['enumValues'] = _enumValues(enums[valF.typeName]);
+        m['enumNames'] = _enumNames(enums[valF.typeName]);
       }
       return m;
     }
@@ -294,7 +296,22 @@ Map<String, Object?> _buildField(
   }
   if (typeName.isNotEmpty) m['typeName'] = _strip(typeName);
   if (isMessage) m['messageDescriptor'] = registry[_strip(typeName)];
-  if (isEnum) m['enumValues'] = _enumValues(enums[typeName]);
+  if (isEnum) {
+    m['enumValues'] = _enumValues(enums[typeName]);
+    m['enumNames'] = _enumNames(enums[typeName]);
+  }
+  // protoc's JSON name (lowerCamelCase by default, or an explicit json_name).
+  // Used as the JSON output key; the codec also accepts the proto field name.
+  if (fld.jsonName.isNotEmpty) m['jsonName'] = fld.jsonName;
+  // Real (non-synthetic) oneof membership. A proto3 `optional` field is placed
+  // in its own synthetic single-member oneof — that is NOT a real oneof, so we
+  // skip it. Members of a real oneof carry the oneof's name so the codecs can
+  // clear siblings on decode and always serialize a set member.
+  if (fld.hasOneofIndex() &&
+      !fld.proto3Optional &&
+      fld.oneofIndex < ctx.msg.oneofDecl.length) {
+    m['oneof'] = ctx.msg.oneofDecl[fld.oneofIndex].name;
+  }
   return m;
 }
 
@@ -351,11 +368,24 @@ Map<String, Object?> _featureOverrides(FeatureSet fs) {
   return m;
 }
 
+/// Number -> canonical name. With `allow_alias`, several names share a number;
+/// the FIRST declared name is canonical (used for JSON output).
 Map<int, String> _enumValues(EnumDescriptorProto? e) {
   final m = <int, String>{};
   if (e == null) return m;
   for (final v in e.value) {
-    m[v.number] = v.name;
+    m.putIfAbsent(v.number, () => v.name);
+  }
+  return m;
+}
+
+/// Every enum name -> its number, including `allow_alias` aliases. Used to
+/// accept any alias spelling on JSON input.
+Map<String, int> _enumNames(EnumDescriptorProto? e) {
+  final m = <String, int>{};
+  if (e == null) return m;
+  for (final v in e.value) {
+    m[v.name] = v.number;
   }
   return m;
 }

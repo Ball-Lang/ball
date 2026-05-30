@@ -52,6 +52,9 @@ import 'dart:typed_data';
 import 'wire_varint.dart';
 import 'wire_fixed.dart';
 import 'wire_bytes.dart';
+import 'marshal.dart';
+import 'unmarshal.dart';
+import 'json_codec.dart';
 
 // ---------------------------------------------------------------------------
 // Wire format enum values (from conformance.proto WireFormat)
@@ -414,7 +417,10 @@ List<int> encodeConformanceResponse(Map<String, Object?> response) {
 ///
 /// The returned map contains exactly one of the ConformanceResponse oneof
 /// fields as a key-value pair.
-Map<String, Object?> processConformanceRequest(Map<String, Object?> request) {
+Map<String, Object?> processConformanceRequest(
+  Map<String, Object?> request,
+  Map<String, List<Map<String, Object?>>> registry,
+) {
   final messageType = request['message_type'] as String?;
   final requestedOutputFormat =
       request['requested_output_format'] as int? ?? wireFormatUnspecified;
@@ -425,75 +431,57 @@ Map<String, Object?> processConformanceRequest(Map<String, Object?> request) {
   final hasJspbPayload = request.containsKey('jspb_payload');
   final hasTextPayload = request.containsKey('text_payload');
 
-  // Skip JSPB and TEXT_FORMAT — we don't support them.
+  // JSPB and TEXT_FORMAT are out of scope.
   if (hasJspbPayload || hasTextPayload) {
     return {
       'skipped': 'Ball protobuf: JSPB and TEXT_FORMAT payloads not supported',
     };
   }
-
   if (requestedOutputFormat == wireFormatJspb) {
     return {'skipped': 'Ball protobuf: JSPB output format not supported'};
   }
-
   if (requestedOutputFormat == wireFormatTextFormat) {
     return {
       'skipped': 'Ball protobuf: TEXT_FORMAT output format not supported',
     };
   }
-
   if (requestedOutputFormat == wireFormatUnspecified) {
     return {
       'skipped': 'Ball protobuf: UNSPECIFIED output format not supported',
     };
   }
-
   if (!hasProtobufPayload && !hasJsonPayload) {
     return {'skipped': 'Ball protobuf: no recognized payload in request'};
   }
 
-  // Without a full descriptor for the conformance test message types
-  // (TestAllTypesProto3, TestAllTypesProto2), we perform a best-effort
-  // binary-to-binary pass-through (identity) and binary-to-JSON / JSON-to-*
-  // round-trip using the generic descriptor-free path.
-
-  // --- Parse the input payload ---
-  List<int>? binaryPayload;
-
-  if (hasProtobufPayload) {
-    binaryPayload = request['protobuf_payload'] as List<int>;
-    // Without a descriptor we cannot unmarshal into a map for JSON output.
-    // For binary->binary we can pass through directly.
-  } else if (hasJsonPayload) {
-    // JSON input without a descriptor — we cannot reliably parse.
-    return {
-      'skipped':
-          'Ball protobuf: JSON input for $messageType requires a descriptor',
-    };
+  // The descriptor (with per-field resolved Editions features) is supplied by
+  // the registry, built from a protoc FileDescriptorSet by the descriptor
+  // bridge. Message types not in the registry are skipped (tracked in the
+  // failure list until their descriptors are wired in).
+  final descriptor = registry[messageType];
+  if (descriptor == null) {
+    return {'skipped': 'Ball protobuf: no descriptor for $messageType'};
   }
 
-  // --- Produce the requested output ---
+  // --- Parse the input payload through the feature-aware codecs ---
+  final Map<String, Object?> message;
+  try {
+    if (hasProtobufPayload) {
+      message = unmarshal(request['protobuf_payload'] as List<int>, descriptor);
+    } else {
+      message = unmarshalJson(request['json_payload'] as String, descriptor);
+    }
+  } catch (e) {
+    return {'parse_error': 'Ball protobuf parse error: $e'};
+  }
+
+  // --- Re-serialize in the requested format ---
   try {
     switch (requestedOutputFormat) {
       case wireFormatProtobuf:
-        if (binaryPayload != null) {
-          // Binary -> Binary: identity pass-through.
-          return {'protobuf_payload': binaryPayload};
-        }
-        return {
-          'skipped':
-              'Ball protobuf: cannot produce binary output from JSON input '
-              'without descriptor for $messageType',
-        };
-
+        return {'protobuf_payload': marshal(message, descriptor)};
       case wireFormatJson:
-        // Binary -> JSON requires a descriptor to interpret field types.
-        return {
-          'skipped':
-              'Ball protobuf: binary->JSON for $messageType requires '
-              'a descriptor',
-        };
-
+        return {'json_payload': marshalJson(message, descriptor)};
       default:
         return {
           'skipped':
@@ -501,7 +489,7 @@ Map<String, Object?> processConformanceRequest(Map<String, Object?> request) {
         };
     }
   } catch (e) {
-    return {'runtime_error': 'Ball protobuf processing error: $e'};
+    return {'serialize_error': 'Ball protobuf serialize error: $e'};
   }
 }
 
@@ -518,7 +506,7 @@ Map<String, Object?> processConformanceRequest(Map<String, Object?> request) {
 ///
 /// This function never returns normally — it runs until the input stream
 /// is exhausted, then exits cleanly.
-void runConformanceLoop() {
+void runConformanceLoop(Map<String, List<Map<String, Object?>>> registry) {
   var testCount = 0;
 
   while (true) {
@@ -533,7 +521,7 @@ void runConformanceLoop() {
     Map<String, Object?> response;
     try {
       final request = parseConformanceRequest(requestBytes);
-      response = processConformanceRequest(request);
+      response = processConformanceRequest(request, registry);
     } catch (e, st) {
       response = {'runtime_error': 'Ball conformance plugin error: $e\n$st'};
     }

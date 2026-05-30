@@ -9,11 +9,11 @@ library;
 import 'dart:io';
 
 import 'package:ball_base/ball_base.dart' show FeatureSet, FeatureSetDefaults;
-import 'package:ball_base/protobuf/edition.dart';
-import 'package:ball_base/protobuf/editions.dart';
-import 'package:ball_base/protobuf/json_codec.dart';
-import 'package:ball_base/protobuf/marshal.dart';
-import 'package:ball_base/protobuf/unmarshal.dart';
+import 'package:ball_protobuf/edition.dart';
+import 'package:ball_protobuf/editions.dart';
+import 'package:ball_protobuf/json_codec.dart';
+import 'package:ball_protobuf/marshal.dart';
+import 'package:ball_protobuf/unmarshal.dart';
 import 'package:test/test.dart';
 
 /// Locates the checked-in protoc golden by walking up from the test's CWD

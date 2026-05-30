@@ -1,17 +1,17 @@
 import 'dart:convert';
 
-import 'package:ball_base/protobuf/editions.dart';
-import 'package:ball_base/protobuf/field_fixed.dart';
-import 'package:ball_base/protobuf/field_int.dart';
-import 'package:ball_base/protobuf/field_len.dart';
-import 'package:ball_base/protobuf/grpc_frame.dart';
-import 'package:ball_base/protobuf/json_codec.dart';
-import 'package:ball_base/protobuf/marshal.dart';
-import 'package:ball_base/protobuf/unmarshal.dart';
-import 'package:ball_base/protobuf/well_known.dart';
-import 'package:ball_base/protobuf/wire_bytes.dart';
-import 'package:ball_base/protobuf/wire_fixed.dart';
-import 'package:ball_base/protobuf/wire_varint.dart';
+import 'package:ball_protobuf/editions.dart';
+import 'package:ball_protobuf/field_fixed.dart';
+import 'package:ball_protobuf/field_int.dart';
+import 'package:ball_protobuf/field_len.dart';
+import 'package:ball_protobuf/grpc_frame.dart';
+import 'package:ball_protobuf/json_codec.dart';
+import 'package:ball_protobuf/marshal.dart';
+import 'package:ball_protobuf/unmarshal.dart';
+import 'package:ball_protobuf/well_known.dart';
+import 'package:ball_protobuf/wire_bytes.dart';
+import 'package:ball_protobuf/wire_fixed.dart';
+import 'package:ball_protobuf/wire_varint.dart';
 import 'package:test/test.dart';
 
 void main() {

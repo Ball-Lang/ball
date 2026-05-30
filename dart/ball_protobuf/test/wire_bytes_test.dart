@@ -1,4 +1,4 @@
-import 'package:ball_base/protobuf/wire_bytes.dart';
+import 'package:ball_protobuf/wire_bytes.dart';
 import 'package:test/test.dart';
 
 void main() {

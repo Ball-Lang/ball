@@ -29,7 +29,9 @@ export 'termination_analyzer.dart'
         TerminationReport,
         TerminationWarning,
         formatTerminationReport;
-export 'protobuf/protobuf.dart';
+// The protobuf engine now lives in its own publishable package; re-export it so
+// existing `package:ball_base/ball_base.dart` consumers keep the same surface.
+export 'package:ball_protobuf/ball_protobuf.dart';
 export 'ball_file.dart'
     show
         BallFile,

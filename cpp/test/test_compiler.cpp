@@ -286,6 +286,31 @@ TEST(compile_string_replace_all) {
     ASSERT_CONTAINS(out, "f.empty()");
 }
 
+// Regression: the private `_ballMap*` helper fast-paths must read POSITIONAL
+// args (arg0/arg1/arg2). These calls only reach the call-path special-cases
+// once the encoder stopped mis-classifying private `_foo()` calls as
+// constructors; a prior bug read named "map"/"key"/"value" fields from the
+// positional input, dropping operands to empty `BallDyn()` and (for
+// contains-key) emitting unbalanced parens — which gcc rejected in engine_rt.cpp.
+TEST(compile_ball_map_contains_key_positional) {
+    auto prog = build_program(call("", "_ballMapContainsKeyDyn",
+        make_msg("", {{"arg0", ref("theMap")}, {"arg1", ref("theKey")}})));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, ".count(BallDyn(");
+    ASSERT_NOT_CONTAINS(out, "BallDyn().count");  // empty receiver = the bug
+}
+
+TEST(compile_ball_map_set_positional) {
+    auto prog = build_program(call("", "_ballMapSetDyn",
+        make_msg("", {{"arg0", ref("theMap")},
+                       {"arg1", ref("theKey")},
+                       {"arg2", ref("theVal")}})));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "ball_set(");
+    // key/value must not be dropped to empty BallDyn()
+    ASSERT_NOT_CONTAINS(out, ",BallDyn(),BallDyn()))");
+}
+
 // ================================================================
 // Tests — Control flow compilation
 // ================================================================

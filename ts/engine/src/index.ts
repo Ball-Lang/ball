@@ -17,6 +17,7 @@ import {
 } from './compiled_engine.ts';
 import * as _compiled from './compiled_engine.ts';
 import { createEngineSetup } from './engine_setup.ts';
+import { unwrapBallFile } from './ball_file.ts';
 
 // All proto3-JSON normalization, the method-dispatch handler, the extra
 // std-function registrations, and the compiled-engine patches live in the
@@ -44,9 +45,11 @@ export class BallEngine {
   private _output: string[] = [];
 
   constructor(program: any, options: BallEngineOptions = {}) {
-    const normalized = protoWrap(
-      typeof program === 'string' ? JSON.parse(program) : program,
-    );
+    // Ball files are self-describing `google.protobuf.Any` envelopes. Unwrap
+    // the `@type` envelope (if present) before normalizing; callers passing an
+    // already-unwrapped Program object are still supported.
+    const parsed = typeof program === 'string' ? JSON.parse(program) : program;
+    const normalized = protoWrap(unwrapBallFile(parsed));
 
     const stdHandler = new StdModuleHandler();
     const methodHandler = new MethodDispatchHandler();

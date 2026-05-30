@@ -1,4 +1,5 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Module",
   "name": "ball_proto",
   "functions": [
     {

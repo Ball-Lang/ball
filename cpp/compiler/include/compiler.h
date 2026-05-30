@@ -75,6 +75,13 @@ private:
     // can't be stored directly as std::any/std::function values).
     std::unordered_set<std::string> current_class_methods_;
 
+    // Sanitized names of locals/parameters declared in the function body
+    // currently being emitted. A reference to one of these resolves to the
+    // variable, shadowing the Dart type-object names (`num`, `int`, `String`,
+    // …) that otherwise compile to a type-name string literal. Without this a
+    // common local named `num` would emit `"num"s` instead of the variable.
+    std::unordered_set<std::string> declared_locals_;
+
     // Multi-TU emission state (compile_split only)
     bool split_mode_ = false;
     int split_shards_ = 8;
@@ -185,6 +192,9 @@ private:
         if (!e) e = get_message_field_expr(call, "value");
         return e ? compile_expr(*e) : "BallDyn()";
     }
+    // Compile a map entry sentinel expression as a map insertion statement.
+    std::string compile_map_entry_insert(const ball::v1::Expression& expr,
+                                          const std::string& map_var);
     std::string sanitize_name(const std::string& name);
     std::string indent_str();
     // Resolve a class's constructor parameter names (in declaration order) so

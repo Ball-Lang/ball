@@ -1,16 +1,39 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "171_async_error_propagation",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
-      ],
       "functions": [
-        { "name": "print", "isBase": true },
-        { "name": "try", "isBase": true },
-        { "name": "throw", "isBase": true }
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "try",
+          "isBase": true
+        },
+        {
+          "name": "throw",
+          "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
       ]
     },
     {
@@ -34,7 +57,14 @@
                         "messageCreation": {
                           "typeName": "",
                           "fields": [
-                            { "name": "__type", "value": { "literal": { "stringValue": "AsyncError" } } }
+                            {
+                              "name": "__type",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "AsyncError"
+                                }
+                              }
+                            }
                           ]
                         }
                       }
@@ -47,7 +77,12 @@
           "metadata": {
             "kind": "function",
             "is_async": true,
-            "params": [ { "name": "input", "type": "int" } ]
+            "params": [
+              {
+                "name": "input",
+                "type": "int"
+              }
+            ]
           }
         },
         {
@@ -73,7 +108,14 @@
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
-                                        { "name": "arg0", "value": { "literal": { "intValue": "0" } } }
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "0"
+                                            }
+                                          }
+                                        }
                                       ]
                                     }
                                   }
@@ -94,8 +136,22 @@
                                 "messageCreation": {
                                   "typeName": "",
                                   "fields": [
-                                    { "name": "type", "value": { "literal": { "stringValue": "AsyncError" } } },
-                                    { "name": "variable", "value": { "literal": { "stringValue": "e" } } },
+                                    {
+                                      "name": "type",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "AsyncError"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "variable",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "e"
+                                        }
+                                      }
+                                    },
                                     {
                                       "name": "body",
                                       "value": {
@@ -110,7 +166,14 @@
                                                     "messageCreation": {
                                                       "typeName": "PrintInput",
                                                       "fields": [
-                                                        { "name": "message", "value": { "literal": { "stringValue": "error-caught" } } }
+                                                        {
+                                                          "name": "message",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "error-caught"
+                                                            }
+                                                          }
+                                                        }
                                                       ]
                                                     }
                                                   }
@@ -139,7 +202,11 @@
           }
         }
       ],
-      "moduleImports": [ { "name": "std" } ]
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
     }
   ],
   "entryModule": "main",

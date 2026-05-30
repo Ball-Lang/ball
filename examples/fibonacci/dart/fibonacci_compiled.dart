@@ -2,7 +2,8 @@
 // Source: fibonacci v1.0.0
 // Target: Dart
 
-int fibonacci(int n) {
+int fibonacci(int input) {
+  int n = input;
   if ((n <= 1)) {
     return n;
   }

@@ -1,25 +1,75 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "209_generator_filtered_state",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
-      ],
       "functions": [
-        { "name": "print", "isBase": true },
-        { "name": "to_string", "isBase": true },
-        { "name": "string_join", "isBase": true },
-        { "name": "concat", "isBase": true },
-        { "name": "for", "isBase": true },
-        { "name": "if", "isBase": true },
-        { "name": "less_than", "isBase": true },
-        { "name": "post_increment", "isBase": true },
-        { "name": "equals", "isBase": true },
-        { "name": "modulo", "isBase": true },
-        { "name": "multiply", "isBase": true },
-        { "name": "yield", "isBase": true }
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "string_join",
+          "isBase": true
+        },
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "for",
+          "isBase": true
+        },
+        {
+          "name": "if",
+          "isBase": true
+        },
+        {
+          "name": "less_than",
+          "isBase": true
+        },
+        {
+          "name": "post_increment",
+          "isBase": true
+        },
+        {
+          "name": "equals",
+          "isBase": true
+        },
+        {
+          "name": "modulo",
+          "isBase": true
+        },
+        {
+          "name": "multiply",
+          "isBase": true
+        },
+        {
+          "name": "yield",
+          "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
       ]
     },
     {
@@ -30,37 +80,226 @@
           "inputType": "int",
           "outputType": "List<int>",
           "body": {
-            "call": { "module": "std", "function": "for", "input": { "messageCreation": { "fields": [
-              { "name": "init", "value": { "block": { "statements": [
-                { "let": { "name": "i", "value": { "literal": { "intValue": "0" } }, "metadata": { "keyword": "var" } } }
-              ] } } },
-              { "name": "condition", "value": { "call": { "module": "std", "function": "less_than", "input": { "messageCreation": { "fields": [
-                { "name": "left", "value": { "reference": { "name": "i" } } },
-                { "name": "right", "value": { "reference": { "name": "n" } } }
-              ] } } } } },
-              { "name": "update", "value": { "call": { "module": "std", "function": "post_increment", "input": { "messageCreation": { "fields": [
-                { "name": "value", "value": { "reference": { "name": "i" } } }
-              ] } } } } },
-              { "name": "body", "value": { "block": { "statements": [
-                { "expression": { "call": { "module": "std", "function": "if", "input": { "messageCreation": { "fields": [
-                  { "name": "condition", "value": { "call": { "module": "std", "function": "equals", "input": { "messageCreation": { "fields": [
-                    { "name": "left", "value": { "call": { "module": "std", "function": "modulo", "input": { "messageCreation": { "fields": [
-                      { "name": "left", "value": { "reference": { "name": "i" } } },
-                      { "name": "right", "value": { "literal": { "intValue": "2" } } }
-                    ] } } } } },
-                    { "name": "right", "value": { "literal": { "intValue": "0" } } }
-                  ] } } } } },
-                  { "name": "then", "value": { "call": { "module": "std", "function": "yield", "input": { "messageCreation": { "fields": [
-                    { "name": "value", "value": { "call": { "module": "std", "function": "multiply", "input": { "messageCreation": { "fields": [
-                      { "name": "left", "value": { "reference": { "name": "i" } } },
-                      { "name": "right", "value": { "reference": { "name": "i" } } }
-                    ] } } } } }
-                  ] } } } } }
-                ] } } } } }
-              ] } } }
-            ] } } }
+            "call": {
+              "module": "std",
+              "function": "for",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    {
+                      "name": "init",
+                      "value": {
+                        "block": {
+                          "statements": [
+                            {
+                              "let": {
+                                "name": "i",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "0"
+                                  }
+                                },
+                                "metadata": {
+                                  "keyword": "var"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "name": "condition",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "less_than",
+                          "input": {
+                            "messageCreation": {
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "reference": {
+                                      "name": "i"
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "reference": {
+                                      "name": "n"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "update",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "post_increment",
+                          "input": {
+                            "messageCreation": {
+                              "fields": [
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "reference": {
+                                      "name": "i"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "body",
+                      "value": {
+                        "block": {
+                          "statements": [
+                            {
+                              "expression": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "if",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "condition",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "equals",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "modulo",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "fields": [
+                                                                {
+                                                                  "name": "left",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "i"
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "right",
+                                                                  "value": {
+                                                                    "literal": {
+                                                                      "intValue": "2"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "literal": {
+                                                          "intValue": "0"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "then",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "yield",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "multiply",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "fields": [
+                                                                {
+                                                                  "name": "left",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "i"
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "right",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "i"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
           },
-          "metadata": { "kind": "function", "is_sync_star": true, "params": [ { "name": "n", "type": "int" } ] }
+          "metadata": {
+            "kind": "function",
+            "is_sync_star": true,
+            "params": [
+              {
+                "name": "n",
+                "type": "int"
+              }
+            ]
+          }
         },
         {
           "name": "main",
@@ -71,33 +310,155 @@
                 {
                   "let": {
                     "name": "result",
-                    "value": { "call": { "function": "evenSquares", "input": { "messageCreation": { "fields": [
-                      { "name": "arg0", "value": { "literal": { "intValue": "8" } } }
-                    ] } } } },
-                    "metadata": { "keyword": "final" }
+                    "value": {
+                      "call": {
+                        "function": "evenSquares",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "literal": {
+                                    "intValue": "8"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
                   }
                 },
-                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
-                  { "name": "message", "value": { "call": { "module": "std", "function": "string_join", "input": { "messageCreation": { "fields": [
-                    { "name": "list", "value": { "reference": { "name": "result" } } },
-                    { "name": "separator", "value": { "literal": { "stringValue": " " } } }
-                  ] } } } } }
-                ] } } } } },
-                { "expression": { "call": { "module": "std", "function": "print", "input": { "messageCreation": { "typeName": "PrintInput", "fields": [
-                  { "name": "message", "value": { "call": { "module": "std", "function": "concat", "input": { "messageCreation": { "fields": [
-                    { "name": "left", "value": { "literal": { "stringValue": "count=" } } },
-                    { "name": "right", "value": { "call": { "module": "std", "function": "to_string", "input": { "messageCreation": { "fields": [
-                      { "name": "value", "value": { "fieldAccess": { "object": { "reference": { "name": "result" } }, "field": "length" } } }
-                    ] } } } } }
-                  ] } } } } }
-                ] } } } } }
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "string_join",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "list",
+                                          "value": {
+                                            "reference": {
+                                              "name": "result"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "separator",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": " "
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "concat",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "count="
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "to_string",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "fieldAccess": {
+                                                          "object": {
+                                                            "reference": {
+                                                              "name": "result"
+                                                            }
+                                                          },
+                                                          "field": "length"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
               ]
             }
           },
-          "metadata": { "kind": "function" }
+          "metadata": {
+            "kind": "function"
+          }
         }
       ],
-      "moduleImports": [ { "name": "std" } ]
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
     }
   ],
   "entryModule": "main",

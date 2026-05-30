@@ -5,6 +5,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ball_base/ball_base.dart'
+    show decodeModuleBinary, decodeModuleJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 
 Future<Module> fetchGit(GitSource source) async {
@@ -50,12 +52,9 @@ Future<Module> fetchGit(GitSource source) async {
     if (encoding == ModuleEncoding.MODULE_ENCODING_PROTO ||
         filePath.endsWith('.ball.bin') ||
         filePath.endsWith('.ball')) {
-      return Module.fromBuffer(await file.readAsBytes());
+      return decodeModuleBinary(await file.readAsBytes());
     }
-    return Module()..mergeFromProto3Json(
-      jsonDecode(await file.readAsString()),
-      ignoreUnknownFields: true,
-    );
+    return decodeModuleJson(jsonDecode(await file.readAsString()));
   } finally {
     try {
       await tempDir.delete(recursive: true);

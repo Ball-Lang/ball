@@ -19,21 +19,27 @@ Module buildStdFsModule() {
   // Types
   // ============================================================
 
-  module.types.addAll([
-    _type('FilePathInput', [_stringField('path', 1)]),
-    _type('FileWriteInput', [
-      _stringField('path', 1),
-      _stringField('content', 2),
-    ]),
-    _type('FileWriteBytesInput', [
-      _stringField('path', 1),
-      _bytesField('content', 2),
-    ]),
-    _type('FileAppendInput', [
-      _stringField('path', 1),
-      _stringField('content', 2),
-    ]),
-  ]);
+  module.typeDefs.addAll(
+    <google.DescriptorProto>[
+      _type('FilePathInput', [_stringField('path', 1)]),
+      _type('FileWriteInput', [
+        _stringField('path', 1),
+        _stringField('content', 2),
+      ]),
+      _type('FileWriteBytesInput', [
+        _stringField('path', 1),
+        _bytesField('content', 2),
+      ]),
+      _type('FileAppendInput', [
+        _stringField('path', 1),
+        _stringField('content', 2),
+      ]),
+    ].map(
+      (d) => TypeDefinition()
+        ..name = d.name
+        ..descriptor = d,
+    ),
+  );
 
   // ============================================================
   // Functions

@@ -1,1 +1,0 @@
-PASS - ball.proto not modified

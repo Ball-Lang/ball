@@ -164,18 +164,6 @@ inline int64_t ball_double_to_int64(double d) {
     return r;
 }
 
-// Dart Object.runtimeType.toString() for BallDyn primitives.
-inline std::string ball_runtime_type_name(const BallDyn& v) {
-    if (ball_is_int(v)) return "int";
-    if (ball_is_double(v)) return "double";
-    if (ball_is_string(v)) return "String";
-    if (ball_is_bool(v)) return "bool";
-    if (ball_is_list(v)) return "List";
-    if (ball_is_map_dyn(v)) return "Map";
-    if (!v.has_value()) return "Null";
-    return "Object";
-}
-
 // Forward declare for vector recursion before the template catch-all.
 template<typename T> inline std::string ball_to_string(const std::vector<T>& v);
 
@@ -256,6 +244,9 @@ struct _BallRefDeref {
 };
 
 // std::any — attempt known types, fallback to type name.
+// Extension point for BallOrderedMap string conversion (set by ball_dyn.h).
+inline std::string (*_ball_to_string_ext)(const std::any&) = nullptr;
+
 inline std::string ball_to_string(const std::any& v) {
     if (!v.has_value()) return "null";
     // Unwrap BallDyn if present (MSVC wrapping issue)
@@ -271,6 +262,25 @@ inline std::string ball_to_string(const std::any& v) {
     if (const BallList_RT* lp = _BallRefDeref::list(v)) return ball_to_string(*lp);
     if (v.type() == typeid(BallMap_RT)) {
         auto& m = std::any_cast<const BallMap_RT&>(v);
+        // A reified BallException (bound by `catch(e)` via _ball_exception_to_dyn)
+        // stringifies to its original thrown value: Dart's `print(e)` / "$e"
+        // shows the thrown object, not the internal
+        // {typeName, value, message} reification. The map shape is retained so
+        // `e["value"]`, `e["typeName"]` and `e is BallException` still work for
+        // code (including the self-host engine) that inspects it.
+        {
+            auto tit = m.find("__type__");
+            if (tit != m.end()) {
+                const std::any& tu = _BallDynUnwrapper::unwrap(tit->second);
+                if (tu.type() == typeid(std::string) &&
+                    std::any_cast<const std::string&>(tu) == "BallException") {
+                    auto vit = m.find("value");
+                    if (vit != m.end()) return ball_to_string(vit->second);
+                    auto mit = m.find("message");
+                    if (mit != m.end()) return ball_to_string(mit->second);
+                }
+            }
+        }
         std::string out = "{";
         bool first = true;
         for (auto it = m.begin(); it != m.end(); ++it) {
@@ -281,6 +291,10 @@ inline std::string ball_to_string(const std::any& v) {
         }
         out += "}";
         return out;
+    }
+    if (_ball_to_string_ext) {
+        auto ext = _ball_to_string_ext(v);
+        if (!ext.empty()) return ext;
     }
     return "<any>";
 }
@@ -336,17 +350,51 @@ inline bool ball_is_list(const std::any& v) {
 bool _ball_any_is_object(const std::any& u);
 const std::map<std::string, std::any>* _ball_object_base_map(const std::any& u);
 
+// Extension point for BallOrderedMap map-type check (set by ball_dyn.h).
+inline bool (*_ball_is_map_ext)(const std::any&) = nullptr;
+
 inline bool ball_is_map(const std::any& v) {
     auto& u = _BallDynUnwrapper::unwrap(v);
     // A BallObject IS-A BallMap (Dart: `class BallObject extends BallMap`), so
     // the engine's `v is Map<String,Object?>` / `_asMap` paths must see it as a
     // map. Without this, instance fields never bind into method scopes.
-    return u.has_value() &&
-           (u.type() == typeid(BallMap_RT) || _ball_any_is_object(u));
+    if (u.has_value() &&
+        (u.type() == typeid(BallMap_RT) || _ball_any_is_object(u)))
+        return true;
+    if (_ball_is_map_ext && u.has_value() && _ball_is_map_ext(u)) return true;
+    return false;
 }
 inline bool ball_is_function(const std::any& v) {
     auto& u = _BallDynUnwrapper::unwrap(v);
     return u.has_value() && u.type() == typeid(BallFunc_RT);
+}
+
+// Dart Object.runtimeType.toString() for primitives. Uses std::any so this
+// header stays self-contained (no BallDyn dependency). BallDyn values convert
+// to std::any via operator std::any() before reaching here.
+inline std::string ball_runtime_type_name(const std::any& v) {
+    auto& u = _BallDynUnwrapper::unwrap(v);
+    if (ball_is_int(u)) return "int";
+    if (ball_is_double(u)) return "double";
+    if (ball_is_string(u)) return "String";
+    if (ball_is_bool(u)) return "bool";
+    if (ball_is_list(u)) return "List";
+    if (ball_is_map(u)) return "Map";
+    if (!u.has_value()) return "Null";
+    return "Object";
+}
+
+inline bool ball_natural_less(const std::any& a, const std::any& b) {
+    auto& ua = _BallDynUnwrapper::unwrap(a);
+    auto& ub = _BallDynUnwrapper::unwrap(b);
+    bool a_num = ua.type() == typeid(int64_t) || ua.type() == typeid(double);
+    bool b_num = ub.type() == typeid(int64_t) || ub.type() == typeid(double);
+    if (a_num && b_num) {
+        double da = ua.type() == typeid(int64_t) ? static_cast<double>(std::any_cast<int64_t>(ua)) : std::any_cast<double>(ua);
+        double db = ub.type() == typeid(int64_t) ? static_cast<double>(std::any_cast<int64_t>(ub)) : std::any_cast<double>(ub);
+        return da < db;
+    }
+    return ball_to_string(a) < ball_to_string(b);
 }
 
 // RAII guard implementing Dart `finally` semantics. The cleanup callable runs
@@ -445,6 +493,9 @@ struct BallGenerator {
     bool completed = false;
 };
 
+// Extension point for BallOrderedMap type matching (set by ball_dyn.h).
+inline bool (*_ball_object_type_matches_ext)(const std::any&, const std::string&) = nullptr;
+
 // Check if a map value's __type__ matches a type name (walks __super__ chain).
 inline bool ball_object_type_matches(const std::any& value, const std::string& type) {
     auto& u = _BallDynUnwrapper::unwrap(value);
@@ -463,7 +514,11 @@ inline bool ball_object_type_matches(const std::any& value, const std::string& t
     } else {
         mptr = _ball_object_base_map(u);
     }
-    if (!mptr) return false;
+    if (!mptr) {
+        if (_ball_object_type_matches_ext)
+            return _ball_object_type_matches_ext(u, type);
+        return false;
+    }
     const auto& m = *mptr;
     auto it = m.find("__type__");
     if (it != m.end() && it->second.has_value()) {
@@ -895,6 +950,10 @@ inline std::string _ball_json_escape(const std::string& s) {
     return out;
 }
 
+// Extension point for ordered-map JSON encoding. Set by ball_dyn.h after
+// BallOrderedMap is defined. Returns non-empty string if the type was handled.
+inline std::string (*_ball_json_encode_ext_fn)(const std::any&) = nullptr;
+
 // Recursively serialize a (already _toJsonSafe-processed) BallDyn/std::any to
 // JSON. Maps -> {"k":v}, lists -> [..], strings quoted+escaped, ints without a
 // trailing .0, doubles via ball_to_string, bools/null literally. Internal keys
@@ -933,6 +992,10 @@ inline std::string _ball_json_encode(const std::any& v) {
         }
         out += "}";
         return out;
+    }
+    if (_ball_json_encode_ext_fn) {
+        auto ext = _ball_json_encode_ext_fn(u);
+        if (!ext.empty()) return ext;
     }
     return _ball_json_escape(ball_to_string(u));
 }

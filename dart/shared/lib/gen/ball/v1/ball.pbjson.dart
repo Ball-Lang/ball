@@ -91,14 +91,6 @@ const Module$json = {
   '2': [
     {'1': 'name', '3': 1, '4': 1, '5': 9, '10': 'name'},
     {
-      '1': 'types',
-      '3': 2,
-      '4': 3,
-      '5': 11,
-      '6': '.google.protobuf.DescriptorProto',
-      '10': 'types'
-    },
-    {
       '1': 'enums',
       '3': 7,
       '4': 3,
@@ -164,21 +156,24 @@ const Module$json = {
       '10': 'assets'
     },
   ],
+  '9': [
+    {'1': 2, '2': 3},
+  ],
+  '10': ['types'],
 };
 
 /// Descriptor for `Module`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List moduleDescriptor = $convert.base64Decode(
-    'CgZNb2R1bGUSEgoEbmFtZRgBIAEoCVIEbmFtZRI2CgV0eXBlcxgCIAMoCzIgLmdvb2dsZS5wcm'
-    '90b2J1Zi5EZXNjcmlwdG9yUHJvdG9SBXR5cGVzEjoKBWVudW1zGAcgAygLMiQuZ29vZ2xlLnBy'
-    'b3RvYnVmLkVudW1EZXNjcmlwdG9yUHJvdG9SBWVudW1zEjkKCWZ1bmN0aW9ucxgDIAMoCzIbLm'
-    'JhbGwudjEuRnVuY3Rpb25EZWZpbml0aW9uUglmdW5jdGlvbnMSIAoLZGVzY3JpcHRpb24YBSAB'
-    'KAlSC2Rlc2NyaXB0aW9uEjMKCG1ldGFkYXRhGAYgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cn'
-    'VjdFIIbWV0YWRhdGESPAoObW9kdWxlX2ltcG9ydHMYBCADKAsyFS5iYWxsLnYxLk1vZHVsZUlt'
-    'cG9ydFINbW9kdWxlSW1wb3J0cxI0Cgl0eXBlX2RlZnMYCCADKAsyFy5iYWxsLnYxLlR5cGVEZW'
-    'Zpbml0aW9uUgh0eXBlRGVmcxI1Cgx0eXBlX2FsaWFzZXMYCyADKAsyEi5iYWxsLnYxLlR5cGVB'
-    'bGlhc1ILdHlwZUFsaWFzZXMSPAoQbW9kdWxlX2NvbnN0YW50cxgMIAMoCzIRLmJhbGwudjEuQ2'
-    '9uc3RhbnRSD21vZHVsZUNvbnN0YW50cxIsCgZhc3NldHMYDSADKAsyFC5iYWxsLnYxLk1vZHVs'
-    'ZUFzc2V0UgZhc3NldHM=');
+    'CgZNb2R1bGUSEgoEbmFtZRgBIAEoCVIEbmFtZRI6CgVlbnVtcxgHIAMoCzIkLmdvb2dsZS5wcm'
+    '90b2J1Zi5FbnVtRGVzY3JpcHRvclByb3RvUgVlbnVtcxI5CglmdW5jdGlvbnMYAyADKAsyGy5i'
+    'YWxsLnYxLkZ1bmN0aW9uRGVmaW5pdGlvblIJZnVuY3Rpb25zEiAKC2Rlc2NyaXB0aW9uGAUgAS'
+    'gJUgtkZXNjcmlwdGlvbhIzCghtZXRhZGF0YRgGIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1'
+    'Y3RSCG1ldGFkYXRhEjwKDm1vZHVsZV9pbXBvcnRzGAQgAygLMhUuYmFsbC52MS5Nb2R1bGVJbX'
+    'BvcnRSDW1vZHVsZUltcG9ydHMSNAoJdHlwZV9kZWZzGAggAygLMhcuYmFsbC52MS5UeXBlRGVm'
+    'aW5pdGlvblIIdHlwZURlZnMSNQoMdHlwZV9hbGlhc2VzGAsgAygLMhIuYmFsbC52MS5UeXBlQW'
+    'xpYXNSC3R5cGVBbGlhc2VzEjwKEG1vZHVsZV9jb25zdGFudHMYDCADKAsyES5iYWxsLnYxLkNv'
+    'bnN0YW50Ug9tb2R1bGVDb25zdGFudHMSLAoGYXNzZXRzGA0gAygLMhQuYmFsbC52MS5Nb2R1bG'
+    'VBc3NldFIGYXNzZXRzSgQIAhADUgV0eXBlcw==');
 
 @$core.Deprecated('Use moduleAssetDescriptor instead')
 const ModuleAsset$json = {

@@ -7,14 +7,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../cmake")
 include(BallSelfhostEngine)
 
-# Engine tests
-add_executable(test_engine test_engine.cpp)
-target_include_directories(test_engine PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../engine/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
-)
-target_link_libraries(test_engine ball_cpp_engine ball_shared)
-
 # Compiler tests
 add_executable(test_compiler test_compiler.cpp)
 target_include_directories(test_compiler PRIVATE
@@ -22,27 +14,6 @@ target_include_directories(test_compiler PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
 )
 target_link_libraries(test_compiler ball_cpp_compiler_lib ball_shared)
-
-# Conformance tests — runs all tests/conformance/*.ball.json through the
-# C++ engine and compares output against the matching .expected_output.txt.
-add_executable(test_conformance test_conformance.cpp)
-target_include_directories(test_conformance PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../engine/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
-)
-target_link_libraries(test_conformance ball_cpp_engine ball_shared)
-target_compile_definitions(test_conformance PRIVATE
-    BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
-)
-# Bump the thread stack to 16 MB so deep-recursion conformance programs
-# (e.g. 59_deep_recursion with depth 100) don't overflow the default 1 MB stack.
-if(MSVC)
-    target_link_options(test_conformance PRIVATE /STACK:16777216)
-elseif(APPLE)
-    target_link_options(test_conformance PRIVATE -Wl,-stack_size,0x1000000)
-else()
-    target_link_options(test_conformance PRIVATE -Wl,-z,stacksize=16777216)
-endif()
 
 # End-to-end compiler tests — compile selected conformance programs to C++
 # source, invoke the system C++ compiler to build a binary, run it, and
@@ -66,40 +37,6 @@ target_compile_definitions(test_e2e PRIVATE
     BALL_E2E_BUILD_TYPE="$<CONFIG>"
 )
 
-# Performance regression harness — runs every conformance program
-# through the C++ engine N times and writes per-program timings to a
-# CSV under the build tree. Capture-only: no budget enforcement.
-add_executable(test_perf test_perf.cpp)
-target_include_directories(test_perf PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../engine/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
-)
-target_link_libraries(test_perf ball_cpp_engine ball_shared)
-target_compile_definitions(test_perf PRIVATE
-    BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
-    BALL_PERF_CSV_OUT="${CMAKE_CURRENT_BINARY_DIR}/perf.csv"
-    BALL_PERF_BASELINE="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/perf_baseline.csv"
-)
-
-# Focused micro-benchmark — few call-heavy fixtures, high iteration
-# count, stable median. For measuring single-digit-% perf changes fast.
-add_executable(test_perf_micro test_perf_micro.cpp)
-target_include_directories(test_perf_micro PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../engine/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
-)
-target_link_libraries(test_perf_micro ball_cpp_engine ball_shared)
-target_compile_definitions(test_perf_micro PRIVATE
-    BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
-)
-if(MSVC)
-    target_link_options(test_perf_micro PRIVATE /STACK:16777216)
-elseif(APPLE)
-    target_link_options(test_perf_micro PRIVATE -Wl,-stack_size,0x1000000)
-else()
-    target_link_options(test_perf_micro PRIVATE -Wl,-z,stacksize=16777216)
-endif()
-
 # Snapshot tests — pins the exact CppCompiler output for each fixture.
 add_executable(test_snapshot test_snapshot.cpp)
 target_include_directories(test_snapshot PRIVATE
@@ -113,17 +50,14 @@ target_compile_definitions(test_snapshot PRIVATE
 )
 
 # Encoder tests — exercises CppEncoder::encode_from_clang_ast using
-# hand-crafted minimal Clang AST JSON fixtures. Also links the engine
-# for round-trip tests (AST → encoder → Program → engine → value).
+# hand-crafted minimal Clang AST JSON fixtures.
 add_executable(test_encoder test_encoder.cpp)
 target_include_directories(test_encoder PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../encoder/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../engine/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
 )
 target_link_libraries(test_encoder
     ball_cpp_encoder_lib
-    ball_cpp_engine
     ball_shared
 )
 # Path to real clang AST fixtures. Checked in under
@@ -221,9 +155,10 @@ endif()
 endif()
 
 enable_testing()
-add_test(NAME engine_tests COMMAND test_engine)
 add_test(NAME compiler_tests COMMAND test_compiler)
-add_test(NAME conformance_tests COMMAND test_conformance)
 add_test(NAME encoder_tests COMMAND test_encoder)
 add_test(NAME e2e_tests COMMAND test_e2e)
 add_test(NAME snapshot_tests COMMAND test_snapshot)
+if(BALL_SELFHOST_AVAILABLE)
+    add_test(NAME selfhost_conformance_tests COMMAND test_selfhost_conformance)
+endif()

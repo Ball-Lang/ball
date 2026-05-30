@@ -1,22 +1,10 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "base64_encode_decode",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        {
-          "name": "PrintInput",
-          "field": [
-            {
-              "name": "message",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        }
-      ],
       "functions": [
         {
           "name": "print",
@@ -34,56 +22,26 @@
           "name": "index",
           "isBase": true
         }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
       ]
     },
     {
       "name": "std_convert",
-      "types": [
-        {
-          "name": "Utf8EncodeInput",
-          "field": [
-            {
-              "name": "value",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        },
-        {
-          "name": "Utf8DecodeInput",
-          "field": [
-            {
-              "name": "value",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_BYTES"
-            }
-          ]
-        },
-        {
-          "name": "Base64EncodeInput",
-          "field": [
-            {
-              "name": "value",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_BYTES"
-            }
-          ]
-        },
-        {
-          "name": "Base64DecodeInput",
-          "field": [
-            {
-              "name": "value",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        }
-      ],
       "functions": [
         {
           "name": "utf8_encode",
@@ -108,6 +66,64 @@
           "inputType": "Base64DecodeInput",
           "outputType": "bytes",
           "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "Utf8EncodeInput",
+          "descriptor": {
+            "name": "Utf8EncodeInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Utf8DecodeInput",
+          "descriptor": {
+            "name": "Utf8DecodeInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_BYTES"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Base64EncodeInput",
+          "descriptor": {
+            "name": "Base64EncodeInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_BYTES"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Base64DecodeInput",
+          "descriptor": {
+            "name": "Base64DecodeInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         }
       ]
     },

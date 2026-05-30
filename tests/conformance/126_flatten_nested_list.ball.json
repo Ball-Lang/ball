@@ -1,22 +1,10 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        {
-          "name": "PrintInput",
-          "field": [
-            {
-              "name": "message",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        }
-      ],
       "functions": [
         {
           "name": "for",
@@ -39,7 +27,23 @@
           "isBase": true
         }
       ],
-      "description": "Universal standard library base module"
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "std_collections",

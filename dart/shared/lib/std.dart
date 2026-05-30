@@ -26,96 +26,108 @@ Module buildStdModule() {
   // Types (input message types for universal base functions)
   // ============================================================
 
-  module.types.addAll([
-    _type('BinaryInput', [_exprField('left', 1), _exprField('right', 2)]),
-    _type('UnaryInput', [_exprField('value', 1)]),
-    _type('PrintInput', [_stringField('message', 1)]),
-    _type('IfInput', [
-      _exprField('condition', 1),
-      _exprField('then', 2),
-      _exprField('else', 3),
-      _stringField('case_pattern', 4),
-    ]),
-    _type('ForInput', [
-      _exprField('init', 1),
-      _exprField('condition', 2),
-      _exprField('update', 3),
-      _exprField('body', 4),
-    ]),
-    _type('ForInInput', [
-      _stringField('variable', 1),
-      _stringField('variable_type', 2),
-      _exprField('iterable', 3),
-      _exprField('body', 4),
-    ]),
-    _type('WhileInput', [_exprField('condition', 1), _exprField('body', 2)]),
-    _type('DoWhileInput', [_exprField('body', 1), _exprField('condition', 2)]),
-    _type('SwitchInput', [
-      _exprField('subject', 1),
-      _exprListField('cases', 2),
-    ]),
-    _type('SwitchCase', [
-      _exprField('value', 1),
-      _boolField('is_default', 2),
-      _exprField('body', 3),
-      _stringField('pattern', 4),
-    ]),
-    _type('TryInput', [
-      _exprField('body', 1),
-      _exprListField('catches', 2),
-      _exprField('finally', 3),
-    ]),
-    _type('CatchClause', [
-      _stringField('type', 1),
-      _stringField('variable', 2),
-      _stringField('stack_trace', 3),
-      _exprField('body', 4),
-    ]),
-    _type('AssertInput', [
-      _exprField('condition', 1),
-      _exprField('message', 2),
-    ]),
-    _type('AssignInput', [
-      _exprField('target', 1),
-      _exprField('value', 2),
-      _stringField('op', 3),
-    ]),
-    _type('IndexInput', [_exprField('target', 1), _exprField('index', 2)]),
-    _type('TypeCheckInput', [_exprField('value', 1), _stringField('type', 2)]),
-    _type('BreakInput', [_stringField('label', 1)]),
-    _type('ContinueInput', [_stringField('label', 1)]),
-    _type('ReturnInput', [_exprField('value', 1)]),
-    _type('GotoInput', [_stringField('label', 1)]),
-    _type('LabelInput', [_stringField('name', 1), _exprField('body', 2)]),
+  module.typeDefs.addAll(
+    <google.DescriptorProto>[
+      _type('BinaryInput', [_exprField('left', 1), _exprField('right', 2)]),
+      _type('UnaryInput', [_exprField('value', 1)]),
+      _type('PrintInput', [_stringField('message', 1)]),
+      _type('IfInput', [
+        _exprField('condition', 1),
+        _exprField('then', 2),
+        _exprField('else', 3),
+        _stringField('case_pattern', 4),
+      ]),
+      _type('ForInput', [
+        _exprField('init', 1),
+        _exprField('condition', 2),
+        _exprField('update', 3),
+        _exprField('body', 4),
+      ]),
+      _type('ForInInput', [
+        _stringField('variable', 1),
+        _stringField('variable_type', 2),
+        _exprField('iterable', 3),
+        _exprField('body', 4),
+      ]),
+      _type('WhileInput', [_exprField('condition', 1), _exprField('body', 2)]),
+      _type('DoWhileInput', [
+        _exprField('body', 1),
+        _exprField('condition', 2),
+      ]),
+      _type('SwitchInput', [
+        _exprField('subject', 1),
+        _exprListField('cases', 2),
+      ]),
+      _type('SwitchCase', [
+        _exprField('value', 1),
+        _boolField('is_default', 2),
+        _exprField('body', 3),
+        _stringField('pattern', 4),
+      ]),
+      _type('TryInput', [
+        _exprField('body', 1),
+        _exprListField('catches', 2),
+        _exprField('finally', 3),
+      ]),
+      _type('CatchClause', [
+        _stringField('type', 1),
+        _stringField('variable', 2),
+        _stringField('stack_trace', 3),
+        _exprField('body', 4),
+      ]),
+      _type('AssertInput', [
+        _exprField('condition', 1),
+        _exprField('message', 2),
+      ]),
+      _type('AssignInput', [
+        _exprField('target', 1),
+        _exprField('value', 2),
+        _stringField('op', 3),
+      ]),
+      _type('IndexInput', [_exprField('target', 1), _exprField('index', 2)]),
+      _type('TypeCheckInput', [
+        _exprField('value', 1),
+        _stringField('type', 2),
+      ]),
+      _type('BreakInput', [_stringField('label', 1)]),
+      _type('ContinueInput', [_stringField('label', 1)]),
+      _type('ReturnInput', [_exprField('value', 1)]),
+      _type('GotoInput', [_stringField('label', 1)]),
+      _type('LabelInput', [_stringField('name', 1), _exprField('body', 2)]),
 
-    // --- String operation input types ---
-    _type('StringSubstringInput', [
-      _exprField('value', 1),
-      _exprField('start', 2),
-      _exprField('end', 3),
-    ]),
-    _type('StringReplaceInput', [
-      _exprField('value', 1),
-      _exprField('from', 2),
-      _exprField('to', 3),
-    ]),
-    _type('StringRepeatInput', [
-      _exprField('value', 1),
-      _exprField('count', 2),
-    ]),
-    _type('StringPadInput', [
-      _exprField('value', 1),
-      _exprField('width', 2),
-      _exprField('padding', 3),
-    ]),
+      // --- String operation input types ---
+      _type('StringSubstringInput', [
+        _exprField('value', 1),
+        _exprField('start', 2),
+        _exprField('end', 3),
+      ]),
+      _type('StringReplaceInput', [
+        _exprField('value', 1),
+        _exprField('from', 2),
+        _exprField('to', 3),
+      ]),
+      _type('StringRepeatInput', [
+        _exprField('value', 1),
+        _exprField('count', 2),
+      ]),
+      _type('StringPadInput', [
+        _exprField('value', 1),
+        _exprField('width', 2),
+        _exprField('padding', 3),
+      ]),
 
-    // --- Math input types ---
-    _type('MathClampInput', [
-      _exprField('value', 1),
-      _exprField('min', 2),
-      _exprField('max', 3),
-    ]),
-  ]);
+      // --- Math input types ---
+      _type('MathClampInput', [
+        _exprField('value', 1),
+        _exprField('min', 2),
+        _exprField('max', 3),
+      ]),
+    ].map(
+      (d) => TypeDefinition()
+        ..name = d.name
+        ..descriptor = d,
+    ),
+  );
 
   // ============================================================
   // Functions — universal, language-agnostic

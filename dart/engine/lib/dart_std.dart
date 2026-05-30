@@ -24,49 +24,55 @@ Module buildDartStdModule() {
   // Types (input message types for Dart-specific functions)
   // ============================================================
 
-  module.types.addAll([
-    _type('NullAwareAccessInput', [
-      _exprField('target', 1),
-      _stringField('field', 2),
-    ]),
-    _type('NullAwareCallInput', [
-      _exprField('target', 1),
-      _stringField('method', 2),
-      _fieldValuePairListField('args', 3),
-    ]),
-    _type('InvokeInput', [
-      _exprField('callee', 1),
-      _fieldValuePairListField('args', 2),
-    ]),
-    _type('CascadeInput', [
-      _exprField('target', 1),
-      _exprListField('sections', 2),
-    ]),
-    _type('MapCreateInput', [_fieldValuePairListField('entries', 1)]),
-    _type('SetCreateInput', [_exprListField('elements', 1)]),
-    _type('RecordInput', [_fieldValuePairListField('fields', 1)]),
-    _type('CollectionIfInput', [
-      _exprField('condition', 1),
-      _exprField('then', 2),
-      _exprField('else', 3),
-    ]),
-    _type('CollectionForInput', [
-      _stringField('variable', 1),
-      _exprField('iterable', 2),
-      _exprField('body', 3),
-    ]),
-    _type('SwitchExprInput', [
-      _exprField('subject', 1),
-      _exprListField('cases', 2),
-    ]),
-    _type('SwitchExprCase', [
-      _stringField('pattern', 1),
-      _exprField('body', 2),
-    ]),
-    _type('SymbolInput', [_stringField('value', 1)]),
-    _type('TypeLiteralInput', [_stringField('type', 1)]),
-    _type('LabeledInput', [_stringField('label', 1), _exprField('body', 2)]),
-  ]);
+  module.typeDefs.addAll(
+    <google.DescriptorProto>[
+      _type('NullAwareAccessInput', [
+        _exprField('target', 1),
+        _stringField('field', 2),
+      ]),
+      _type('NullAwareCallInput', [
+        _exprField('target', 1),
+        _stringField('method', 2),
+        _fieldValuePairListField('args', 3),
+      ]),
+      _type('InvokeInput', [
+        _exprField('callee', 1),
+        _fieldValuePairListField('args', 2),
+      ]),
+      _type('CascadeInput', [
+        _exprField('target', 1),
+        _exprListField('sections', 2),
+      ]),
+      _type('MapCreateInput', [_fieldValuePairListField('entries', 1)]),
+      _type('SetCreateInput', [_exprListField('elements', 1)]),
+      _type('RecordInput', [_fieldValuePairListField('fields', 1)]),
+      _type('CollectionIfInput', [
+        _exprField('condition', 1),
+        _exprField('then', 2),
+        _exprField('else', 3),
+      ]),
+      _type('CollectionForInput', [
+        _stringField('variable', 1),
+        _exprField('iterable', 2),
+        _exprField('body', 3),
+      ]),
+      _type('SwitchExprInput', [
+        _exprField('subject', 1),
+        _exprListField('cases', 2),
+      ]),
+      _type('SwitchExprCase', [
+        _stringField('pattern', 1),
+        _exprField('body', 2),
+      ]),
+      _type('SymbolInput', [_stringField('value', 1)]),
+      _type('TypeLiteralInput', [_stringField('type', 1)]),
+      _type('LabeledInput', [_stringField('label', 1), _exprField('body', 2)]),
+    ].map(
+      (d) => TypeDefinition()
+        ..name = d.name
+        ..descriptor = d,
+    ),
+  );
 
   // ============================================================
   // Functions — Dart-specific

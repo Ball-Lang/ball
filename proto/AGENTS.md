@@ -1,16 +1,14 @@
 # Proto Schema Agents
 
-**Generated:** 2026-05-05 | **Commit:** e9d2668 | **Branch:** main
-
 `proto/ball/v1/ball.proto` is the **single source of truth** for the Ball language. All implementations deserialize from this schema.
 
-## Schema Rules
+The Core Invariants (one input/output, cosmetic metadata, bodiless base functions, lazy control flow, never edit generated files) are defined once in CLAUDE.md → Core Invariants — Never Violate. This file covers only the proto-specific consequences of those invariants.
 
-- One input, one output per function (gRPC-style)
-- Base functions have no body — implementation is per-platform
-- Control flow (`if`, `for`, `while`, `for_each`) is lazy: implemented as base function calls with lazy-evaluated bodies
-- Metadata fields are **cosmetic** — stripping all metadata must not change what a program computes
-- 7 expression types: `call`, `literal`, `reference`, `fieldAccess`, `messageCreation`, `block`, `lambda`
+## Semantic vs Cosmetic
+
+- **Semantic** content lives in the schema: the expression tree, function signatures (input/output type), type descriptors, and module structure. Changing it changes what a program computes.
+- **Cosmetic** content lives in `google.protobuf.Struct metadata` fields: visibility, mutability, syntax sugar, import URIs, annotations. Stripping all metadata must not change what a program computes.
+- 7 expression variants (the `Expression` oneof): `call`, `literal`, `reference`, `fieldAccess`, `messageCreation`, `block`, `lambda`.
 
 ## Buf Configuration
 

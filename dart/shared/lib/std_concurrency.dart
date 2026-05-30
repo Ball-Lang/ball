@@ -19,17 +19,23 @@ Module buildStdConcurrencyModule() {
   // Types
   // ============================================================
 
-  module.types.addAll([
-    _type('ThreadInput', [_exprField('body', 1)]),
-    _type('MutexInput', []),
-    _type('LockInput', [_exprField('mutex', 1), _exprField('body', 2)]),
-    _type('AtomicInput', [_exprField('value', 1)]),
-    _type('AtomicOpInput', [
-      _exprField('atomic', 1),
-      _stringField('op', 2),
-      _exprField('value', 3),
-    ]),
-  ]);
+  module.typeDefs.addAll(
+    <google.DescriptorProto>[
+      _type('ThreadInput', [_exprField('body', 1)]),
+      _type('MutexInput', []),
+      _type('LockInput', [_exprField('mutex', 1), _exprField('body', 2)]),
+      _type('AtomicInput', [_exprField('value', 1)]),
+      _type('AtomicOpInput', [
+        _exprField('atomic', 1),
+        _stringField('op', 2),
+        _exprField('value', 3),
+      ]),
+    ].map(
+      (d) => TypeDefinition()
+        ..name = d.name
+        ..descriptor = d,
+    ),
+  );
 
   // ============================================================
   // Functions

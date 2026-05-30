@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 import { BallCompiler, compile } from "../src/index.ts";
 import type { Program } from "../src/index.ts";
+import { unwrapBallFile } from "./ball_file.ts";
 
 function findRepoRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -30,7 +31,7 @@ function findRepoRoot(): string {
 function loadFixture(name: string): Program {
   const root = findRepoRoot();
   const path = resolve(root, "tests/fixtures/dart/_generated", `${name}.ball.json`);
-  const json = JSON.parse(readFileSync(path, "utf8")) as Program;
+  const json = unwrapBallFile(JSON.parse(readFileSync(path, "utf8"))) as Program;
   return json;
 }
 

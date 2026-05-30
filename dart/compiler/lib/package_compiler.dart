@@ -72,7 +72,6 @@ class PackageCompiler {
       // facades that must be emitted so downstream imports resolve.
       for (final m in program.modules)
         if (m.functions.isEmpty &&
-            m.types.isEmpty &&
             m.typeDefs.isEmpty &&
             m.enums.isEmpty &&
             !_isUserModule(m.name) &&
@@ -303,7 +302,6 @@ class PackageCompiler {
     // symbols. Those `dart_exports` live in module metadata.
     if (_hasExportMetadata(module)) return false;
     return module.functions.isEmpty &&
-        module.types.isEmpty &&
         module.typeDefs.isEmpty &&
         module.enums.isEmpty &&
         module.typeAliases.isEmpty &&

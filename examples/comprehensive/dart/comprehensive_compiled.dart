@@ -4,189 +4,197 @@
 
 import 'dart:math' show max, min;
 
-const pi = 3.14159;
-
-final greeting = 'Hello';
-
-var globalCounter = 0;
-
-late String lateInit;
-
 typedef IntTransform = int Function(int);
-
 typedef StringMapper<T> = String Function(T);
 
-enum Color {
-  red,
-  green,
-  blue;
-}
+enum Color { red, green, blue }
 
 enum Planet {
   mercury(3.7),
   venus(8.87),
   earth(9.81);
 
-  final double gravity;
-
   const Planet(this.gravity);
+
+  final double gravity;
 
   String describe() => ((name.toString() + ': gravity=') + gravity.toString());
 }
 
 mixin Describable {
   String describe();
-
   void printDescription() {
     print(describe());
   }
-
 }
 
 abstract class Shape {
   double area();
-
   String describe() => (('Shape(area=' + area().toString()) + ')');
-
 }
 
 class Circle extends Shape {
-  final double radius;
-
   Circle(this.radius);
 
+  final double radius;
+
+  @override
   double area() => ((pi * radius) * radius);
 
-  String describe() => (((('Circle(r=' + radius.toString()) + ', a=') + area().toString()) + ')');
-
+  @override
+  String describe() =>
+      (((('Circle(r=' + radius.toString()) + ', a=') + area().toString()) +
+      ')');
 }
 
 class Rectangle extends Shape {
-  final double width;
-  final double height;
-
   Rectangle(this.width, this.height);
 
-  double area() => (width * height);
+  final double width;
 
+  final double height;
+
+  @override
+  double area() => (width * height);
 }
 
 class Point {
-  final double x;
-  final double y;
-
   Point(this.x, this.y);
 
-  Point.origin()
-      : x = 0,
-        y = 0;
+  Point.origin() : x = 0, y = 0;
 
-  Point.fromList(List<double> coords)
-      : x = coords[0],
-        y = coords[1];
+  Point.fromList(List<double> coords) : x = coords[0], y = coords[1];
 
-  double distanceTo(Point other) {
+  final double x;
+
+  final double y;
+
+  double distanceTo(Point input) {
+    Point other = input;
     final dx = (x - other.x);
     final dy = (y - other.y);
     return ((dx * dx) + (dy * dy));
   }
 
   @override
-  String toString() => (((('Point(' + x.toString()) + ', ') + y.toString()) + ')');
-
+  String toString() =>
+      (((('Point(' + x.toString()) + ', ') + y.toString()) + ')');
 }
 
 class Logger {
+  Logger._internal(this.name);
+
+  factory Logger(String input) {
+    String name = input;
+    return _cache.putIfAbsent(name, () => Logger._internal(name));
+  }
+
   final String name;
 
   static final Map<String, Logger> _cache = {};
 
-  Logger._internal(this.name);
-
-  factory Logger(String name) {
-    return _cache.putIfAbsent(name, () => Logger._internal(name));
-  }
-
-  void log(String message) {
+  void log(String input) {
+    String message = input;
     print(((('[' + name.toString()) + '] ') + message.toString()));
   }
-
 }
 
 class Animal with Describable {
-  final String species;
-
   Animal(this.species);
 
-  String describe() => ('Animal: ' + species.toString());
+  final String species;
 
+  @override
+  String describe() => ('Animal: ' + species.toString());
 }
 
 class Pair<A, B> {
-  final A first;
-  final B second;
-
   Pair(this.first, this.second);
 
-  @override
-  String toString() => (((('Pair(' + first.toString()) + ', ') + second.toString()) + ')');
+  final A first;
 
+  final B second;
+
+  @override
+  String toString() =>
+      (((('Pair(' + first.toString()) + ', ') + second.toString()) + ')');
 }
 
 extension StringUtils on String {
   String reversed() {
     final chars = split('');
     final buffer = StringBuffer();
-    for (var i = chars.length - 1; (i >= 0); (i--)) {
+    for (var i = (chars.length - 1); (i >= 0); i--) {
       buffer.write(chars[i]);
     }
     return buffer.toString();
   }
 
   bool get isPalindrome => (this == reversed());
-
 }
 
-T identity<T>(T value) => value;
+const pi = 3.14159;
+final greeting = 'Hello';
+var globalCounter = 0;
+late String lateInit;
+T identity<T>(T input) {
+  T value = input;
+  return value;
+}
 
 Future<int> asyncAdd(int a, int b) async {
   return (a + b);
 }
 
-Future<String> asyncGreet(String name) async {
+Future<String> asyncGreet(String input) async {
+  String name = input;
   final result = await asyncAdd(1, 2);
   return ((('Hello ' + name.toString()) + ', result=') + result.toString());
 }
 
-String? maybeNull(bool flag) => (flag ? 'value' : null);
+String? maybeNull(bool input) {
+  bool flag = input;
+  if (flag) {
+    return 'value';
+  } else {
+    return null;
+  }
+}
 
 String withDefault(String? input) => (input ?? 'default');
+int safeLength(String? input) {
+  String? s = input;
+  return (s?.length ?? 0);
+}
 
-int safeLength(String? s) => (s?.length ?? 0);
-
-String describeNumber(int n) => switch (n) {
-  0 => 'zero',
-  1 => 'one',
-  2 => 'two',
-  _ => ('other: ' + n.toString()),
-};
+String describeNumber(int input) {
+  int n = input;
+  return switch (n) {
+    0 => 'zero',
+    1 => 'one',
+    2 => 'two',
+    _ => ('other: ' + n.toString()),
+  };
+}
 
 String safeDivide(int a, int b) {
   try {
     if ((b == 0)) {
       throw ArgumentError('Division by zero');
     }
-    return (a ~/ b).toString();
+    return ((a ~/ b)).toString();
   } on ArgumentError catch (e) {
     return ('error: ' + e.toString());
-  } catch (e) {
+  } catch (__ball_e) {
+    final e = __ball_e;
     return ('unknown: ' + e.toString());
   } finally {
     globalCounter = (globalCounter + 1);
   }
 }
 
-int sumList(List<int> items) {
+int sumList(List<int> input) {
+  List<int> items = input;
   var sum = 0;
   for (final item in items) {
     sum = (sum + item);
@@ -194,7 +202,8 @@ int sumList(List<int> items) {
   return sum;
 }
 
-int doWhileCount(int target) {
+int doWhileCount(int input) {
+  int target = input;
   var i = 0;
   do {
     i = (i + 1);
@@ -202,15 +211,17 @@ int doWhileCount(int target) {
   return i;
 }
 
-int assertPositive(int n) {
+int assertPositive(int input) {
+  int n = input;
   assert((n > 0), 'must be positive');
   return n;
 }
 
-String typeTest(Object obj) {
+String typeTest(Object input) {
+  Object obj = input;
   if ((obj is int)) {
     return ('int: ' + obj.toString());
-  } else   if ((obj is String)) {
+  } else if ((obj is String)) {
     return ('string: ' + obj.toString());
   } else {
     return 'other';
@@ -218,21 +229,28 @@ String typeTest(Object obj) {
 }
 
 String cascadeTest() {
-  final sb = StringBuffer()..write('a')..write('b')..write('c');
+  final sb = (StringBuffer()
+    ..write('a')
+    ..write('b')
+    ..write('c'));
   return sb.toString();
 }
 
-List<int> doubleList(List<int> items) => [for (final item in items) (item * 2)];
+List<int> doubleList(List<int> input) {
+  List<int> items = input;
+  return [for (final item in items) (item * 2)];
+}
 
 Map<String, int> makeMap() => {'x': 10, 'y': 20, 'z': 30};
-
 Set<int> makeSet() => {1, 2, 3, 4, 5};
-
 List<int> mergeSort(List<int> a, List<int> b) => [...a, ...b];
+List<String> conditionalList(bool input) {
+  bool includeExtra = input;
+  return ['always', if (includeExtra) 'extra'];
+}
 
-List<String> conditionalList(bool includeExtra) => ['always', if (includeExtra) 'extra'];
-
-int compoundOps(int x) {
+int compoundOps(int input) {
+  int x = input;
   x += 10;
   x -= 3;
   x *= 2;
@@ -240,31 +258,33 @@ int compoundOps(int x) {
 }
 
 int getAt(List<int> items, int idx) => items[idx];
-
-IntTransform makeAdder(int n) {
+IntTransform makeAdder(int input) {
+  int n = input;
   return (int x) => (x + n);
 }
 
 List<int> applyToAll(List<int> items, IntTransform fn) {
   final result = <int>[];
   for (final item in items) {
-    result.add(fn(item));
+    result..add(fn(item));
   }
   return result;
 }
 
-int withHelper(int n) {
+int withHelper(int input) {
+  int n = input;
   int helper(int x) {
     return (x * x);
   }
+
   return (helper(n) + helper((n + 1)));
 }
 
 int labeledBreak() {
   var result = 0;
   outer:
-  for (var i = 0; (i < 5); (i++)) {
-    for (var j = 0; (j < 5); (j++)) {
+  for (var i = 0; (i < 5); i++) {
+    for (var j = 0; (j < 5); j++) {
       if (((i + j) > 4)) {
         break outer;
       }
@@ -296,7 +316,7 @@ void main() async {
   log1.log('factory works');
   final animal = Animal('Cat');
   print(animal.describe());
-  print('hello'.reversed());
+  print('hello'.reversed.toList());
   print('racecar'.isPalindrome.toString());
   print(identity(42).toString());
   print(Pair('a', 1).toString());

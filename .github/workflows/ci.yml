@@ -170,3 +170,35 @@ jobs:
         run: cd ts/encoder && npm run build
       - name: Test @ball-lang/encoder
         run: cd ts/encoder && npm test
+
+  # ──────────────────────────────────────────────────
+  # NEW LANGUAGE TEMPLATE — copy and customize when adding a new language
+  # ──────────────────────────────────────────────────
+  # <lang>:
+  #   name: <Lang>
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #
+  #     # Setup language toolchain (find official action at github.com/actions)
+  #     - name: Setup <Lang>
+  #       uses: <official-setup-action>
+  #       with:
+  #         <lang>-version: <stable>
+  #
+  #     # Proto generation (if bindings are built at compile time)
+  #     - uses: bufbuild/buf-action@v1
+  #       with:
+  #         setup_only: true
+  #
+  #     - name: Install dependencies
+  #       run: <package-install-command>
+  #
+  #     - name: Build
+  #       run: <build-command>
+  #
+  #     - name: Run tests
+  #       run: <test-command>
+  #
+  #     - name: Conformance tests
+  #       run: <conformance-test-command>

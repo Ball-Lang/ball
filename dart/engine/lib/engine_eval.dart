@@ -624,8 +624,11 @@ extension BallEngineEval on BallEngine {
     // ── Map / message field access ─────────────────────────────
     if (objectMap != null) {
       if (objectMap.containsKey(fieldName)) {
-        final direct = objectMap[fieldName];
-        if (direct != null) return direct;
+        // A present field is returned even when its value is null: a
+        // present-but-null field shadows inherited/super values and is NOT
+        // "field not found". (Previously a null value fell through and could
+        // raise a spurious field-not-found error for a field that exists.)
+        return objectMap[fieldName];
       }
 
       // Walk the __super__ chain for inherited fields.
@@ -633,8 +636,7 @@ extension BallEngineEval on BallEngine {
       var superMap = _asMap(superObj);
       while (superMap != null) {
         if (superMap.containsKey(fieldName)) {
-          final inherited = superMap[fieldName];
-          if (inherited != null) return inherited;
+          return superMap[fieldName];
         }
         superObj = superMap['__super__'];
         superMap = _asMap(superObj);
@@ -930,6 +932,14 @@ extension BallEngineEval on BallEngine {
     String fieldName,
     Object? assignedValue,
   ) {
+    // `assignedValue` is the setter function's RETURN value. An
+    // expression-bodied setter (`set x(v) => _x = v`) returns the stored value,
+    // so we mirror it into the backing field (needed by the C++ self-host,
+    // which value-copies `self`). A block-bodied setter (`set x(v) { _x = v; }`)
+    // mutates `self` directly and returns null/void — writing that null back
+    // would CLOBBER the field the body just set. Skip when there is nothing to
+    // mirror.
+    if (assignedValue == null) return;
     final backing = '_$fieldName';
     if (object.containsKey(backing)) {
       ballObjectSetField(object, backing, assignedValue);
@@ -1043,6 +1053,22 @@ extension BallEngineEval on BallEngine {
           }
         }
 
+        // A no-body constructor whose zero-inits live in metadata.initializers
+        // (e.g. `main:Counts.new` with `count = 0` in the initializer list)
+        // never runs a body, so apply those initializers here. Explicit
+        // messageCreation fields and resolved ctor params take precedence:
+        // only fields still null are filled.
+        if (ctorEntry != null &&
+            ctorEntry.func.hasMetadata() &&
+            !ctorEntry.func.hasBody()) {
+          _applyConstructorInitializers(
+            ctorEntry.func,
+            instanceFields,
+            resolvedParams,
+            onlyIfAbsent: true,
+          );
+        }
+
         final superclass = _getMetaString(typeDef, 'superclass');
         Object? superObject;
         if (superclass != null && superclass.isNotEmpty) {
@@ -1096,11 +1122,54 @@ extension BallEngineEval on BallEngine {
 
         return instance;
       } else {
+        // Guard against unbounded constructor recursion: a constructor body
+        // that re-creates its own type (e.g. the implicit `class Foo {}` whose
+        // `Foo.new` body is `messageCreation Foo{}`) must resolve to the
+        // instance under construction, NOT re-invoke the constructor. Without
+        // this, `Foo() is Foo` infinitely recurses → Stack Overflow (which
+        // hangs the Dart test suite on Linux, where the unhandled async error
+        // is never collected). Mirrors the typeDef-path guard above.
+        if (scope.has('self') &&
+            scope.has('__constructor_type__') &&
+            scope.lookup('__constructor_type__') == msg.typeName) {
+          final self = scope.lookup('self');
+          if (_asMap(self) != null) return self;
+        }
+
         // Check if this type has a constructor — if so, invoke it to build
         // the instance properly (maps arg0/arg1/... to named fields via is_this).
         final ctorEntry = _constructors[msg.typeName];
         if (ctorEntry != null) {
-          return _callFunction(ctorEntry.module, ctorEntry.func, fields);
+          // Pass a shell instance as `self` so the constructor body's own
+          // `Type{}` hits the guard above (via `__constructor_type__`, bound in
+          // _callFunction for `kind: constructor`) instead of recursing.
+          final instanceFields = <String, Object?>{};
+          for (final entry in fields.entries) {
+            if (!entry.key.startsWith('arg')) {
+              instanceFields[entry.key] = entry.value;
+            }
+          }
+          final methods = _resolveTypeMethodsWithInheritance(msg.typeName);
+          final instance = BallObject(
+            typeName: msg.typeName,
+            superObject: null,
+            fields: instanceFields,
+            methods: methods.cast<String, Object?>(),
+          );
+          final ctorInput = <String, Object?>{}
+            ..addAll(fields)
+            ..['self'] = instance;
+          final constructed = await _callFunction(
+            ctorEntry.module,
+            ctorEntry.func,
+            ctorInput,
+          );
+          final constructedMap = _asMap(constructed);
+          if (constructedMap != null &&
+              constructedMap.containsKey('__type__')) {
+            return constructed;
+          }
+          return instance;
         }
 
         fields['__type__'] = msg.typeName;
@@ -1172,7 +1241,16 @@ extension BallEngineEval on BallEngine {
       }
     }
     _trackMemoryAllocation(fields.length * _ballMapEntryBytes);
-    return BallMap(fields);
+    // Reference-semantic instance map for typeDef-less classes (e.g. StringBuffer).
+    // A plain map literal lowers to a by-value std::map in the C++ self-host, so
+    // method mutations on `self` (e.g. `sb.write` → `self['__buffer__'] = …`) hit a
+    // throwaway copy and are lost. Routing through _ballUserMap() (→ a shared
+    // BallOrderedMap in C++) makes the instance map reference-semantic so mutations
+    // persist. In the Dart reference engine this is behavior-preserving (still a
+    // Map carrying the same entries). Self-cycle-safe: this fallthrough never stores
+    // `self` into the map — only the typeDef BallObject path (above) can do that.
+    final instanceMap = _ballUserMap()..addAll(fields);
+    return BallMap(instanceMap.cast<String, Object?>());
   }
 
   /// Find a TypeDefinition by name across all modules.

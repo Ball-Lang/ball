@@ -112,6 +112,20 @@ final output = runAndCapture(program);
 expect(output, ['Hello']);
 ```
 
+## Creating a New Engine for a New Language
+
+You have two options:
+
+### Option A: Self-hosted engine (RECOMMENDED for new languages)
+Compile `dart/self_host/engine.ball.json` using your compiler, then wrap it with a thin native
+shim that provides I/O and std function callbacks. See the **new-ball-language** skill
+(`.claude/skills/new-ball-language/SKILL.md`), Phase 4 Option B.
+
+### Option B: Hand-written engine
+Implement the full tree-walking interpreter from scratch. Only do this if you need features the
+self-hosted engine can't provide (e.g., debugger integration, hot-reload). This skill covers the
+internals for Option B.
+
 ## Common Mistakes
 
 1. Evaluating control flow eagerly (see lazy evaluation section)

@@ -195,9 +195,18 @@ extension BallEngineStd on BallEngine {
       if (override != null) return _consumeGeneratorFlow(override);
     }
 
+    // Base-function handlers (built-in StdModuleHandler and user-supplied
+    // BallModuleHandlers alike) receive the call input as a plain
+    // `Map<String, Object?>` (handlers commonly do
+    // `(input as Map<String, Object?>)['x']`). The engine evaluates a call's
+    // input messageCreation to a [BallMap] — a reference-semantic wrapper that
+    // is NOT a `Map<String, Object?>` subtype — so unwrap it to its backing map
+    // (same identity, so handler mutations still show through). Without this the
+    // cast throws on a fresh compile.
+    final handlerInput = input is BallMap ? input.entries : input;
     for (final handler in moduleHandlers) {
       if (handler.handles(module)) {
-        final result = await handler.call(function, input, callFunction);
+        final result = await handler.call(function, handlerInput, callFunction);
         // Profiling: track call counts per function name.
         _callCounts?[function] = (_callCounts![function] ?? 0) + 1;
         return _consumeGeneratorFlow(result);
@@ -952,7 +961,8 @@ extension BallEngineStd on BallEngine {
         return val;
       },
       'yield': (i) => _FlowSignal('yield', value: _extractUnaryArg(i)),
-      'yield_each': (i) => _FlowSignal('yield_each', value: _extractUnaryArg(i)),
+      'yield_each': (i) =>
+          _FlowSignal('yield_each', value: _extractUnaryArg(i)),
 
       // Literals
       'symbol': (i) => _extractField(i, 'value'),
@@ -1029,11 +1039,13 @@ extension BallEngineStd on BallEngine {
       'regex_replace_all': (i) => _stdRegexReplace(i, true),
 
       // ── Math ─────────────────────────────────────────────────────
-      'math_abs': (i) => _stdConvert(i, (v) => (v as num).abs()),
-      'math_floor': (i) => _stdConvert(i, (v) => (v as num).floor()),
-      'math_ceil': (i) => _stdConvert(i, (v) => (v as num).ceil()),
-      'math_round': (i) => _stdConvert(i, (v) => (v as num).round()),
-      'math_trunc': (i) => _stdConvert(i, (v) => (v as num).truncate()),
+      // Unwrap Ball numeric wrappers (BallDouble/BallInt) via _toNum rather than
+      // a bare `as num` cast, which throws when the value arrives wrapped.
+      'math_abs': (i) => _stdConvert(i, (v) => _toNum(v).abs()),
+      'math_floor': (i) => _stdConvert(i, (v) => _toNum(v).floor()),
+      'math_ceil': (i) => _stdConvert(i, (v) => _toNum(v).ceil()),
+      'math_round': (i) => _stdConvert(i, (v) => _toNum(v).round()),
+      'math_trunc': (i) => _stdConvert(i, (v) => _toNum(v).truncate()),
       'math_sqrt': (i) => _stdMathUnary(i, _mathSqrt),
       'math_pow': (i) => _stdMathBinary(i, _mathPow),
       'math_log': (i) => _stdMathUnary(i, _mathLog),
@@ -1320,6 +1332,15 @@ extension BallEngineStd on BallEngine {
     if (map != null) {
       // StringBuffer: return the buffer contents.
       final typeName = map['__type__'] as String?;
+      // Enum value: format as EnumName.valueName, matching Dart's enum
+      // toString (e.g. `Color.red`) instead of dumping the underlying map.
+      if (typeName != null && _enumValues.containsKey(typeName)) {
+        final shortType = typeName.contains(':')
+            ? typeName.substring(typeName.lastIndexOf(':') + 1)
+            : typeName;
+        final valName = map['name'];
+        if (valName != null) return '$shortType.${_ballToString(valName)}';
+      }
       if (typeName != null &&
           (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
         return (map['__buffer__'] as String?) ?? '';

@@ -26,7 +26,6 @@
 //   done
 
 #include "encoder.h"
-#include "engine.h"
 #include "ball_shared.h"
 
 #include <cassert>
@@ -497,179 +496,6 @@ TEST(recursion_depth_guard_survives_deeply_nested_ast) {
 // surfaces immediately.
 // ================================================================
 
-// Run the encoder and then execute the resulting Program through the
-// C++ engine, returning its run() result.
-static BallValue encode_and_run(const std::string& json) {
-    CppEncoder encoder;
-    auto prog = encoder.encode_from_clang_ast(json);
-    Engine engine(prog, [](const std::string&) {});
-    return engine.run();
-}
-
-TEST(round_trip_main_returns_int_literal) {
-    // int main() { return 42; }
-    const std::string json = R"JSON({
-        "kind": "TranslationUnitDecl",
-        "inner": [{
-            "kind": "FunctionDecl",
-            "name": "main",
-            "type": {"qualType": "int ()"},
-            "inner": [{"kind": "CompoundStmt", "inner": [{
-                "kind": "ReturnStmt",
-                "inner": [{"kind": "IntegerLiteral", "value": "42"}]
-            }]}]
-        }]
-    })JSON";
-    auto result = encode_and_run(json);
-    ASSERT_TRUE(result.type() == typeid(int64_t));
-    ASSERT_EQ(std::any_cast<int64_t>(result), 42);
-}
-
-TEST(round_trip_arithmetic_expression) {
-    // int main() { return 1 + 2 * 3; }  // = 7
-    const std::string json = R"JSON({
-        "kind": "TranslationUnitDecl",
-        "inner": [{
-            "kind": "FunctionDecl",
-            "name": "main",
-            "type": {"qualType": "int ()"},
-            "inner": [{"kind": "CompoundStmt", "inner": [{
-                "kind": "ReturnStmt",
-                "inner": [{
-                    "kind": "BinaryOperator",
-                    "opcode": "+",
-                    "inner": [
-                        {"kind": "IntegerLiteral", "value": "1"},
-                        {
-                            "kind": "BinaryOperator",
-                            "opcode": "*",
-                            "inner": [
-                                {"kind": "IntegerLiteral", "value": "2"},
-                                {"kind": "IntegerLiteral", "value": "3"}
-                            ]
-                        }
-                    ]
-                }]
-            }]}]
-        }]
-    })JSON";
-    auto result = encode_and_run(json);
-    ASSERT_TRUE(result.type() == typeid(int64_t));
-    ASSERT_EQ(std::any_cast<int64_t>(result), 7);
-}
-
-TEST(round_trip_comparison_returns_bool) {
-    // int main() { return 5 > 3; }
-    const std::string json = R"JSON({
-        "kind": "TranslationUnitDecl",
-        "inner": [{
-            "kind": "FunctionDecl",
-            "name": "main",
-            "type": {"qualType": "int ()"},
-            "inner": [{"kind": "CompoundStmt", "inner": [{
-                "kind": "ReturnStmt",
-                "inner": [{
-                    "kind": "BinaryOperator",
-                    "opcode": ">",
-                    "inner": [
-                        {"kind": "IntegerLiteral", "value": "5"},
-                        {"kind": "IntegerLiteral", "value": "3"}
-                    ]
-                }]
-            }]}]
-        }]
-    })JSON";
-    auto result = encode_and_run(json);
-    // The engine represents comparisons as bools.
-    ASSERT_TRUE(result.type() == typeid(bool));
-    ASSERT_EQ(std::any_cast<bool>(result), true);
-}
-
-TEST(round_trip_unary_negate) {
-    // int main() { return -7; }
-    const std::string json = R"JSON({
-        "kind": "TranslationUnitDecl",
-        "inner": [{
-            "kind": "FunctionDecl",
-            "name": "main",
-            "type": {"qualType": "int ()"},
-            "inner": [{"kind": "CompoundStmt", "inner": [{
-                "kind": "ReturnStmt",
-                "inner": [{
-                    "kind": "UnaryOperator",
-                    "opcode": "-",
-                    "inner": [{"kind": "IntegerLiteral", "value": "7"}]
-                }]
-            }]}]
-        }]
-    })JSON";
-    auto result = encode_and_run(json);
-    ASSERT_TRUE(result.type() == typeid(int64_t));
-    ASSERT_EQ(std::any_cast<int64_t>(result), -7);
-}
-
-TEST(round_trip_if_statement_selects_then) {
-    // int main() { if (true) return 1; return 2; }
-    const std::string json = R"JSON({
-        "kind": "TranslationUnitDecl",
-        "inner": [{
-            "kind": "FunctionDecl",
-            "name": "main",
-            "type": {"qualType": "int ()"},
-            "inner": [{"kind": "CompoundStmt", "inner": [
-                {
-                    "kind": "IfStmt",
-                    "inner": [
-                        {"kind": "CXXBoolLiteralExpr", "value": true},
-                        {"kind": "CompoundStmt", "inner": [{
-                            "kind": "ReturnStmt",
-                            "inner": [{"kind": "IntegerLiteral", "value": "1"}]
-                        }]}
-                    ]
-                },
-                {
-                    "kind": "ReturnStmt",
-                    "inner": [{"kind": "IntegerLiteral", "value": "2"}]
-                }
-            ]}]
-        }]
-    })JSON";
-    auto result = encode_and_run(json);
-    ASSERT_TRUE(result.type() == typeid(int64_t));
-    ASSERT_EQ(std::any_cast<int64_t>(result), 1);
-}
-
-TEST(round_trip_if_statement_selects_else) {
-    // int main() { if (false) return 1; return 2; }
-    const std::string json = R"JSON({
-        "kind": "TranslationUnitDecl",
-        "inner": [{
-            "kind": "FunctionDecl",
-            "name": "main",
-            "type": {"qualType": "int ()"},
-            "inner": [{"kind": "CompoundStmt", "inner": [
-                {
-                    "kind": "IfStmt",
-                    "inner": [
-                        {"kind": "CXXBoolLiteralExpr", "value": false},
-                        {"kind": "CompoundStmt", "inner": [{
-                            "kind": "ReturnStmt",
-                            "inner": [{"kind": "IntegerLiteral", "value": "1"}]
-                        }]}
-                    ]
-                },
-                {
-                    "kind": "ReturnStmt",
-                    "inner": [{"kind": "IntegerLiteral", "value": "2"}]
-                }
-            ]}]
-        }]
-    })JSON";
-    auto result = encode_and_run(json);
-    ASSERT_TRUE(result.type() == typeid(int64_t));
-    ASSERT_EQ(std::any_cast<int64_t>(result), 2);
-}
-
 // ================================================================
 // Clang-shaped AST fixtures
 //
@@ -1024,11 +850,6 @@ static std::string read_ast_file(const std::string& name) {
         CppEncoder encoder;                                               \
         auto prog = encoder.encode_from_clang_ast(json);                  \
         ASSERT_TRUE(find_fn(prog, "main") != nullptr);                    \
-        /* Engine smoke-test: run without throwing. We don't check  */    \
-        /* the return value because the sample programs return ints */    \
-        /* that change across fixtures.                             */    \
-        Engine engine(prog, [](const std::string&) {});                   \
-        engine.run();                                                     \
     }
 
 CLANG_FIXTURE(01_hello)

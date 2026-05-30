@@ -14,6 +14,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ball_base/ball_base.dart'
+    show encodeBallFileBinary, encodeBallFileJson;
 import 'package:ball_base/std.dart';
 
 void main(List<String> args) {
@@ -21,19 +23,19 @@ void main(List<String> args) {
 
   final module = buildStdModule();
 
-  // Proto3 JSON
-  final jsonOutput = module.toProto3Json();
+  // Proto3 JSON (self-describing Any envelope).
+  final jsonOutput = encodeBallFileJson(module);
   final jsonString = const JsonEncoder.withIndent('  ').convert(jsonOutput);
   File('$outputDir/std.json')
     ..parent.createSync(recursive: true)
     ..writeAsStringSync('$jsonString\n');
 
-  // Binary protobuf
-  File('$outputDir/std.bin').writeAsBytesSync(module.writeToBuffer());
+  // Binary protobuf (serialized Any).
+  File('$outputDir/std.bin').writeAsBytesSync(encodeBallFileBinary(module));
 
   stderr.writeln(
     'Generated std base module: '
-    '${module.types.length} types, '
+    '${module.typeDefs.length} types, '
     '${module.functions.length} functions',
   );
   stderr.writeln('  -> $outputDir/std.json');

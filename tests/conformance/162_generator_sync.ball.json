@@ -1,151 +1,194 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
+      "functions": [
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "lte",
+          "isBase": true
+        },
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "for",
+          "isBase": true
+        },
+        {
+          "name": "for_in",
+          "isBase": true
+        },
+        {
+          "name": "yield",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "assign",
+          "isBase": true
+        }
+      ],
+      "typeDefs": [
         {
           "name": "PrintInput",
-          "field": [
-            {
-              "name": "message",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         },
         {
           "name": "BinaryInput",
-          "field": [
-            {
-              "name": "left",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            },
-            {
-              "name": "right",
-              "number": 2,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            }
-          ]
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
         },
         {
           "name": "UnaryInput",
-          "field": [
-            {
-              "name": "value",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            }
-          ]
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
         },
         {
           "name": "ForInput",
-          "field": [
-            {
-              "name": "init",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            },
-            {
-              "name": "condition",
-              "number": 2,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            },
-            {
-              "name": "update",
-              "number": 3,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            },
-            {
-              "name": "body",
-              "number": 4,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            }
-          ]
+          "descriptor": {
+            "name": "ForInput",
+            "field": [
+              {
+                "name": "init",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "condition",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "update",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "body",
+                "number": 4,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
         },
         {
           "name": "ForInInput",
-          "field": [
-            {
-              "name": "variable",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            },
-            {
-              "name": "variable_type",
-              "number": 2,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            },
-            {
-              "name": "iterable",
-              "number": 3,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            },
-            {
-              "name": "body",
-              "number": 4,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            }
-          ]
+          "descriptor": {
+            "name": "ForInInput",
+            "field": [
+              {
+                "name": "variable",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "variable_type",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "iterable",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "body",
+                "number": 4,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
         },
         {
           "name": "AssignInput",
-          "field": [
-            {
-              "name": "target",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            },
-            {
-              "name": "value",
-              "number": 2,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            },
-            {
-              "name": "op",
-              "number": 3,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
+          "descriptor": {
+            "name": "AssignInput",
+            "field": [
+              {
+                "name": "target",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "value",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "op",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         }
-      ],
-      "functions": [
-        { "name": "print", "isBase": true },
-        { "name": "lte", "isBase": true },
-        { "name": "add", "isBase": true },
-        { "name": "for", "isBase": true },
-        { "name": "for_in", "isBase": true },
-        { "name": "yield", "isBase": true },
-        { "name": "to_string", "isBase": true },
-        { "name": "assign", "isBase": true }
       ]
     },
     {

@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"D:/packages/ball/cpp/build3/_deps/protobuf-subbuild/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

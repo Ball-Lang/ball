@@ -26,6 +26,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { execSync } from "node:child_process";
 import { compile } from "../src/index.ts";
 import type { Program } from "../src/index.ts";
+import { unwrapBallFile } from "./ball_file.ts";
 
 function findRepoRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -68,7 +69,23 @@ const {
 const BallEngine = engineMod.BallEngine;
 const StdModuleHandler = engineMod.StdModuleHandler;
 
-const programJson = protoWrap(JSON.parse(readFileSync(process.argv[2], "utf8")));
+// Ball files are self-describing google.protobuf.Any envelopes; strip the
+// "@type" key (if present) before normalizing into the engine's program tree.
+function unwrapBallFile(json) {
+  if (json === null || typeof json !== "object" || Array.isArray(json)) return json;
+  const type = json["@type"];
+  if (type === undefined) return json;
+  const ok = typeof type === "string" &&
+    (type.endsWith("/ball.v1.Program") || type.endsWith("/ball.v1.Module"));
+  if (!ok) throw new Error("unknown ball file @type: " + JSON.stringify(type));
+  const body = {};
+  for (const [k, v] of Object.entries(json)) { if (k !== "@type") body[k] = v; }
+  return body;
+}
+
+const programJson = protoWrap(
+  unwrapBallFile(JSON.parse(readFileSync(process.argv[2], "utf8"))),
+);
 
 const lines: string[] = [];
 const stdoutFn = (s: string) => lines.push(s);
@@ -138,7 +155,9 @@ describe("Phase 2.7b: compiled engine runtime parity", () => {
     return;
   }
 
-  const program: Program = JSON.parse(readFileSync(engineBallJsonPath, "utf8"));
+  const program: Program = unwrapBallFile(
+    JSON.parse(readFileSync(engineBallJsonPath, "utf8")),
+  );
   const engineTs = compile(program);
 
   const tmpDir = tmpdir();

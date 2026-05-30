@@ -32,6 +32,7 @@ library;
 
 import 'dart:typed_data';
 
+import 'editions.dart';
 import 'wire_varint.dart';
 import 'wire_fixed.dart';
 import 'wire_bytes.dart';
@@ -114,6 +115,7 @@ List<int> marshal(
     final fieldNumber = field['number'] as int;
     final type = field['type'] as String;
     final label = field['label'] as String?;
+    final features = field['features'] as Map<String, String>?;
     final value = message[name];
 
     // Skip null values — field not present in the message map.
@@ -158,14 +160,23 @@ List<int> marshal(
           if (item == null) continue;
           encodeBytesField(buffer, fieldNumber, item as List<int>);
         }
+      } else if (features != null && isExpandedRepeated(features)) {
+        // Expanded scalar repeated (proto2 / EXPANDED override): each element
+        // is its own tag-value record rather than one packed blob. Every
+        // element is written, including default values (no proto3 elision).
+        for (final item in list) {
+          if (item == null) continue;
+          _writeScalarForced(buffer, fieldNumber, type, item);
+        }
       } else {
-        // Packed scalar repeated field.
+        // Packed scalar repeated field (proto3 / editions default).
         marshalRepeated(buffer, fieldNumber, type, list);
       }
       continue;
     }
 
-    // Singular field.
+    // Singular field. With EXPLICIT/LEGACY_REQUIRED presence the value is
+    // serialized even when it equals the type default (proto3/IMPLICIT elides).
     final msgDescriptor =
         field['messageDescriptor'] as List<Map<String, Object?>>?;
     marshalField(
@@ -173,6 +184,7 @@ List<int> marshal(
       fieldNumber,
       type,
       value,
+      explicitPresence: features != null && hasExplicitPresence(features),
       messageDescriptor: msgDescriptor,
     );
   }
@@ -196,9 +208,18 @@ List<int> marshalField(
   String type,
   Object? value, {
   bool repeated = false,
+  bool explicitPresence = false,
   List<Map<String, Object?>>? messageDescriptor,
 }) {
   if (value == null) return buffer;
+
+  // Explicit / required presence: a present value is serialized even when it
+  // equals the type default. The low-level encoders below bake in proto3
+  // default elision, so route singular scalars through the forced writer.
+  // (Message fields track presence separately — handled by the normal path.)
+  if (explicitPresence && !repeated && type != 'TYPE_MESSAGE') {
+    return _writeScalarForced(buffer, fieldNumber, type, value);
+  }
 
   switch (type) {
     case 'TYPE_INT32':
@@ -304,6 +325,36 @@ int sizeOfMessage(
   // The simplest correct implementation: marshal to bytes and measure length.
   // This avoids duplicating all the size-calculation logic for every type.
   return marshal(message, descriptor).length;
+}
+
+/// Writes a scalar field WITHOUT proto3 default elision — for EXPLICIT/required
+/// presence and EXPANDED repeated elements, where a present (possibly default)
+/// value must still appear on the wire.
+///
+/// Non-default values go through the normal (eliding) encoder; a value the
+/// encoder drops (the type default) is then written as tag + the wire-type's
+/// zero payload. Not for `TYPE_MESSAGE` (message presence is handled
+/// separately).
+List<int> _writeScalarForced(
+  List<int> buffer,
+  int fieldNumber,
+  String type,
+  Object? value,
+) {
+  final before = buffer.length;
+  marshalField(buffer, fieldNumber, type, value, repeated: true);
+  if (buffer.length != before) return buffer; // non-default: encoder wrote it.
+  final wt = wireTypeForFieldType(type);
+  encodeTag(buffer, fieldNumber, wt);
+  if (wt == _wtI32) {
+    buffer.addAll(const [0, 0, 0, 0]);
+  } else if (wt == _wtI64) {
+    buffer.addAll(const [0, 0, 0, 0, 0, 0, 0, 0]);
+  } else {
+    // VARINT (0) and LEN (length 0) both encode as a single zero byte.
+    buffer.add(0);
+  }
+  return buffer;
 }
 
 /// Marshals a repeated scalar field using packed encoding and appends it to

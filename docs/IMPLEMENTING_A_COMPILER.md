@@ -16,8 +16,7 @@ Program
  ├── name, version, entryModule, entryFunction
  └── modules[]
       ├── name, description
-      ├── types[]           (google.protobuf.DescriptorProto — field schemas)
-      ├── typeDefs[]        (TypeDefinition — first-class type metadata)
+      ├── typeDefs[]        (TypeDefinition — descriptor + cosmetic metadata; the only type-declaration path)
       ├── typeAliases[]     (TypeAlias — typedef/using)
       ├── enums[]           (google.protobuf.EnumDescriptorProto)
       ├── moduleConstants[] (Constant — module-level constants)
@@ -106,14 +105,11 @@ Read `metadata.superclass`, `metadata.interfaces`, `metadata.mixins` for
 inheritance. Read `metadata.fields` for field-level cosmetic hints (type,
 is_final, is_late, initializer).
 
-#### From `types[]` (legacy, backward compat)
-
-Older programs may store types in `Module.types` with metadata in `_meta_*`
-functions. Look for `FunctionDefinition` with `name == "_meta_TypeName"` and
-`isBase == true`. Its `metadata` Struct contains the same kind/superclass/etc.
-
-**Prefer `typeDefs` when present.** Fall back to `_meta_*` scanning only for
-programs that haven't been migrated.
+> **Removed:** the legacy `Module.types` field (bare descriptors) and the
+> `_meta_<TypeName>` function hack no longer exist — proto field 2 was removed
+> and `reserved`. All type declarations come through `typeDefs[]`. If you ingest
+> very old `.ball.json` programs that still carry a `types`/`_meta_*` shape, run
+> `scripts/migrate_types_to_typedefs.py` to convert them first.
 
 #### From `typeAliases[]`
 
@@ -340,8 +336,9 @@ Environment: `env_get`, `args_get`
 4. **Lambda = FunctionDefinition with empty name.** Compile it as an
    anonymous function / closure / lambda expression.
 
-5. **`_meta_*` functions are deprecated.** Prefer `typeDefs[]` and
-   `typeAliases[]`. Only fall back to `_meta_*` scanning for old programs.
+5. **Types come from `typeDefs[]` / `typeAliases[]` only.** The legacy
+   `Module.types` field and `_meta_*` function hack were removed (proto field 2
+   is `reserved`). Don't emit or scan for them.
 
 6. **Metadata is optional and cosmetic.** Your compiler must produce valid
    code even if all metadata is stripped. Use metadata to improve output

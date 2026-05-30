@@ -1,22 +1,10 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        {
-          "name": "PrintInput",
-          "field": [
-            {
-              "name": "message",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        }
-      ],
       "functions": [
         {
           "name": "print",
@@ -25,6 +13,22 @@
         {
           "name": "is",
           "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         }
       ]
     },
@@ -44,9 +48,21 @@
                       "literal": {
                         "listValue": {
                           "elements": [
-                            { "literal": { "intValue": "1" } },
-                            { "literal": { "intValue": "2" } },
-                            { "literal": { "intValue": "3" } }
+                            {
+                              "literal": {
+                                "intValue": "1"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "2"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "3"
+                              }
+                            }
                           ]
                         }
                       }
@@ -64,9 +80,21 @@
                       "literal": {
                         "listValue": {
                           "elements": [
-                            { "literal": { "stringValue": "a" } },
-                            { "literal": { "stringValue": "b" } },
-                            { "literal": { "stringValue": "c" } }
+                            {
+                              "literal": {
+                                "stringValue": "a"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "stringValue": "b"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "stringValue": "c"
+                              }
+                            }
                           ]
                         }
                       }
@@ -87,14 +115,31 @@
                         "input": {
                           "messageCreation": {
                             "fields": [
-                              { "name": "value", "value": { "reference": { "name": "intList" } } },
-                              { "name": "type", "value": { "literal": { "stringValue": "List<int>" } } }
+                              {
+                                "name": "value",
+                                "value": {
+                                  "reference": {
+                                    "name": "intList"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "List<int>"
+                                  }
+                                }
+                              }
                             ]
                           }
                         }
                       }
                     },
-                    "metadata": { "keyword": "var", "type": "bool" }
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "bool"
+                    }
                   }
                 },
                 {
@@ -106,7 +151,14 @@
                         "messageCreation": {
                           "typeName": "PrintInput",
                           "fields": [
-                            { "name": "message", "value": { "reference": { "name": "isIntList" } } }
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "isIntList"
+                                }
+                              }
+                            }
                           ]
                         }
                       }
@@ -123,14 +175,31 @@
                         "input": {
                           "messageCreation": {
                             "fields": [
-                              { "name": "value", "value": { "reference": { "name": "strList" } } },
-                              { "name": "type", "value": { "literal": { "stringValue": "List<String>" } } }
+                              {
+                                "name": "value",
+                                "value": {
+                                  "reference": {
+                                    "name": "strList"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "List<String>"
+                                  }
+                                }
+                              }
                             ]
                           }
                         }
                       }
                     },
-                    "metadata": { "keyword": "var", "type": "bool" }
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "bool"
+                    }
                   }
                 },
                 {
@@ -142,7 +211,14 @@
                         "messageCreation": {
                           "typeName": "PrintInput",
                           "fields": [
-                            { "name": "message", "value": { "reference": { "name": "isStrList" } } }
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "isStrList"
+                                }
+                              }
+                            }
                           ]
                         }
                       }
@@ -159,14 +235,31 @@
                         "input": {
                           "messageCreation": {
                             "fields": [
-                              { "name": "value", "value": { "reference": { "name": "intList" } } },
-                              { "name": "type", "value": { "literal": { "stringValue": "List<String>" } } }
+                              {
+                                "name": "value",
+                                "value": {
+                                  "reference": {
+                                    "name": "intList"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "List<String>"
+                                  }
+                                }
+                              }
                             ]
                           }
                         }
                       }
                     },
-                    "metadata": { "keyword": "var", "type": "bool" }
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "bool"
+                    }
                   }
                 },
                 {
@@ -178,7 +271,14 @@
                         "messageCreation": {
                           "typeName": "PrintInput",
                           "fields": [
-                            { "name": "message", "value": { "reference": { "name": "intListNotString" } } }
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "intListNotString"
+                                }
+                              }
+                            }
                           ]
                         }
                       }
@@ -188,11 +288,15 @@
               ]
             }
           },
-          "metadata": { "kind": "function" }
+          "metadata": {
+            "kind": "function"
+          }
         }
       ],
       "moduleImports": [
-        { "name": "std" }
+        {
+          "name": "std"
+        }
       ]
     }
   ],

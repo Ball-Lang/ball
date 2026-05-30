@@ -7,8 +7,7 @@
 ///                                                 │
 ///   source ──► DartEncoder ──► Ball IR ──┬──► BallEngine (Dart)    ──┤
 ///                                         ├──► DartCompiler → dart run ──┤── all must
-///                                         ├──► ball_cpp_runner        ──┤    agree
-///                                         └──► ball_cpp_compile → cmake→run
+///                                         └──► ball_cpp_compile → cmake→run  ──┤    agree
 ///
 /// Replaces the earlier approach of hand-writing `.ball.json` fixtures.
 /// The Ball IR is auto-generated from Dart source, so every new fixture
@@ -29,6 +28,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ball_base/ball_base.dart' show encodeBallFileJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_compiler/compiler.dart';
 // ts_compiler.dart was deleted — the canonical TS compiler lives in
@@ -145,30 +145,6 @@ String? _runTsCompiled(Program program, Directory scratch, String name) {
   }
 }
 
-/// Returns null if the ball_cpp_runner binary isn't present.
-String? _runCppEngine(File ballJsonFile, File runnerBinary) {
-  if (!runnerBinary.existsSync()) return null;
-  final r = Process.runSync(
-    runnerBinary.absolute.path,
-    [ballJsonFile.absolute.path],
-    stdoutEncoding: utf8,
-    stderrEncoding: utf8,
-  );
-  if (r.exitCode != 0) {
-    throw StateError(
-      'ball_cpp_runner failed (rc=${r.exitCode})\nstderr:\n${r.stderr}',
-    );
-  }
-  // The runner prints "Result: N" as a trailing line for scalar returns;
-  // strip it because other pipelines don't emit it.
-  final lines = (r.stdout as String).split(RegExp(r'\r?\n')).toList();
-  while (lines.isNotEmpty && lines.last.isEmpty) lines.removeLast();
-  if (lines.isNotEmpty && lines.last.startsWith('Result: ')) {
-    lines.removeLast();
-  }
-  return _norm(lines.join('\n'));
-}
-
 /// Compile Ball → C++ → exe, run, return stdout.
 /// Returns null if the ball_cpp_compile binary isn't present.
 String? _runCppCompiled(
@@ -278,13 +254,10 @@ void main() {
     return;
   }
 
-  // C++ binary locations produced by the default CMake build.
-  final cppRunner = File('../../cpp/build/engine/Debug/ball_cpp_runner.exe');
+  // C++ compiler binary location produced by the default CMake build.
   final cppCompile = File(
     '../../cpp/build/compiler/Debug/ball_cpp_compile.exe',
   );
-  // Also check the POSIX layout (no Debug subdir).
-  final cppRunnerPosix = File('../../cpp/build/engine/ball_cpp_runner');
   final cppCompilePosix = File('../../cpp/build/compiler/ball_cpp_compile');
 
   File? firstExisting(Iterable<File> candidates) {
@@ -294,7 +267,6 @@ void main() {
     return null;
   }
 
-  final runnerBin = firstExisting([cppRunner, cppRunnerPosix]);
   final compileBin = firstExisting([cppCompile, cppCompilePosix]);
 
   final fixtures =
@@ -333,10 +305,13 @@ void main() {
         final source = fixture.readAsStringSync();
         final program = DartEncoder().encode(source);
 
-        // Persist the generated ball.json so other tests/tools can see it.
+        // Persist the generated ball.json (self-describing Any envelope) so
+        // other tests/tools can see it.
         final jsonOut = File('${ballJsonOutDir.path}/$name.ball.json');
         jsonOut.writeAsStringSync(
-          const JsonEncoder.withIndent('  ').convert(program.toProto3Json()),
+          const JsonEncoder.withIndent(
+            '  ',
+          ).convert(encodeBallFileJson(program)),
         );
         // Also persist the baseline as an expected_output.txt file next
         // to the generated .ball.json. Lets downstream C++ harnesses
@@ -377,19 +352,7 @@ void main() {
           }
         }
 
-        // ── 5. C++ engine via ball_cpp_runner.
-        if (runnerBin != null && !_skipCppAny.containsKey(name)) {
-          final cppEngineOut = _runCppEngine(jsonOut, runnerBin);
-          if (cppEngineOut != null) {
-            expect(
-              cppEngineOut,
-              equals(baseline),
-              reason: 'C++ engine diverged from `dart run`',
-            );
-          }
-        }
-
-        // ── 6. C++ compile → build → run.
+        // ── 5. C++ compile → build → run.
         if (compileBin != null &&
             !_skipCppAny.containsKey(name) &&
             !_skipCppCompile.containsKey(name)) {

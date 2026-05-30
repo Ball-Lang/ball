@@ -55,6 +55,7 @@ import type {
   Block,
   Statement,
 } from "../gen/ball/v1/ball_pb.js";
+import { decodeProgramJson } from "../src/ball_file.ts";
 
 function findRepoRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -382,7 +383,8 @@ describe("protobuf-es generated bindings", () => {
       const raw = JSON.parse(
         readFileSync(resolve(conformanceDir, file), "utf8"),
       );
-      const program = fromJson(ProgramSchema, raw);
+      // Conformance fixtures are self-describing google.protobuf.Any envelopes.
+      const program = decodeProgramJson(raw);
 
       // Basic structural checks
       assert.ok(program.modules.length > 0, `${file}: has modules`);

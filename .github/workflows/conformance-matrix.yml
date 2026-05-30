@@ -8,7 +8,8 @@ on:
       - "dart/engine/**"
       - "ts/engine/**"
       - "ts/compiler/**"
-      - "cpp/engine/**"
+      - "cpp/**"
+      - "dart/self_host/**"
   schedule:
     - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
   workflow_dispatch:
@@ -122,56 +123,6 @@ jobs:
       total: ${{ steps.conformance.outputs.total }}
 
   # ──────────────────────────────────────────────────
-  # C++ engine
-  # ──────────────────────────────────────────────────
-  cpp-engine:
-    name: C++ Engine
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: bufbuild/buf-action@v1
-        with:
-          setup_only: true
-
-      - name: Install nlohmann-json
-        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
-
-      - name: Configure CMake
-        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build conformance test
-        run: cmake --build cpp/build --config Release --target test_conformance
-
-      - name: Run conformance tests
-        id: conformance
-        run: |
-          set +e
-          output=$(cpp/build/test/test_conformance 2>&1)
-          exit_code=$?
-          echo "$output"
-
-          # C++ prints: "Results: N passed, M failed, T total"
-          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
-          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
-          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
-
-          echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
-          echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
-          echo "total=${total:-0}" >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=== C++ Engine ==="
-          echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
-
-          exit $exit_code
-
-    outputs:
-      passed: ${{ steps.conformance.outputs.passed }}
-      failed: ${{ steps.conformance.outputs.failed }}
-      total: ${{ steps.conformance.outputs.total }}
-
-  # ──────────────────────────────────────────────────
   # TS compiled engine (self-hosted Ball engine compiled to TS)
   # ──────────────────────────────────────────────────
   ts-compiled-engine:
@@ -222,13 +173,64 @@ jobs:
       total: ${{ steps.conformance.outputs.total }}
 
   # ──────────────────────────────────────────────────
+  # NEW LANGUAGE ENGINE TEMPLATE — copy and customize
+  # ──────────────────────────────────────────────────
+  # <lang>-engine:
+  #   name: <Lang> Engine
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #
+  #     - name: Setup <Lang>
+  #       uses: <official-setup-action>
+  #       with:
+  #         <lang>-version: <stable>
+  #
+  #     - name: Install & build
+  #       run: |
+  #         <install-and-build-commands>
+  #
+  #     - name: Run conformance tests
+  #       id: conformance
+  #       run: |
+  #         set +e
+  #         output=$(<conformance-test-command> 2>&1)
+  #         exit_code=$?
+  #         echo "$output"
+  #
+  #         # Parse "Results: N passed, M failed, T total" line
+  #         passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
+  #         failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
+  #         total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+  #
+  #         echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
+  #         echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
+  #         echo "total=${total:-0}" >> "$GITHUB_OUTPUT"
+  #
+  #         echo ""
+  #         echo "=== <Lang> Engine ==="
+  #         echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
+  #
+  #         exit $exit_code
+  #
+  #   outputs:
+  #     passed: ${{ steps.conformance.outputs.passed }}
+  #     failed: ${{ steps.conformance.outputs.failed }}
+  #     total: ${{ steps.conformance.outputs.total }}
+  #
+  # Then add to the summary job:
+  #   1. Add "<lang>-engine" to the needs: array
+  #   2. Add a print_row call for the new engine
+  #   3. Add a failure check in the exit-code block
+
+  # ──────────────────────────────────────────────────
   # Summary — parity matrix across all engines
   # ──────────────────────────────────────────────────
   summary:
     name: Parity Matrix
     runs-on: ubuntu-latest
     if: always()
-    needs: [dart-engine, ts-engine, cpp-engine, ts-compiled-engine]
+    needs: [dart-engine, ts-engine, ts-compiled-engine]
     steps:
       - name: Print conformance matrix
         run: |
@@ -258,12 +260,6 @@ jobs:
             "${{ needs.ts-engine.outputs.total }}" \
             "${{ needs.ts-engine.result }}"
 
-          print_row "C++ Engine" \
-            "${{ needs.cpp-engine.outputs.passed }}" \
-            "${{ needs.cpp-engine.outputs.failed }}" \
-            "${{ needs.cpp-engine.outputs.total }}" \
-            "${{ needs.cpp-engine.result }}"
-
           print_row "TS Compiled Engine" \
             "${{ needs.ts-compiled-engine.outputs.passed }}" \
             "${{ needs.ts-compiled-engine.outputs.failed }}" \
@@ -275,7 +271,6 @@ jobs:
           # Fail the summary if any engine job failed
           if [ "${{ needs.dart-engine.result }}" != "success" ] || \
              [ "${{ needs.ts-engine.result }}" != "success" ] || \
-             [ "${{ needs.cpp-engine.result }}" != "success" ] || \
              [ "${{ needs.ts-compiled-engine.result }}" != "success" ]; then
             echo ""
             echo "One or more engines failed conformance. See individual job logs above."

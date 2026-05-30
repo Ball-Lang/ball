@@ -23,46 +23,52 @@ Module buildStdCollectionsModule() {
   // Types
   // ============================================================
 
-  module.types.addAll([
-    _type('ListInput', [
-      _exprField('list', 1),
-      _exprField('index', 2),
-      _exprField('value', 3),
-    ]),
-    _type('ListCallbackInput', [
-      _exprField('list', 1),
-      _exprField('callback', 2),
-    ]),
-    _type('ListReduceInput', [
-      _exprField('list', 1),
-      _exprField('callback', 2),
-      _exprField('initial', 3),
-    ]),
-    _type('ListSliceInput', [
-      _exprField('list', 1),
-      _exprField('start', 2),
-      _exprField('end', 3),
-    ]),
-    _type('MapInput', [
-      _exprField('map', 1),
-      _exprField('key', 2),
-      _exprField('value', 3),
-    ]),
-    _type('MapCallbackInput', [
-      _exprField('map', 1),
-      _exprField('callback', 2),
-    ]),
-    _type('StringJoinInput', [
-      _exprField('list', 1),
-      _exprField('separator', 2),
-    ]),
-    _type('SetInput', [_exprField('set', 1), _exprField('value', 2)]),
-    _type('SetCallbackInput', [
-      _exprField('set', 1),
-      _exprField('callback', 2),
-    ]),
-    _type('SetBinaryInput', [_exprField('left', 1), _exprField('right', 2)]),
-  ]);
+  module.typeDefs.addAll(
+    <google.DescriptorProto>[
+      _type('ListInput', [
+        _exprField('list', 1),
+        _exprField('index', 2),
+        _exprField('value', 3),
+      ]),
+      _type('ListCallbackInput', [
+        _exprField('list', 1),
+        _exprField('callback', 2),
+      ]),
+      _type('ListReduceInput', [
+        _exprField('list', 1),
+        _exprField('callback', 2),
+        _exprField('initial', 3),
+      ]),
+      _type('ListSliceInput', [
+        _exprField('list', 1),
+        _exprField('start', 2),
+        _exprField('end', 3),
+      ]),
+      _type('MapInput', [
+        _exprField('map', 1),
+        _exprField('key', 2),
+        _exprField('value', 3),
+      ]),
+      _type('MapCallbackInput', [
+        _exprField('map', 1),
+        _exprField('callback', 2),
+      ]),
+      _type('StringJoinInput', [
+        _exprField('list', 1),
+        _exprField('separator', 2),
+      ]),
+      _type('SetInput', [_exprField('set', 1), _exprField('value', 2)]),
+      _type('SetCallbackInput', [
+        _exprField('set', 1),
+        _exprField('callback', 2),
+      ]),
+      _type('SetBinaryInput', [_exprField('left', 1), _exprField('right', 2)]),
+    ].map(
+      (d) => TypeDefinition()
+        ..name = d.name
+        ..descriptor = d,
+    ),
+  );
 
   // ============================================================
   // Functions — list operations

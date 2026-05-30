@@ -1,8 +1,6 @@
 # TypeScript Implementation Agents
 
-**Generated:** 2026-05-05 | **Commit:** e9d2668 | **Branch:** main
-
-TypeScript implementation of Ball tools. Runs in browser and Node.js. **Always reference the Dart implementation** as the canonical behavior.
+TypeScript implementation of Ball tools. The engine is **self-hosted** (compiled from the Dart reference engine); runs in browser and Node.js. **Always reference the Dart implementation** as the canonical behavior.
 
 ## Package Layout
 
@@ -16,18 +14,9 @@ TypeScript implementation of Ball tools. Runs in browser and Node.js. **Always r
 
 ## Build & Test
 
+Commands: see CLAUDE.md → Build & Test (canonical) and `.claude/rules/ts.md` for per-package detail.
+
 **Prefer conformance tests over unit tests.** The TS engine is validated primarily through conformance fixtures (`tests/conformance/`) shared with Dart and C++ engines. Per-language unit tests should be minimal — only for TS-specific edge cases (browser API handling, event loop differences).
-
-```bash
-# Install + test engine
-cd ts/engine && npm install && npm test
-
-# Test compiler
-cd ts/compiler && npm install && npm test
-
-# Test encoder
-cd ts/encoder && npm install && npm test
-```
 
 ## Conventions
 
@@ -35,8 +24,7 @@ cd ts/encoder && npm install && npm test
 - Generated protobuf types in `ts/shared/gen/` — NEVER edit
 - Compiler entry: `ts/compiler/bin/ball-ts-compile.mjs` (called by Dart compiler runner)
 - **Engine is validated against shared conformance fixtures** — test via `tests/conformance/`, not engine-specific tests
-- Compiler round-trips: 37/37 Dart fixtures → TS → byte-identical on Node
-- Full `engine.dart` parses cleanly through the TS compiler
+- Current TS pass counts live in `docs/SELF_HOST_STATUS.md` (CI floor in `.github/workflows/regression-gates.yml`)
 
 ## Publishing
 

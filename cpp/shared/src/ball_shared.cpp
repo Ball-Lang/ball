@@ -108,7 +108,11 @@ ball::v1::Module build_std_module() {
     mod.set_description("Universal standard library base module.");
 
     // Types
-    auto add_type = [&](DescriptorProto* t) { mod.mutable_types()->AddAllocated(t); };
+    auto add_type = [&](DescriptorProto* t) {
+        auto* td = mod.add_type_defs();
+        td->set_name(t->name());
+        td->set_allocated_descriptor_(t);
+    };
 
     add_type(make_type("BinaryInput", {{"left", 1, EXPR, EXPR_TYPE}, {"right", 2, EXPR, EXPR_TYPE}}));
     add_type(make_type("UnaryInput", {{"value", 1, EXPR, EXPR_TYPE}}));
@@ -283,7 +287,11 @@ ball::v1::Module build_std_memory_module() {
     mod.set_name("std_memory");
     mod.set_description("Linear memory simulation module.");
 
-    auto add_type = [&](DescriptorProto* t) { mod.mutable_types()->AddAllocated(t); };
+    auto add_type = [&](DescriptorProto* t) {
+        auto* td = mod.add_type_defs();
+        td->set_name(t->name());
+        td->set_allocated_descriptor_(t);
+    };
     auto add_fn = [&](const std::string& name, const std::string& it, const std::string& ot, const std::string& desc) {
         *mod.add_functions() = make_fn(name, it, ot, desc);
     };

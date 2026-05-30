@@ -1,50 +1,10 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        {
-          "name": "PrintInput",
-          "field": [
-            {
-              "name": "message",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        },
-        {
-          "name": "BinaryInput",
-          "field": [
-            {
-              "name": "left",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_INT64"
-            },
-            {
-              "name": "right",
-              "number": 2,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_INT64"
-            }
-          ]
-        },
-        {
-          "name": "UnaryInput",
-          "field": [
-            {
-              "name": "value",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        }
-      ],
       "functions": [
         {
           "name": "concat",
@@ -59,29 +19,60 @@
           "isBase": true
         }
       ],
-      "description": "Universal standard library base module"
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "main",
-      "types": [
-        {
-          "name": "main:Animal",
-          "field": [
-            {
-              "name": "name",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        },
-        {
-          "name": "main:Dog"
-        },
-        {
-          "name": "main:Cat"
-        }
-      ],
       "functions": [
         {
           "name": "main:Animal.new",

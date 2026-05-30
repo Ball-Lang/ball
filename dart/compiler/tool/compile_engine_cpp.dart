@@ -15,6 +15,7 @@ library;
 
 import 'dart:io';
 
+import 'package:ball_base/ball_base.dart' show encodeBallFileBinary;
 import 'package:ball_encoder/encoder.dart';
 import 'package:ball_encoder/parts_resolver.dart';
 
@@ -36,11 +37,10 @@ String _findCppCompiler(String root) {
   // win over stale copies in older build trees.
   final candidates = [
     for (final dir in ['ci-build', 'build3', 'build2', 'build'])
-      for (final cfg in ['Release', 'Debug', ''])
-        ...[
-          '$root/cpp/$dir/compiler/${cfg.isEmpty ? '' : '$cfg/'}ball_cpp_compile.exe',
-          '$root/cpp/$dir/compiler/${cfg.isEmpty ? '' : '$cfg/'}ball_cpp_compile',
-        ],
+      for (final cfg in ['Release', 'Debug', '']) ...[
+        '$root/cpp/$dir/compiler/${cfg.isEmpty ? '' : '$cfg/'}ball_cpp_compile.exe',
+        '$root/cpp/$dir/compiler/${cfg.isEmpty ? '' : '$cfg/'}ball_cpp_compile',
+      ],
   ];
   String? best;
   DateTime? bestMtime;
@@ -89,9 +89,12 @@ Future<void> main(List<String> args) async {
   final outDir = Directory('$root/dart/self_host');
   if (!outDir.existsSync()) outDir.createSync(recursive: true);
   final pbPath = '${outDir.path}/engine.ball.pb';
-  File(pbPath).writeAsBytesSync(prog.writeToBuffer());
+  // Self-describing google.protobuf.Any envelope (like every other ball file),
+  // so the C++ compiler reads it through the same Any loader.
+  final pbBytes = encodeBallFileBinary(prog);
+  File(pbPath).writeAsBytesSync(pbBytes);
   stdout.writeln(
-    '  Wrote ${prog.writeToBuffer().length} bytes → ${pbPath.replaceAll('\\', '/')}',
+    '  Wrote ${pbBytes.length} bytes → ${pbPath.replaceAll('\\', '/')}',
   );
 
   // Run the cpp compiler.

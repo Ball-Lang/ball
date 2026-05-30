@@ -1,4 +1,5 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "memory_limit",
   "version": "1.0.0",
   "entryModule": "main",

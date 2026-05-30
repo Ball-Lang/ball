@@ -1,89 +1,114 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
+      "functions": [
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "for_in",
+          "isBase": true
+        },
+        {
+          "name": "yield",
+          "isBase": true
+        },
+        {
+          "name": "yield_each",
+          "isBase": true
+        }
+      ],
+      "typeDefs": [
         {
           "name": "PrintInput",
-          "field": [
-            {
-              "name": "message",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         },
         {
           "name": "ForInInput",
-          "field": [
-            {
-              "name": "variable",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            },
-            {
-              "name": "variable_type",
-              "number": 2,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            },
-            {
-              "name": "iterable",
-              "number": 3,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            },
-            {
-              "name": "body",
-              "number": 4,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            }
-          ]
+          "descriptor": {
+            "name": "ForInInput",
+            "field": [
+              {
+                "name": "variable",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "variable_type",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "iterable",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "body",
+                "number": 4,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
         },
         {
           "name": "UnaryInput",
-          "field": [
-            {
-              "name": "value",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            }
-          ]
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
         },
         {
           "name": "BinaryInput",
-          "field": [
-            {
-              "name": "left",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            },
-            {
-              "name": "right",
-              "number": 2,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            }
-          ]
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
         }
-      ],
-      "functions": [
-        { "name": "print", "isBase": true },
-        { "name": "for_in", "isBase": true },
-        { "name": "yield", "isBase": true },
-        { "name": "yield_each", "isBase": true }
       ]
     },
     {
@@ -108,7 +133,9 @@
                             {
                               "name": "value",
                               "value": {
-                                "literal": { "intValue": "1" }
+                                "literal": {
+                                  "intValue": "1"
+                                }
                               }
                             }
                           ]
@@ -129,7 +156,9 @@
                             {
                               "name": "value",
                               "value": {
-                                "literal": { "intValue": "2" }
+                                "literal": {
+                                  "intValue": "2"
+                                }
                               }
                             }
                           ]
@@ -150,7 +179,9 @@
                             {
                               "name": "value",
                               "value": {
-                                "literal": { "intValue": "3" }
+                                "literal": {
+                                  "intValue": "3"
+                                }
                               }
                             }
                           ]
@@ -165,7 +196,12 @@
           "metadata": {
             "kind": "function",
             "is_sync_star": true,
-            "params": [{ "name": "x", "type": "int" }]
+            "params": [
+              {
+                "name": "x",
+                "type": "int"
+              }
+            ]
           }
         },
         {
@@ -195,7 +231,9 @@
                                         {
                                           "name": "arg0",
                                           "value": {
-                                            "reference": { "name": "n" }
+                                            "reference": {
+                                              "name": "n"
+                                            }
                                           }
                                         }
                                       ]
@@ -216,7 +254,12 @@
           "metadata": {
             "kind": "function",
             "is_sync_star": true,
-            "params": [{ "name": "n", "type": "int" }]
+            "params": [
+              {
+                "name": "n",
+                "type": "int"
+              }
+            ]
           }
         },
         {
@@ -237,7 +280,9 @@
                               {
                                 "name": "arg0",
                                 "value": {
-                                  "literal": { "intValue": "0" }
+                                  "literal": {
+                                    "intValue": "0"
+                                  }
                                 }
                               }
                             ]
@@ -263,13 +308,17 @@
                             {
                               "name": "variable",
                               "value": {
-                                "literal": { "stringValue": "v" }
+                                "literal": {
+                                  "stringValue": "v"
+                                }
                               }
                             },
                             {
                               "name": "iterable",
                               "value": {
-                                "reference": { "name": "gen" }
+                                "reference": {
+                                  "name": "gen"
+                                }
                               }
                             },
                             {
@@ -289,7 +338,9 @@
                                                 {
                                                   "name": "message",
                                                   "value": {
-                                                    "reference": { "name": "v" }
+                                                    "reference": {
+                                                      "name": "v"
+                                                    }
                                                   }
                                                 }
                                               ]
@@ -317,27 +368,35 @@
         }
       ],
       "moduleImports": [
-        { "name": "std" }
+        {
+          "name": "std"
+        }
       ]
     },
     {
       "name": "dart_std",
-      "types": [
+      "functions": [
         {
-          "name": "UnaryInput",
-          "field": [
-            {
-              "name": "value",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_MESSAGE",
-              "typeName": ".ball.v1.Expression"
-            }
-          ]
+          "name": "yield_each",
+          "isBase": true
         }
       ],
-      "functions": [
-        { "name": "yield_each", "isBase": true }
+      "typeDefs": [
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        }
       ]
     }
   ],

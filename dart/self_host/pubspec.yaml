@@ -10,9 +10,9 @@ environment:
 resolution: workspace
 
 dependencies:
-  ball_base: ^0.1.0
-  ball_engine: ^0.1.0
-  ball_resolver: ^0.1.0
+  ball_base: ^0.3.0
+  ball_engine: ^0.3.0
+  ball_resolver: ^0.3.0
   protobuf: ^6.0.0
   fixnum: ^1.1.1
 

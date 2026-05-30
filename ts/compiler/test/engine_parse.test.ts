@@ -15,6 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { execSync } from "node:child_process";
 import { compile } from "../src/index.ts";
 import type { Program } from "../src/index.ts";
+import { unwrapBallFile } from "./ball_file.ts";
 
 function findRepoRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -39,7 +40,9 @@ test(
         { cwd: root, stdio: "pipe" },
       );
     }
-    const program: Program = JSON.parse(readFileSync(ballJsonPath, "utf8"));
+    const program: Program = unwrapBallFile(
+      JSON.parse(readFileSync(ballJsonPath, "utf8")),
+    );
     const ts = compile(program);
     assert.ok(
       ts.length > 50 * 1024,

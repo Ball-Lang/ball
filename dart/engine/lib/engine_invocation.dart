@@ -30,6 +30,7 @@ extension BallEngineInvocation on BallEngine {
     }
 
     _recursionDepth++;
+    final prevGeneratorScope = _activeGeneratorScope;
     try {
       // Constructor without body: build an instance from `is_this` params.
       if (!func.hasBody()) {
@@ -170,13 +171,11 @@ extension BallEngineInvocation on BallEngine {
         scope.bind('__generator__', generator);
       }
 
-      final prevGeneratorScope = _activeGeneratorScope;
       if (isGenFunc) _activeGeneratorScope = scope;
 
       // Detect async functions for error-wrapping.
       final isAsync =
-          func.hasMetadata() &&
-          _metadataBool(func.metadata.fields['is_async']);
+          func.hasMetadata() && _metadataBool(func.metadata.fields['is_async']);
 
       Object? finalResult;
       if (isAsync && !isGenFunc) {
@@ -338,6 +337,72 @@ extension BallEngineInvocation on BallEngine {
     return instance;
   }
 
+  /// Apply a constructor's `metadata.initializers` (the `kind == 'field'`
+  /// entries) to [targetFields].  Preserves the exact semantics used by
+  /// `_buildConstructorInstance`: index-ref (`coords[0]`), bool literals,
+  /// numeric literals, and param/variable references resolved via
+  /// [resolvedParams].
+  ///
+  /// When [onlyIfAbsent] is true, an initializer is only written if the field
+  /// is not already populated (a non-null value), so explicitly-supplied fields
+  /// and constructor params take precedence over initializer defaults.
+  void _applyConstructorInitializers(
+    FunctionDefinition func,
+    Map<String, Object?> targetFields,
+    Map<String, Object?> resolvedParams, {
+    bool onlyIfAbsent = false,
+  }) {
+    if (!func.hasMetadata()) return;
+    final initsField = func.metadata.fields['initializers'];
+    if (initsField == null ||
+        initsField.whichKind() != structpb.Value_Kind.listValue) {
+      return;
+    }
+    for (final init in initsField.listValue.values) {
+      if (init.whichKind() != structpb.Value_Kind.structValue) continue;
+      final kind = init.structValue.fields['kind']?.stringValue;
+      final name = init.structValue.fields['name']?.stringValue;
+      if (kind != 'field' || name == null) continue;
+      if (onlyIfAbsent && targetFields[name] != null) continue;
+      final valField = init.structValue.fields['value'];
+      if (valField != null && valField.hasStringValue()) {
+        final valStr = valField.stringValue;
+        // Try to evaluate as param reference with index (e.g. "coords[0]").
+        final indexMatch = RegExp(r'^(\w+)\[(\d+)\]$').firstMatch(valStr);
+        if (indexMatch != null) {
+          final arrName = indexMatch.group(1)!;
+          final idx = int.parse(indexMatch.group(2)!);
+          final rawArr = resolvedParams[arrName];
+          final arr = rawArr is BallList ? rawArr.items : rawArr;
+          if (arr is List && idx < arr.length) {
+            targetFields[name] = arr[idx];
+          } else {
+            targetFields[name] = null;
+          }
+        } else if (valStr == 'true') {
+          targetFields[name] = true;
+        } else if (valStr == 'false') {
+          targetFields[name] = false;
+        } else if (num.tryParse(valStr) != null) {
+          final numVal = num.parse(valStr);
+          targetFields[name] = valStr.contains('.')
+              ? BallDouble(numVal.toDouble())
+              : numVal.toInt();
+        } else {
+          // Try as a param/variable reference.
+          targetFields[name] = resolvedParams[valStr] ?? valStr;
+        }
+      } else if (valField != null && valField.hasNumberValue()) {
+        final n = valField.numberValue;
+        targetFields[name] = n == n.toInt() ? n.toInt() : n;
+      } else if (valField != null && valField.hasBoolValue()) {
+        targetFields[name] = valField.boolValue;
+      } else {
+        targetFields[name] = null;
+      }
+    }
+  }
+
   /// Build a class instance from a constructor with no body.
   /// Maps positional args (arg0, arg1, ...) to `is_this` parameter names,
   /// and populates __type__, __super__, and __methods__.
@@ -390,55 +455,7 @@ extension BallEngineInvocation on BallEngine {
     }
 
     // Process field initializers from constructor metadata.
-    if (func.hasMetadata()) {
-      final initsField = func.metadata.fields['initializers'];
-      if (initsField != null &&
-          initsField.whichKind() == structpb.Value_Kind.listValue) {
-        for (final init in initsField.listValue.values) {
-          if (init.whichKind() != structpb.Value_Kind.structValue) continue;
-          final kind = init.structValue.fields['kind']?.stringValue;
-          final name = init.structValue.fields['name']?.stringValue;
-          if (kind == 'field' && name != null) {
-            final valField = init.structValue.fields['value'];
-            if (valField != null && valField.hasStringValue()) {
-              final valStr = valField.stringValue;
-              // Try to evaluate as param reference with index (e.g. "coords[0]").
-              final indexMatch = RegExp(r'^(\w+)\[(\d+)\]$').firstMatch(valStr);
-              if (indexMatch != null) {
-                final arrName = indexMatch.group(1)!;
-                final idx = int.parse(indexMatch.group(2)!);
-                final rawArr = resolvedParams[arrName];
-                final arr = rawArr is BallList ? rawArr.items : rawArr;
-                if (arr is List && idx < arr.length) {
-                  instance[name] = arr[idx];
-                } else {
-                  instance[name] = null;
-                }
-              } else if (valStr == 'true') {
-                instance[name] = true;
-              } else if (valStr == 'false') {
-                instance[name] = false;
-              } else if (num.tryParse(valStr) != null) {
-                final numVal = num.parse(valStr);
-                instance[name] = valStr.contains('.')
-                    ? BallDouble(numVal.toDouble())
-                    : numVal.toInt();
-              } else {
-                // Try as a param/variable reference.
-                instance[name] = resolvedParams[valStr] ?? valStr;
-              }
-            } else if (valField != null && valField.hasNumberValue()) {
-              final n = valField.numberValue;
-              instance[name] = n == n.toInt() ? n.toInt() : n;
-            } else if (valField != null && valField.hasBoolValue()) {
-              instance[name] = valField.boolValue;
-            } else {
-              instance[name] = null;
-            }
-          }
-        }
-      }
-    }
+    _applyConstructorInitializers(func, instance, resolvedParams);
 
     // Process super constructor initializers.
     final typeDef = _findTypeDef(typeName);
@@ -710,9 +727,6 @@ extension BallEngineInvocation on BallEngine {
 
   void _indexModule(Module module) {
     program.modules.add(module);
-    for (final type in module.types) {
-      _types[type.name] = type;
-    }
     for (final td in module.typeDefs) {
       if (td.hasDescriptor()) _types[td.name] = td.descriptor;
     }

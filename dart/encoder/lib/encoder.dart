@@ -601,12 +601,24 @@ class DartEncoder {
     }
     importNames.addAll(_importedModules);
 
+    // Wrap legacy bare descriptors as TypeDefinitions, deduping by name in
+    // favour of the richer entries already present in moduleTypeDefs (which
+    // carry type params and metadata for the same-named type).
+    final typeDefNames = moduleTypeDefs.map((td) => td.name).toSet();
+    final wrappedModuleTypes = moduleTypes
+        .where((d) => !typeDefNames.contains(d.name))
+        .map(
+          (d) => TypeDefinition()
+            ..name = d.name
+            ..descriptor = d,
+        );
+
     final module = Module()
       ..name = moduleName
       ..moduleImports.addAll(importNames.map((n) => ModuleImport()..name = n))
-      ..types.addAll(moduleTypes)
       ..enums.addAll(moduleEnums)
       ..functions.addAll(moduleFunctions)
+      ..typeDefs.addAll(wrappedModuleTypes)
       ..typeDefs.addAll(moduleTypeDefs)
       ..typeAliases.addAll(moduleTypeAliases);
 
@@ -741,7 +753,13 @@ class DartEncoder {
     return Module()
       ..name = 'std'
       ..description = 'Universal standard library base module'
-      ..types.addAll(types.values)
+      ..typeDefs.addAll(
+        types.values.map(
+          (d) => TypeDefinition()
+            ..name = d.name
+            ..descriptor = d,
+        ),
+      )
       ..functions.addAll(functions);
   }
 

@@ -1,16 +1,39 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "21_typed_catch",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
-      ],
       "functions": [
-        { "name": "print", "isBase": true },
-        { "name": "try", "isBase": true },
-        { "name": "throw", "isBase": true }
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "try",
+          "isBase": true
+        },
+        {
+          "name": "throw",
+          "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
       ]
     },
     {
@@ -46,7 +69,14 @@
                                             "messageCreation": {
                                               "typeName": "",
                                               "fields": [
-                                                { "name": "__type", "value": { "literal": { "stringValue": "NotFound" } } }
+                                                {
+                                                  "name": "__type",
+                                                  "value": {
+                                                    "literal": {
+                                                      "stringValue": "NotFound"
+                                                    }
+                                                  }
+                                                }
                                               ]
                                             }
                                           }
@@ -71,8 +101,22 @@
                                 "messageCreation": {
                                   "typeName": "",
                                   "fields": [
-                                    { "name": "type", "value": { "literal": { "stringValue": "FormatException" } } },
-                                    { "name": "variable", "value": { "literal": { "stringValue": "e" } } },
+                                    {
+                                      "name": "type",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "FormatException"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "variable",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "e"
+                                        }
+                                      }
+                                    },
                                     {
                                       "name": "body",
                                       "value": {
@@ -87,7 +131,14 @@
                                                     "messageCreation": {
                                                       "typeName": "PrintInput",
                                                       "fields": [
-                                                        { "name": "message", "value": { "literal": { "stringValue": "wrong-handler" } } }
+                                                        {
+                                                          "name": "message",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "wrong-handler"
+                                                            }
+                                                          }
+                                                        }
                                                       ]
                                                     }
                                                   }
@@ -105,8 +156,22 @@
                                 "messageCreation": {
                                   "typeName": "",
                                   "fields": [
-                                    { "name": "type", "value": { "literal": { "stringValue": "NotFound" } } },
-                                    { "name": "variable", "value": { "literal": { "stringValue": "e" } } },
+                                    {
+                                      "name": "type",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "NotFound"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "variable",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "e"
+                                        }
+                                      }
+                                    },
                                     {
                                       "name": "body",
                                       "value": {
@@ -121,7 +186,14 @@
                                                     "messageCreation": {
                                                       "typeName": "PrintInput",
                                                       "fields": [
-                                                        { "name": "message", "value": { "literal": { "stringValue": "caught-NotFound" } } }
+                                                        {
+                                                          "name": "message",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "caught-NotFound"
+                                                            }
+                                                          }
+                                                        }
                                                       ]
                                                     }
                                                   }
@@ -147,7 +219,11 @@
           }
         }
       ],
-      "moduleImports": [ { "name": "std" } ]
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
     }
   ],
   "entryModule": "main",

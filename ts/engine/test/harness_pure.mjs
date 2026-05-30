@@ -10,7 +10,17 @@ if (!path) {
   process.exit(2);
 }
 
-const program = JSON.parse(readFileSync(path, 'utf8'));
+// Ball files are self-describing google.protobuf.Any envelopes; strip "@type".
+function unwrapBallFile(json) {
+  if (json === null || typeof json !== 'object' || Array.isArray(json)) return json;
+  const type = json['@type'];
+  if (type === undefined) return json;
+  const body = {};
+  for (const [k, v] of Object.entries(json)) { if (k !== '@type') body[k] = v; }
+  return body;
+}
+
+const program = unwrapBallFile(JSON.parse(readFileSync(path, 'utf8')));
 const out = [];
 const engine = new BallEngine(
   program,

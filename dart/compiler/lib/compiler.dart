@@ -140,12 +140,6 @@ class DartCompiler {
       if (allBase && module.functions.isNotEmpty) {
         _baseModules.add(module.name);
       }
-      for (final type in module.types) {
-        _types[type.name] = type;
-        // Also index by bare name (strip module: prefix) for backward compat.
-        final typeColon = type.name.indexOf(':');
-        if (typeColon >= 0) _types[type.name.substring(typeColon + 1)] = type;
-      }
       for (final td in module.typeDefs) {
         if (td.hasDescriptor()) {
           _types[td.name] = td.descriptor;
@@ -238,7 +232,6 @@ class DartCompiler {
       final hasExports = _moduleHasExports(module);
       if (module.functions.isEmpty &&
           module.typeDefs.isEmpty &&
-          module.types.isEmpty &&
           module.typeAliases.isEmpty &&
           module.enums.isEmpty &&
           !hasExports &&

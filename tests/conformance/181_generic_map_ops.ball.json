@@ -1,22 +1,10 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        {
-          "name": "PrintInput",
-          "field": [
-            {
-              "name": "message",
-              "number": 1,
-              "label": "LABEL_OPTIONAL",
-              "type": "TYPE_STRING"
-            }
-          ]
-        }
-      ],
       "functions": [
         {
           "name": "print",
@@ -33,6 +21,22 @@
         {
           "name": "index",
           "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         }
       ]
     },
@@ -82,15 +86,36 @@
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
-                                        { "name": "target", "value": { "reference": { "name": "scores" } } },
-                                        { "name": "index", "value": { "literal": { "stringValue": "alice" } } }
+                                        {
+                                          "name": "target",
+                                          "value": {
+                                            "reference": {
+                                              "name": "scores"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "index",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "alice"
+                                            }
+                                          }
+                                        }
                                       ]
                                     }
                                   }
                                 }
                               }
                             },
-                            { "name": "value", "value": { "literal": { "intValue": "95" } } }
+                            {
+                              "name": "value",
+                              "value": {
+                                "literal": {
+                                  "intValue": "95"
+                                }
+                              }
+                            }
                           ]
                         }
                       }
@@ -114,15 +139,36 @@
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
-                                        { "name": "target", "value": { "reference": { "name": "scores" } } },
-                                        { "name": "index", "value": { "literal": { "stringValue": "bob" } } }
+                                        {
+                                          "name": "target",
+                                          "value": {
+                                            "reference": {
+                                              "name": "scores"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "index",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "bob"
+                                            }
+                                          }
+                                        }
                                       ]
                                     }
                                   }
                                 }
                               }
                             },
-                            { "name": "value", "value": { "literal": { "intValue": "87" } } }
+                            {
+                              "name": "value",
+                              "value": {
+                                "literal": {
+                                  "intValue": "87"
+                                }
+                              }
+                            }
                           ]
                         }
                       }
@@ -139,14 +185,31 @@
                         "input": {
                           "messageCreation": {
                             "fields": [
-                              { "name": "value", "value": { "reference": { "name": "scores" } } },
-                              { "name": "type", "value": { "literal": { "stringValue": "Map<String, int>" } } }
+                              {
+                                "name": "value",
+                                "value": {
+                                  "reference": {
+                                    "name": "scores"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "Map<String, int>"
+                                  }
+                                }
+                              }
                             ]
                           }
                         }
                       }
                     },
-                    "metadata": { "keyword": "var", "type": "bool" }
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "bool"
+                    }
                   }
                 },
                 {
@@ -158,7 +221,14 @@
                         "messageCreation": {
                           "typeName": "PrintInput",
                           "fields": [
-                            { "name": "message", "value": { "reference": { "name": "isStrIntMap" } } }
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "isStrIntMap"
+                                }
+                              }
+                            }
                           ]
                         }
                       }
@@ -175,14 +245,31 @@
                         "input": {
                           "messageCreation": {
                             "fields": [
-                              { "name": "value", "value": { "reference": { "name": "scores" } } },
-                              { "name": "type", "value": { "literal": { "stringValue": "Map<String, String>" } } }
+                              {
+                                "name": "value",
+                                "value": {
+                                  "reference": {
+                                    "name": "scores"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "Map<String, String>"
+                                  }
+                                }
+                              }
                             ]
                           }
                         }
                       }
                     },
-                    "metadata": { "keyword": "var", "type": "bool" }
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "bool"
+                    }
                   }
                 },
                 {
@@ -194,7 +281,14 @@
                         "messageCreation": {
                           "typeName": "PrintInput",
                           "fields": [
-                            { "name": "message", "value": { "reference": { "name": "notStrStrMap" } } }
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "notStrStrMap"
+                                }
+                              }
+                            }
                           ]
                         }
                       }
@@ -211,14 +305,31 @@
                         "input": {
                           "messageCreation": {
                             "fields": [
-                              { "name": "value", "value": { "reference": { "name": "scores" } } },
-                              { "name": "type", "value": { "literal": { "stringValue": "Map" } } }
+                              {
+                                "name": "value",
+                                "value": {
+                                  "reference": {
+                                    "name": "scores"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "Map"
+                                  }
+                                }
+                              }
                             ]
                           }
                         }
                       }
                     },
-                    "metadata": { "keyword": "var", "type": "bool" }
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "bool"
+                    }
                   }
                 },
                 {
@@ -230,7 +341,14 @@
                         "messageCreation": {
                           "typeName": "PrintInput",
                           "fields": [
-                            { "name": "message", "value": { "reference": { "name": "isMap" } } }
+                            {
+                              "name": "message",
+                              "value": {
+                                "reference": {
+                                  "name": "isMap"
+                                }
+                              }
+                            }
                           ]
                         }
                       }
@@ -240,11 +358,15 @@
               ]
             }
           },
-          "metadata": { "kind": "function" }
+          "metadata": {
+            "kind": "function"
+          }
         }
       ],
       "moduleImports": [
-        { "name": "std" }
+        {
+          "name": "std"
+        }
       ]
     }
   ],

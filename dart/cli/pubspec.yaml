@@ -2,7 +2,7 @@ name: ball_cli
 description: >-
   Command-line tool for the Ball programming language -- compile, encode,
   run, and inspect Ball programs from the terminal.
-version: 0.1.0
+version: 0.3.0
 homepage: https://github.com/ball-lang/ball
 repository: https://github.com/ball-lang/ball
 issue_tracker: https://github.com/ball-lang/ball/issues
@@ -22,11 +22,11 @@ executables:
     ball
 
 dependencies:
-  ball_base: ^0.1.0
-  ball_compiler: ^0.1.0
-  ball_encoder: ^0.1.0
-  ball_engine: ^0.1.0
-  ball_resolver: ^0.1.0
+  ball_base: ^0.3.0
+  ball_compiler: ^0.3.0
+  ball_encoder: ^0.3.0
+  ball_engine: ^0.3.0
+  ball_resolver: ^0.3.0
   fixnum: ^1.1.1
   protobuf: ^6.0.0
   yaml: ^3.1.0

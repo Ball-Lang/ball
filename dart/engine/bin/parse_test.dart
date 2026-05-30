@@ -6,9 +6,7 @@ void main() async {
   final jsonStr = File(
     '../../tests/conformance/160_async_basic.ball.json',
   ).readAsStringSync();
-  final jsonMap = jsonDecode(jsonStr) as Map<String, dynamic>;
-  final program = Program()
-    ..mergeFromProto3Json(jsonMap, ignoreUnknownFields: true);
+  final program = decodeProgramJson(jsonDecode(jsonStr));
   for (final mod in program.modules) {
     for (final func in mod.functions) {
       if (func.name == 'delayedAdd') {

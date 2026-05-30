@@ -59,6 +59,16 @@ export class BallCompiler {
   /** Short method names of the current class (for `this.foo()` routing). */
   private currentClassMethodNames: Set<string> = new Set();
 
+  /**
+   * Short names of STATIC methods of the current class. Static members are
+   * not on `this` in JS, so unqualified same-class calls/tear-offs to these
+   * must be emitted as `<ClassName>.<name>` rather than `this.<name>`.
+   */
+  private currentClassStaticNames: Set<string> = new Set();
+
+  /** TS name of the class currently being emitted (for static-call routing). */
+  private currentClassName: string | undefined;
+
   /** All function names in the entry module (function vs ctor routing). */
   private allFunctionNames: Set<string> = new Set();
 
@@ -2248,18 +2258,34 @@ function __isUnknownFnError(e: any): boolean {
     // Exclude static fields — they're emitted as module-level consts
     // and referenced WITHOUT `this.`.
     const methodNames = new Set<string>();
+    const staticMethodNames = new Set<string>();
     const staticFieldNames = new Set<string>();
     for (const fn of members) {
       const mMeta: Struct = fn.metadata ?? {};
       if ((mMeta as any).kind === "static_field") {
         staticFieldNames.add(memberShortName(fn.name));
       } else {
-        methodNames.add(memberShortName(fn.name));
+        const shortName = memberShortName(fn.name);
+        methodNames.add(shortName);
+        // Static methods (incl. named constructors, which become static
+        // factory methods) live on the class, not on instances. Track them
+        // so same-class calls emit `<Class>.m()` not `this.m()`.
+        const kind =
+          typeof mMeta["kind"] === "string" ? mMeta["kind"] : "method";
+        const isNamedCtor =
+          kind === "constructor" && memberShortName(fn.name) !== "new";
+        if (mMeta["is_static"] === true || isNamedCtor) {
+          staticMethodNames.add(shortName);
+        }
       }
     }
     const savedClassMethods = this.currentClassMethodNames;
+    const savedClassStatics = this.currentClassStaticNames;
+    const savedClassName = this.currentClassName;
     const deferredStaticFields: string[] = [];
     this.currentClassMethodNames = methodNames;
+    this.currentClassStaticNames = staticMethodNames;
+    this.currentClassName = tsName;
 
     const hasExtends = typeof meta["superclass"] === "string";
 
@@ -2314,6 +2340,8 @@ function __isUnknownFnError(e: any): boolean {
     }
 
     this.currentClassMethodNames = savedClassMethods;
+    this.currentClassStaticNames = savedClassStatics;
+    this.currentClassName = savedClassName;
 
     // Inheritance.
     const superName =
@@ -2955,6 +2983,18 @@ function __isUnknownFnError(e: any): boolean {
 
   // ───────────────────────── Expressions ─────────────────────────────
 
+  /**
+   * Qualifier for an unqualified same-class member reference. Static members
+   * are not on `this` in JS, so they must be addressed via the class name
+   * (`<ClassName>.m`); instance members use `this.m`.
+   */
+  private memberQualifier(shortName: string): string {
+    if (this.currentClassStaticNames.has(shortName) && this.currentClassName) {
+      return `${this.currentClassName}.`;
+    }
+    return "this.";
+  }
+
   private expr(e: Expression): string {
     if (e.call) return this.compileCall(e.call);
     if (e.literal) return this.compileLiteral(e.literal);
@@ -2969,7 +3009,13 @@ function __isUnknownFnError(e: any): boolean {
           return `this.${sanitize(name)}`;
         }
         if (this.currentClassMethodNames.has(name)) {
-          return `this.${sanitize(name)}.bind(this)`;
+          const short = sanitize(name);
+          // Static method tear-off: address via class name, no `.bind`
+          // (statics aren't on `this` and need no receiver binding).
+          if (this.currentClassStaticNames.has(short) && this.currentClassName) {
+            return `${this.currentClassName}.${short}`;
+          }
+          return `this.${short}.bind(this)`;
         }
       }
       return sanitize(name);
@@ -3046,10 +3092,11 @@ function __isUnknownFnError(e: any): boolean {
         return `new ${classTsName(tn)}(${args})`;
       }
       const identShort = memberShortName(ident);
-      // Class method of the class currently being compiled → `this.m(...)`.
+      // Class method of the class currently being compiled → `this.m(...)`
+      // (or `<Class>.m(...)` for static members).
       if (this.currentClassMethodNames.has(identShort)) {
         const args = this.extractPositionalAndNamed(fields);
-        return `this.${identShort}(${args})`;
+        return `${this.memberQualifier(identShort)}${identShort}(${args})`;
       }
       // Free top-level function in the entry module → bare call.
       if (this.allFunctionNames.has(ident) || this.allFunctionNames.has(identShort)) {
@@ -3066,13 +3113,13 @@ function __isUnknownFnError(e: any): boolean {
     if (this.allFunctionNames.has(tn)) {
       const args = this.extractPositionalAndNamed(fields);
       if (this.currentClassMethodNames.has(shortName)) {
-        return `this.${shortName}(${args})`;
+        return `${this.memberQualifier(shortName)}${shortName}(${args})`;
       }
       return `${shortName}(${args})`;
     }
     if (this.currentClassMethodNames.has(shortName)) {
       const args = this.extractPositionalAndNamed(fields);
-      return `this.${shortName}(${args})`;
+      return `${this.memberQualifier(shortName)}${shortName}(${args})`;
     }
 
     // User-defined class → `new X(...)`.
@@ -3092,8 +3139,17 @@ function __isUnknownFnError(e: any): boolean {
     ]);
     const shortTn = classTsName(tn);
 
-    // Map / Map.from / Map.of → spread-copy as plain object (not JS Map)
-    if (shortTn === "Map" || shortTn === "Map.from" || shortTn === "Map.of") {
+    // Map / Map.from / Map.of and the dart:collection map flavors
+    // (LinkedHashMap, HashMap, SplayTreeMap) → spread-copy as a plain
+    // object (Ball maps are plain ordered objects, not JS Map). Drop the
+    // generic `__type_args__` marker so it doesn't leak as a data key.
+    const mapCtors = new Set([
+      "Map", "Map.from", "Map.of",
+      "LinkedHashMap", "LinkedHashMap.from", "LinkedHashMap.of",
+      "HashMap", "HashMap.from", "HashMap.of",
+      "SplayTreeMap", "SplayTreeMap.from", "SplayTreeMap.of",
+    ]);
+    if (mapCtors.has(shortTn)) {
       const dataFields = fields.filter(f => f.name !== "__type_args__" && f.name !== "__const__");
       const arg = dataFields.length > 0 ? this.expr(dataFields[0].value) : "{}";
       return `({...${arg}})`;
@@ -3205,13 +3261,16 @@ function __isUnknownFnError(e: any): boolean {
     // Prefix with this. when the function name is a class method OR
     // a class field holding a callable (like `stdout` which is a
     // void Function(String) field). Both need this. in TS since Dart
-    // resolves implicitly.
-    const thisPrefix =
-      !this.currentMethodParams.has(call.function) &&
-      (this.currentClassMethodNames.has(call.function) ||
-        this.currentClassFields.has(call.function))
-        ? "this."
-        : "";
+    // resolves implicitly. Static methods live on the class, not on
+    // `this`, so they are addressed via `<ClassName>.`.
+    let thisPrefix = "";
+    if (!this.currentMethodParams.has(call.function)) {
+      if (this.currentClassMethodNames.has(fn)) {
+        thisPrefix = this.memberQualifier(fn);
+      } else if (this.currentClassFields.has(call.function)) {
+        thisPrefix = "this.";
+      }
+    }
     if (!call.input) return `${thisPrefix}${fn}()`;
     const input = call.input;
     if (input.messageCreation) {
@@ -3962,7 +4021,12 @@ function __isUnknownFnError(e: any): boolean {
       case "String": case "string": return `(typeof ${value} === 'string')`;
       case "bool": case "boolean": return `(typeof ${value} === 'boolean')`;
       case "List": case "Iterable": return `Array.isArray(${value})`;
-      case "Map": return `(typeof ${value} === 'object' && ${value} !== null && !Array.isArray(${value}))`;
+      // Plain-object map check. Exclude Ball wrapper objects (BallDouble) and
+      // Set instances: in Dart these are NOT `Map`, but a naive `typeof object`
+      // test matches them. Without this, `_asMap(BallDouble)` returns the
+      // wrapper as if it were a `{value: n}` map, and single-parameter binding
+      // can extract the inner number — silently unwrapping doubles.
+      case "Map": return `(typeof ${value} === 'object' && ${value} !== null && !Array.isArray(${value}) && !(${value} instanceof BallDouble) && !(${value} instanceof Set))`;
       case "Set": return `(${value} instanceof Set)`;
       case "Null": return `(${value} == null)`;
       case "Function": return `(typeof ${value} === 'function')`;

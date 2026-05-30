@@ -2,13 +2,25 @@
 ///
 /// Protobuf Editions (starting from Edition 2023) replace the `syntax`
 /// keyword with per-feature defaults that can be overridden at file,
-/// message, or field level. This module provides constants and resolution
-/// logic for the core feature set.
+/// message, or field level. This module implements the canonical feature
+/// model + resolution algorithm (matching protoc's `feature_resolver.cc`),
+/// plus proto2/proto3 → editions legacy inference.
+///
+/// Ball-portable: top-level functions over plain `Map`/`List`/`String`/`int`
+/// data, so it encodes into the `ball_protobuf` module and runs on every
+/// target engine.
+///
+/// The edition-defaults table below is the ground truth emitted by
+/// `protoc --edition_defaults_out` (see tests/editions/golden/). Refresh it
+/// from protoc when upgrading; CI guards against drift.
 ///
 /// References:
 ///   - https://protobuf.dev/editions/features/
 ///   - https://protobuf.dev/editions/overview/
+///   - google/protobuf/descriptor.proto (FeatureSet, FeatureSetDefaults)
 library;
+
+import 'edition.dart';
 
 // ---------------------------------------------------------------------------
 // Feature value constants
@@ -48,28 +60,6 @@ const String utf8ValidationVerify = 'VERIFY';
 /// UTF-8 validation: none — no validation is performed (proto2 default).
 const String utf8ValidationNone = 'NONE';
 
-// ---------------------------------------------------------------------------
-// Feature keys
-// ---------------------------------------------------------------------------
-
-/// Feature key for field presence behavior.
-const String _keyFieldPresence = 'field_presence';
-
-/// Feature key for enum openness.
-const String _keyEnumType = 'enum_type';
-
-/// Feature key for repeated field wire encoding.
-const String _keyRepeatedFieldEncoding = 'repeated_field_encoding';
-
-/// Feature key for UTF-8 validation on string fields.
-const String _keyUtf8Validation = 'utf8_validation';
-
-/// Feature key for message encoding format (Edition 2024+).
-const String _keyMessageEncoding = 'message_encoding';
-
-/// Feature key for JSON format behavior (Edition 2024+).
-const String _keyJsonFormat = 'json_format';
-
 /// Message encoding: length-prefixed (default for all editions).
 const String messageEncodingLengthPrefixed = 'LENGTH_PREFIXED';
 
@@ -83,136 +73,331 @@ const String jsonFormatAllow = 'ALLOW';
 const String jsonFormatLegacyBestEffort = 'LEGACY_BEST_EFFORT';
 
 // ---------------------------------------------------------------------------
-// Edition defaults
+// Feature keys (proto field names of google.protobuf.FeatureSet)
 // ---------------------------------------------------------------------------
 
-/// Default feature set for proto2 syntax.
-///
-/// Proto2 uses explicit presence, closed enums, expanded repeated encoding,
-/// and no UTF-8 validation.
-final Map<String, String> _proto2Defaults = {
-  _keyFieldPresence: fieldPresenceExplicit,
-  _keyEnumType: enumTypeClosed,
-  _keyRepeatedFieldEncoding: repeatedFieldEncodingExpanded,
-  _keyUtf8Validation: utf8ValidationNone,
-};
+const String featureFieldPresence = 'field_presence';
+const String featureEnumType = 'enum_type';
+const String featureRepeatedFieldEncoding = 'repeated_field_encoding';
+const String featureUtf8Validation = 'utf8_validation';
+const String featureMessageEncoding = 'message_encoding';
+const String featureJsonFormat = 'json_format';
 
-/// Default feature set for proto3 syntax.
-///
-/// Proto3 uses implicit presence, open enums, packed repeated encoding,
-/// and UTF-8 verification.
-final Map<String, String> _proto3Defaults = {
-  _keyFieldPresence: fieldPresenceImplicit,
-  _keyEnumType: enumTypeOpen,
-  _keyRepeatedFieldEncoding: repeatedFieldEncodingPacked,
-  _keyUtf8Validation: utf8ValidationVerify,
-};
+/// All six runtime FeatureSet keys, in descriptor.proto field order.
+List<String> featureKeys() => [
+  featureFieldPresence,
+  featureEnumType,
+  featureRepeatedFieldEncoding,
+  featureUtf8Validation,
+  featureMessageEncoding,
+  featureJsonFormat,
+];
 
-/// Default feature set for Edition 2023.
-///
-/// Edition 2023 starts from proto3 defaults but switches field presence
-/// to explicit by default (matching the direction of the editions migration).
-final Map<String, String> _edition2023Defaults = {
-  _keyFieldPresence: fieldPresenceExplicit,
-  _keyEnumType: enumTypeOpen,
-  _keyRepeatedFieldEncoding: repeatedFieldEncodingPacked,
-  _keyUtf8Validation: utf8ValidationVerify,
-};
+// ---------------------------------------------------------------------------
+// Edition defaults table
+// ---------------------------------------------------------------------------
+//
+// Ground truth from `protoc --edition_defaults_out` (protoc 28.2; see
+// tests/editions/golden/featureset_defaults.txtpb). Each entry carries the
+// `overridable` and `fixed` feature maps for one edition floor; an edition
+// resolves to the highest entry whose `edition` is <= it. A feature present in
+// `fixed` cannot be overridden by a file/message/field `features` option.
+//
+// LEGACY and PROTO3 hold all six features as FIXED (proto2/proto3 files cannot
+// use `features`). EDITION_2023 holds all six as OVERRIDABLE. EDITION_2024
+// mirrors 2023's six runtime features — edition 2024 only adds
+// source-retention features (naming style, symbol visibility) that the runtime
+// ignores; verify against protoc >= 29 in CI.
 
-/// Default feature set for Edition 2024.
-///
-/// Edition 2024 inherits Edition 2023 defaults and adds `message_encoding`
-/// and `json_format` features.
-final Map<String, String> _edition2024Defaults = {
-  _keyFieldPresence: fieldPresenceExplicit,
-  _keyEnumType: enumTypeOpen,
-  _keyRepeatedFieldEncoding: repeatedFieldEncodingPacked,
-  _keyUtf8Validation: utf8ValidationVerify,
-  _keyMessageEncoding: messageEncodingLengthPrefixed,
-  _keyJsonFormat: jsonFormatAllow,
-};
+List<Map<String, Object?>> _defaultsTable() {
+  final legacyFixed = <String, String>{};
+  legacyFixed[featureFieldPresence] = fieldPresenceExplicit;
+  legacyFixed[featureEnumType] = enumTypeClosed;
+  legacyFixed[featureRepeatedFieldEncoding] = repeatedFieldEncodingExpanded;
+  legacyFixed[featureUtf8Validation] = utf8ValidationNone;
+  legacyFixed[featureMessageEncoding] = messageEncodingLengthPrefixed;
+  legacyFixed[featureJsonFormat] = jsonFormatLegacyBestEffort;
 
-/// Returns the default feature map for [edition].
-///
-/// Recognized edition strings:
-///   - `"proto2"` — proto2 syntax defaults
-///   - `"proto3"` — proto3 syntax defaults
-///   - `"2023"`   — Edition 2023 defaults
-///   - `"2024"`   — Edition 2024 defaults (adds message_encoding, json_format)
-///
-/// Throws [ArgumentError] for unrecognized editions.
-Map<String, String> editionDefaults(String edition) {
-  switch (edition) {
-    case 'proto2':
-      return Map.of(_proto2Defaults);
-    case 'proto3':
-      return Map.of(_proto3Defaults);
-    case '2023':
-      return Map.of(_edition2023Defaults);
-    case '2024':
-      return Map.of(_edition2024Defaults);
-    default:
-      throw ArgumentError('Unrecognized protobuf edition: "$edition"');
+  final proto3Fixed = <String, String>{};
+  proto3Fixed[featureFieldPresence] = fieldPresenceImplicit;
+  proto3Fixed[featureEnumType] = enumTypeOpen;
+  proto3Fixed[featureRepeatedFieldEncoding] = repeatedFieldEncodingPacked;
+  proto3Fixed[featureUtf8Validation] = utf8ValidationVerify;
+  proto3Fixed[featureMessageEncoding] = messageEncodingLengthPrefixed;
+  proto3Fixed[featureJsonFormat] = jsonFormatAllow;
+
+  final edition2023Overridable = <String, String>{};
+  edition2023Overridable[featureFieldPresence] = fieldPresenceExplicit;
+  edition2023Overridable[featureEnumType] = enumTypeOpen;
+  edition2023Overridable[featureRepeatedFieldEncoding] =
+      repeatedFieldEncodingPacked;
+  edition2023Overridable[featureUtf8Validation] = utf8ValidationVerify;
+  edition2023Overridable[featureMessageEncoding] =
+      messageEncodingLengthPrefixed;
+  edition2023Overridable[featureJsonFormat] = jsonFormatAllow;
+
+  // 2024 runtime features identical to 2023.
+  final edition2024Overridable = <String, String>{};
+  edition2024Overridable.addAll(edition2023Overridable);
+
+  final table = <Map<String, Object?>>[];
+  table.add({
+    'edition': editionLegacy,
+    'overridable': <String, String>{},
+    'fixed': legacyFixed,
+  });
+  table.add({
+    'edition': editionProto3,
+    'overridable': <String, String>{},
+    'fixed': proto3Fixed,
+  });
+  table.add({
+    'edition': edition2023,
+    'overridable': edition2023Overridable,
+    'fixed': <String, String>{},
+  });
+  table.add({
+    'edition': edition2024,
+    'overridable': edition2024Overridable,
+    'fixed': <String, String>{},
+  });
+  return table;
+}
+
+/// Lowest edition the defaults table covers (proto2 resolves via the LEGACY
+/// floor entry).
+const int minimumEdition = editionProto2;
+
+/// Highest edition this engine supports.
+const int maximumEdition = edition2024;
+
+/// Returns the defaults-table entry governing [edition] — the highest entry
+/// whose `edition` is `<=` [edition]. Returns the LEGACY entry for editions
+/// below the table.
+Map<String, Object?> _defaultsEntryFor(int edition) {
+  final table = _defaultsTable();
+  Map<String, Object?> best = table[0];
+  for (final entry in table) {
+    final e = entry['edition'] as int;
+    if (e <= edition) {
+      best = entry;
+    }
+  }
+  return best;
+}
+
+/// Validates that [edition] is within the supported `[minimumEdition,
+/// maximumEdition]` range (the test-only [editionUnstable] is allowed above the
+/// max). Throws [ArgumentError] otherwise.
+void validateEditionInRange(int edition) {
+  if (edition == editionUnstable) return;
+  if (edition < minimumEdition || edition > maximumEdition) {
+    throw ArgumentError(
+      'Edition ${editionToName(edition)} ($edition) is outside the supported '
+      'range [${editionToName(minimumEdition)}, ${editionToName(maximumEdition)}]',
+    );
   }
 }
 
+/// Returns the fully-resolved BASE FeatureSet for [edition] before any
+/// file/message/field overrides: the entry's `overridable` features merged
+/// with its `fixed` features (fixed wins on conflict). For every supported
+/// edition this yields all six runtime features.
+Map<String, String> baseFeaturesForEdition(int edition) {
+  final entry = _defaultsEntryFor(edition);
+  final result = <String, String>{};
+  final overridable = entry['overridable'] as Map<String, String>;
+  final fixed = entry['fixed'] as Map<String, String>;
+  result.addAll(overridable);
+  result.addAll(fixed);
+  return result;
+}
+
+/// Whether [featureKey] is FIXED (non-overridable) at [edition] — i.e. setting
+/// it via a `features` option is a hard error.
+bool isFixedFeature(int edition, String featureKey) {
+  final entry = _defaultsEntryFor(edition);
+  final fixed = entry['fixed'] as Map<String, String>;
+  return fixed.containsKey(featureKey);
+}
+
 // ---------------------------------------------------------------------------
-// Feature resolution
+// Feature resolution (matches protoc feature_resolver.cc)
 // ---------------------------------------------------------------------------
 
-/// Resolves the effective feature set for a specific descriptor element.
+/// Resolves the file-level FeatureSet for [edition] with the file's explicit
+/// `features` overrides applied on top of the edition base.
 ///
-/// Feature resolution follows the protobuf editions inheritance chain:
-///   edition defaults → file-level overrides → message-level overrides →
-///   field-level overrides.
+/// [fileFeatures] is the file's `options.features` (a subset of the six keys,
+/// string-valued); `null`/absent leaves the base unchanged. Overriding a
+/// feature that is FIXED at [edition] throws [ArgumentError].
+Map<String, String> resolveFileFeatures(
+  int edition,
+  Map<String, Object?>? fileFeatures,
+) {
+  validateEditionInRange(edition);
+  final base = baseFeaturesForEdition(edition);
+  _applyOverrides(base, fileFeatures, edition);
+  return base;
+}
+
+/// Resolves a child descriptor's FeatureSet: starts from the parent's
+/// already-fully-resolved features and applies this descriptor's explicit
+/// `features` overrides on top.
 ///
-/// Each override map may contain any subset of the feature keys
-/// (`"field_presence"`, `"enum_type"`, `"repeated_field_encoding"`,
-/// `"utf8_validation"`). Only present keys override the inherited value.
+/// This is the non-file rule from feature_resolver.cc — used for
+/// message/field/enum/oneof/extension/service/method, where the parent is the
+/// lexical/structural enclosing scope (an extension field's parent is its
+/// enclosing scope, NOT the extendee).
+Map<String, String> mergeChildFeatures(
+  int edition,
+  Map<String, String> resolvedParent,
+  Map<String, Object?>? childFeatures,
+) {
+  final result = <String, String>{};
+  result.addAll(resolvedParent);
+  _applyOverrides(result, childFeatures, edition);
+  return result;
+}
+
+/// Back-compat convenience wrapper: resolves features down the common
+/// file → message → field chain for an edition/syntax string.
 ///
-/// [edition] is the edition string (e.g. `"proto3"`, `"2023"`).
-/// [fileFeatures], [messageFeatures], and [fieldFeatures] are optional
-/// override maps at each scope level.
+/// [edition] accepts `"proto2"`, `"proto3"`, `"2023"`, `"2024"` (or the
+/// `EDITION_*` forms). Each override map may carry any subset of the feature
+/// keys; only present keys override the inherited value.
 Map<String, String> resolveFeatures(
   String edition,
   Map<String, Object?>? fileFeatures,
   Map<String, Object?>? messageFeatures,
   Map<String, Object?>? fieldFeatures,
 ) {
-  final result = editionDefaults(edition);
-  _applyOverrides(result, fileFeatures);
-  _applyOverrides(result, messageFeatures);
-  _applyOverrides(result, fieldFeatures);
-  return result;
+  final ed = editionFromString(edition);
+  if (ed == editionUnknown) {
+    throw ArgumentError('Unrecognized protobuf edition: "$edition"');
+  }
+  final file = resolveFileFeatures(ed, fileFeatures);
+  final message = mergeChildFeatures(ed, file, messageFeatures);
+  return mergeChildFeatures(ed, message, fieldFeatures);
 }
 
-/// Checks whether the resolved [features] indicate explicit presence
-/// tracking for a field.
+/// Returns the default feature map for an edition/syntax string (no overrides).
+/// Retained for callers that only need the edition base.
+Map<String, String> editionDefaults(String edition) {
+  final ed = editionFromString(edition);
+  if (ed == editionUnknown) {
+    throw ArgumentError('Unrecognized protobuf edition: "$edition"');
+  }
+  return baseFeaturesForEdition(ed);
+}
+
+// ---------------------------------------------------------------------------
+// Legacy inference (proto2/proto3 → features), applied before resolution
+// ---------------------------------------------------------------------------
+
+/// Infers the field-level feature overrides implied by a proto2/proto3 field's
+/// shape, so a legacy field resolves identically to its editions equivalent.
 ///
-/// Returns `true` for both `EXPLICIT` and `LEGACY_REQUIRED` presence modes,
-/// since both track whether the field has been set.
+///   - [label] is the FieldDescriptorProto label: `"LABEL_OPTIONAL"`,
+///     `"LABEL_REQUIRED"`, or `"LABEL_REPEATED"`.
+///   - [type] is the field type; `"TYPE_GROUP"` implies delimited encoding.
+///   - [proto3Optional] is true for a proto3 `optional` field.
+///   - [packed] is the explicit `[packed=...]` option: `"true"`, `"false"`, or
+///     `null` if unset.
+///   - [edition] is the field's file edition sentinel ([editionProto2] or
+///     [editionProto3]).
+///
+/// Returns only the keys this shape pins; everything else inherits the edition
+/// base. Mirrors descriptor.cc's `InferLegacyProtoFeatures`.
+Map<String, String> inferLegacyFieldFeatures(
+  String label,
+  String type,
+  bool proto3Optional,
+  String? packed,
+  int edition,
+) {
+  final inferred = <String, String>{};
+
+  if (label == 'LABEL_REQUIRED') {
+    inferred[featureFieldPresence] = fieldPresenceLegacyRequired;
+  } else if (edition == editionProto3 &&
+      label == 'LABEL_OPTIONAL' &&
+      !proto3Optional) {
+    // proto3 singular scalar: implicit presence (unless explicitly `optional`).
+    inferred[featureFieldPresence] = fieldPresenceImplicit;
+  } else if (proto3Optional) {
+    inferred[featureFieldPresence] = fieldPresenceExplicit;
+  }
+
+  if (type == 'TYPE_GROUP') {
+    inferred[featureMessageEncoding] = messageEncodingDelimited;
+  }
+
+  if (packed == 'true') {
+    inferred[featureRepeatedFieldEncoding] = repeatedFieldEncodingPacked;
+  } else if (packed == 'false') {
+    inferred[featureRepeatedFieldEncoding] = repeatedFieldEncodingExpanded;
+  }
+
+  return inferred;
+}
+
+// ---------------------------------------------------------------------------
+// Behavior helpers (read a resolved FeatureSet)
+// ---------------------------------------------------------------------------
+
+/// True when the field tracks presence (`EXPLICIT` or `LEGACY_REQUIRED`).
 bool hasExplicitPresence(Map<String, String> features) {
-  final presence = features[_keyFieldPresence];
+  final presence = features[featureFieldPresence];
   return presence == fieldPresenceExplicit ||
       presence == fieldPresenceLegacyRequired;
 }
 
-/// Checks whether the resolved [features] indicate packed encoding for
-/// repeated scalar fields.
-bool isPackedRepeated(Map<String, String> features) {
-  return features[_keyRepeatedFieldEncoding] == repeatedFieldEncodingPacked;
+/// True when the field has implicit (proto3-style) presence.
+bool isImplicitPresence(Map<String, String> features) {
+  return features[featureFieldPresence] == fieldPresenceImplicit;
 }
 
-/// Checks whether the resolved [features] indicate an open enum type
-/// (unknown values are preserved as integers rather than rejected).
+/// True when the field is `required` (LEGACY_REQUIRED).
+bool isRequired(Map<String, String> features) {
+  return features[featureFieldPresence] == fieldPresenceLegacyRequired;
+}
+
+/// True when the enum is open (unknown values preserved as integers).
 bool isOpenEnum(Map<String, String> features) {
-  return features[_keyEnumType] == enumTypeOpen;
+  return features[featureEnumType] == enumTypeOpen;
 }
 
-/// Checks whether the resolved [features] require UTF-8 validation on
-/// string fields.
+/// True when the enum is closed (unknown values routed to the unknown set).
+bool isClosedEnum(Map<String, String> features) {
+  return features[featureEnumType] == enumTypeClosed;
+}
+
+/// True when repeated scalar fields are packed.
+bool isPackedRepeated(Map<String, String> features) {
+  return features[featureRepeatedFieldEncoding] == repeatedFieldEncodingPacked;
+}
+
+/// True when repeated scalar fields are expanded (one record per element).
+bool isExpandedRepeated(Map<String, String> features) {
+  return features[featureRepeatedFieldEncoding] ==
+      repeatedFieldEncodingExpanded;
+}
+
+/// True when message fields use delimited (group) encoding.
+bool isDelimited(Map<String, String> features) {
+  return features[featureMessageEncoding] == messageEncodingDelimited;
+}
+
+/// True when string fields require UTF-8 validation.
 bool requiresUtf8Validation(Map<String, String> features) {
-  return features[_keyUtf8Validation] == utf8ValidationVerify;
+  return features[featureUtf8Validation] == utf8ValidationVerify;
+}
+
+/// True when JSON encoding uses the standard (ALLOW) format rather than the
+/// legacy best-effort path.
+bool jsonFormatIsAllow(Map<String, String> features) {
+  return features[featureJsonFormat] == jsonFormatAllow;
 }
 
 // ---------------------------------------------------------------------------
@@ -222,15 +407,25 @@ bool requiresUtf8Validation(Map<String, String> features) {
 /// Applies override entries from [overrides] onto [base].
 ///
 /// Only string-valued entries whose keys are recognized feature keys are
-/// applied. All other entries are ignored.
+/// applied. Overriding a feature that is FIXED at [edition] is a hard error
+/// (matches protoc, which rejects setting a non-overridable feature).
 void _applyOverrides(
   Map<String, String> base,
   Map<String, Object?>? overrides,
+  int edition,
 ) {
   if (overrides == null) return;
   for (final entry in overrides.entries) {
-    if (entry.value is String && base.containsKey(entry.key)) {
-      base[entry.key] = entry.value as String;
+    final key = entry.key;
+    final value = entry.value;
+    if (value is String && base.containsKey(key)) {
+      if (isFixedFeature(edition, key)) {
+        throw ArgumentError(
+          'Feature "$key" is not overridable at edition '
+          '${editionToName(edition)}',
+        );
+      }
+      base[key] = value;
     }
   }
 }

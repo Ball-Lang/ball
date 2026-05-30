@@ -3,6 +3,8 @@ library;
 
 import 'dart:convert';
 
+import 'package:ball_base/ball_base.dart'
+    show decodeModuleBinary, decodeModuleJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:http/http.dart' as http;
 
@@ -32,12 +34,9 @@ Future<Module> fetchHttp(HttpSource source, {http.Client? client}) async {
         contentType.contains('x-protobuf') ||
         source.url.endsWith('.ball.bin') ||
         source.url.endsWith('.ball')) {
-      return Module.fromBuffer(response.bodyBytes);
+      return decodeModuleBinary(response.bodyBytes);
     }
-    return Module()..mergeFromProto3Json(
-      jsonDecode(response.body),
-      ignoreUnknownFields: true,
-    );
+    return decodeModuleJson(jsonDecode(response.body));
   } finally {
     if (shouldClose) c.close();
   }

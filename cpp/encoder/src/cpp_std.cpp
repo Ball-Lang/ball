@@ -73,7 +73,9 @@ ball::v1::Module build_cpp_std_module() {
         "during normalization.");
 
     auto add_type = [&](DescriptorProto* t) {
-        mod.mutable_types()->AddAllocated(t);
+        auto* td = mod.add_type_defs();
+        td->set_name(t->name());
+        td->set_allocated_descriptor_(t);
     };
 
     // Types

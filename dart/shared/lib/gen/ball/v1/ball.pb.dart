@@ -146,7 +146,6 @@ class Program extends $pb.GeneratedMessage {
 class Module extends $pb.GeneratedMessage {
   factory Module({
     $core.String? name,
-    $core.Iterable<$1.DescriptorProto>? types,
     $core.Iterable<FunctionDefinition>? functions,
     $core.Iterable<ModuleImport>? moduleImports,
     $core.String? description,
@@ -159,7 +158,6 @@ class Module extends $pb.GeneratedMessage {
   }) {
     final result = create();
     if (name != null) result.name = name;
-    if (types != null) result.types.addAll(types);
     if (functions != null) result.functions.addAll(functions);
     if (moduleImports != null) result.moduleImports.addAll(moduleImports);
     if (description != null) result.description = description;
@@ -186,8 +184,6 @@ class Module extends $pb.GeneratedMessage {
       package: const $pb.PackageName(_omitMessageNames ? '' : 'ball.v1'),
       createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'name')
-    ..pPM<$1.DescriptorProto>(2, _omitFieldNames ? '' : 'types',
-        subBuilder: $1.DescriptorProto.create)
     ..pPM<FunctionDefinition>(3, _omitFieldNames ? '' : 'functions',
         subBuilder: FunctionDefinition.create)
     ..pPM<ModuleImport>(4, _omitFieldNames ? '' : 'moduleImports',
@@ -234,17 +230,9 @@ class Module extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   void clearName() => $_clearField(1);
 
-  /// Message types defined using protobuf's own descriptor format.
-  /// This ensures types are truly language-agnostic — protobuf already
-  /// defines how each type maps to every target language's native types
-  /// (e.g. int32 → int in Dart, int in Python, int32_t in C++, number in JS).
-  /// See: https://protobuf.dev/reference/protobuf/google.protobuf/#DescriptorProto
-  @$pb.TagNumber(2)
-  $pb.PbList<$1.DescriptorProto> get types => $_getList(1);
-
   /// Function definitions in this module
   @$pb.TagNumber(3)
-  $pb.PbList<FunctionDefinition> get functions => $_getList(2);
+  $pb.PbList<FunctionDefinition> get functions => $_getList(1);
 
   /// Structured module imports with source resolution and integrity verification.
   ///
@@ -252,54 +240,54 @@ class Module extends $pb.GeneratedMessage {
   /// local file, inline bytes/JSON, or git repo) and an optional
   /// content hash for integrity verification.
   @$pb.TagNumber(4)
-  $pb.PbList<ModuleImport> get moduleImports => $_getList(3);
+  $pb.PbList<ModuleImport> get moduleImports => $_getList(2);
 
   /// Human-readable description
   @$pb.TagNumber(5)
-  $core.String get description => $_getSZ(4);
+  $core.String get description => $_getSZ(3);
   @$pb.TagNumber(5)
-  set description($core.String value) => $_setString(4, value);
+  set description($core.String value) => $_setString(3, value);
   @$pb.TagNumber(5)
-  $core.bool hasDescription() => $_has(4);
+  $core.bool hasDescription() => $_has(3);
   @$pb.TagNumber(5)
   void clearDescription() => $_clearField(5);
 
   /// Arbitrary metadata — supports infinite nesting.
   @$pb.TagNumber(6)
-  $0.Struct get metadata => $_getN(5);
+  $0.Struct get metadata => $_getN(4);
   @$pb.TagNumber(6)
   set metadata($0.Struct value) => $_setField(6, value);
   @$pb.TagNumber(6)
-  $core.bool hasMetadata() => $_has(5);
+  $core.bool hasMetadata() => $_has(4);
   @$pb.TagNumber(6)
   void clearMetadata() => $_clearField(6);
   @$pb.TagNumber(6)
-  $0.Struct ensureMetadata() => $_ensure(5);
+  $0.Struct ensureMetadata() => $_ensure(4);
 
   /// Enum types defined using protobuf's own enum descriptor format.
   @$pb.TagNumber(7)
-  $pb.PbList<$1.EnumDescriptorProto> get enums => $_getList(6);
+  $pb.PbList<$1.EnumDescriptorProto> get enums => $_getList(5);
 
   /// First-class type definitions (replaces the _meta_ function hack).
   /// Each TypeDefinition has a name, protobuf descriptor for fields,
   /// generic type parameters, and a metadata bag for cosmetic hints
   /// (kind, superclass, interfaces, mixins, visibility, etc.).
   @$pb.TagNumber(8)
-  $pb.PbList<TypeDefinition> get typeDefs => $_getList(7);
+  $pb.PbList<TypeDefinition> get typeDefs => $_getList(6);
 
   /// Type aliases (e.g., C++ `using`, Rust `type`, TypeScript `type`).
   @$pb.TagNumber(11)
-  $pb.PbList<TypeAlias> get typeAliases => $_getList(8);
+  $pb.PbList<TypeAlias> get typeAliases => $_getList(7);
 
   /// Module-level constants (e.g., `const pi = 3.14159`).
   @$pb.TagNumber(12)
-  $pb.PbList<Constant> get moduleConstants => $_getList(9);
+  $pb.PbList<Constant> get moduleConstants => $_getList(8);
 
   /// Asset files embedded in this module (images, JSON fixtures, etc.).
   /// Any file can be stored as an asset; the path is relative to the
   /// package root.
   @$pb.TagNumber(13)
-  $pb.PbList<ModuleAsset> get assets => $_getList(10);
+  $pb.PbList<ModuleAsset> get assets => $_getList(9);
 }
 
 /// An asset file embedded in a ball module.

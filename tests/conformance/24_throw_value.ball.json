@@ -1,16 +1,39 @@
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "24_throw_value",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [
-        { "name": "PrintInput", "field": [ { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" } ] }
-      ],
       "functions": [
-        { "name": "print", "isBase": true },
-        { "name": "try", "isBase": true },
-        { "name": "throw", "isBase": true }
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "try",
+          "isBase": true
+        },
+        {
+          "name": "throw",
+          "isBase": true
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
       ]
     },
     {
@@ -50,8 +73,22 @@
                                                     "messageCreation": {
                                                       "typeName": "",
                                                       "fields": [
-                                                        { "name": "__type", "value": { "literal": { "stringValue": "NotFound" } } },
-                                                        { "name": "detail", "value": { "literal": { "stringValue": "missing-key" } } }
+                                                        {
+                                                          "name": "__type",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "NotFound"
+                                                            }
+                                                          }
+                                                        },
+                                                        {
+                                                          "name": "detail",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "missing-key"
+                                                            }
+                                                          }
+                                                        }
                                                       ]
                                                     }
                                                   }
@@ -76,8 +113,22 @@
                                         "messageCreation": {
                                           "typeName": "",
                                           "fields": [
-                                            { "name": "type", "value": { "literal": { "stringValue": "NotFound" } } },
-                                            { "name": "variable", "value": { "literal": { "stringValue": "e" } } },
+                                            {
+                                              "name": "type",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "NotFound"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "variable",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "e"
+                                                }
+                                              }
+                                            },
                                             {
                                               "name": "body",
                                               "value": {
@@ -96,7 +147,11 @@
                                                                   "name": "message",
                                                                   "value": {
                                                                     "fieldAccess": {
-                                                                      "object": { "reference": { "name": "e" } },
+                                                                      "object": {
+                                                                        "reference": {
+                                                                          "name": "e"
+                                                                        }
+                                                                      },
                                                                       "field": "detail"
                                                                     }
                                                                   }
@@ -130,7 +185,11 @@
           }
         }
       ],
-      "moduleImports": [ { "name": "std" } ]
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
     }
   ],
   "entryModule": "main",

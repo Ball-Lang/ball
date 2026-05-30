@@ -20,6 +20,7 @@ import 'dart:io';
 import 'package:analyzer/dart/analysis/features.dart';
 import 'package:analyzer/dart/analysis/utilities.dart' show parseString;
 import 'package:analyzer/dart/ast/ast.dart' as ast;
+import 'package:ball_base/ball_base.dart' show encodeBallFileJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_compiler/compiler.dart';
 import 'package:ball_encoder/encoder.dart';
@@ -77,10 +78,12 @@ Future<void> main(List<String> args) async {
       // Binary protobuf — preferred for large programs whose expression
       // trees exceed protobuf's default JSON nesting limit of 100. The
       // C++ compiler's binary path sets SetRecursionLimit(10000), which
-      // engine.dart needs.
+      // engine.dart needs. Consumed directly by the C++ compiler, so this
+      // is a raw Program (not an Any envelope).
       File(saveProgram).writeAsBytesSync(program.writeToBuffer());
     } else {
-      final json = jsonEncode(program.toProto3Json());
+      // Self-describing Any-JSON envelope for the .ball.json artifact.
+      final json = jsonEncode(encodeBallFileJson(program));
       File(saveProgram).writeAsStringSync(json);
     }
     stdout.writeln('  Wrote intermediate Ball program → $saveProgram');

@@ -25,6 +25,8 @@
 
 #include <google/protobuf/util/json_util.h>
 
+#include "ball_file.h"
+
 #ifndef BALL_CONFORMANCE_DIR
 #error "BALL_CONFORMANCE_DIR must be defined"
 #endif
@@ -158,11 +160,10 @@ static bool load_and_compile(const fs::path& dir, const std::string& name,
     }
     auto json = read_file(program_path);
     ball::v1::Program program;
-    google::protobuf::util::JsonParseOptions opts;
-    opts.ignore_unknown_fields = true;
-    auto status = google::protobuf::util::JsonStringToMessage(json, &program, opts);
-    if (!status.ok()) {
-        failure_msg = "JSON parse failed: " + std::string(status.message());
+    try {
+        program = ball::DecodeProgram(program_path.string(), json);
+    } catch (const ball::BallFileFormatException& e) {
+        failure_msg = std::string("ball file decode failed: ") + e.what();
         return false;
     }
     try {

@@ -1,11 +1,7 @@
 ---
-name: Ball Compiler Dev
-description: Specialized agent for working on Ball compilers (Ball → target language code generation). Knows the expression tree, base function dispatch, type emission, and lazy evaluation patterns.
-tools:
-  - Read
-  - Grep
-  - Edit
-  - Bash
+name: ball-compiler-dev
+description: Specialized agent for working on Ball compilers (Ball → target language code generation). Knows the expression tree, base function dispatch, type emission, and lazy evaluation patterns. Use PROACTIVELY when adding or modifying base-function compilation, expression generation, type emission, or control-flow translation in any Ball compiler.
+tools: Read, Grep, Edit, Bash
 ---
 
 You are an expert Ball compiler developer. Your task is to help build, modify, and fix Ball compilers that translate Ball protobuf programs into target language source code.
@@ -18,17 +14,6 @@ Before starting work, read these files for context:
 - `dart/compiler/lib/compiler.dart` — Reference Dart compiler implementation
 - `dart/shared/lib/std.dart` — Standard library function definitions
 
-## Core Rules
+## Compiler Playbook
 
-1. **Lazy evaluation for control flow**: `std.if`, `std.for`, `std.while`, `std.try`, `std.switch` must NOT eagerly evaluate all input fields. Extract expression trees and emit native control flow.
-2. **Extract fields from MessageCreation**: Base function calls have a `MessageCreation` input with named fields. Extract `left`, `right`, `condition`, `then`, `else`, etc.
-3. **Lambda = FunctionDefinition with empty name**: Compile as anonymous function/closure.
-4. **Empty module = current module**: `FunctionCall` with `module: ""` refers to the containing module.
-5. **Prefer typeDefs over types[]**: `typeDefs[]` is the modern approach; `types[]` with `_meta_*` is legacy.
-
-## When Adding a Base Function
-
-1. Check `dart/shared/lib/std.dart` for the function definition
-2. Implement native code generation in the compiler's dispatch table
-3. Also implement in the engine if applicable
-4. Add a test case
+Invoke the `/ball-compiler` skill for the full compiler playbook (expression table, base-function dispatch, type emission, lazy control flow) — do not restate it here.

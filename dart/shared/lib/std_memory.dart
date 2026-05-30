@@ -32,52 +32,61 @@ Module buildStdMemoryModule() {
   // Types
   // ============================================================
 
-  module.types.addAll([
-    // Allocation / deallocation
-    _type('AllocInput', [_intField('size', 1)]),
-    _type('FreeInput', [_intField('address', 1)]),
-    _type('ReallocInput', [_intField('address', 1), _intField('new_size', 2)]),
+  module.typeDefs.addAll(
+    <google.DescriptorProto>[
+      // Allocation / deallocation
+      _type('AllocInput', [_intField('size', 1)]),
+      _type('FreeInput', [_intField('address', 1)]),
+      _type('ReallocInput', [
+        _intField('address', 1),
+        _intField('new_size', 2),
+      ]),
 
-    // Typed read (address → value)
-    _type('MemReadInput', [_intField('address', 1)]),
+      // Typed read (address → value)
+      _type('MemReadInput', [_intField('address', 1)]),
 
-    // Typed write (address, value → void)
-    _type('MemWriteInput', [_intField('address', 1), _exprField('value', 2)]),
+      // Typed write (address, value → void)
+      _type('MemWriteInput', [_intField('address', 1), _exprField('value', 2)]),
 
-    // Bulk memory operations
-    _type('MemCopyInput', [
-      _intField('dest', 1),
-      _intField('src', 2),
-      _intField('size', 3),
-    ]),
-    _type('MemSetInput', [
-      _intField('address', 1),
-      _intField('value', 2),
-      _intField('size', 3),
-    ]),
-    _type('MemCompareInput', [
-      _intField('a', 1),
-      _intField('b', 2),
-      _intField('size', 3),
-    ]),
+      // Bulk memory operations
+      _type('MemCopyInput', [
+        _intField('dest', 1),
+        _intField('src', 2),
+        _intField('size', 3),
+      ]),
+      _type('MemSetInput', [
+        _intField('address', 1),
+        _intField('value', 2),
+        _intField('size', 3),
+      ]),
+      _type('MemCompareInput', [
+        _intField('a', 1),
+        _intField('b', 2),
+        _intField('size', 3),
+      ]),
 
-    // Pointer arithmetic
-    _type('PtrArithInput', [
-      _intField('address', 1),
-      _intField('offset', 2),
-      _intField('element_size', 3),
-    ]),
+      // Pointer arithmetic
+      _type('PtrArithInput', [
+        _intField('address', 1),
+        _intField('offset', 2),
+        _intField('element_size', 3),
+      ]),
 
-    // Stack frame management
-    _type('StackAllocInput', [_intField('size', 1)]),
+      // Stack frame management
+      _type('StackAllocInput', [_intField('size', 1)]),
 
-    // Sizeof query
-    _type('SizeofInput', [_stringField('type_name', 1)]),
+      // Sizeof query
+      _type('SizeofInput', [_stringField('type_name', 1)]),
 
-    // Address-of / dereference (used before normalization decides safe vs unsafe)
-    _type('AddressOfInput', [_exprField('value', 1)]),
-    _type('DerefInput', [_exprField('pointer', 1)]),
-  ]);
+      // Address-of / dereference (used before normalization decides safe vs unsafe)
+      _type('AddressOfInput', [_exprField('value', 1)]),
+      _type('DerefInput', [_exprField('pointer', 1)]),
+    ].map(
+      (d) => TypeDefinition()
+        ..name = d.name
+        ..descriptor = d,
+    ),
+  );
 
   // ============================================================
   // Functions

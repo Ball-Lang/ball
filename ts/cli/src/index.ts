@@ -126,12 +126,40 @@ function loadProgram(path: string): Program {
     }
     fail(`Could not read ${path}: ${err.message}`);
   }
+  let parsed: unknown;
   try {
-    return JSON.parse(raw) as Program;
+    parsed = JSON.parse(raw);
   } catch (e) {
     const err = e as Error;
     fail(`Invalid JSON in ${path}: ${err.message}`);
   }
+  try {
+    return unwrapBallFile(parsed) as Program;
+  } catch (e) {
+    const err = e as Error;
+    fail(`Invalid ball file ${path}: ${err.message}`);
+  }
+}
+
+/**
+ * Ball files are self-describing `google.protobuf.Any` envelopes. Strip the
+ * `@type` key (if present) to recover the bare proto3-JSON Program; bare
+ * Program objects without `@type` pass through unchanged.
+ */
+function unwrapBallFile(json: unknown): unknown {
+  if (json === null || typeof json !== 'object' || Array.isArray(json)) return json;
+  const obj = json as Record<string, unknown>;
+  const type = obj['@type'];
+  if (type === undefined) return json;
+  const ok =
+    typeof type === 'string' &&
+    (type.endsWith('/ball.v1.Program') || type.endsWith('/ball.v1.Module'));
+  if (!ok) throw new Error(`unknown ball file @type: ${JSON.stringify(type)}`);
+  const body: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (k !== '@type') body[k] = v;
+  }
+  return body;
 }
 
 function fail(message: string): never {

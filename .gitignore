@@ -19,6 +19,11 @@ Thumbs.db
 .dart_tool/
 .packages
 pubspec.lock
+# Commit the Dart workspace lock so CI resolves the SAME, known-good dependency
+# versions as local. Without it, `dart pub get` fresh-resolves newer deps, which
+# has repeatedly broken CI (analyzer error churn, BallDouble/num, formatter drift)
+# while passing locally.
+!dart/pubspec.lock
 build/
 
 # ----------------------------------
@@ -89,6 +94,7 @@ csharp/**/obj/
 .sisyphus/boulder.json
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+.claude/settings.local.json
 
 # ----------------------------------
 # Transient logs / scratch output
@@ -97,3 +103,4 @@ csharp/**/obj/
 test_output.txt
 engine_test.log
 dart_test_out.txt
+cpp/ci-build-test/

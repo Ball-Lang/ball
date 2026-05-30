@@ -69,6 +69,24 @@ DescriptorRegistry buildRegistry(List<int> fdsBytes) {
     }
   }
 
+  // Pass 3: extensions. An extension field is wire-indistinguishable from a
+  // regular field of the same number, so we append each to its extendee
+  // message's field list (resolved against the extension's lexical scope: the
+  // file for top-level `extend`, or the containing message for a nested one).
+  // This is what lets conformance round-trip extension fields such as the
+  // group-encoded `groupliketype`/`delimited_ext` and `extension_bytes`.
+  for (final file in fds.file) {
+    final scope = _fileScope(file);
+    final pkgFqn = file.package.isEmpty ? '' : '.${file.package}';
+    for (final ext in file.extension) {
+      _appendExtension(ext, file, scope.ed, scope.isLegacy, scope.fileResolved,
+          file.package, messages, enums, registry);
+    }
+    for (final m in file.messageType) {
+      _indexNestedExtensions(m, pkgFqn, messages, enums, registry);
+    }
+  }
+
   return registry;
 }
 
@@ -92,41 +110,104 @@ void _indexMessage(
 ) {
   final fqn = '$parentFqn.${m.name}';
 
-  // File edition / syntax → resolver edition + legacy flag.
-  final editionName = file.hasEdition() ? file.edition.name : '';
-  final bool isLegacy;
-  final int ed;
-  if (editionName.isNotEmpty && editionName != 'EDITION_UNKNOWN') {
-    ed = editionFromString(editionName);
-    isLegacy = false;
-  } else {
-    // proto2/proto3 (or unset == proto2).
-    ed = syntaxToEdition(file.hasSyntax() ? file.syntax : '');
-    isLegacy = true;
-  }
+  // File edition / syntax → resolver edition + legacy flag + base features.
+  final scope = _fileScope(file);
 
   // Resolve file → message features.
   final Map<String, String> resolvedMessage;
-  if (isLegacy) {
-    resolvedMessage = baseFeaturesForEdition(ed);
+  if (scope.isLegacy) {
+    resolvedMessage = scope.fileResolved;
   } else {
-    final fileFeat = (file.hasOptions() && file.options.hasFeatures())
-        ? _featureOverrides(file.options.features)
-        : null;
-    final fileResolved = resolveFileFeatures(ed, fileFeat);
     final msgFeat = (m.hasOptions() && m.options.hasFeatures())
         ? _featureOverrides(m.options.features)
         : null;
-    resolvedMessage = mergeChildFeatures(ed, fileResolved, msgFeat);
+    resolvedMessage = mergeChildFeatures(scope.ed, scope.fileResolved, msgFeat);
   }
 
-  messages[fqn] = _MsgCtx(m, file, ed, isLegacy, resolvedMessage);
+  messages[fqn] = _MsgCtx(m, file, scope.ed, scope.isLegacy, resolvedMessage);
 
   for (final e in m.enumType) {
     enums['$fqn.${e.name}'] = e;
   }
   for (final nested in m.nestedType) {
     _indexMessage(nested, fqn, file, messages, enums);
+  }
+}
+
+/// A file's resolver edition, legacy flag, and resolved file-level features —
+/// the shared parent scope for both messages and top-level extensions.
+typedef _FileScope = ({int ed, bool isLegacy, Map<String, String> fileResolved});
+
+_FileScope _fileScope(FileDescriptorProto file) {
+  final editionName = file.hasEdition() ? file.edition.name : '';
+  if (editionName.isNotEmpty && editionName != 'EDITION_UNKNOWN') {
+    final ed = editionFromString(editionName);
+    final fileFeat = (file.hasOptions() && file.options.hasFeatures())
+        ? _featureOverrides(file.options.features)
+        : null;
+    return (
+      ed: ed,
+      isLegacy: false,
+      fileResolved: resolveFileFeatures(ed, fileFeat),
+    );
+  }
+  // proto2/proto3 (or unset == proto2): legacy inference, base = edition base.
+  final ed = syntaxToEdition(file.hasSyntax() ? file.syntax : '');
+  return (ed: ed, isLegacy: true, fileResolved: baseFeaturesForEdition(ed));
+}
+
+/// Appends a single extension [ext] to its extendee message's field list (if
+/// that message is in the registry). [parentFeatures] is the resolved feature
+/// set of the extension's lexical scope (file, or containing message). On the
+/// wire an extension is just a numbered field, so the codecs treat it like any
+/// other once it lives in the extendee's descriptor.
+void _appendExtension(
+  FieldDescriptorProto ext,
+  FileDescriptorProto file,
+  int ed,
+  bool isLegacy,
+  Map<String, String> parentFeatures,
+  String scopeFqn,
+  Map<String, _MsgCtx> messages,
+  Map<String, EnumDescriptorProto> enums,
+  DescriptorRegistry registry,
+) {
+  final extendee = _strip(ext.extendee);
+  final fields = registry[extendee];
+  if (fields == null) return; // extendee not in this registry — skip.
+  // ctx.msg is unused by _buildField; only the edition/feature scope matters.
+  final ctx = _MsgCtx(DescriptorProto(), file, ed, isLegacy, parentFeatures);
+  final f = _buildField(ext, ctx, messages, enums, registry);
+  // Store under the canonical `[fully.qualified.name]` key. Extensions live in
+  // a separate namespace from regular fields, so an extension may reuse a
+  // sibling field's simple name (e.g. both field 201 and extension 121 are
+  // named `groupliketype`). Keying by simple name would alias the two; the
+  // bracketed FQN is both collision-free and the correct protobuf-JSON key.
+  final fullName = scopeFqn.isEmpty ? ext.name : '$scopeFqn.${ext.name}';
+  f['name'] = '[$fullName]';
+  fields.add(f);
+}
+
+/// Recurses into nested message types, appending each message's locally-scoped
+/// `extend` blocks to their extendees. The parent feature scope for a nested
+/// extension is the containing message's resolved features.
+void _indexNestedExtensions(
+  DescriptorProto m,
+  String parentFqn,
+  Map<String, _MsgCtx> messages,
+  Map<String, EnumDescriptorProto> enums,
+  DescriptorRegistry registry,
+) {
+  final fqn = '$parentFqn.${m.name}';
+  final ctx = messages[fqn];
+  if (ctx != null) {
+    for (final ext in m.extension) {
+      _appendExtension(ext, ctx.file, ctx.edition, ctx.isLegacy,
+          ctx.resolvedMessageFeatures, _strip(fqn), messages, enums, registry);
+    }
+  }
+  for (final nested in m.nestedType) {
+    _indexNestedExtensions(nested, fqn, messages, enums, registry);
   }
 }
 

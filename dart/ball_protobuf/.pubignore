@@ -1,3 +1,5 @@
 # Dev/CI conformance harness — imports ball_base (a dev-dependency) and the
 # generated descriptor types; not part of the published runtime.
 tool/
+# Upstream-conformance failure list + docs (CI artifact, not runtime).
+conformance/

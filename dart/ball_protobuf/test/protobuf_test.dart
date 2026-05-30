@@ -1392,6 +1392,88 @@ void main() {
       expect((decoded['inner'] as Map)['value'], 42);
     });
 
+    test('marshal map with native (int) keys round-trips', () {
+      // Binary unmarshal yields native-typed keys (Map<Object?,Object?> keyed
+      // by int), so marshal must accept any Map — not cast it to List — and
+      // _coerceMapKey must pass an already-native key through. Regression for
+      // the conformance ValidMap.Integer crash ("_Map is not a subtype of
+      // List in type cast").
+      final desc = <Map<String, Object?>>[
+        {
+          'name': 'm',
+          'number': 1,
+          'type': 'TYPE_MESSAGE',
+          'label': 'LABEL_REPEATED',
+          'mapEntry': true,
+          'keyType': 'TYPE_INT32',
+          'valueType': 'TYPE_INT32',
+        },
+      ];
+      final bytes = marshal({
+        'm': <Object?, Object?>{99: 87},
+      }, desc);
+      final unmarshalDesc = <Map<String, Object?>>[
+        {
+          'name': 'm',
+          'number': 1,
+          'type': 'message',
+          'repeated': true,
+          'mapEntry': true,
+          'keyType': 'int32',
+          'valueType': 'int32',
+        },
+      ];
+      final decoded = unmarshal(bytes, unmarshalDesc);
+      expect((decoded['m'] as Map)[99], 87);
+    });
+
+    test('marshal map<K, message> value round-trips via descriptor', () {
+      // A message-typed map value must re-marshal through the value's
+      // messageDescriptor (threaded from the map field). Regression for the
+      // conformance ValidMap.LengthPrefixed failure.
+      final innerDesc = <Map<String, Object?>>[
+        {
+          'name': 'value',
+          'number': 1,
+          'type': 'TYPE_INT32',
+          'label': 'LABEL_OPTIONAL',
+        },
+      ];
+      final desc = <Map<String, Object?>>[
+        {
+          'name': 'm',
+          'number': 1,
+          'type': 'TYPE_MESSAGE',
+          'label': 'LABEL_REPEATED',
+          'mapEntry': true,
+          'keyType': 'TYPE_STRING',
+          'valueType': 'TYPE_MESSAGE',
+          'messageDescriptor': innerDesc,
+        },
+      ];
+      final bytes = marshal({
+        'm': <Object?, Object?>{
+          'a': <String, Object?>{'value': 87},
+        },
+      }, desc);
+      final unmarshalDesc = <Map<String, Object?>>[
+        {
+          'name': 'm',
+          'number': 1,
+          'type': 'message',
+          'repeated': true,
+          'mapEntry': true,
+          'keyType': 'string',
+          'valueType': 'message',
+          'messageDescriptor': <Map<String, Object?>>[
+            {'name': 'value', 'number': 1, 'type': 'int32'},
+          ],
+        },
+      ];
+      final decoded = unmarshal(bytes, unmarshalDesc);
+      expect(((decoded['m'] as Map)['a'] as Map)['value'], 87);
+    });
+
     test('decodeAsInt64 identity', () {
       expect(decodeAsInt64(0), 0);
       expect(decodeAsInt64(42), 42);

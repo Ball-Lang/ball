@@ -26,10 +26,10 @@ import 'package:ball_protobuf/conformance.dart' show runConformanceLoop;
 
 import 'descriptor_bridge.dart';
 
-void main(List<String> args) {
+Future<void> main(List<String> args) async {
   final fdsPath = args.isNotEmpty ? args[0] : _findDescriptorSet();
   final registry = buildRegistry(File(fdsPath).readAsBytesSync());
-  runConformanceLoop(registry);
+  await runConformanceLoop(registry);
 }
 
 /// Walks up from the current directory to locate the checked-in conformance

@@ -125,9 +125,13 @@ List<int>? readSizePrefixed(Stdin input) {
 /// Writes a size-prefixed message to [output].
 ///
 /// Emits a 4-byte little-endian length prefix followed by the raw [data]
-/// bytes. Flushes the output to ensure the test runner receives the response
-/// promptly.
-void writeSizePrefixed(Stdout output, List<int> data) {
+/// bytes, then **awaits** the flush so the runner receives the response before
+/// we block on the next request. The await is load-bearing: the request loop
+/// reads stdin synchronously (`readByteSync`) and never yields to the event
+/// loop on its own, so an un-awaited `flush()` future would stay pending and
+/// the next `add()` would throw `Bad state: StreamSink is bound to a stream`,
+/// killing the process after a single response.
+Future<void> writeSizePrefixed(Stdout output, List<int> data) async {
   final size = data.length;
   final sizeBytes = ByteData(4);
   sizeBytes.setUint32(0, size, Endian.little);
@@ -138,7 +142,7 @@ void writeSizePrefixed(Stdout output, List<int> data) {
     sizeBytes.getUint8(3),
   ]);
   output.add(data);
-  output.flush();
+  await output.flush();
 }
 
 // ---------------------------------------------------------------------------
@@ -505,8 +509,10 @@ Map<String, Object?> processConformanceRequest(
 /// runner closes the pipe).
 ///
 /// This function never returns normally — it runs until the input stream
-/// is exhausted, then exits cleanly.
-void runConformanceLoop(Map<String, List<Map<String, Object?>>> registry) {
+/// is exhausted, then exits cleanly. It is async only so it can `await` each
+/// stdout flush (see [writeSizePrefixed]); reads stay synchronous.
+Future<void> runConformanceLoop(
+    Map<String, List<Map<String, Object?>>> registry) async {
   var testCount = 0;
 
   while (true) {
@@ -527,7 +533,7 @@ void runConformanceLoop(Map<String, List<Map<String, Object?>>> registry) {
     }
 
     final responseBytes = encodeConformanceResponse(response);
-    writeSizePrefixed(stdout, responseBytes);
+    await writeSizePrefixed(stdout, responseBytes);
   }
 
   stderr.writeln('Ball conformance plugin: completed $testCount tests.');

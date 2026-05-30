@@ -104,3 +104,8 @@ test_output.txt
 engine_test.log
 dart_test_out.txt
 cpp/ci-build-test/
+
+# Compiled upstream-conformance program (built ad hoc / in CI).
+/ball_conformance
+/ball_conformance.exe
+cpp/build-conformance/

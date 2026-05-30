@@ -140,14 +140,23 @@ List<int> marshal(
     // Skip null values — field not present in the message map.
     if (value == null) continue;
 
-    // Map fields: descriptor carries keyType/valueType metadata.
+    // Map fields: descriptor carries keyType/valueType metadata. Accept any
+    // `Map` — binary unmarshal yields native-typed keys (`Map<Object?,Object?>`
+    // keyed by e.g. `int`), while the JSON codec yields string keys; both must
+    // round-trip through here.
     if (label == 'LABEL_REPEATED' &&
         type == 'TYPE_MESSAGE' &&
-        value is Map<String, Object?> &&
+        value is Map &&
         field['mapEntry'] == true) {
       final keyType = field['keyType'] as String? ?? 'TYPE_STRING';
       final valueType = field['valueType'] as String? ?? 'TYPE_STRING';
-      marshalMapField(buffer, fieldNumber, value, keyType, valueType);
+      // For `map<K, message>` the value sub-message's field descriptors live on
+      // the map field itself (set by the descriptor bridge); thread them through
+      // so message-typed values re-marshal instead of failing.
+      final valueDescriptor =
+          field['messageDescriptor'] as List<Map<String, Object?>>?;
+      marshalMapField(buffer, fieldNumber, value, keyType, valueType,
+          valueDescriptor: valueDescriptor);
       continue;
     }
 
@@ -507,19 +516,21 @@ List<int> marshalRepeated(
 /// Each entry is a length-delimited submessage containing field 1 (key)
 /// and field 2 (value).
 ///
-/// [mapValue] is the Dart map to encode. Keys are always strings in the
-/// `Map<String, Object?>` representation (matching JSON conventions), but
-/// [keyType] determines how the key string is interpreted on the wire
-/// (e.g. `TYPE_STRING`, `TYPE_INT32`, etc.).
+/// [mapValue] is the Dart map to encode. Keys may be native-typed (as binary
+/// unmarshal produces — `int`/`bool`/`String`) or string-typed (as the JSON
+/// codec produces); [keyType] determines how each key is interpreted on the
+/// wire (e.g. `TYPE_STRING`, `TYPE_INT32`, etc.) and [_coerceMapKey] accepts
+/// either representation.
 ///
 /// Returns [buffer] with the map entry fields appended.
 List<int> marshalMapField(
   List<int> buffer,
   int fieldNumber,
-  Map<String, Object?> mapValue,
+  Map<Object?, Object?> mapValue,
   String keyType,
-  String valueType,
-) {
+  String valueType, {
+  List<Map<String, Object?>>? valueDescriptor,
+}) {
   if (mapValue.isEmpty) return buffer;
 
   for (final entry in mapValue.entries) {
@@ -529,9 +540,10 @@ List<int> marshalMapField(
     final key = _coerceMapKey(entry.key, keyType);
     marshalField(entryBuffer, 1, keyType, key, repeated: true);
 
-    // Encode value as field 2.
+    // Encode value as field 2 (a message value re-marshals via its descriptor).
     if (entry.value != null) {
-      marshalField(entryBuffer, 2, valueType, entry.value, repeated: true);
+      marshalField(entryBuffer, 2, valueType, entry.value,
+          repeated: true, messageDescriptor: valueDescriptor);
     }
 
     // Write the entry as a length-delimited submessage at [fieldNumber].
@@ -563,16 +575,16 @@ double _toDouble(Object? value) {
   throw ArgumentError('Cannot convert $value (${value.runtimeType}) to double');
 }
 
-/// Coerces a map key string into the appropriate Dart type for the given
-/// [keyType].
+/// Coerces a map key into the appropriate Dart type for the given [keyType].
 ///
-/// Protobuf map keys can be any integer type, bool, or string. In the
-/// `Map<String, Object?>` representation the keys are always Dart strings,
-/// so we parse them to the wire type expected by the encoder.
-Object _coerceMapKey(String key, String keyType) {
+/// Protobuf map keys can be any integer type, bool, or string. Keys reach us
+/// either already native-typed (binary unmarshal: `int`/`bool`/`String`) or as
+/// strings (JSON codec, where object keys are always strings), so we accept
+/// both and normalize to the wire type the encoder expects.
+Object _coerceMapKey(Object? key, String keyType) {
   switch (keyType) {
     case 'TYPE_STRING':
-      return key;
+      return key is String ? key : key.toString();
     case 'TYPE_INT32':
     case 'TYPE_INT64':
     case 'TYPE_UINT32':
@@ -583,12 +595,15 @@ Object _coerceMapKey(String key, String keyType) {
     case 'TYPE_FIXED64':
     case 'TYPE_SFIXED32':
     case 'TYPE_SFIXED64':
-      return int.parse(key);
+      if (key is int) return key;
+      if (key is num) return key.toInt();
+      return int.parse(key as String);
     case 'TYPE_BOOL':
+      if (key is bool) return key;
       return key == 'true';
     default:
-      // Fallback: return the string as-is.
-      return key;
+      // Fallback: return the key as-is (non-null).
+      return key ?? '';
   }
 }
 

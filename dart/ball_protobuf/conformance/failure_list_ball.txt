@@ -1,0 +1,17 @@
+# Upstream protobuf conformance — expected failures for ball_protobuf.
+#
+# Format: one fully-qualified conformance test name per line; '#' starts a
+# comment. The conformance_test_runner treats every name here as an EXPECTED
+# failure and fails the suite if such a test unexpectedly PASSES (so prune a
+# line the moment its test starts passing) — keep this list exact.
+#
+# Scope: this harness registers the Editions test message
+# `protobuf_test_messages.editions.TestAllTypesEdition2023` (and its nested
+# types + extensions) from a protoc FileDescriptorSet, then drives
+# ball_protobuf's feature-aware binary/JSON codecs. With `--maximum_edition
+# 2023` the runner also emits proto2/proto3 and other-message test cases; those
+# message types are not in our registry and are reported as `skipped` (not
+# failures). Broadening coverage to proto2/proto3 TestAllTypes is a tracked
+# follow-on (the descriptor bridge already supports legacy feature inference).
+#
+# Current status: all TestAllTypesEdition2023 tests pass — this list is empty.

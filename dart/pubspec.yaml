@@ -3,6 +3,7 @@ environment:
   sdk: ^3.9.0
 
 workspace:
+  - ball_protobuf
   - shared
   - compiler
   - encoder

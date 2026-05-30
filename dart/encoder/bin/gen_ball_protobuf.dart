@@ -32,21 +32,21 @@ import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_encoder/encoder.dart';
 
 /// Protobuf source files to encode, in dependency order.
-/// Each path is relative to the ball_base package root (dart/shared/).
+/// Each path is relative to the ball_protobuf package root (dart/ball_protobuf/).
 const _sourceFiles = [
-  'lib/protobuf/edition.dart',
-  'lib/protobuf/wire_varint.dart',
-  'lib/protobuf/wire_fixed.dart',
-  'lib/protobuf/wire_bytes.dart',
-  'lib/protobuf/field_int.dart',
-  'lib/protobuf/field_fixed.dart',
-  'lib/protobuf/field_len.dart',
-  'lib/protobuf/marshal.dart',
-  'lib/protobuf/unmarshal.dart',
-  'lib/protobuf/json_codec.dart',
-  'lib/protobuf/well_known.dart',
-  'lib/protobuf/editions.dart',
-  'lib/protobuf/grpc_frame.dart',
+  'lib/edition.dart',
+  'lib/wire_varint.dart',
+  'lib/wire_fixed.dart',
+  'lib/wire_bytes.dart',
+  'lib/field_int.dart',
+  'lib/field_fixed.dart',
+  'lib/field_len.dart',
+  'lib/marshal.dart',
+  'lib/unmarshal.dart',
+  'lib/json_codec.dart',
+  'lib/well_known.dart',
+  'lib/editions.dart',
+  'lib/grpc_frame.dart',
 ];
 
 /// Map from relative file path to Ball module name.
@@ -70,15 +70,18 @@ Map<String, String> _buildUriOverrides() {
 }
 
 void main(List<String> args) {
+  // The compiled artifact stays in ball_base (dart/shared) — it is a build
+  // output for downstream targets, not part of the published ball_protobuf
+  // source package. The engine sources are read from the ball_protobuf package.
   final outputDir = args.isNotEmpty ? args[0] : '../shared';
-  final sharedRoot = '../shared';
+  final pkgRoot = '../ball_protobuf';
 
   final uriOverrides = _buildUriOverrides();
   final encoder = DartEncoder();
   final implModules = <Module>[];
 
   for (final relPath in _sourceFiles) {
-    final file = File('$sharedRoot/$relPath');
+    final file = File('$pkgRoot/$relPath');
     if (!file.existsSync()) {
       stderr.writeln('ERROR: Source file not found: ${file.path}');
       exit(1);

@@ -196,6 +196,17 @@ Map<String, int> decodeTag(List<int> buffer, int offset) {
 
   int wireType = result & 0x07;
   int fieldNumber = result >>> 3;
+  // Reject structurally illegal tags so malformed input is a parse error rather
+  // than silently-skipped unknown fields: field 0 is never valid, and field
+  // numbers must fit in 29 bits (max 2^29 - 1 = 536870911).
+  if (fieldNumber == 0) {
+    throw FormatException('Illegal field number 0 in tag at offset $offset');
+  }
+  if (fieldNumber > 536870911) {
+    throw FormatException(
+      'Field number $fieldNumber exceeds the maximum 2^29-1 at offset $offset',
+    );
+  }
   return {
     'fieldNumber': fieldNumber,
     'wireType': wireType,

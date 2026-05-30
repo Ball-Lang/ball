@@ -109,3 +109,7 @@ cpp/ci-build-test/
 /ball_conformance
 /ball_conformance.exe
 cpp/build-conformance/
+
+# conformance failure analysis scratch
+.conf_failing_list.txt
+.conf_failing_detail.txt

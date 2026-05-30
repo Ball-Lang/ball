@@ -287,12 +287,19 @@ Object? fieldToJson(
   if (value == null) return null;
 
   switch (type) {
-    // 64-bit integers: encode as string per Proto3 JSON spec.
+    // Signed 64-bit integers: encode as a string per the Proto3 JSON spec.
     case 'TYPE_INT64':
-    case 'TYPE_UINT64':
     case 'TYPE_SINT64':
     case 'TYPE_SFIXED64':
+      return value.toString();
+
+    // Unsigned 64-bit: a Dart int holding a value >= 2^63 is stored as a
+    // negative bit pattern, so render it as the unsigned decimal (string).
+    case 'TYPE_UINT64':
     case 'TYPE_FIXED64':
+      if (value is int && value < 0) {
+        return (BigInt.from(value) + (BigInt.one << 64)).toString();
+      }
       return value.toString();
 
     // bytes: base64 encode.
@@ -367,19 +374,14 @@ Object? fieldFromJson(
   if (jsonValue == null) return null;
 
   switch (type) {
-    // 64-bit integers: JSON string -> int.
+    // 64-bit integers: a JSON string or number (proto3 JSON encodes these as
+    // strings, but accepts numbers too; exponential and quoted forms allowed).
     case 'TYPE_INT64':
     case 'TYPE_UINT64':
     case 'TYPE_SINT64':
     case 'TYPE_SFIXED64':
     case 'TYPE_FIXED64':
-      if (jsonValue is String) {
-        return int.parse(jsonValue);
-      }
-      if (jsonValue is num) {
-        return jsonValue.toInt();
-      }
-      return jsonValue;
+      return _parseJsonInt(jsonValue);
 
     // bytes: base64 string -> List<int>.
     case 'TYPE_BYTES':
@@ -448,19 +450,24 @@ Object? fieldFromJson(
       }
       return jsonValue;
 
-    // 32-bit integers and fixed-width 32-bit: coerce from JSON number.
+    // Signed 32-bit integers: range-checked.
     case 'TYPE_INT32':
-    case 'TYPE_UINT32':
     case 'TYPE_SINT32':
-    case 'TYPE_FIXED32':
     case 'TYPE_SFIXED32':
-      if (jsonValue is String) {
-        return int.parse(jsonValue);
+      final n = _parseJsonInt(jsonValue);
+      if (n < -2147483648 || n > 2147483647) {
+        throw FormatException('int32 field value out of range: $n');
       }
-      if (jsonValue is num) {
-        return jsonValue.toInt();
+      return n;
+
+    // Unsigned 32-bit integers: range-checked.
+    case 'TYPE_UINT32':
+    case 'TYPE_FIXED32':
+      final n = _parseJsonInt(jsonValue);
+      if (n < 0 || n > 4294967295) {
+        throw FormatException('uint32 field value out of range: $n');
       }
-      return jsonValue;
+      return n;
 
     case 'TYPE_BOOL':
       if (jsonValue is bool) return jsonValue;
@@ -468,13 +475,49 @@ Object? fieldFromJson(
       return jsonValue;
 
     case 'TYPE_STRING':
-      final s = jsonValue is String ? jsonValue : jsonValue.toString();
-      _verifyUtf8IfRequired(s, features);
-      return s;
+      if (jsonValue is! String) {
+        throw FormatException(
+          'Expected a JSON string, got ${jsonValue.runtimeType}',
+        );
+      }
+      _verifyUtf8IfRequired(jsonValue, features);
+      return jsonValue;
 
     default:
       return jsonValue;
   }
+}
+
+/// Parses a proto3-JSON integer scalar [v] into a Dart `int`.
+///
+/// Accepts a JSON number or a quoted string, in plain or exponential form
+/// (`"1E5"`), and unsigned 64-bit values up to 2^64-1 (folded into the signed
+/// 64-bit bit pattern). Rejects bools and non-integral numbers with a
+/// [FormatException] so malformed JSON becomes a parse error.
+int _parseJsonInt(Object? v) {
+  if (v is bool) {
+    throw FormatException('Expected an integer JSON value, got a bool');
+  }
+  if (v is int) return v;
+  if (v is double) {
+    if (v.isFinite && v == v.truncateToDouble()) return v.toInt();
+    throw FormatException('Non-integral JSON number for an integer field: $v');
+  }
+  if (v is String) {
+    final direct = int.tryParse(v);
+    if (direct != null) return direct;
+    // Unsigned 64-bit values above 2^63 overflow a signed int; fold the bit
+    // pattern (e.g. "18446744073709551615" -> -1).
+    final big = BigInt.tryParse(v);
+    if (big != null && big >= BigInt.zero && big < (BigInt.one << 64)) {
+      return big.toSigned(64).toInt();
+    }
+    // Exponential / decimal forms, accepted only when integral.
+    final d = double.tryParse(v);
+    if (d != null && d.isFinite && d == d.truncateToDouble()) return d.toInt();
+    throw FormatException('Invalid integer JSON value: "$v"');
+  }
+  throw FormatException('Expected an integer JSON value, got ${v.runtimeType}');
 }
 
 // ---------------------------------------------------------------------------
@@ -687,9 +730,13 @@ Map<String, Object?> _unmarshalFromMap(
               features: features,
             ),
         ];
-      } else {
-        result[name] = jsonValue;
+      } else if (jsonValue != null) {
+        throw FormatException(
+          'Expected a JSON array for repeated field "$name", '
+          'got ${jsonValue.runtimeType}',
+        );
       }
+      // A JSON `null` for a repeated field means the default (empty) — unset.
     } else {
       // Singular field.
       result[name] = fieldFromJson(

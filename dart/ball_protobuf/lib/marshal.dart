@@ -354,8 +354,12 @@ List<int> marshalField(
         // an empty one (START_GROUP/END_GROUP carries presence on its own).
         encodeGroupField(buffer, fieldNumber, v);
       } else {
-        if (v.isEmpty) return buffer;
-        encodeMessageField(buffer, fieldNumber, v);
+        // A present singular message is emitted even when empty (tag + length 0)
+        // — message fields carry presence, and an absent field was already
+        // elided by the null check at the call site. Eliding a present empty
+        // message would drop it on round-trip (ValidDataScalar.MESSAGE).
+        encodeTag(buffer, fieldNumber, _wtLen);
+        encodeBytes(buffer, v);
       }
     default:
       throw ArgumentError('Unknown protobuf field type: $type');
@@ -558,8 +562,12 @@ List<int> marshalMapField(
       );
     }
 
-    // Write the entry as a length-delimited submessage at [fieldNumber].
-    encodeMessageField(buffer, fieldNumber, entryBuffer);
+    // Write the entry as a length-delimited submessage. Emit it even when the
+    // body is empty (both key and value elided to their type-default) — a
+    // {default: default} entry must still round-trip, but encodeMessageField
+    // would drop a zero-length submessage.
+    encodeTag(buffer, fieldNumber, _wtLen);
+    encodeBytes(buffer, entryBuffer);
   }
 
   return buffer;

@@ -1,17 +1,231 @@
 # Upstream protobuf conformance — expected failures for ball_protobuf.
 #
-# Format: one fully-qualified conformance test name per line; '#' starts a
-# comment. The conformance_test_runner treats every name here as an EXPECTED
-# failure and fails the suite if such a test unexpectedly PASSES (so prune a
-# line the moment its test starts passing) — keep this list exact.
+# Format: one fully-qualified conformance test name per line (text after the
+# first '#' on a line is an inline comment / the runner's failure reason and is
+# ignored by the matcher). The conformance_test_runner treats every name here
+# as an EXPECTED failure and fails the suite if one unexpectedly PASSES — so
+# prune a line the moment its test starts passing.
 #
-# Scope: this harness registers the Editions test message
-# `protobuf_test_messages.editions.TestAllTypesEdition2023` (and its nested
-# types + extensions) from a protoc FileDescriptorSet, then drives
-# ball_protobuf's feature-aware binary/JSON codecs. With `--maximum_edition
-# 2023` the runner also emits proto2/proto3 and other-message test cases; those
-# message types are not in our registry and are reported as `skipped` (not
-# failures). Broadening coverage to proto2/proto3 TestAllTypes is a tracked
-# follow-on (the descriptor bridge already supports legacy feature inference).
+# Scope: the harness registers all three conformance message families —
+# protobuf_test_messages.{proto2,proto3,editions} TestAllTypes* — from a protoc
+# FileDescriptorSet and drives ball_protobuf's feature-aware binary/JSON codecs.
+# Status: 2513 pass, 194 expected-fail (listed below), text-format + unregistered
+# message types are reported skipped.
 #
-# Current status: all TestAllTypesEdition2023 tests pass — this list is empty.
+# The expected failures are tracked follow-ups, grouped by the feature they need:
+#   * Well-Known Types JSON mapping not wired into the descriptor codec:
+#     google.protobuf.Any, Struct/Value/ListValue/NullValue, Timestamp, Duration,
+#     the *Value wrappers, and FieldMask (the bulk of JsonInput.* failures).
+#   * Oneof tracking — descriptors carry no oneof membership, so set-sibling
+#     clearing / last-set-wins across a oneof is not modelled.
+#   * Singular/repeated MESSAGE merge — repeated occurrences of a singular
+#     message field must merge recursively (concat-parse).
+#   * Unknown-field retention — unknown fields are dropped, not re-emitted in
+#     order (UnknownOrdering / UnknownVarint / MessageSet).
+#   * json_name / snake_case field-name handling (e.g. _field_name3) and enum
+#     value aliases (allow_alias) — need richer descriptor metadata.
+#   * Remaining parse/serialize strictness (non-minimal varints, some UTF-8 and
+#     float/double overflow rejections) and unquoted >2^63 integer literals
+#     (precision is lost in Dart's jsonDecode before our codec sees the token).
+#
+# Entries are bare test names (no inline failure message) so they match any
+# failure of that test — several reference diffs are order-non-deterministic
+# (e.g. Struct map fields). Regenerate after codec changes by running the runner
+# without --failure_list and replacing the block below with the failing test
+# names, reasons stripped (see conformance/README.md).
+#
+# --- expected failures (proto2/proto3/editions) ---
+Required.Proto2.JsonInput.DoubleFieldTooLarge
+Required.Proto2.JsonInput.DoubleFieldTooSmall
+Required.Proto2.JsonInput.FieldNameInLowerCamelCase.Validator
+Required.Proto2.JsonInput.FieldNameInSnakeCase.JsonOutput
+Required.Proto2.JsonInput.FieldNameInSnakeCase.ProtobufOutput
+Required.Proto2.JsonInput.FloatFieldTooLarge
+Required.Proto2.JsonInput.FloatFieldTooSmall
+Required.Proto2.JsonInput.Int32FieldLeadingSpace
+Required.Proto2.JsonInput.Int32FieldTrailingSpace
+Required.Proto2.JsonInput.Int64FieldTooLarge
+Required.Proto2.JsonInput.Int64FieldTooSmall
+Required.Proto2.JsonInput.OneofFieldDuplicate
+Required.Proto2.JsonInput.OriginalProtoFieldName.JsonOutput
+Required.Proto2.JsonInput.RepeatedFieldWrongElementTypeExpectingMessagesGotBool
+Required.Proto2.JsonInput.RepeatedFieldWrongElementTypeExpectingMessagesGotInt
+Required.Proto2.JsonInput.RepeatedFieldWrongElementTypeExpectingMessagesGotString
+Required.Proto2.JsonInput.StoresDefaultPrimitive.Validator
+Required.Proto2.JsonInput.Uint64FieldMaxValueNotQuoted.JsonOutput
+Required.Proto2.JsonInput.Uint64FieldMaxValueNotQuoted.ProtobufOutput
+Required.Proto2.JsonInput.Uint64FieldTooLarge
+Required.Proto2.ProtobufInput.BadTag_OverlongVarint
+Required.Proto2.ProtobufInput.MessageSetEncoding.UnknownExtension.ProtobufOutput
+Required.Proto2.ProtobufInput.RepeatedScalarMessageMerge.JsonOutput
+Required.Proto2.ProtobufInput.RepeatedScalarMessageMerge.ProtobufOutput
+Required.Proto2.ProtobufInput.UnknownOrdering.ProtobufOutput
+Required.Proto2.ProtobufInput.UnknownVarint.ProtobufOutput
+Required.Proto2.ProtobufInput.ValidDataOneof.BOOL.MultipleValuesForDifferentField.JsonOutput
+Required.Proto2.ProtobufInput.ValidDataOneof.BYTES.MultipleValuesForDifferentField.JsonOutput
+Required.Proto2.ProtobufInput.ValidDataOneof.DOUBLE.MultipleValuesForDifferentField.JsonOutput
+Required.Proto2.ProtobufInput.ValidDataOneof.ENUM.MultipleValuesForDifferentField.JsonOutput
+Required.Proto2.ProtobufInput.ValidDataOneof.FLOAT.MultipleValuesForDifferentField.JsonOutput
+Required.Proto2.ProtobufInput.ValidDataOneof.MESSAGE.Merge.JsonOutput
+Required.Proto2.ProtobufInput.ValidDataOneof.MESSAGE.Merge.ProtobufOutput
+Required.Proto2.ProtobufInput.ValidDataOneof.MESSAGE.MultipleValuesForDifferentField.JsonOutput
+Required.Proto2.ProtobufInput.ValidDataOneof.STRING.MultipleValuesForDifferentField.JsonOutput
+Required.Proto2.ProtobufInput.ValidDataOneof.UINT32.MultipleValuesForDifferentField.JsonOutput
+Required.Proto2.ProtobufInput.ValidDataOneof.UINT32.MultipleValuesForDifferentField.ProtobufOutput
+Required.Proto2.ProtobufInput.ValidDataOneof.UINT64.MultipleValuesForDifferentField.JsonOutput
+Required.Proto2.ProtobufInput.ValidDataRepeated.BYTES.ProtobufOutput
+Required.Proto2.ProtobufInput.ValidDataRepeated.MESSAGE.ProtobufOutput
+Required.Proto2.ProtobufInput.ValidDataRepeated.STRING.ProtobufOutput
+Required.Proto2.ProtobufInput.ValidMessageSetEncoding.OutOfOrderGroupsEntries.ProtobufOutput
+Required.Proto2.ProtobufInput.ValidMessageSetEncoding.ProtobufOutput
+Required.Proto3.DurationProtoInputTooLarge.JsonOutput
+Required.Proto3.DurationProtoInputTooSmall.JsonOutput
+Required.Proto3.DurationProtoNanosTooLarge.JsonOutput
+Required.Proto3.DurationProtoNanosTooSmall.JsonOutput
+Required.Proto3.DurationProtoNanosWrongSign.JsonOutput
+Required.Proto3.DurationProtoNanosWrongSignNegativeSecs.JsonOutput
+Required.Proto3.JsonInput.AnyEmpty.JsonOutput
+Required.Proto3.JsonInput.AnyEmpty.ProtobufOutput
+Required.Proto3.JsonInput.Any.JsonOutput
+Required.Proto3.JsonInput.AnyNested.JsonOutput
+Required.Proto3.JsonInput.AnyNested.ProtobufOutput
+Required.Proto3.JsonInput.Any.ProtobufOutput
+Required.Proto3.JsonInput.AnyUnorderedTypeTag.JsonOutput
+Required.Proto3.JsonInput.AnyUnorderedTypeTag.ProtobufOutput
+Required.Proto3.JsonInput.AnyWithDuration.JsonOutput
+Required.Proto3.JsonInput.AnyWithDuration.ProtobufOutput
+Required.Proto3.JsonInput.AnyWithFieldMask.JsonOutput
+Required.Proto3.JsonInput.AnyWithFieldMask.ProtobufOutput
+Required.Proto3.JsonInput.AnyWithInt32ValueWrapper.JsonOutput
+Required.Proto3.JsonInput.AnyWithInt32ValueWrapper.ProtobufOutput
+Required.Proto3.JsonInput.AnyWithStruct.JsonOutput
+Required.Proto3.JsonInput.AnyWithStruct.ProtobufOutput
+Required.Proto3.JsonInput.AnyWithTimestamp.JsonOutput
+Required.Proto3.JsonInput.AnyWithTimestamp.ProtobufOutput
+Required.Proto3.JsonInput.AnyWithValueForInteger.JsonOutput
+Required.Proto3.JsonInput.AnyWithValueForInteger.ProtobufOutput
+Required.Proto3.JsonInput.AnyWithValueForJsonObject.JsonOutput
+Required.Proto3.JsonInput.AnyWithValueForJsonObject.ProtobufOutput
+Required.Proto3.JsonInput.AnyWktRepresentationWithBadType
+Required.Proto3.JsonInput.AnyWktRepresentationWithEmptyTypeAndValue
+Required.Proto3.JsonInput.DoubleFieldTooLarge
+Required.Proto3.JsonInput.DoubleFieldTooSmall
+Required.Proto3.JsonInput.DurationJsonInputTooLarge
+Required.Proto3.JsonInput.DurationJsonInputTooSmall
+Required.Proto3.JsonInput.DurationMaxValue.ProtobufOutput
+Required.Proto3.JsonInput.DurationMinValue.ProtobufOutput
+Required.Proto3.JsonInput.DurationMissingS
+Required.Proto3.JsonInput.DurationNegativeNanos.ProtobufOutput
+Required.Proto3.JsonInput.DurationNegativeSeconds.ProtobufOutput
+Required.Proto3.JsonInput.DurationRepeatedValue.ProtobufOutput
+Required.Proto3.JsonInput.EmptyFieldMask.ProtobufOutput
+Required.Proto3.JsonInput.EnumFieldWithAlias.JsonOutput
+Required.Proto3.JsonInput.EnumFieldWithAliasLowerCase.JsonOutput
+Required.Proto3.JsonInput.EnumFieldWithAliasLowerCase.ProtobufOutput
+Required.Proto3.JsonInput.EnumFieldWithAlias.ProtobufOutput
+Required.Proto3.JsonInput.EnumFieldWithAliasUseAlias.JsonOutput
+Required.Proto3.JsonInput.EnumFieldWithAliasUseAlias.ProtobufOutput
+Required.Proto3.JsonInput.FieldMask.ProtobufOutput
+Required.Proto3.JsonInput.FieldNameInLowerCamelCase.Validator
+Required.Proto3.JsonInput.FieldNameInSnakeCase.JsonOutput
+Required.Proto3.JsonInput.FieldNameInSnakeCase.ProtobufOutput
+Required.Proto3.JsonInput.FloatFieldTooLarge
+Required.Proto3.JsonInput.FloatFieldTooSmall
+Required.Proto3.JsonInput.Int32FieldLeadingSpace
+Required.Proto3.JsonInput.Int32FieldTrailingSpace
+Required.Proto3.JsonInput.Int64FieldTooLarge
+Required.Proto3.JsonInput.Int64FieldTooSmall
+Required.Proto3.JsonInput.OneofFieldDuplicate
+Required.Proto3.JsonInput.OptionalBoolWrapper.ProtobufOutput
+Required.Proto3.JsonInput.OptionalBytesWrapper.ProtobufOutput
+Required.Proto3.JsonInput.OptionalDoubleWrapper.ProtobufOutput
+Required.Proto3.JsonInput.OptionalFloatWrapper.ProtobufOutput
+Required.Proto3.JsonInput.OptionalInt32Wrapper.ProtobufOutput
+Required.Proto3.JsonInput.OptionalInt64Wrapper.ProtobufOutput
+Required.Proto3.JsonInput.OptionalStringWrapper.ProtobufOutput
+Required.Proto3.JsonInput.OptionalUint32Wrapper.ProtobufOutput
+Required.Proto3.JsonInput.OptionalUint64Wrapper.ProtobufOutput
+Required.Proto3.JsonInput.OptionalWrapperTypesWithNonDefaultValue.ProtobufOutput
+Required.Proto3.JsonInput.OriginalProtoFieldName.JsonOutput
+Required.Proto3.JsonInput.RepeatedBoolWrapper.ProtobufOutput
+Required.Proto3.JsonInput.RepeatedBytesWrapper.ProtobufOutput
+Required.Proto3.JsonInput.RepeatedDoubleWrapper.ProtobufOutput
+Required.Proto3.JsonInput.RepeatedFieldWrongElementTypeExpectingMessagesGotBool
+Required.Proto3.JsonInput.RepeatedFieldWrongElementTypeExpectingMessagesGotInt
+Required.Proto3.JsonInput.RepeatedFieldWrongElementTypeExpectingMessagesGotString
+Required.Proto3.JsonInput.RepeatedFloatWrapper.ProtobufOutput
+Required.Proto3.JsonInput.RepeatedInt32Wrapper.ProtobufOutput
+Required.Proto3.JsonInput.RepeatedInt64Wrapper.ProtobufOutput
+Required.Proto3.JsonInput.RepeatedListValue.ProtobufOutput
+Required.Proto3.JsonInput.RepeatedStringWrapper.ProtobufOutput
+Required.Proto3.JsonInput.RepeatedUint32Wrapper.ProtobufOutput
+Required.Proto3.JsonInput.RepeatedUint64Wrapper.ProtobufOutput
+Required.Proto3.JsonInput.RepeatedValue.ProtobufOutput
+Required.Proto3.JsonInput.Struct.JsonOutput
+Required.Proto3.JsonInput.Struct.ProtobufOutput
+Required.Proto3.JsonInput.StructWithEmptyListValue.JsonOutput
+Required.Proto3.JsonInput.StructWithEmptyListValue.ProtobufOutput
+Required.Proto3.JsonInput.TimestampEpochValue.ProtobufOutput
+Required.Proto3.JsonInput.TimestampJsonInputLowercaseT
+Required.Proto3.JsonInput.TimestampJsonInputLowercaseZ
+Required.Proto3.JsonInput.TimestampJsonInputMissingT
+Required.Proto3.JsonInput.TimestampJsonInputMissingZ
+Required.Proto3.JsonInput.TimestampJsonInputTooLarge
+Required.Proto3.JsonInput.TimestampJsonInputTooSmall
+Required.Proto3.JsonInput.TimestampLeap.ProtobufOutput
+Required.Proto3.JsonInput.TimestampLittleAfterEpochlValue.ProtobufOutput
+Required.Proto3.JsonInput.TimestampLittleBeforeEpochValue.ProtobufOutput
+Required.Proto3.JsonInput.TimestampMaxValue.ProtobufOutput
+Required.Proto3.JsonInput.TimestampMinValue.ProtobufOutput
+Required.Proto3.JsonInput.TimestampNanoAfterEpochlValue.ProtobufOutput
+Required.Proto3.JsonInput.TimestampNanoBeforeEpochValue.ProtobufOutput
+Required.Proto3.JsonInput.TimestampRepeatedValue.ProtobufOutput
+Required.Proto3.JsonInput.TimestampTenAndHalfSecondsAfterEpochValue.ProtobufOutput
+Required.Proto3.JsonInput.TimestampTenAndHalfSecondsBeforeEpochValue.ProtobufOutput
+Required.Proto3.JsonInput.TimestampWithMissingColonInOffset
+Required.Proto3.JsonInput.TimestampWithNegativeOffset.ProtobufOutput
+Required.Proto3.JsonInput.TimestampWithPositiveOffset.ProtobufOutput
+Required.Proto3.JsonInput.Uint64FieldMaxValueNotQuoted.JsonOutput
+Required.Proto3.JsonInput.Uint64FieldMaxValueNotQuoted.ProtobufOutput
+Required.Proto3.JsonInput.Uint64FieldTooLarge
+Required.Proto3.JsonInput.ValueAcceptBool.ProtobufOutput
+Required.Proto3.JsonInput.ValueAcceptFloat.ProtobufOutput
+Required.Proto3.JsonInput.ValueAcceptInteger.ProtobufOutput
+Required.Proto3.JsonInput.ValueAcceptList.ProtobufOutput
+Required.Proto3.JsonInput.ValueAcceptNull.JsonOutput
+Required.Proto3.JsonInput.ValueAcceptNull.ProtobufOutput
+Required.Proto3.JsonInput.ValueAcceptObject.JsonOutput
+Required.Proto3.JsonInput.ValueAcceptObject.ProtobufOutput
+Required.Proto3.JsonInput.ValueAcceptString.ProtobufOutput
+Required.Proto3.ProtobufInput.BadTag_OverlongVarint
+Required.Proto3.ProtobufInput.RepeatedScalarMessageMerge.JsonOutput
+Required.Proto3.ProtobufInput.RepeatedScalarMessageMerge.ProtobufOutput
+Required.Proto3.ProtobufInput.UnknownOrdering.ProtobufOutput
+Required.Proto3.ProtobufInput.UnknownVarint.ProtobufOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.BOOL.DefaultValue.JsonOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.BOOL.DefaultValue.ProtobufOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.BYTES.DefaultValue.JsonOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.BYTES.DefaultValue.ProtobufOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.DOUBLE.DefaultValue.JsonOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.DOUBLE.DefaultValue.ProtobufOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.ENUM.DefaultValue.JsonOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.ENUM.DefaultValue.ProtobufOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.FLOAT.DefaultValue.JsonOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.FLOAT.DefaultValue.ProtobufOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.MESSAGE.Merge.JsonOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.MESSAGE.Merge.ProtobufOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.STRING.DefaultValue.JsonOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.STRING.DefaultValue.ProtobufOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.UINT32.DefaultValue.JsonOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.UINT32.DefaultValue.ProtobufOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.UINT32.MultipleValuesForDifferentField.JsonOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.UINT32.MultipleValuesForDifferentField.ProtobufOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.UINT64.DefaultValue.JsonOutput
+Required.Proto3.ProtobufInput.ValidDataOneof.UINT64.DefaultValue.ProtobufOutput
+Required.Proto3.ProtobufInput.ValidDataRepeated.BYTES.ProtobufOutput
+Required.Proto3.ProtobufInput.ValidDataRepeated.MESSAGE.ProtobufOutput
+Required.Proto3.ProtobufInput.ValidDataRepeated.STRING.ProtobufOutput
+Required.Proto3.TimestampProtoInputTooLarge.JsonOutput
+Required.Proto3.TimestampProtoInputTooSmall.JsonOutput
+Required.Proto3.TimestampProtoNanoTooLarge.JsonOutput
+Required.Proto3.TimestampProtoNegativeNanos.JsonOutput

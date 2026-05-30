@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Regenerate the upstream-conformance FileDescriptorSet that the ball_protobuf
 # descriptor bridge consumes (tests/editions/descriptors/test_messages.fds.binpb).
+# Covers all three conformance message families: proto2, proto3, and edition2023.
 #
 # The test-message .proto files ship with the protobuf source, which CMake
 # fetches under cpp/<build>/_deps/protobuf-src. We locate that checkout and run
@@ -32,7 +33,9 @@ mkdir -p "$(dirname "$OUT")"
 protoc --include_imports \
   -I "$PB/src" -I "$PB/conformance/test_protos" \
   --descriptor_set_out="$GEN" \
-  test_messages_edition2023.proto
+  test_messages_edition2023.proto \
+  google/protobuf/test_messages_proto2.proto \
+  google/protobuf/test_messages_proto3.proto
 
 if [ "${1:-}" = "--check" ]; then
   if cmp -s "$GEN" "$OUT"; then echo "OK: descriptor set is up to date."; rm -f "$GEN";

@@ -1,8 +1,19 @@
-/// Generates the ball_protobuf program from the protobuf Dart source files.
+/// Generates the `ball_protobuf` library from the protobuf Dart source files.
 ///
 /// Encodes each protobuf implementation file under dart/shared/lib/protobuf/
-/// into a Ball module, combines them into a single program, and writes both
-/// proto3 JSON and binary protobuf output.
+/// into a Ball [Module], then assembles them into a single **facade [Module]**
+/// whose `module_imports[]` embed each implementation module inline via
+/// [InlineSource] (`proto_bytes`). This keeps `ball_protobuf` a single,
+/// self-contained file while preserving its internal multi-module structure —
+/// and, unlike the previous `Program`-with-empty-`entry_function` shape, it is a
+/// real reusable library with no fake entry point (see docs/EDITIONS_PLAN.md
+/// §2.1). std / dart_std / std_collections / proto are intentionally NOT
+/// bundled: a library does not ship std; the consuming program or engine
+/// provides it.
+///
+/// The output is wrapped in the self-describing `BallFile` Any envelope as
+/// `ball.v1.Module` (`@type` in JSON), so it round-trips through
+/// `decodeModuleJson` / `decodeModuleBinary`.
 ///
 /// Usage:
 ///   cd dart/encoder && dart run bin/gen_ball_protobuf.dart [output_dir]
@@ -64,7 +75,7 @@ void main(List<String> args) {
 
   final uriOverrides = _buildUriOverrides();
   final encoder = DartEncoder();
-  final userModules = <Module>[];
+  final implModules = <Module>[];
 
   for (final relPath in _sourceFiles) {
     final file = File('$sharedRoot/$relPath');
@@ -81,27 +92,29 @@ void main(List<String> args) {
       moduleName: moduleName,
       uriToModuleOverrides: uriOverrides,
     );
-    userModules.add(module);
+    implModules.add(module);
   }
 
-  final (:stdModule, :dartStdModule, :collectionsModule, :protoModule) = encoder
-      .buildStdModules();
-
-  final program = Program()
+  // Facade Module: a real reusable library (no entry point) whose
+  // module_imports embed each implementation module inline. Cross-module calls
+  // already reference modules by their own names (ball_protobuf.<file>), so the
+  // import alias is the module's own name. std/dart_std/std_collections/proto
+  // are NOT bundled — the consuming program or engine provides them.
+  final facade = Module()
     ..name = 'ball_protobuf'
-    ..version = '1.0.0'
-    ..entryModule = 'ball_protobuf.marshal'
-    ..entryFunction = ''
-    ..modules.addAll([
-      stdModule,
-      if (dartStdModule != null) dartStdModule,
-      if (collectionsModule != null) collectionsModule,
-      if (protoModule != null) protoModule,
-      ...userModules,
+    ..description =
+        'Editions-capable, portable protobuf engine authored in Ball-portable '
+        'Dart and compiled to every target language. Self-contained: each '
+        'implementation module is embedded inline.'
+    ..moduleImports.addAll([
+      for (final m in implModules)
+        ModuleImport()
+          ..name = m.name
+          ..inline = (InlineSource()..protoBytes = m.writeToBuffer()),
     ]);
 
-  // Write proto3 JSON (self-describing Any envelope).
-  final jsonOutput = encodeBallFileJson(program);
+  // Write proto3 JSON (self-describing Any envelope -> ball.v1.Module).
+  final jsonOutput = encodeBallFileJson(facade);
   final jsonString = const JsonEncoder.withIndent('  ').convert(jsonOutput);
   File('$outputDir/ball_protobuf.json')
     ..parent.createSync(recursive: true)
@@ -110,16 +123,16 @@ void main(List<String> args) {
   // Write binary protobuf (serialized Any).
   File(
     '$outputDir/ball_protobuf.bin',
-  ).writeAsBytesSync(encodeBallFileBinary(program));
+  ).writeAsBytesSync(encodeBallFileBinary(facade));
 
   // Summary.
   var totalFunctions = 0;
-  for (final m in program.modules) {
+  for (final m in implModules) {
     totalFunctions += m.functions.length;
   }
   stderr.writeln(
-    'Generated ball_protobuf: '
-    '${program.modules.length} modules, '
+    'Generated ball_protobuf facade Module: '
+    '${facade.moduleImports.length} inline modules, '
     '$totalFunctions total functions',
   );
   stderr.writeln('  -> $outputDir/ball_protobuf.json');

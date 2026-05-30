@@ -195,9 +195,18 @@ extension BallEngineStd on BallEngine {
       if (override != null) return _consumeGeneratorFlow(override);
     }
 
+    // Base-function handlers (built-in StdModuleHandler and user-supplied
+    // BallModuleHandlers alike) receive the call input as a plain
+    // `Map<String, Object?>` (handlers commonly do
+    // `(input as Map<String, Object?>)['x']`). The engine evaluates a call's
+    // input messageCreation to a [BallMap] — a reference-semantic wrapper that
+    // is NOT a `Map<String, Object?>` subtype — so unwrap it to its backing map
+    // (same identity, so handler mutations still show through). Without this the
+    // cast throws on a fresh compile.
+    final handlerInput = input is BallMap ? input.entries : input;
     for (final handler in moduleHandlers) {
       if (handler.handles(module)) {
-        final result = await handler.call(function, input, callFunction);
+        final result = await handler.call(function, handlerInput, callFunction);
         // Profiling: track call counts per function name.
         _callCounts?[function] = (_callCounts![function] ?? 0) + 1;
         return _consumeGeneratorFlow(result);

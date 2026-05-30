@@ -512,7 +512,8 @@ Map<String, Object?> processConformanceRequest(
 /// is exhausted, then exits cleanly. It is async only so it can `await` each
 /// stdout flush (see [writeSizePrefixed]); reads stay synchronous.
 Future<void> runConformanceLoop(
-    Map<String, List<Map<String, Object?>>> registry) async {
+  Map<String, List<Map<String, Object?>>> registry,
+) async {
   var testCount = 0;
 
   while (true) {

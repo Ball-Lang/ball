@@ -155,8 +155,14 @@ List<int> marshal(
       // so message-typed values re-marshal instead of failing.
       final valueDescriptor =
           field['messageDescriptor'] as List<Map<String, Object?>>?;
-      marshalMapField(buffer, fieldNumber, value, keyType, valueType,
-          valueDescriptor: valueDescriptor);
+      marshalMapField(
+        buffer,
+        fieldNumber,
+        value,
+        keyType,
+        valueType,
+        valueDescriptor: valueDescriptor,
+      );
       continue;
     }
 
@@ -542,8 +548,14 @@ List<int> marshalMapField(
 
     // Encode value as field 2 (a message value re-marshals via its descriptor).
     if (entry.value != null) {
-      marshalField(entryBuffer, 2, valueType, entry.value,
-          repeated: true, messageDescriptor: valueDescriptor);
+      marshalField(
+        entryBuffer,
+        2,
+        valueType,
+        entry.value,
+        repeated: true,
+        messageDescriptor: valueDescriptor,
+      );
     }
 
     // Write the entry as a length-delimited submessage at [fieldNumber].

@@ -79,8 +79,17 @@ DescriptorRegistry buildRegistry(List<int> fdsBytes) {
     final scope = _fileScope(file);
     final pkgFqn = file.package.isEmpty ? '' : '.${file.package}';
     for (final ext in file.extension) {
-      _appendExtension(ext, file, scope.ed, scope.isLegacy, scope.fileResolved,
-          file.package, messages, enums, registry);
+      _appendExtension(
+        ext,
+        file,
+        scope.ed,
+        scope.isLegacy,
+        scope.fileResolved,
+        file.package,
+        messages,
+        enums,
+        registry,
+      );
     }
     for (final m in file.messageType) {
       _indexNestedExtensions(m, pkgFqn, messages, enums, registry);
@@ -97,8 +106,13 @@ class _MsgCtx {
   final int edition; // resolver edition sentinel
   final bool isLegacy; // proto2/proto3 (use legacy inference)
   final Map<String, String> resolvedMessageFeatures;
-  _MsgCtx(this.msg, this.file, this.edition, this.isLegacy,
-      this.resolvedMessageFeatures);
+  _MsgCtx(
+    this.msg,
+    this.file,
+    this.edition,
+    this.isLegacy,
+    this.resolvedMessageFeatures,
+  );
 }
 
 void _indexMessage(
@@ -136,7 +150,11 @@ void _indexMessage(
 
 /// A file's resolver edition, legacy flag, and resolved file-level features —
 /// the shared parent scope for both messages and top-level extensions.
-typedef _FileScope = ({int ed, bool isLegacy, Map<String, String> fileResolved});
+typedef _FileScope = ({
+  int ed,
+  bool isLegacy,
+  Map<String, String> fileResolved,
+});
 
 _FileScope _fileScope(FileDescriptorProto file) {
   final editionName = file.hasEdition() ? file.edition.name : '';
@@ -202,8 +220,17 @@ void _indexNestedExtensions(
   final ctx = messages[fqn];
   if (ctx != null) {
     for (final ext in m.extension) {
-      _appendExtension(ext, ctx.file, ctx.edition, ctx.isLegacy,
-          ctx.resolvedMessageFeatures, _strip(fqn), messages, enums, registry);
+      _appendExtension(
+        ext,
+        ctx.file,
+        ctx.edition,
+        ctx.isLegacy,
+        ctx.resolvedMessageFeatures,
+        _strip(fqn),
+        messages,
+        enums,
+        registry,
+      );
     }
   }
   for (final nested in m.nestedType) {
@@ -219,7 +246,8 @@ Map<String, Object?> _buildField(
   DescriptorRegistry registry,
 ) {
   final typeName = fld.typeName; // leading-dot FQN for message/enum
-  final isMessage = fld.type == FieldDescriptorProto_Type.TYPE_MESSAGE ||
+  final isMessage =
+      fld.type == FieldDescriptorProto_Type.TYPE_MESSAGE ||
       fld.type == FieldDescriptorProto_Type.TYPE_GROUP;
   final isEnum = fld.type == FieldDescriptorProto_Type.TYPE_ENUM;
 
@@ -229,7 +257,8 @@ Map<String, Object?> _buildField(
   // Is this a map field? (repeated message whose type is a map_entry.)
   if (fld.label == FieldDescriptorProto_Label.LABEL_REPEATED && isMessage) {
     final entryCtx = messages[typeName];
-    if (entryCtx != null && entryCtx.msg.hasOptions() &&
+    if (entryCtx != null &&
+        entryCtx.msg.hasOptions() &&
         entryCtx.msg.options.mapEntry) {
       final keyF = entryCtx.msg.field[0];
       final valF = entryCtx.msg.field[1];
@@ -298,7 +327,11 @@ Map<String, String> _resolveFieldFeatures(
   final fieldFeat = (fld.hasOptions() && fld.options.hasFeatures())
       ? _featureOverrides(fld.options.features)
       : null;
-  return mergeChildFeatures(ctx.edition, ctx.resolvedMessageFeatures, fieldFeat);
+  return mergeChildFeatures(
+    ctx.edition,
+    ctx.resolvedMessageFeatures,
+    fieldFeat,
+  );
 }
 
 /// Extracts the *set* fields of a [FeatureSet] as `{feature_key: VALUE}` (the

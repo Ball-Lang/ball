@@ -241,6 +241,25 @@ Map<String, String> resolveFileFeatures(
   return base;
 }
 
+/// Merges [overrides] onto a copy of [base] using protobuf `MergeFrom`
+/// semantics: a present override key replaces the base value; an absent feature
+/// keeps the base value (later-set-wins, unset-leaves-prior). [base] is not
+/// mutated — a new map is returned.
+///
+/// Setting a feature that is FIXED at [edition] is a hard error (matches
+/// protoc, which rejects overriding a non-overridable feature). This is the
+/// single MergeFrom primitive shared by file- and child-level resolution.
+Map<String, String> mergeFeatureSet(
+  Map<String, String> base,
+  Map<String, Object?>? overrides,
+  int edition,
+) {
+  final result = <String, String>{};
+  result.addAll(base);
+  _applyOverrides(result, overrides, edition);
+  return result;
+}
+
 /// Resolves a child descriptor's FeatureSet: starts from the parent's
 /// already-fully-resolved features and applies this descriptor's explicit
 /// `features` overrides on top.
@@ -248,16 +267,14 @@ Map<String, String> resolveFileFeatures(
 /// This is the non-file rule from feature_resolver.cc — used for
 /// message/field/enum/oneof/extension/service/method, where the parent is the
 /// lexical/structural enclosing scope (an extension field's parent is its
-/// enclosing scope, NOT the extendee).
+/// enclosing scope, NOT the extendee; a field's parent is its oneof when it is
+/// in one, else its message).
 Map<String, String> mergeChildFeatures(
   int edition,
   Map<String, String> resolvedParent,
   Map<String, Object?>? childFeatures,
 ) {
-  final result = <String, String>{};
-  result.addAll(resolvedParent);
-  _applyOverrides(result, childFeatures, edition);
-  return result;
+  return mergeFeatureSet(resolvedParent, childFeatures, edition);
 }
 
 /// Back-compat convenience wrapper: resolves features down the common
@@ -340,6 +357,22 @@ Map<String, String> inferLegacyFieldFeatures(
   }
 
   return inferred;
+}
+
+/// Infers the fully-resolved FILE-level FeatureSet for a legacy [syntax]
+/// (`"proto2"` / `"proto3"`, or `""` ⇒ proto2).
+///
+/// In protoc's `descriptor.cc`, the file-level legacy inference is exactly the
+/// selection of the syntax's edition floor: proto2 resolves through the LEGACY
+/// floor (CLOSED enums, EXPANDED repeated, NONE utf8, LEGACY_BEST_EFFORT json,
+/// EXPLICIT presence); proto3 through the PROTO3 floor (OPEN, PACKED, VERIFY,
+/// ALLOW, IMPLICIT). The per-field shape adjustments (required/optional/group/
+/// packed) are layered on top via [inferLegacyFieldFeatures].
+///
+/// Returns all six runtime features. Throws nothing for unknown syntax — it
+/// floors to proto2 like protoc.
+Map<String, String> inferLegacyFileFeatures(String syntax) {
+  return baseFeaturesForEdition(syntaxToEdition(syntax));
 }
 
 // ---------------------------------------------------------------------------

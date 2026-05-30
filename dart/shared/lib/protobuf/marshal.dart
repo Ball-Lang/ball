@@ -53,6 +53,12 @@ const int _wtI64 = 1;
 /// Wire type 2: length-delimited — string, bytes, messages, packed repeated.
 const int _wtLen = 2;
 
+/// Wire type 3: start-group — the opening tag of a DELIMITED (group) message.
+const int _wtSGroup = 3;
+
+/// Wire type 4: end-group — the closing tag of a DELIMITED (group) message.
+const int _wtEGroup = 4;
+
 /// Wire type 5: 32-bit — fixed32, sfixed32, float.
 const int _wtI32 = 5;
 
@@ -98,6 +104,19 @@ int wireTypeForFieldType(String type) {
   }
 }
 
+/// Encodes a message field using DELIMITED (group) wire format: a START_GROUP
+/// tag (wire type 3), the submessage [body], then a matching END_GROUP tag
+/// (wire type 4). This is the editions `message_encoding = DELIMITED`
+/// representation (and the proto2 `group` encoding). Unlike length-prefixed
+/// (wire type 2) the body is NOT length-prefixed — it is terminated by the
+/// END_GROUP tag.
+List<int> encodeGroupField(List<int> buffer, int fieldNumber, List<int> body) {
+  encodeTag(buffer, fieldNumber, _wtSGroup);
+  buffer.addAll(body);
+  encodeTag(buffer, fieldNumber, _wtEGroup);
+  return buffer;
+}
+
 /// Marshals a message ([message]) to protobuf binary bytes using [descriptor].
 ///
 /// Iterates over each field descriptor, looks up the corresponding value in
@@ -138,7 +157,10 @@ List<int> marshal(
       if (list.isEmpty) continue;
 
       if (type == 'TYPE_MESSAGE') {
-        // Repeated messages are never packed — each is a separate LEN field.
+        // Repeated messages are never packed — each is a separate record.
+        // DELIMITED (group) encoding wraps each in START_GROUP/END_GROUP;
+        // otherwise each is a length-prefixed (LEN) field.
+        final delimited = features != null && isDelimited(features);
         final msgDescriptor =
             field['messageDescriptor'] as List<Map<String, Object?>>?;
         for (final item in list) {
@@ -146,7 +168,11 @@ List<int> marshal(
           final subBytes = msgDescriptor != null
               ? marshal(item as Map<String, Object?>, msgDescriptor)
               : item as List<int>;
-          encodeMessageField(buffer, fieldNumber, subBytes);
+          if (delimited) {
+            encodeGroupField(buffer, fieldNumber, subBytes);
+          } else {
+            encodeMessageField(buffer, fieldNumber, subBytes);
+          }
         }
       } else if (type == 'TYPE_STRING') {
         // Repeated strings are not packed — each is a separate LEN field.
@@ -177,6 +203,7 @@ List<int> marshal(
 
     // Singular field. With EXPLICIT/LEGACY_REQUIRED presence the value is
     // serialized even when it equals the type default (proto3/IMPLICIT elides).
+    // A DELIMITED message field is emitted as a group (wire type 3/4).
     final msgDescriptor =
         field['messageDescriptor'] as List<Map<String, Object?>>?;
     marshalField(
@@ -185,6 +212,7 @@ List<int> marshal(
       type,
       value,
       explicitPresence: features != null && hasExplicitPresence(features),
+      delimited: features != null && isDelimited(features),
       messageDescriptor: msgDescriptor,
     );
   }
@@ -209,6 +237,7 @@ List<int> marshalField(
   Object? value, {
   bool repeated = false,
   bool explicitPresence = false,
+  bool delimited = false,
   List<Map<String, Object?>>? messageDescriptor,
 }) {
   if (value == null) return buffer;
@@ -305,8 +334,14 @@ List<int> marshalField(
           'Map<String, Object?>, got ${value.runtimeType}',
         );
       }
-      if (v.isEmpty) return buffer;
-      encodeMessageField(buffer, fieldNumber, v);
+      if (delimited) {
+        // DELIMITED (group): a present submessage is always emitted, including
+        // an empty one (START_GROUP/END_GROUP carries presence on its own).
+        encodeGroupField(buffer, fieldNumber, v);
+      } else {
+        if (v.isEmpty) return buffer;
+        encodeMessageField(buffer, fieldNumber, v);
+      }
     default:
       throw ArgumentError('Unknown protobuf field type: $type');
   }

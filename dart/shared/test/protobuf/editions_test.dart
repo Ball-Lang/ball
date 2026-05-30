@@ -6,11 +6,51 @@
 /// change, regenerate that golden AND update these expectations together.
 library;
 
+import 'dart:io';
+
+import 'package:ball_base/ball_base.dart'
+    show FeatureSet, FeatureSetDefaults;
 import 'package:ball_base/protobuf/edition.dart';
 import 'package:ball_base/protobuf/editions.dart';
 import 'package:ball_base/protobuf/marshal.dart';
 import 'package:ball_base/protobuf/unmarshal.dart';
 import 'package:test/test.dart';
+
+/// Locates the checked-in protoc golden by walking up from the test's CWD
+/// (`dart/shared` under `dart test`) until `tests/editions/` is found.
+File _goldenBinpb() {
+  var dir = Directory.current;
+  for (var i = 0; i < 8; i++) {
+    final f = File('${dir.path}/tests/editions/featureset_defaults.binpb');
+    if (f.existsSync()) return f;
+    final parent = dir.parent;
+    if (parent.path == dir.path) break;
+    dir = parent;
+  }
+  throw StateError(
+    'Could not locate tests/editions/featureset_defaults.binpb from '
+    '${Directory.current.path}',
+  );
+}
+
+/// Extracts the set fields of a [FeatureSet] message as the same
+/// `{feature_key: VALUE_NAME}` map shape the resolver produces.
+Map<String, String> _featureSetToMap(FeatureSet fs) {
+  final m = <String, String>{};
+  if (fs.hasFieldPresence()) m[featureFieldPresence] = fs.fieldPresence.name;
+  if (fs.hasEnumType()) m[featureEnumType] = fs.enumType.name;
+  if (fs.hasRepeatedFieldEncoding()) {
+    m[featureRepeatedFieldEncoding] = fs.repeatedFieldEncoding.name;
+  }
+  if (fs.hasUtf8Validation()) {
+    m[featureUtf8Validation] = fs.utf8Validation.name;
+  }
+  if (fs.hasMessageEncoding()) {
+    m[featureMessageEncoding] = fs.messageEncoding.name;
+  }
+  if (fs.hasJsonFormat()) m[featureJsonFormat] = fs.jsonFormat.name;
+  return m;
+}
 
 void main() {
   group('edition string/int mapping', () {
@@ -123,6 +163,64 @@ void main() {
     });
   });
 
+  // The PRIMARY correctness gate (plan §6.1): parse the protoc-generated
+  // FeatureSetDefaults binary and drive the resolver through it, so the
+  // hand-authored defaults table is verified against protoc ground truth
+  // rather than against our own transcription.
+  group('golden FeatureSetDefaults (protoc 28.2) drives the resolver', () {
+    final defaults = FeatureSetDefaults.fromBuffer(
+      _goldenBinpb().readAsBytesSync(),
+    );
+
+    test('golden carries the expected edition floors', () {
+      final editions = defaults.defaults.map((d) => d.edition.value).toList();
+      // protoc 28.2 emits LEGACY / PROTO3 / 2023 floors (max edition 2023).
+      expect(editions, containsAll([editionLegacy, editionProto3, edition2023]));
+    });
+
+    for (final entry in defaults.defaults) {
+      final ed = entry.edition.value;
+      final name = editionToName(ed);
+
+      test('$name base == protoc merged(overridable, fixed)', () {
+        final expected = <String, String>{};
+        expected.addAll(_featureSetToMap(entry.overridableFeatures));
+        // fixed wins on conflict (matches baseFeaturesForEdition merge order).
+        expected.addAll(_featureSetToMap(entry.fixedFeatures));
+        expect(baseFeaturesForEdition(ed), expected);
+      });
+
+      test('$name fixed features are non-overridable', () {
+        final fixed = _featureSetToMap(entry.fixedFeatures);
+        for (final key in fixed.keys) {
+          expect(
+            isFixedFeature(ed, key),
+            isTrue,
+            reason: '$key should be FIXED at $name',
+          );
+        }
+        // Conversely, an overridable-only feature is not fixed.
+        final overridableOnly = _featureSetToMap(entry.overridableFeatures).keys
+            .where((k) => !fixed.containsKey(k));
+        for (final key in overridableOnly) {
+          expect(
+            isFixedFeature(ed, key),
+            isFalse,
+            reason: '$key should be OVERRIDABLE at $name',
+          );
+        }
+      });
+    }
+
+    test('minimum edition matches golden; our max extends past it', () {
+      expect(defaults.minimumEdition.value, minimumEdition); // EDITION_PROTO2
+      // Golden max (2023, protoc 28.2) must be within our supported ceiling;
+      // we hand-extend to 2024 (runtime-identical to 2023) per EDITIONS_SPEC.
+      expect(defaults.maximumEdition.value, lessThanOrEqualTo(maximumEdition));
+      expect(defaults.maximumEdition.value, edition2023);
+    });
+  });
+
   group('resolveFileFeatures', () {
     test('no overrides == base', () {
       expect(
@@ -176,6 +274,88 @@ void main() {
         field[featureRepeatedFieldEncoding],
         repeatedFieldEncodingPacked,
       ); // from edition base
+    });
+
+    test('message-level FIXED override is a hard error', () {
+      final file = resolveFileFeatures(editionProto3, null);
+      expect(
+        () => mergeChildFeatures(editionProto3, file, {
+          featureEnumType: enumTypeClosed,
+        }),
+        throwsArgumentError,
+      );
+    });
+
+    test('field-level FIXED override is a hard error', () {
+      final file = baseFeaturesForEdition(editionProto3);
+      final message = file; // proto3 has no message-level overrides
+      expect(
+        () => mergeChildFeatures(editionProto3, message, {
+          featureUtf8Validation: utf8ValidationNone,
+        }),
+        throwsArgumentError,
+      );
+    });
+  });
+
+  group('mergeFeatureSet (MergeFrom semantics)', () {
+    test('present override replaces, absent keeps base, base not mutated', () {
+      final base = baseFeaturesForEdition(edition2023);
+      final baseCopy = Map<String, String>.from(base);
+      final merged = mergeFeatureSet(base, {
+        featureFieldPresence: fieldPresenceImplicit,
+      }, edition2023);
+      expect(merged[featureFieldPresence], fieldPresenceImplicit); // replaced
+      expect(merged[featureEnumType], base[featureEnumType]); // kept
+      expect(base, baseCopy); // base untouched (returns a new map)
+    });
+
+    test('null/empty overrides yield a copy equal to base', () {
+      final base = baseFeaturesForEdition(edition2023);
+      expect(mergeFeatureSet(base, null, edition2023), base);
+      expect(mergeFeatureSet(base, <String, Object?>{}, edition2023), base);
+    });
+
+    test('overriding a FIXED feature throws', () {
+      final base = baseFeaturesForEdition(editionProto3);
+      expect(
+        () => mergeFeatureSet(base, {
+          featureEnumType: enumTypeClosed,
+        }, editionProto3),
+        throwsArgumentError,
+      );
+    });
+  });
+
+  group('inferLegacyFileFeatures (file-level legacy inference)', () {
+    test('proto2 file resolves through the LEGACY floor', () {
+      expect(
+        inferLegacyFileFeatures('proto2'),
+        baseFeaturesForEdition(editionProto2),
+      );
+      // Spot-check the proto2-defining values.
+      final f = inferLegacyFileFeatures('proto2');
+      expect(f[featureEnumType], enumTypeClosed);
+      expect(f[featureRepeatedFieldEncoding], repeatedFieldEncodingExpanded);
+      expect(f[featureUtf8Validation], utf8ValidationNone);
+      expect(f[featureJsonFormat], jsonFormatLegacyBestEffort);
+    });
+
+    test('proto3 file resolves through the PROTO3 floor', () {
+      expect(
+        inferLegacyFileFeatures('proto3'),
+        baseFeaturesForEdition(editionProto3),
+      );
+      final f = inferLegacyFileFeatures('proto3');
+      expect(f[featureEnumType], enumTypeOpen);
+      expect(f[featureFieldPresence], fieldPresenceImplicit);
+    });
+
+    test('empty/unknown syntax floors to proto2', () {
+      expect(
+        inferLegacyFileFeatures(''),
+        baseFeaturesForEdition(editionProto2),
+      );
     });
   });
 
@@ -428,6 +608,209 @@ void main() {
       final bytes = marshal({'x': 0}, desc);
       expect(bytes, isNotEmpty);
       expect(unmarshal(bytes, desc)['x'], 0);
+    });
+  });
+
+  group('DELIMITED (group) message encoding (Phase 3)', () {
+    final subDesc = [
+      {'name': 'n', 'number': 1, 'type': 'TYPE_INT32'},
+    ];
+    List<Map<String, Object?>> msgDesc({required bool delimited}) => [
+      {
+        'name': 'm',
+        'number': 1,
+        'type': 'TYPE_MESSAGE',
+        'messageDescriptor': subDesc,
+        if (delimited)
+          'features': {featureMessageEncoding: messageEncodingDelimited},
+      },
+    ];
+
+    test('singular: emits START_GROUP/END_GROUP, differs from LEN, round-trips', () {
+      final delimited = msgDesc(delimited: true);
+      final lengthPrefixed = msgDesc(delimited: false);
+
+      final groupBytes = marshal({
+        'm': {'n': 42},
+      }, delimited);
+      final lenBytes = marshal({
+        'm': {'n': 42},
+      }, lengthPrefixed);
+
+      // START_GROUP tag for field 1 = (1<<3)|3 = 11; END_GROUP = (1<<3)|4 = 12.
+      expect(groupBytes, [11, 8, 42, 12]);
+      // LEN tag = (1<<3)|2 = 10, length 2.
+      expect(lenBytes, [10, 2, 8, 42]);
+      expect(groupBytes, isNot(equals(lenBytes)));
+
+      // Round-trips through the group decoder.
+      expect(unmarshal(groupBytes, delimited)['m'], {'n': 42});
+      // A reader decodes a group by its wire type regardless of its own
+      // message_encoding feature (readers accept both encodings).
+      expect(unmarshal(groupBytes, lengthPrefixed)['m'], {'n': 42});
+    });
+
+    test('present empty submessage survives as a group (LEN would elide)', () {
+      final delimited = msgDesc(delimited: true);
+      final lengthPrefixed = msgDesc(delimited: false);
+      final groupBytes = marshal({'m': <String, Object?>{}}, delimited);
+      expect(groupBytes, [11, 12]); // START + END, empty body
+      expect(unmarshal(groupBytes, delimited)['m'], <String, Object?>{});
+      // Length-prefixed elides an empty submessage entirely.
+      expect(marshal({'m': <String, Object?>{}}, lengthPrefixed), isEmpty);
+    });
+
+    test('repeated delimited messages round-trip', () {
+      final desc = [
+        {
+          'name': 'ms',
+          'number': 1,
+          'type': 'TYPE_MESSAGE',
+          'label': 'LABEL_REPEATED',
+          'repeated': true,
+          'messageDescriptor': subDesc,
+          'features': {featureMessageEncoding: messageEncodingDelimited},
+        },
+      ];
+      final data = {
+        'ms': [
+          {'n': 1},
+          {'n': 2},
+        ],
+      };
+      expect(unmarshal(marshal(data, desc), desc)['ms'], [
+        {'n': 1},
+        {'n': 2},
+      ]);
+    });
+
+    test('nested delimited groups round-trip', () {
+      final innerDesc = [
+        {'name': 'x', 'number': 1, 'type': 'TYPE_INT32'},
+      ];
+      final midDesc = [
+        {
+          'name': 'inner',
+          'number': 1,
+          'type': 'TYPE_MESSAGE',
+          'messageDescriptor': innerDesc,
+          'features': {featureMessageEncoding: messageEncodingDelimited},
+        },
+      ];
+      final outerDesc = [
+        {
+          'name': 'mid',
+          'number': 1,
+          'type': 'TYPE_MESSAGE',
+          'messageDescriptor': midDesc,
+          'features': {featureMessageEncoding: messageEncodingDelimited},
+        },
+      ];
+      final data = {
+        'mid': {
+          'inner': {'x': 7},
+        },
+      };
+      expect(unmarshal(marshal(data, outerDesc), outerDesc), data);
+    });
+
+    test('skipping an unknown group does not corrupt following fields', () {
+      // Field 1 is an unknown delimited group; field 2 is a known int we must
+      // still decode after consuming the group.
+      final writer = [
+        {
+          'name': 'g',
+          'number': 1,
+          'type': 'TYPE_MESSAGE',
+          'messageDescriptor': [
+            {'name': 'n', 'number': 1, 'type': 'TYPE_INT32'},
+          ],
+          'features': {featureMessageEncoding: messageEncodingDelimited},
+        },
+        {'name': 'tail', 'number': 2, 'type': 'TYPE_INT32'},
+      ];
+      final bytes = marshal({
+        'g': {'n': 5},
+        'tail': 9,
+      }, writer);
+      // Reader that doesn't know field 1 at all must skip the whole group.
+      final reader = [
+        {'name': 'tail', 'number': 2, 'type': 'TYPE_INT32'},
+      ];
+      final decoded = unmarshal(bytes, reader);
+      expect(decoded.containsKey('g'), isFalse);
+      expect(decoded['tail'], 9);
+    });
+  });
+
+  group('CLOSED enum unknown-value routing (Phase 3)', () {
+    final openDesc = [
+      {'name': 'e', 'number': 1, 'type': 'TYPE_ENUM'},
+    ];
+    final closedDesc = [
+      {
+        'name': 'e',
+        'number': 1,
+        'type': 'TYPE_ENUM',
+        'features': {featureEnumType: enumTypeClosed},
+        'enumValues': [0, 1, 2],
+      },
+    ];
+
+    test('singular: out-of-range value routed to unknown (CLOSED); kept (OPEN)', () {
+      final bytes = marshal({'e': 99}, openDesc);
+      // CLOSED: 99 ∉ {0,1,2} → dropped, field stays unset.
+      expect(unmarshal(bytes, closedDesc).containsKey('e'), isFalse);
+      // OPEN: preserved.
+      expect(unmarshal(bytes, openDesc)['e'], 99);
+    });
+
+    test('singular: in-range value kept under CLOSED', () {
+      final bytes = marshal({'e': 2}, openDesc);
+      expect(unmarshal(bytes, closedDesc)['e'], 2);
+    });
+
+    test('no features / no enumValues → value kept (back-compat)', () {
+      final bytes = marshal({'e': 99}, openDesc);
+      expect(unmarshal(bytes, openDesc)['e'], 99);
+      // CLOSED features but no known value set → cannot judge range → keep.
+      final closedNoValues = [
+        {
+          'name': 'e',
+          'number': 1,
+          'type': 'TYPE_ENUM',
+          'features': {featureEnumType: enumTypeClosed},
+        },
+      ];
+      expect(unmarshal(bytes, closedNoValues)['e'], 99);
+    });
+
+    test('repeated: out-of-range elements filtered under CLOSED', () {
+      final openRep = [
+        {
+          'name': 'es',
+          'number': 1,
+          'type': 'TYPE_ENUM',
+          'label': 'LABEL_REPEATED',
+          'repeated': true,
+        },
+      ];
+      final closedRep = [
+        {
+          'name': 'es',
+          'number': 1,
+          'type': 'TYPE_ENUM',
+          'label': 'LABEL_REPEATED',
+          'repeated': true,
+          'features': {featureEnumType: enumTypeClosed},
+          'enumValues': [0, 1, 2],
+        },
+      ];
+      final bytes = marshal({
+        'es': [1, 99, 2],
+      }, openRep);
+      expect(unmarshal(bytes, closedRep)['es'], [1, 2]); // 99 filtered
+      expect(unmarshal(bytes, openRep)['es'], [1, 99, 2]); // open keeps all
     });
   });
 }

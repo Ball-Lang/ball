@@ -2,9 +2,12 @@
 ///
 /// Provides:
 /// - Buf-generated protobuf types ([Program], [Module], [Expression], etc.)
-/// - [buildStdModule] — builds the universal `std` base module
-/// - [buildStdCollectionsModule] — builds the `std_collections` module
-/// - [buildStdIoModule] — builds the `std_io` module
+/// - `buildStd*Module` builders for the standard-library modules: [buildStdModule]
+///   (`std`), [buildStdCollectionsModule], [buildStdIoModule], [buildStdMemoryModule],
+///   [buildStdConcurrencyModule], [buildStdConvertModule], [buildStdFsModule],
+///   [buildStdTimeModule]
+/// - The Editions-capable protobuf runtime (re-exported from `ball_protobuf`),
+///   the [BallFile] model, and the capability/termination analyzers
 ///
 /// Every target-language compiler (Dart, Go, Python, …) depends on this
 /// package for the shared protobuf types and the universal std definition.
@@ -18,6 +21,10 @@ export 'std.dart' show buildStdModule;
 export 'std_collections.dart' show buildStdCollectionsModule;
 export 'std_io.dart' show buildStdIoModule;
 export 'std_memory.dart' show buildStdMemoryModule;
+export 'std_concurrency.dart' show buildStdConcurrencyModule;
+export 'std_convert.dart' show buildStdConvertModule;
+export 'std_fs.dart' show buildStdFsModule;
+export 'std_time.dart' show buildStdTimeModule;
 export 'ball_proto.dart' show buildBallProtoModule;
 export 'capability_table.dart'
     show Capability, capabilityRiskLevel, lookupCapability;

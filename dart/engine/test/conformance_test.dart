@@ -205,11 +205,30 @@ void main() {
         await BallEngine(program, stdout: lines.add).run();
         final engineOut = lines.join('\n').trimRight();
 
-        // Compare against `dart run` on the original source.
-        final r = Process.runSync(Platform.resolvedExecutable, [
+        // Prefer the committed expected-output file: it is deterministic and
+        // spawns no subprocess. Spawning `dart run` per fixture is slow, and —
+        // because a synchronous `Process.runSync` cannot be interrupted by
+        // package:test's per-test timeout — a single stuck child hangs the
+        // entire suite (this stalled the CI `Engine tests` step indefinitely).
+        final expectedFile = File(
+          testFile.path.replaceAll('.ball.json', '.expected_output.txt'),
+        );
+        if (expectedFile.existsSync()) {
+          final expected = expectedFile
+              .readAsStringSync()
+              .replaceAll('\r\n', '\n')
+              .trimRight();
+          expect(engineOut, equals(expected));
+          return;
+        }
+
+        // Fallback when no expected file is checked in: compare against
+        // `dart run` on the original source. Async + bounded so a stuck child
+        // surfaces as a test timeout instead of an unkillable suite hang.
+        final r = await Process.run(Platform.resolvedExecutable, [
           'run',
           sourceFile.absolute.path,
-        ], stdoutEncoding: utf8);
+        ], stdoutEncoding: utf8).timeout(const Duration(seconds: 60));
         final dartOut = (r.stdout as String)
             .replaceAll('\r\n', '\n')
             .trimRight();

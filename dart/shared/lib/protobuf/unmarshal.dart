@@ -578,11 +578,17 @@ bool _routeClosedEnumToUnknown(
   return !enumValues.contains(value);
 }
 
-/// Reads the optional `'enumValues'` descriptor key as a `List<Object?>` of
-/// known enum numbers, or `null` if absent.
+/// Reads the field's set of known enum numbers from the `'enumValues'`
+/// descriptor key, or `null` if absent.
+///
+/// Accepts both descriptor shapes used across the codecs: the JSON codec's
+/// `Map<int, String>` (ordinal → name — the keys are the valid numbers) and a
+/// plain `List` of numbers. Returns the valid-number set in either case.
 List<Object?>? _enumValuesOf(Map<String, Object?> fieldDesc) {
   final raw = fieldDesc['enumValues'];
-  return raw is List ? raw : null;
+  if (raw is Map) return raw.keys.toList();
+  if (raw is List) return raw;
+  return null;
 }
 
 /// Whether a protobuf field type can be packed (scalar numeric / bool / enum).

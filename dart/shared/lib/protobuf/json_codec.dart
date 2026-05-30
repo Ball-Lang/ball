@@ -39,6 +39,44 @@ library;
 
 import 'dart:convert';
 
+import 'editions.dart';
+
+// ---------------------------------------------------------------------------
+// UTF-8 validation (editions utf8_validation = VERIFY)
+// ---------------------------------------------------------------------------
+
+/// Whether [s] contains an unpaired UTF-16 surrogate (i.e. cannot be encoded as
+/// well-formed UTF-8). Dart strings are UTF-16 code-unit sequences; a lone or
+/// mis-ordered surrogate has no valid Unicode scalar value.
+bool _hasUnpairedSurrogate(String s) {
+  for (int i = 0; i < s.length; i++) {
+    final c = s.codeUnitAt(i);
+    if (c >= 0xD800 && c <= 0xDBFF) {
+      // High surrogate — must be immediately followed by a low surrogate.
+      if (i + 1 >= s.length) return true;
+      final next = s.codeUnitAt(i + 1);
+      if (next < 0xDC00 || next > 0xDFFF) return true;
+      i++; // consume the valid pair
+    } else if (c >= 0xDC00 && c <= 0xDFFF) {
+      return true; // lone low surrogate
+    }
+  }
+  return false;
+}
+
+/// Throws [FormatException] when [features] require UTF-8 validation
+/// (`utf8_validation = VERIFY`) and [s] is not well-formed UTF-8. A no-op when
+/// validation is not required or [features] is absent (proto2 / NONE).
+void _verifyUtf8IfRequired(String s, Map<String, String>? features) {
+  if (features != null &&
+      requiresUtf8Validation(features) &&
+      _hasUnpairedSurrogate(s)) {
+    throw FormatException(
+      'Invalid UTF-8 string (unpaired surrogate) under utf8_validation=VERIFY',
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Name conversion
 // ---------------------------------------------------------------------------
@@ -244,6 +282,7 @@ Object? fieldToJson(
   String type, {
   Map<int, String>? enumValues,
   List<Map<String, Object?>>? messageDescriptor,
+  Map<String, String>? features,
 }) {
   if (value == null) return null;
 
@@ -268,8 +307,9 @@ Object? fieldToJson(
     case 'TYPE_DOUBLE':
       if (value is double) {
         if (value.isNaN) return 'NaN';
-        if (value.isInfinite)
+        if (value.isInfinite) {
           return value.isNegative ? '-Infinity' : 'Infinity';
+        }
       }
       return value;
 
@@ -287,8 +327,15 @@ Object? fieldToJson(
       }
       return value;
 
-    // All other scalar types (int32, uint32, sint32, bool, string,
-    // fixed32, sfixed32, sfixed64, fixed64) pass through directly.
+    // string: pass through, optionally verifying UTF-8 (utf8_validation=VERIFY).
+    case 'TYPE_STRING':
+      if (value is String) {
+        _verifyUtf8IfRequired(value, features);
+      }
+      return value;
+
+    // All other scalar types (int32, uint32, sint32, bool,
+    // fixed32, sfixed32) pass through directly.
     default:
       return value;
   }
@@ -315,6 +362,7 @@ Object? fieldFromJson(
   String type, {
   Map<int, String>? enumValues,
   List<Map<String, Object?>>? messageDescriptor,
+  Map<String, String>? features,
 }) {
   if (jsonValue == null) return null;
 
@@ -370,7 +418,19 @@ Object? fieldFromJson(
           }
         }
         // If the string is a numeric literal, parse it.
-        return int.tryParse(jsonValue) ?? jsonValue;
+        final numeric = int.tryParse(jsonValue);
+        if (numeric != null) return numeric;
+        // Unknown enum name. Proto3 JSON (json_format = ALLOW, the editions
+        // default) requires a known name or a numeric literal — reject. Under
+        // LEGACY_BEST_EFFORT (proto2) or when features are absent, tolerate it
+        // by passing the raw string through (legacy best-effort behavior).
+        if (features != null && jsonFormatIsAllow(features)) {
+          throw FormatException(
+            'Unknown enum value "$jsonValue" (json_format=ALLOW requires a '
+            'known name or numeric literal)',
+          );
+        }
+        return jsonValue;
       }
       if (jsonValue is num) {
         return jsonValue.toInt();
@@ -408,7 +468,9 @@ Object? fieldFromJson(
       return jsonValue;
 
     case 'TYPE_STRING':
-      return jsonValue is String ? jsonValue : jsonValue.toString();
+      final s = jsonValue is String ? jsonValue : jsonValue.toString();
+      _verifyUtf8IfRequired(s, features);
+      return s;
 
     default:
       return jsonValue;
@@ -478,6 +540,7 @@ Map<String, Object?> _marshalToMap(
     final label = field['label'] as String?;
     final value = message[name];
     final isMap = field['mapEntry'] == true;
+    final features = field['features'] as Map<String, String>?;
     final camelName = toCamelCase(name);
 
     if (isMap) {
@@ -495,6 +558,7 @@ Map<String, Object?> _marshalToMap(
           valueType,
           enumValues: enumVals,
           messageDescriptor: msgDesc,
+          features: features,
         );
       }
       result[camelName] = jsonMap;
@@ -511,11 +575,21 @@ Map<String, Object?> _marshalToMap(
             type,
             enumValues: enumVals,
             messageDescriptor: msgDesc,
+            features: features,
           ),
       ];
     } else {
-      // Singular field: omit if default.
-      if (isDefaultValue(value, type)) continue;
+      // Singular field. With EXPLICIT/LEGACY_REQUIRED presence a present value
+      // is emitted even when it equals the type default; a present-but-null
+      // (unset) field is omitted. With implicit (proto3) presence — or no
+      // resolved features — defaults are omitted as before (regression
+      // firewall).
+      final explicitPresence = features != null && hasExplicitPresence(features);
+      if (explicitPresence) {
+        if (value == null) continue;
+      } else {
+        if (isDefaultValue(value, type)) continue;
+      }
       final msgDesc = field['messageDescriptor'] as List<Map<String, Object?>>?;
       final enumVals = field['enumValues'] as Map<int, String>?;
       result[camelName] = fieldToJson(
@@ -523,6 +597,7 @@ Map<String, Object?> _marshalToMap(
         type,
         enumValues: enumVals,
         messageDescriptor: msgDesc,
+        features: features,
       );
     }
   }
@@ -577,6 +652,7 @@ Map<String, Object?> _unmarshalFromMap(
     final isMap = field['mapEntry'] == true;
     final msgDesc = field['messageDescriptor'] as List<Map<String, Object?>>?;
     final enumVals = field['enumValues'] as Map<int, String>?;
+    final features = field['features'] as Map<String, String>?;
 
     if (isMap) {
       // Map field: JSON object -> Dart map.
@@ -590,6 +666,7 @@ Map<String, Object?> _unmarshalFromMap(
             valueType,
             enumValues: enumVals,
             messageDescriptor: msgDesc,
+            features: features,
           );
         }
         result[name] = dartMap;
@@ -606,6 +683,7 @@ Map<String, Object?> _unmarshalFromMap(
               type,
               enumValues: enumVals,
               messageDescriptor: msgDesc,
+              features: features,
             ),
         ];
       } else {
@@ -618,6 +696,7 @@ Map<String, Object?> _unmarshalFromMap(
         type,
         enumValues: enumVals,
         messageDescriptor: msgDesc,
+        features: features,
       );
     }
   }

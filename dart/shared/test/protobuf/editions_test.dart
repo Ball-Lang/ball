@@ -12,6 +12,7 @@ import 'package:ball_base/ball_base.dart'
     show FeatureSet, FeatureSetDefaults;
 import 'package:ball_base/protobuf/edition.dart';
 import 'package:ball_base/protobuf/editions.dart';
+import 'package:ball_base/protobuf/json_codec.dart';
 import 'package:ball_base/protobuf/marshal.dart';
 import 'package:ball_base/protobuf/unmarshal.dart';
 import 'package:test/test.dart';
@@ -811,6 +812,132 @@ void main() {
       }, openRep);
       expect(unmarshal(bytes, closedRep)['es'], [1, 2]); // 99 filtered
       expect(unmarshal(bytes, openRep)['es'], [1, 99, 2]); // open keeps all
+    });
+  });
+
+  group('JSON codec honors resolved features (Phase 4)', () {
+    group('presence-aware default omission', () {
+      List<Map<String, Object?>> desc(String presence) => [
+        {
+          'name': 'x',
+          'number': 1,
+          'type': 'TYPE_INT32',
+          'features': {featureFieldPresence: presence},
+        },
+      ];
+      final explicit = desc(fieldPresenceExplicit);
+      final implicit = desc(fieldPresenceImplicit);
+      final none = [
+        {'name': 'x', 'number': 1, 'type': 'TYPE_INT32'},
+      ];
+
+      test('EXPLICIT presence emits a present default scalar', () {
+        expect(marshalJson({'x': 0}, explicit), '{"x":0}');
+      });
+      test('EXPLICIT presence omits an unset (absent) field', () {
+        expect(marshalJson(<String, Object?>{}, explicit), '{}');
+      });
+      test('IMPLICIT presence omits a default scalar (proto3)', () {
+        expect(marshalJson({'x': 0}, implicit), '{}');
+      });
+      test('no features → omits default (back-compat firewall)', () {
+        expect(marshalJson({'x': 0}, none), '{}');
+      });
+      test('non-default value always emitted', () {
+        expect(marshalJson({'x': 7}, implicit), '{"x":7}');
+        expect(marshalJson({'x': 7}, none), '{"x":7}');
+      });
+    });
+
+    group('json_format strict vs best-effort enum decoding', () {
+      final enumMap = {0: 'A', 1: 'B'};
+      List<Map<String, Object?>> desc(String? jsonFormat) => [
+        {
+          'name': 'e',
+          'number': 1,
+          'type': 'TYPE_ENUM',
+          'enumValues': enumMap,
+          if (jsonFormat != null) 'features': {featureJsonFormat: jsonFormat},
+        },
+      ];
+      final allow = desc(jsonFormatAllow);
+      final bestEffort = desc(jsonFormatLegacyBestEffort);
+      final noFeatures = desc(null);
+
+      test('known name and numeric literal decode under ALLOW', () {
+        expect(unmarshalJson('{"e":"B"}', allow)['e'], 1);
+        expect(unmarshalJson('{"e":"1"}', allow)['e'], 1);
+      });
+      test('unknown enum name is rejected under ALLOW', () {
+        expect(
+          () => unmarshalJson('{"e":"NOPE"}', allow),
+          throwsFormatException,
+        );
+      });
+      test('unknown enum name tolerated under LEGACY_BEST_EFFORT', () {
+        expect(unmarshalJson('{"e":"NOPE"}', bestEffort)['e'], 'NOPE');
+      });
+      test('unknown enum name tolerated when features absent (back-compat)', () {
+        expect(unmarshalJson('{"e":"NOPE"}', noFeatures)['e'], 'NOPE');
+      });
+    });
+
+    group('utf8_validation = VERIFY', () {
+      final loneSurrogate = String.fromCharCode(0xD800);
+      List<Map<String, Object?>> desc(String? utf8) => [
+        {
+          'name': 's',
+          'number': 1,
+          'type': 'TYPE_STRING',
+          if (utf8 != null) 'features': {featureUtf8Validation: utf8},
+        },
+      ];
+      final verify = desc(utf8ValidationVerify);
+      final none = desc(utf8ValidationNone);
+      final noFeatures = desc(null);
+
+      test('encode rejects an ill-formed string under VERIFY', () {
+        expect(
+          () => marshalJson({'s': loneSurrogate}, verify),
+          throwsFormatException,
+        );
+      });
+      test('encode tolerates it under NONE / no features', () {
+        expect(marshalJson({'s': loneSurrogate}, none), isNotEmpty);
+        expect(marshalJson({'s': loneSurrogate}, noFeatures), isNotEmpty);
+      });
+      test('decode rejects an ill-formed string under VERIFY', () {
+        expect(
+          () => unmarshalJson('{"s":"\\uD800"}', verify),
+          throwsFormatException,
+        );
+      });
+      test('decode tolerates it under NONE', () {
+        expect(unmarshalJson('{"s":"\\uD800"}', none)['s'], isA<String>());
+      });
+      test('a well-formed (paired-surrogate) string passes VERIFY', () {
+        // U+1F600 😀 = surrogate pair D83D DE00 — valid.
+        final emoji = String.fromCharCodes([0xD83D, 0xDE00]);
+        expect(marshalJson({'s': emoji}, verify), isNotEmpty);
+        expect(unmarshalJson(marshalJson({'s': emoji}, verify), verify)['s'],
+            emoji);
+      });
+    });
+
+    test('cross-format presence consistency (binary EXPLICIT 0 ↔ JSON)', () {
+      final desc = [
+        {
+          'name': 'x',
+          'number': 1,
+          'type': 'TYPE_INT32',
+          'features': {featureFieldPresence: fieldPresenceExplicit},
+        },
+      ];
+      // A present default (0) survives a binary round-trip...
+      final decoded = unmarshal(marshal({'x': 0}, desc), desc);
+      expect(decoded['x'], 0);
+      // ...and is then emitted in JSON (presence preserved across formats).
+      expect(marshalJson(decoded, desc), '{"x":0}');
     });
   });
 }

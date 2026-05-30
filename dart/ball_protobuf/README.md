@@ -27,6 +27,13 @@ When a field descriptor carries a resolved `'features'` map, the codecs honour:
 A descriptor without a `'features'` key behaves as proto3 defaults (zero
 behavioural change), so existing callers are unaffected.
 
+## Conformance
+
+The codecs are validated against the **official protobuf
+`conformance_test_runner`** for the Editions message `TestAllTypesEdition2023`
+(all registered tests pass). See [`conformance/README.md`](conformance/README.md)
+for how to build the runner and run it locally; CI runs it on every change.
+
 ## Usage
 
 ```dart

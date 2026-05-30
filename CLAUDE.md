@@ -64,6 +64,16 @@ buf generate
 
 # After editing dart/shared/lib/std.dart, regenerate std.json/std.bin
 cd dart/shared && dart run bin/gen_std.dart
+
+# Upstream protobuf conformance for ball_protobuf (Editions) — POSIX-only
+# runner; build/run on Linux/macOS/WSL, not native Windows. See
+# dart/ball_protobuf/conformance/README.md.
+cmake -S cpp -B cpp/build-conformance -Dprotobuf_BUILD_CONFORMANCE=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build cpp/build-conformance --target conformance_test_runner -j
+dart compile exe dart/ball_protobuf/tool/conformance_main.dart -o ball_conformance
+"$(find cpp/build-conformance -name conformance_test_runner -type f | head -1)" \
+  --maximum_edition 2023 \
+  --failure_list dart/ball_protobuf/conformance/failure_list_ball.txt ./ball_conformance
 ```
 
 ## Core Invariants — Never Violate

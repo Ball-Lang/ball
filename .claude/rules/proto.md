@@ -36,3 +36,29 @@ Type system: `TypeParameter`, `TypeAlias`, `Constant`, `ModuleAsset`
 
 `buf.gen.yaml` generates bindings for: Dart, Go, Python, TypeScript, C++, Java, C#
 Output directories are language-specific (e.g., `dart/shared/lib/gen/`, `cpp/shared/gen/`)
+
+## Wire-format conformance (upstream protobuf suite)
+
+`ball_protobuf`'s codecs are validated against the **official protobuf
+`conformance_test_runner`** (not just our own round-trips), focused on Editions
+(`TestAllTypesEdition2023`). Layout:
+
+- `dart/ball_protobuf/tool/descriptor_bridge.dart` — turns a protoc
+  `FileDescriptorSet` into our Map-based field descriptors, resolving each
+  field's Editions `FeatureSet` and folding `extend` blocks into their extendee
+  (extensions keyed by `[fully.qualified.name]` to avoid aliasing a sibling
+  field's simple name).
+- `dart/ball_protobuf/tool/conformance_main.dart` + `lib/conformance.dart` — the
+  size-prefixed stdin/stdout request loop the runner drives. **The loop awaits
+  each stdout flush** — an un-awaited flush in the synchronous read loop crashes
+  the process after one response.
+- `dart/ball_protobuf/conformance/{failure_list_ball.txt,README.md}` — expected
+  failures (currently empty) + how-to.
+- `tests/editions/descriptors/test_messages.fds.binpb` — the checked-in
+  descriptor set; regenerate with `tools/gen_conformance_descriptors.{sh,ps1}`
+  (pin protoc to a version supporting edition 2023; `--check`/`-Check` drift).
+
+The runner is **POSIX-only** (`fork`/pipes) — build/run it on Linux/macOS/WSL,
+not native Windows. CI: job *Upstream Conformance (Editions)* in `ci.yml`.
+Non-edition2023 messages (proto2/proto3/other) are reported `skipped`; broadening
+is a tracked follow-on (the bridge already does legacy feature inference).

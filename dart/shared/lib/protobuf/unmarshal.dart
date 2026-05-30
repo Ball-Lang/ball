@@ -157,6 +157,7 @@ Map<String, Object?> unmarshalFieldValue(
       final length = lenResult['value']!;
       final varintSize = lenResult['bytesRead']!;
       final dataStart = offset + varintSize;
+      _checkLenBounds(bytes, dataStart, length, offset);
       final data = bytes.sublist(dataStart, dataStart + length);
       final totalBytesRead = varintSize + length;
 
@@ -227,6 +228,7 @@ Map<String, Object?> unmarshalRepeated(
     final length = lenResult['value']!;
     final varintSize = lenResult['bytesRead']!;
     final dataStart = offset + varintSize;
+    _checkLenBounds(bytes, dataStart, length, offset);
     final data = bytes.sublist(dataStart, dataStart + length);
     final totalBytesRead = varintSize + length;
 
@@ -277,7 +279,14 @@ Map<String, Object?> unmarshalMapField(
     final wireType = tagResult['wireType']!;
     offset += tagResult['bytesRead']!;
 
-    if (fieldNumber == 1) {
+    if (fieldNumber == 2 && wireType == 3) {
+      // DELIMITED (group) map value: consume the group body as raw bytes; the
+      // caller unmarshals it with the value sub-descriptor (same shape as the
+      // wire-type-2 'message' case, which also returns raw bytes).
+      final group = _consumeGroup(entryBytes, offset, fieldNumber);
+      value = group['body'] as List<int>;
+      offset += group['bytesRead'] as int;
+    } else if (fieldNumber == 1) {
       // Key field.
       final fieldResult = unmarshalFieldValue(
         entryBytes,
@@ -298,8 +307,14 @@ Map<String, Object?> unmarshalMapField(
       value = fieldResult['value'];
       offset += fieldResult['bytesRead'] as int;
     } else {
-      // Unknown field in map entry — skip.
-      offset += skipField(entryBytes, offset, wireType);
+      // Unknown field in map entry — skip. A START_GROUP (wire type 3) must be
+      // consumed as a whole group; skipField throws on wire type 3.
+      if (wireType == 3) {
+        offset +=
+            _consumeGroup(entryBytes, offset, fieldNumber)['bytesRead'] as int;
+      } else {
+        offset += skipField(entryBytes, offset, wireType);
+      }
     }
   }
 
@@ -381,6 +396,14 @@ Map<String, Object?> unmarshal(
       continue;
     }
 
+    // A START_GROUP for a KNOWN field whose type is not a message (a malformed
+    // or legacy-mismatched producer) is treated as an unknown group and skipped
+    // rather than forwarded to the scalar decoders (which throw on wire type 3).
+    if (wireType == 3) {
+      offset += _consumeGroup(bytes, offset, fieldNumber)['bytesRead'] as int;
+      continue;
+    }
+
     // 3. Decode the value.
     if (isMapEntry) {
       // Map field: encoded as repeated message entries.
@@ -400,6 +423,7 @@ Map<String, Object?> unmarshal(
       final length = lenResult['value']!;
       final varintSize = lenResult['bytesRead']!;
       final dataStart = offset + varintSize;
+      _checkLenBounds(bytes, dataStart, length, offset);
       final entryBytes = bytes.sublist(dataStart, dataStart + length);
       offset += varintSize + length;
 
@@ -555,6 +579,18 @@ Map<String, Object?> _consumeGroup(
     }
   }
   throw FormatException('Unterminated group for field $groupFieldNumber');
+}
+
+/// Validates that a length-delimited field's declared [length] fits within
+/// [bytes] starting at [dataStart]; throws [FormatException] on a truncated or
+/// negative length instead of letting `sublist` raise a bare `RangeError`.
+void _checkLenBounds(List<int> bytes, int dataStart, int length, int offset) {
+  if (length < 0 || dataStart + length > bytes.length) {
+    throw FormatException(
+      'Truncated LEN field: declared length $length at offset $offset '
+      'exceeds buffer length ${bytes.length}',
+    );
+  }
 }
 
 /// Whether a decoded enum [value] must be routed to the unknown-field set

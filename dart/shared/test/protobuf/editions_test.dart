@@ -940,4 +940,85 @@ void main() {
       expect(marshalJson(decoded, desc), '{"x":0}');
     });
   });
+
+  // Regressions surfaced by the Phase 3 adversarial review.
+  group('Phase 3 review regressions', () {
+    test('unknown group field inside a map entry is skipped, not fatal', () {
+      // map<int,int> entry {1:2} carrying an unknown field 3 as an empty group.
+      // Bytes: f1 LEN len6 = [key f1=1][value f2=2][f3 START_GROUP][f3 END_GROUP]
+      final mapDesc = [
+        {
+          'name': 'mp',
+          'number': 1,
+          'type': 'TYPE_MESSAGE',
+          'mapEntry': true,
+          'keyType': 'TYPE_INT32',
+          'valueType': 'TYPE_INT32',
+        },
+      ];
+      final bytes = [10, 6, 8, 1, 16, 2, 27, 28];
+      expect(unmarshal(bytes, mapDesc)['mp'], {1: 2});
+    });
+
+    test('map<int, DELIMITED-message> value decodes (group-valued map)', () {
+      final mapMsgDesc = [
+        {
+          'name': 'mp',
+          'number': 1,
+          'type': 'TYPE_MESSAGE',
+          'mapEntry': true,
+          'keyType': 'TYPE_INT32',
+          'valueType': 'TYPE_MESSAGE',
+          'messageDescriptor': [
+            {'name': 'n', 'number': 1, 'type': 'TYPE_INT32'},
+          ],
+        },
+      ];
+      // entry: key f1=1; value f2 as group {n:5} = START_GROUP [8,5] END_GROUP.
+      final bytes = [10, 6, 8, 1, 19, 8, 5, 20];
+      expect(unmarshal(bytes, mapMsgDesc)['mp'], {
+        1: {'n': 5},
+      });
+    });
+
+    test('CLOSED routing works with the JSON-codec Map enumValues shape', () {
+      final open = [
+        {'name': 'e', 'number': 1, 'type': 'TYPE_ENUM'},
+      ];
+      final closedMap = [
+        {
+          'name': 'e',
+          'number': 1,
+          'type': 'TYPE_ENUM',
+          'features': {featureEnumType: enumTypeClosed},
+          'enumValues': {0: 'A', 1: 'B', 2: 'C'}, // Map<int,String> (JSON shape)
+        },
+      ];
+      expect(
+        unmarshal(marshal({'e': 99}, open), closedMap).containsKey('e'),
+        isFalse,
+      );
+      expect(unmarshal(marshal({'e': 2}, open), closedMap)['e'], 2);
+    });
+
+    test('START_GROUP on a known non-message field is skipped, not fatal', () {
+      final desc = [
+        {'name': 'x', 'number': 1, 'type': 'TYPE_INT32'},
+        {'name': 'y', 'number': 2, 'type': 'TYPE_INT32'},
+      ];
+      // field 1 (an int32) arrives as a group; field 2 = 7 must still decode.
+      final bytes = [11, 8, 42, 12, 16, 7];
+      final decoded = unmarshal(bytes, desc);
+      expect(decoded.containsKey('x'), isFalse);
+      expect(decoded['y'], 7);
+    });
+
+    test('truncated LEN length throws FormatException (not RangeError)', () {
+      final desc = [
+        {'name': 's', 'number': 1, 'type': 'TYPE_STRING'},
+      ];
+      // tag f1 LEN, declared length 99, but only 1 payload byte present.
+      expect(() => unmarshal([10, 99, 65], desc), throwsFormatException);
+    });
+  });
 }

@@ -932,6 +932,14 @@ extension BallEngineEval on BallEngine {
     String fieldName,
     Object? assignedValue,
   ) {
+    // `assignedValue` is the setter function's RETURN value. An
+    // expression-bodied setter (`set x(v) => _x = v`) returns the stored value,
+    // so we mirror it into the backing field (needed by the C++ self-host,
+    // which value-copies `self`). A block-bodied setter (`set x(v) { _x = v; }`)
+    // mutates `self` directly and returns null/void — writing that null back
+    // would CLOBBER the field the body just set. Skip when there is nothing to
+    // mirror.
+    if (assignedValue == null) return;
     final backing = '_$fieldName';
     if (object.containsKey(backing)) {
       ballObjectSetField(object, backing, assignedValue);

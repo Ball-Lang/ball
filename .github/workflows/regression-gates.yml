@@ -181,7 +181,7 @@ jobs:
         run: |
           set -o pipefail
           cd dart/engine
-          output=$(dart test 2>&1) || { echo "$output"; echo "::error::Dart engine suite exited non-zero"; exit 1; }
+          output=$(dart test --reporter expanded 2>&1) || { echo "$output"; echo "::error::Dart engine suite exited non-zero"; exit 1; }
           echo "$output"
 
           if echo "$output" | grep -q "All tests passed"; then
@@ -211,7 +211,7 @@ jobs:
         run: |
           set -o pipefail
           cd dart/encoder
-          output=$(dart test 2>&1) || { echo "$output"; echo "::error::Dart encoder suite exited non-zero"; exit 1; }
+          output=$(dart test --reporter expanded 2>&1) || { echo "$output"; echo "::error::Dart encoder suite exited non-zero"; exit 1; }
           echo "$output"
 
           if echo "$output" | grep -q "All tests passed"; then
@@ -241,7 +241,7 @@ jobs:
         run: |
           set -o pipefail
           cd dart/compiler
-          output=$(dart test --exclude-tags slow 2>&1) || { echo "$output"; echo "::error::Dart compiler suite exited non-zero"; exit 1; }
+          output=$(dart test --reporter expanded --exclude-tags slow 2>&1) || { echo "$output"; echo "::error::Dart compiler suite exited non-zero"; exit 1; }
           echo "$output"
 
           if echo "$output" | grep -q "All tests passed"; then

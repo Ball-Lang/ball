@@ -138,7 +138,7 @@ List<Map<String, Object?>> _defaultsTable() {
 
   // 2024 runtime features identical to 2023.
   final edition2024Overridable = <String, String>{};
-  edition2024Overridable.addAll(edition2023Overridable);
+  _putAll(edition2024Overridable, edition2023Overridable);
 
   final table = <Map<String, Object?>>[];
   table.add({
@@ -208,8 +208,8 @@ Map<String, String> baseFeaturesForEdition(int edition) {
   final result = <String, String>{};
   final overridable = entry['overridable'] as Map<String, String>;
   final fixed = entry['fixed'] as Map<String, String>;
-  result.addAll(overridable);
-  result.addAll(fixed);
+  _putAll(result, overridable);
+  _putAll(result, fixed);
   return result;
 }
 
@@ -255,7 +255,7 @@ Map<String, String> mergeFeatureSet(
   int edition,
 ) {
   final result = <String, String>{};
-  result.addAll(base);
+  _putAll(result, base);
   _applyOverrides(result, overrides, edition);
   return result;
 }
@@ -436,6 +436,20 @@ bool jsonFormatIsAllow(Map<String, String> features) {
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
+
+/// Copies every entry of [src] into [dest] (later writes win), the portable
+/// equivalent of `dest.addAll(src)` for string maps.
+///
+/// Authored as an explicit `entries` loop rather than `Map.addAll` on purpose:
+/// the Dart→Ball encoder is purely syntactic (no static types) and routes a
+/// bare `.addAll` to the list operation `list_concat`, which fails on a map.
+/// Map index-set over `entries` is a core, portable primitive that compiles and
+/// runs identically on every target engine (Dart/TS/C++).
+void _putAll(Map<String, String> dest, Map<String, String> src) {
+  for (final entry in src.entries) {
+    dest[entry.key] = entry.value;
+  }
+}
 
 /// Applies override entries from [overrides] onto [base].
 ///

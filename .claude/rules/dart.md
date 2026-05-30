@@ -29,6 +29,26 @@ Ball's Dart implementation is a workspace with 5 packages:
 - Dart-specific constructs go to `dart_std` module (cascade, null_aware_access, spread, etc.)
 - Build `std` modules from accumulated function references via `buildStdModules()`
 
+#### Syntactic-encoder gotchas (parseString — NO type resolution)
+
+The encoder parses with `parseString` and has **no static types**, so it dispatches
+by *syntax* and *name heuristics*. When authoring "Ball-portable" Dart (code that
+gets encoded and run on the Dart/TS/C++ engines — e.g. `dart/shared/lib/protobuf/`),
+avoid constructs that need receiver-type info:
+
+- **`Map.addAll` is mis-routed to the list op `list_concat`** (no way to tell a map
+  receiver from a list one). Merge maps with an explicit `entries` loop instead
+  (`for (final e in src.entries) dest[e.key] = e.value;`). Same caution for other
+  methods shared by `List`/`Map` (`clear`, `remove`).
+- **Constructor vs function call** is decided by the first *letter* (skipping a
+  leading `_`): `Foo()`/`_Foo()` → `MessageCreation`; `foo()`/`_foo()` → `call`.
+  (A prior bug treated every `_`-prefixed name as a constructor — `'_'.toUpperCase()`
+  is `'_'` — silently mis-encoding all private top-level function calls; fixed via
+  `_looksLikeTypeName` in `encoder.dart`.)
+- Prefer plain `Map`/`List`/`String`/`int` data and top-level functions; avoid heavy
+  class hierarchies. When something runs as Dart unit tests but misbehaves through
+  the engine, suspect a syntactic-encoding mismatch and diff the encoded program.
+
 ### Engine
 - `BallEngine.run(Program)` → executes, returns captured stdout
 - Scoping via linked `Scope` chain (lexical scoping with parent pointers)

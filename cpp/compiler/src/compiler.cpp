@@ -1487,48 +1487,60 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
         std::string val = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
         return "(ball_is_list(BallDyn(" + val + ")) || ball_object_type_matches(BallDyn(" + val + "), \"BallList\"s))";
     }
-    if (mod.empty() && fn == "_ballIsMap") {
-        std::string val = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
-        return "(ball_is_map_dyn(BallDyn(" + val + ")) || ball_object_type_matches(BallDyn(" + val + "), \"BallMap\"s))";
-    }
-    if (mod.empty() && fn == "_ballMapValues") {
-        std::string map_arg = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
-        return "ball_list_copy(ball_map_values(BallDyn(" + map_arg + ")))";
-    }
-    if (mod.empty() && fn == "_ballMapValuesDyn") {
-        std::string map_arg = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
-        return "ball_list_copy(ball_map_values(BallDyn(" + map_arg + ")))";
-    }
-    if (mod.empty() && fn == "_ballMapKeysDyn") {
-        std::string map_arg = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
-        return "ball_list_copy(ball_map_keys(BallDyn(" + map_arg + ")))";
-    }
-    if (mod.empty() && fn == "_ballMapSetDyn") {
-        std::string map_arg = call.has_input() ? compile_expr(call.input()) : "BallDyn()";
-        std::string key_arg = "BallDyn()";
-        std::string val_arg = "BallDyn()";
-        if (call.has_input() &&
-            call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
-            for (const auto& f : call.input().message_creation().fields()) {
-                if (f.name() == "map") map_arg = compile_expr(f.value());
-                else if (f.name() == "key") key_arg = compile_expr(f.value());
-                else if (f.name() == "value") val_arg = compile_expr(f.value());
+    // Inlined fast-paths for the private `_ballMap*` map helpers. These are
+    // positional calls — `_ballMapSetDyn(raw, key, value)` — so the input
+    // messageCreation carries fields named arg0/arg1/arg2 (a named field of the
+    // same role is accepted as a fallback). Extract by position; default to a
+    // safe empty BallDyn() only when genuinely absent. (Each helper is also
+    // emitted as a real C++ function, so the logic here mirrors those bodies.)
+    if (mod.empty() &&
+        (fn == "_ballIsMap" || fn == "_ballMapValues" ||
+         fn == "_ballMapValuesDyn" || fn == "_ballMapKeysDyn" ||
+         fn == "_ballMapSetDyn" || fn == "_ballMapContainsKeyDyn")) {
+        // Positional-argument extractor: arg<idx>, then [named], then BallDyn().
+        auto argAt = [&](int idx, const char* named) -> std::string {
+            if (!call.has_input()) return "BallDyn()";
+            if (call.input().expr_case() !=
+                ball::v1::Expression::kMessageCreation) {
+                // A bare single argument is the whole input.
+                return idx == 0 ? compile_expr(call.input())
+                                : std::string("BallDyn()");
             }
-        }
-        return "([](BallDyn m, BallDyn k, BallDyn v){ball_set(m, std::string(ball_to_string(BallDyn(k))), std::any(BallDyn(v))); return BallDyn();}(" +
-               map_arg + "," + key_arg + "," + val_arg + "))";
-    }
-    if (mod.empty() && fn == "_ballMapContainsKeyDyn") {
-        std::string map_arg = "BallDyn()";
-        std::string key_arg = "BallDyn()";
-        if (call.has_input() &&
-            call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+            const std::string pos = "arg" + std::to_string(idx);
+            std::string named_match;
             for (const auto& f : call.input().message_creation().fields()) {
-                if (f.name() == "map") map_arg = compile_expr(f.value());
-                else if (f.name() == "key") key_arg = compile_expr(f.value());
+                if (f.name() == pos) return compile_expr(f.value());
+                if (named && f.name() == named) {
+                    named_match = compile_expr(f.value());
+                }
             }
+            return named_match.empty() ? "BallDyn()" : named_match;
+        };
+
+        if (fn == "_ballIsMap") {
+            const std::string val = argAt(0, "map");
+            return "(ball_is_map_dyn(BallDyn(" + val +
+                   ")) || ball_object_type_matches(BallDyn(" + val +
+                   "), \"BallMap\"s))";
         }
-        return "(BallDyn(" + map_arg + ".count(BallDyn(" + key_arg + ")) > 0)";
+        if (fn == "_ballMapValues" || fn == "_ballMapValuesDyn") {
+            return "ball_list_copy(ball_map_values(BallDyn(" + argAt(0, "map") +
+                   ")))";
+        }
+        if (fn == "_ballMapKeysDyn") {
+            return "ball_list_copy(ball_map_keys(BallDyn(" + argAt(0, "map") +
+                   ")))";
+        }
+        if (fn == "_ballMapSetDyn") {
+            return "([](BallDyn m, BallDyn k, BallDyn v){ball_set(m, "
+                   "std::string(ball_to_string(BallDyn(k))), "
+                   "std::any(BallDyn(v))); return BallDyn();}(" +
+                   argAt(0, "map") + "," + argAt(1, "key") + "," +
+                   argAt(2, "value") + "))";
+        }
+        // _ballMapContainsKeyDyn
+        return "(BallDyn(" + argAt(0, "map") + ").count(BallDyn(" +
+               argAt(1, "key") + ")) > 0)";
     }
 
     // std_memory → direct memory calls

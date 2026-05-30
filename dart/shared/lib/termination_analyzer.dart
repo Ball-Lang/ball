@@ -11,8 +11,17 @@ import 'gen/ball/v1/ball.pb.dart';
 
 /// Analyze a Ball program for termination and control-flow issues.
 TerminationReport analyzeTermination(Program program) {
-  final analyzer = _TerminationAnalyzer(program);
-  return analyzer.analyze();
+  return _TerminationAnalyzer(program.modules).analyze();
+}
+
+/// Analyze a library [module] (and any inline [imports]) for termination and
+/// control-flow issues — audited as the Module it is, with no synthetic
+/// `Program` wrapper.
+TerminationReport analyzeModuleTermination(
+  Module module, {
+  Iterable<Module> imports = const [],
+}) {
+  return _TerminationAnalyzer([module, ...imports]).analyze();
 }
 
 /// Structured report of termination analysis warnings.
@@ -108,7 +117,7 @@ String _categoryLabel(String category) {
 // ── Analyzer Implementation ──────────────────────────────────────────────────
 
 class _TerminationAnalyzer {
-  final Program program;
+  final List<Module> modules;
   final List<TerminationWarning> _warnings = [];
 
   /// Call graph: "module.function" -> set of "module.function" it calls.
@@ -117,7 +126,7 @@ class _TerminationAnalyzer {
   /// Base modules (all functions are isBase).
   final Set<String> _baseModules = {};
 
-  _TerminationAnalyzer(this.program);
+  _TerminationAnalyzer(this.modules);
 
   TerminationReport analyze() {
     _identifyBaseModules();
@@ -130,7 +139,7 @@ class _TerminationAnalyzer {
   }
 
   void _identifyBaseModules() {
-    for (final module in program.modules) {
+    for (final module in modules) {
       if (module.functions.isNotEmpty &&
           module.functions.every((f) => f.isBase)) {
         _baseModules.add(module.name);
@@ -141,7 +150,7 @@ class _TerminationAnalyzer {
   // ── Call graph construction ──────────────────────────────────────────────
 
   void _buildCallGraph() {
-    for (final module in program.modules) {
+    for (final module in modules) {
       if (_baseModules.contains(module.name)) continue;
       for (final fn in module.functions) {
         if (fn.isBase) continue;
@@ -207,7 +216,7 @@ class _TerminationAnalyzer {
   // ── Infinite loop detection ─────────────────────────────────────────────
 
   void _checkLoops() {
-    for (final module in program.modules) {
+    for (final module in modules) {
       if (_baseModules.contains(module.name)) continue;
       for (final fn in module.functions) {
         if (fn.isBase) continue;
@@ -566,7 +575,7 @@ class _TerminationAnalyzer {
     if (parts.length < 2) return null;
     final moduleName = parts[0];
     final fnName = parts.sublist(1).join('.');
-    for (final module in program.modules) {
+    for (final module in modules) {
       if (module.name != moduleName) continue;
       for (final fn in module.functions) {
         if (fn.name == fnName) return fn;
@@ -578,7 +587,7 @@ class _TerminationAnalyzer {
   // ── Unreachable code detection ──────────────────────────────────────────
 
   void _checkUnreachableCode() {
-    for (final module in program.modules) {
+    for (final module in modules) {
       if (_baseModules.contains(module.name)) continue;
       for (final fn in module.functions) {
         if (fn.isBase) continue;
@@ -674,7 +683,7 @@ class _TerminationAnalyzer {
   // ── Orphaned label detection ────────────────────────────────────────────
 
   void _checkOrphanedLabels() {
-    for (final module in program.modules) {
+    for (final module in modules) {
       if (_baseModules.contains(module.name)) continue;
       for (final fn in module.functions) {
         if (fn.isBase) continue;

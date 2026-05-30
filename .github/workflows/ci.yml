@@ -74,6 +74,9 @@ jobs:
       - name: Shared tests
         run: cd dart/shared && dart test
 
+      - name: Editions conformance (legacy↔editions parity + feature codecs)
+        run: cd dart/shared && dart run tool/editions_conformance.dart
+
       - name: Engine tests
         run: cd dart/engine && dart test
 

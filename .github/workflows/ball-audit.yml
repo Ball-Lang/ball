@@ -21,6 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Full history so `git diff <base.sha> HEAD` can reach the PR base
+          # commit; a shallow clone makes the base a "bad object" (git exit 128).
+          fetch-depth: 0
 
       - uses: dart-lang/setup-dart@v1
         with:

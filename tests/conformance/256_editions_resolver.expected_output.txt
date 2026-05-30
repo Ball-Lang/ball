@@ -1,0 +1,4 @@
+2023: field_presence=EXPLICIT,enum_type=OPEN,repeated_field_encoding=PACKED,utf8_validation=VERIFY,message_encoding=LENGTH_PREFIXED,json_format=ALLOW
+proto3: field_presence=IMPLICIT,enum_type=OPEN,repeated_field_encoding=PACKED,utf8_validation=VERIFY,message_encoding=LENGTH_PREFIXED,json_format=ALLOW
+legacy: field_presence=EXPLICIT,enum_type=CLOSED,repeated_field_encoding=EXPANDED,utf8_validation=NONE,message_encoding=LENGTH_PREFIXED,json_format=LEGACY_BEST_EFFORT
+2023+IMPLICIT: field_presence=IMPLICIT,enum_type=OPEN,repeated_field_encoding=PACKED,utf8_validation=VERIFY,message_encoding=LENGTH_PREFIXED,json_format=ALLOW

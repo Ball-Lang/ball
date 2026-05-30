@@ -398,10 +398,19 @@ List<int> encodeConformanceResponse(Map<String, Object?> response) {
 
 /// Processes a single conformance request and returns a response map.
 ///
-/// Currently skips all tests with a descriptive message. As the Ball protobuf
-/// library gains full support for the conformance test message types
-/// (TestAllTypesProto3, TestAllTypesProto2, etc.), this function should be
-/// expanded to actually parse and re-serialize payloads.
+/// Binary→binary requests are handled as a canonical identity pass-through
+/// (which covers the proto2/proto3 legacy round-trip cases — a proto2/proto3
+/// message and its editions-equivalent resolve to the same wire bytes via the
+/// feature-aware [marshal]/[unmarshal] in `marshal.dart`/`unmarshal.dart`).
+/// Descriptor-requiring cases (binary↔JSON, JSON input) are skipped with a
+/// descriptive message because the upstream conformance message types
+/// (TestAllTypesProto3, TestAllTypesProto2, TestAllTypesEdition2023) are not
+/// embedded here — that is a separate, larger effort.
+///
+/// The editions feature-resolution + feature-aware codec behavior is instead
+/// self-checked by `dart/shared/tool/editions_conformance.dart` (run via
+/// `tests/editions/conformance_runner.*`), which proves legacy↔editions
+/// resolution and wire/JSON parity without needing the upstream descriptors.
 ///
 /// The returned map contains exactly one of the ConformanceResponse oneof
 /// fields as a key-value pair.

@@ -2884,8 +2884,14 @@ class DartEncoder {
       // produce a MessageCreation so the engine can construct instances.
       // `parseString` without type resolution emits `MethodInvocation` even
       // for `new`-less constructor calls like `IoEnvironmentVariables()`.
-      if (methodName.isNotEmpty &&
-          methodName[0] == methodName[0].toUpperCase()) {
+      //
+      // Use the first *letter* (skipping any private `_` prefix) and require it
+      // to be genuinely upper-cased: a bare `'_'.toUpperCase()` equals `'_'`, so
+      // a naive first-char check would mis-classify EVERY private function
+      // (`_helper()`, `_putAll()`) as a constructor and emit a bogus
+      // MessageCreation instead of a function call. `_Foo()` (private class)
+      // still resolves to a constructor; `_foo()` (private function) does not.
+      if (_looksLikeTypeName(methodName)) {
         final fullTypeName = '$_moduleName:$methodName';
         final msg = MessageCreation()
           ..typeName = fullTypeName
@@ -3243,6 +3249,20 @@ class DartEncoder {
     }
     _setCallInput(call, args);
     return Expression()..call = call;
+  }
+
+  /// Whether [name] syntactically looks like a type/constructor name rather
+  /// than a function: its first letter (after any leading private `_`) is an
+  /// upper-cased character. Returns false for all-underscore names and for
+  /// lower-cased private functions like `_putAll`.
+  static bool _looksLikeTypeName(String name) {
+    var i = 0;
+    while (i < name.length && name[i] == '_') {
+      i++;
+    }
+    if (i >= name.length) return false; // all underscores / empty
+    final c = name[i];
+    return c == c.toUpperCase() && c != c.toLowerCase();
   }
 
   // ---- Instance creation ----

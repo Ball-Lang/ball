@@ -27,6 +27,7 @@
 ///   - https://protobuf.dev/programming-guides/encoding/#structure
 library;
 
+import 'editions.dart';
 import 'wire_varint.dart';
 import 'wire_fixed.dart';
 import 'field_int.dart';
@@ -156,6 +157,7 @@ Map<String, Object?> unmarshalFieldValue(
       final length = lenResult['value']!;
       final varintSize = lenResult['bytesRead']!;
       final dataStart = offset + varintSize;
+      _checkLenBounds(bytes, dataStart, length, offset);
       final data = bytes.sublist(dataStart, dataStart + length);
       final totalBytesRead = varintSize + length;
 
@@ -226,6 +228,7 @@ Map<String, Object?> unmarshalRepeated(
     final length = lenResult['value']!;
     final varintSize = lenResult['bytesRead']!;
     final dataStart = offset + varintSize;
+    _checkLenBounds(bytes, dataStart, length, offset);
     final data = bytes.sublist(dataStart, dataStart + length);
     final totalBytesRead = varintSize + length;
 
@@ -276,7 +279,14 @@ Map<String, Object?> unmarshalMapField(
     final wireType = tagResult['wireType']!;
     offset += tagResult['bytesRead']!;
 
-    if (fieldNumber == 1) {
+    if (fieldNumber == 2 && wireType == 3) {
+      // DELIMITED (group) map value: consume the group body as raw bytes; the
+      // caller unmarshals it with the value sub-descriptor (same shape as the
+      // wire-type-2 'message' case, which also returns raw bytes).
+      final group = _consumeGroup(entryBytes, offset, fieldNumber);
+      value = group['body'] as List<int>;
+      offset += group['bytesRead'] as int;
+    } else if (fieldNumber == 1) {
       // Key field.
       final fieldResult = unmarshalFieldValue(
         entryBytes,
@@ -297,8 +307,14 @@ Map<String, Object?> unmarshalMapField(
       value = fieldResult['value'];
       offset += fieldResult['bytesRead'] as int;
     } else {
-      // Unknown field in map entry — skip.
-      offset += skipField(entryBytes, offset, wireType);
+      // Unknown field in map entry — skip. A START_GROUP (wire type 3) must be
+      // consumed as a whole group; skipField throws on wire type 3.
+      if (wireType == 3) {
+        offset +=
+            _consumeGroup(entryBytes, offset, fieldNumber)['bytesRead'] as int;
+      } else {
+        offset += skipField(entryBytes, offset, wireType);
+      }
     }
   }
 
@@ -334,8 +350,13 @@ Map<String, Object?> unmarshal(
     final fieldDesc = findFieldByNumber(descriptor, fieldNumber);
 
     if (fieldDesc == null) {
-      // Unknown field — skip it.
-      offset += skipField(bytes, offset, wireType);
+      // Unknown field — skip it. A START_GROUP (wire type 3) skips the entire
+      // group up to its matching END_GROUP.
+      if (wireType == 3) {
+        offset += _consumeGroup(bytes, offset, fieldNumber)['bytesRead'] as int;
+      } else {
+        offset += skipField(bytes, offset, wireType);
+      }
       continue;
     }
 
@@ -347,6 +368,41 @@ Map<String, Object?> unmarshal(
         : rawFieldType;
     final isRepeated = fieldDesc['repeated'] == true;
     final isMapEntry = fieldDesc['mapEntry'] == true;
+    final features = fieldDesc['features'] as Map<String, String>?;
+
+    // DELIMITED (group) message field: a START_GROUP tag (wire type 3). Decode
+    // the group body and unmarshal it with the sub-descriptor. Covers singular
+    // and repeated delimited message fields (editions message_encoding =
+    // DELIMITED, and proto2 groups).
+    if (wireType == 3 && fieldType == 'message') {
+      final group = _consumeGroup(bytes, offset, fieldNumber);
+      offset += group['bytesRead'] as int;
+      final body = group['body'] as List<int>;
+      final messageDescriptor =
+          fieldDesc['messageDescriptor'] as List<Map<String, Object?>>?;
+      final Object decoded = messageDescriptor != null
+          ? unmarshal(body, messageDescriptor)
+          : body;
+      if (isRepeated) {
+        final existing = message[fieldName];
+        if (existing is List) {
+          existing.add(decoded);
+        } else {
+          message[fieldName] = <Object?>[decoded];
+        }
+      } else {
+        message[fieldName] = decoded;
+      }
+      continue;
+    }
+
+    // A START_GROUP for a KNOWN field whose type is not a message (a malformed
+    // or legacy-mismatched producer) is treated as an unknown group and skipped
+    // rather than forwarded to the scalar decoders (which throw on wire type 3).
+    if (wireType == 3) {
+      offset += _consumeGroup(bytes, offset, fieldNumber)['bytesRead'] as int;
+      continue;
+    }
 
     // 3. Decode the value.
     if (isMapEntry) {
@@ -367,6 +423,7 @@ Map<String, Object?> unmarshal(
       final length = lenResult['value']!;
       final varintSize = lenResult['bytesRead']!;
       final dataStart = offset + varintSize;
+      _checkLenBounds(bytes, dataStart, length, offset);
       final entryBytes = bytes.sublist(dataStart, dataStart + length);
       offset += varintSize + length;
 
@@ -414,18 +471,43 @@ Map<String, Object?> unmarshal(
         decodedValues = values;
       }
 
+      // CLOSED enum: out-of-range elements are routed to the unknown set
+      // (dropped). OPEN enums (and any field without resolved CLOSED features +
+      // a known value set) keep every element.
+      final List<Object?> keptValues;
+      if (fieldType == 'enum' &&
+          features != null &&
+          isClosedEnum(features) &&
+          _enumValuesOf(fieldDesc) != null) {
+        final allowed = _enumValuesOf(fieldDesc)!;
+        keptValues = decodedValues.where((v) => allowed.contains(v)).toList();
+      } else {
+        keptValues = decodedValues;
+      }
+
       // Append to existing list or create new one.
       final existing = message[fieldName];
       if (existing is List) {
-        existing.addAll(decodedValues);
+        existing.addAll(keptValues);
       } else {
-        message[fieldName] = List<Object?>.from(decodedValues);
+        message[fieldName] = List<Object?>.from(keptValues);
       }
     } else {
       // Singular field.
       final result = unmarshalFieldValue(bytes, offset, wireType, fieldType);
       Object? value = result['value'];
       offset += result['bytesRead'] as int;
+
+      // CLOSED enum out-of-range → route to the unknown-field set (drop); the
+      // field stays unset. OPEN enums keep the value.
+      if (_routeClosedEnumToUnknown(
+        fieldType,
+        features,
+        _enumValuesOf(fieldDesc),
+        value,
+      )) {
+        continue;
+      }
 
       // If the field is a message type and we have a sub-descriptor,
       // unmarshal the raw bytes.
@@ -447,6 +529,101 @@ Map<String, Object?> unmarshal(
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/// Consumes a DELIMITED (group) message body starting at [offset] — i.e. just
+/// after a START_GROUP tag (wire type 3) for [groupFieldNumber] — up to and
+/// including the matching END_GROUP tag (wire type 4). Nested groups are
+/// skipped recursively.
+///
+/// Returns a map with:
+///   - `'body'`: `List<int>` — the bytes strictly between START_GROUP and
+///     END_GROUP (a self-contained submessage buffer, ready for [unmarshal]).
+///   - `'bytesRead'`: bytes consumed from [offset] (body length + the
+///     END_GROUP tag length), so the caller lands just past END_GROUP.
+///
+/// Throws [FormatException] on a mismatched or missing END_GROUP.
+Map<String, Object?> _consumeGroup(
+  List<int> bytes,
+  int offset,
+  int groupFieldNumber,
+) {
+  final start = offset;
+  while (offset < bytes.length) {
+    final tagResult = decodeTag(bytes, offset);
+    final fieldNumber = tagResult['fieldNumber']!;
+    final wireType = tagResult['wireType']!;
+    final tagLen = tagResult['bytesRead']!;
+
+    if (wireType == 4) {
+      // END_GROUP — must close THIS group.
+      if (fieldNumber != groupFieldNumber) {
+        throw FormatException(
+          'Mismatched END_GROUP at offset $offset: expected field '
+          '$groupFieldNumber, got $fieldNumber',
+        );
+      }
+      final body = bytes.sublist(start, offset);
+      return {'body': body, 'bytesRead': (offset - start) + tagLen};
+    }
+
+    offset += tagLen;
+    if (wireType == 3) {
+      // Nested START_GROUP — recurse to skip the whole nested group. Its bytes
+      // remain part of THIS group's body (the sub-unmarshal handles them).
+      final nested = _consumeGroup(bytes, offset, fieldNumber);
+      offset += nested['bytesRead'] as int;
+    } else {
+      offset += skipField(bytes, offset, wireType);
+    }
+  }
+  throw FormatException('Unterminated group for field $groupFieldNumber');
+}
+
+/// Validates that a length-delimited field's declared [length] fits within
+/// [bytes] starting at [dataStart]; throws [FormatException] on a truncated or
+/// negative length instead of letting `sublist` raise a bare `RangeError`.
+void _checkLenBounds(List<int> bytes, int dataStart, int length, int offset) {
+  if (length < 0 || dataStart + length > bytes.length) {
+    throw FormatException(
+      'Truncated LEN field: declared length $length at offset $offset '
+      'exceeds buffer length ${bytes.length}',
+    );
+  }
+}
+
+/// Whether a decoded enum [value] must be routed to the unknown-field set
+/// rather than stored: true only for a CLOSED enum whose value falls outside
+/// the field's known [enumValues].
+///
+/// CLOSED enums (proto2 default, editions `enum_type = CLOSED`) treat an
+/// out-of-range value as an unknown field; OPEN enums (proto3 default) preserve
+/// it. The check is a no-op — value is kept — unless the descriptor supplies
+/// BOTH resolved [features] indicating CLOSED and the known [enumValues] set,
+/// preserving the pre-editions behavior when either is absent.
+bool _routeClosedEnumToUnknown(
+  String fieldType,
+  Map<String, String>? features,
+  List<Object?>? enumValues,
+  Object? value,
+) {
+  if (fieldType != 'enum') return false;
+  if (features == null || !isClosedEnum(features)) return false;
+  if (enumValues == null) return false; // range unknown → keep (back-compat)
+  return !enumValues.contains(value);
+}
+
+/// Reads the field's set of known enum numbers from the `'enumValues'`
+/// descriptor key, or `null` if absent.
+///
+/// Accepts both descriptor shapes used across the codecs: the JSON codec's
+/// `Map<int, String>` (ordinal → name — the keys are the valid numbers) and a
+/// plain `List` of numbers. Returns the valid-number set in either case.
+List<Object?>? _enumValuesOf(Map<String, Object?> fieldDesc) {
+  final raw = fieldDesc['enumValues'];
+  if (raw is Map) return raw.keys.toList();
+  if (raw is List) return raw;
+  return null;
+}
 
 /// Whether a protobuf field type can be packed (scalar numeric / bool / enum).
 bool _isPackableType(String fieldType) {

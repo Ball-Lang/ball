@@ -40,8 +40,10 @@ Output directories are language-specific (e.g., `dart/shared/lib/gen/`, `cpp/sha
 ## Wire-format conformance (upstream protobuf suite)
 
 `ball_protobuf`'s codecs are validated against the **official protobuf
-`conformance_test_runner`** (not just our own round-trips), focused on Editions
-(`TestAllTypesEdition2023`). Layout:
+`conformance_test_runner`** (not just our own round-trips), covering the proto2,
+proto3, and edition2023 `TestAllTypes` messages (2513 pass; expected failures —
+WKT, oneof, message merge, remaining strictness — tracked in the failure list).
+Layout:
 
 - `dart/ball_protobuf/tool/descriptor_bridge.dart` — turns a protoc
   `FileDescriptorSet` into our Map-based field descriptors, resolving each
@@ -60,5 +62,6 @@ Output directories are language-specific (e.g., `dart/shared/lib/gen/`, `cpp/sha
 
 The runner is **POSIX-only** (`fork`/pipes) — build/run it on Linux/macOS/WSL,
 not native Windows. CI: job *Upstream Conformance (Editions)* in `ci.yml`.
-Non-edition2023 messages (proto2/proto3/other) are reported `skipped`; broadening
-is a tracked follow-on (the bridge already does legacy feature inference).
+Text-format tests and unregistered message types are reported `skipped`. When a
+codec change moves the numbers, regenerate `conformance/failure_list_ball.txt`
+(bare test names, reasons stripped) — see that file's header.

@@ -31,11 +31,16 @@ the same test vectors the reference implementations use.
 
 ## Scope
 
-Registered: `protobuf_test_messages.editions.TestAllTypesEdition2023` (+ nested
-types + extensions). proto2/proto3 and other message types are reported as
-`skipped` — broadening to them is a tracked follow-on (the bridge already does
-legacy proto2/proto3 feature inference). All registered Editions tests pass, so
-`failure_list_ball.txt` is currently empty.
+Registered: the `TestAllTypes*` messages of all three conformance families —
+`protobuf_test_messages.{proto2,proto3,editions}` (plus nested types and
+extensions). Text-format tests and other message types are reported `skipped`.
+
+As of the proto2/proto3 expansion: **2513 tests pass, 194 are expected failures**
+(listed in `failure_list_ball.txt`). The expected failures are tracked
+follow-ups — chiefly Well-Known-Type JSON mapping (Any, Struct/Value, Timestamp,
+Duration, wrappers, FieldMask), oneof membership tracking, recursive message
+merge, unknown-field retention, and a few remaining parse/serialize strictness
+checks. The header of `failure_list_ball.txt` documents the categories.
 
 ## Running locally
 

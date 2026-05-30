@@ -657,14 +657,17 @@ void main() {
       },
     );
 
-    test('present empty submessage survives as a group (LEN would elide)', () {
+    test('present empty submessage survives (group and length-prefixed)', () {
       final delimited = msgDesc(delimited: true);
       final lengthPrefixed = msgDesc(delimited: false);
       final groupBytes = marshal({'m': <String, Object?>{}}, delimited);
       expect(groupBytes, [11, 12]); // START + END, empty body
       expect(unmarshal(groupBytes, delimited)['m'], <String, Object?>{});
-      // Length-prefixed elides an empty submessage entirely.
-      expect(marshal({'m': <String, Object?>{}}, lengthPrefixed), isEmpty);
+      // A present length-prefixed submessage is emitted even when empty (tag +
+      // length 0) — message fields carry presence, so eliding it would drop the
+      // field on round-trip (cf. upstream conformance ValidDataScalar.MESSAGE).
+      expect(marshal({'m': <String, Object?>{}}, lengthPrefixed), [10, 0]);
+      expect(unmarshal([10, 0], lengthPrefixed)['m'], <String, Object?>{});
     });
 
     test('repeated delimited messages round-trip', () {

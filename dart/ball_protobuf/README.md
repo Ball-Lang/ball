@@ -30,8 +30,9 @@ behavioural change), so existing callers are unaffected.
 ## Conformance
 
 The codecs are validated against the **official protobuf
-`conformance_test_runner`** for the Editions message `TestAllTypesEdition2023`
-(all registered tests pass). See the
+`conformance_test_runner`** for the proto2, proto3, and edition2023
+`TestAllTypes` messages (2513 tests pass; remaining gaps — chiefly Well-Known
+Types, oneof, and message merge — are tracked in the failure list). See the
 [conformance harness docs](https://github.com/Ball-Lang/ball/blob/main/dart/ball_protobuf/conformance/README.md)
 for how to build the runner and run it locally; CI runs it on every change.
 

@@ -71,15 +71,22 @@ int skipField(List<int> bytes, int offset, int wireType) {
       return result['bytesRead']!;
     case 1:
       // I64: always 8 bytes.
+      if (offset + 8 > bytes.length) {
+        throw FormatException('Truncated I64 field at offset $offset');
+      }
       return 8;
     case 2:
       // LEN: varint length prefix + that many bytes.
       final result = decodeVarint(bytes, offset);
       final length = result['value']!;
       final varintSize = result['bytesRead']!;
+      _checkLenBounds(bytes, offset + varintSize, length, offset);
       return varintSize + length;
     case 5:
       // I32: always 4 bytes.
+      if (offset + 4 > bytes.length) {
+        throw FormatException('Truncated I32 field at offset $offset');
+      }
       return 4;
     default:
       throw FormatException(
@@ -127,7 +134,9 @@ Map<String, Object?> unmarshalFieldValue(
         case 'bool':
           value = decodeAsBool(rawVarint);
         case 'enum':
-          value = rawVarint;
+          // Enum fields are 32-bit: a 64-bit varint is truncated (sign-extended)
+          // to int32, matching the reference decoders.
+          value = decodeAsInt32(rawVarint);
         case 'int64':
         case 'uint64':
           value = rawVarint;
@@ -318,7 +327,36 @@ Map<String, Object?> unmarshalMapField(
     }
   }
 
+  // A map entry omits its key and/or value on the wire when they equal the
+  // type-zero (default-value elision). Restore the proto type-default so the
+  // entry never carries `null` — otherwise it would emit a `null` JSON map key
+  // or crash the binary re-marshal key coercion. (A message value stays null
+  // and is rendered as an empty submessage downstream.)
+  key ??= _mapDefaultForType(keyType);
+  value ??= _mapDefaultForType(valueType);
   return {'key': key, 'value': value};
+}
+
+/// The proto type-zero default for a map key/value of [type] (already
+/// lowercased, e.g. `int32`, `string`, `bool`). Returns `null` for `message`
+/// (an absent message value has no scalar default).
+Object? _mapDefaultForType(String type) {
+  switch (type) {
+    case 'string':
+      return '';
+    case 'bool':
+      return false;
+    case 'float':
+    case 'double':
+      return 0.0;
+    case 'bytes':
+      return <int>[];
+    case 'message':
+      return null;
+    default:
+      // All integer/enum types (int32/int64/uint*/sint*/fixed*/sfixed*/enum).
+      return 0;
+  }
 }
 
 /// Unmarshal protobuf binary bytes to a message (`Map<String, Object?>`).
@@ -684,7 +722,10 @@ List<Object?> _decodePackedValues(List<int> data, String fieldType) {
         values.add(decodeAsBool(v));
       }
     case 'enum':
-      values.addAll(decodePackedVarints(data));
+      final raw = decodePackedVarints(data);
+      for (final v in raw) {
+        values.add(decodeAsInt32(v));
+      }
 
     // Fixed32-based types.
     case 'fixed32':

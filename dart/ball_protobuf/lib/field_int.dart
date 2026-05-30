@@ -155,9 +155,12 @@ int decodeAsUint32(int rawVarint) {
 
 /// Interprets [rawVarint] as a ZigZag-encoded signed 32-bit integer.
 ///
-/// Applies ZigZag decoding to recover the original signed value.
+/// Applies ZigZag decoding to recover the original signed value. The varint is
+/// first masked to 32 bits: a non-canonical encoder may set bits above bit 31
+/// (the wire is only required to carry the low 32 of an `sint32`), and the
+/// reference decoders truncate. Identity for all canonically-encoded values.
 int decodeAsSint32(int rawVarint) {
-  return decodeZigZag(rawVarint);
+  return decodeZigZag(rawVarint & 0xFFFFFFFF);
 }
 
 /// Interprets [rawVarint] as a ZigZag-encoded signed 64-bit integer.

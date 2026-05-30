@@ -189,7 +189,7 @@ jobs:
             failed="0"
           else
             passed=$(echo "$output" | grep -oP '\+(\d+)' | tail -1 | grep -oP '\d+' || echo "")
-            failed=$(echo "$output" | grep -oP '~?-(\d+)' | tail -1 | grep -oP '\d+' || echo "")
+            failed=$(echo "$output" | grep -oP '(?<![+~])-(\d+)' | tail -1 | grep -oP '\d+' || echo "0")
           fi
 
           if [ -z "$passed" ] || [ -z "$failed" ]; then
@@ -219,7 +219,7 @@ jobs:
             failed="0"
           else
             passed=$(echo "$output" | grep -oP '\+(\d+)' | tail -1 | grep -oP '\d+' || echo "")
-            failed=$(echo "$output" | grep -oP '~?-(\d+)' | tail -1 | grep -oP '\d+' || echo "")
+            failed=$(echo "$output" | grep -oP '(?<![+~])-(\d+)' | tail -1 | grep -oP '\d+' || echo "0")
           fi
 
           if [ -z "$passed" ] || [ -z "$failed" ]; then
@@ -249,7 +249,7 @@ jobs:
             failed="0"
           else
             passed=$(echo "$output" | grep -oP '\+(\d+)' | tail -1 | grep -oP '\d+' || echo "")
-            failed=$(echo "$output" | grep -oP '~?-(\d+)' | tail -1 | grep -oP '\d+' || echo "")
+            failed=$(echo "$output" | grep -oP '(?<![+~])-(\d+)' | tail -1 | grep -oP '\d+' || echo "0")
           fi
 
           if [ -z "$passed" ] || [ -z "$failed" ]; then

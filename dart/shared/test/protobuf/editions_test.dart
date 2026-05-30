@@ -8,8 +8,7 @@ library;
 
 import 'dart:io';
 
-import 'package:ball_base/ball_base.dart'
-    show FeatureSet, FeatureSetDefaults;
+import 'package:ball_base/ball_base.dart' show FeatureSet, FeatureSetDefaults;
 import 'package:ball_base/protobuf/edition.dart';
 import 'package:ball_base/protobuf/editions.dart';
 import 'package:ball_base/protobuf/json_codec.dart';
@@ -176,7 +175,10 @@ void main() {
     test('golden carries the expected edition floors', () {
       final editions = defaults.defaults.map((d) => d.edition.value).toList();
       // protoc 28.2 emits LEGACY / PROTO3 / 2023 floors (max edition 2023).
-      expect(editions, containsAll([editionLegacy, editionProto3, edition2023]));
+      expect(
+        editions,
+        containsAll([editionLegacy, editionProto3, edition2023]),
+      );
     });
 
     for (final entry in defaults.defaults) {
@@ -201,8 +203,9 @@ void main() {
           );
         }
         // Conversely, an overridable-only feature is not fixed.
-        final overridableOnly = _featureSetToMap(entry.overridableFeatures).keys
-            .where((k) => !fixed.containsKey(k));
+        final overridableOnly = _featureSetToMap(
+          entry.overridableFeatures,
+        ).keys.where((k) => !fixed.containsKey(k));
         for (final key in overridableOnly) {
           expect(
             isFixedFeature(ed, key),
@@ -627,29 +630,32 @@ void main() {
       },
     ];
 
-    test('singular: emits START_GROUP/END_GROUP, differs from LEN, round-trips', () {
-      final delimited = msgDesc(delimited: true);
-      final lengthPrefixed = msgDesc(delimited: false);
+    test(
+      'singular: emits START_GROUP/END_GROUP, differs from LEN, round-trips',
+      () {
+        final delimited = msgDesc(delimited: true);
+        final lengthPrefixed = msgDesc(delimited: false);
 
-      final groupBytes = marshal({
-        'm': {'n': 42},
-      }, delimited);
-      final lenBytes = marshal({
-        'm': {'n': 42},
-      }, lengthPrefixed);
+        final groupBytes = marshal({
+          'm': {'n': 42},
+        }, delimited);
+        final lenBytes = marshal({
+          'm': {'n': 42},
+        }, lengthPrefixed);
 
-      // START_GROUP tag for field 1 = (1<<3)|3 = 11; END_GROUP = (1<<3)|4 = 12.
-      expect(groupBytes, [11, 8, 42, 12]);
-      // LEN tag = (1<<3)|2 = 10, length 2.
-      expect(lenBytes, [10, 2, 8, 42]);
-      expect(groupBytes, isNot(equals(lenBytes)));
+        // START_GROUP tag for field 1 = (1<<3)|3 = 11; END_GROUP = (1<<3)|4 = 12.
+        expect(groupBytes, [11, 8, 42, 12]);
+        // LEN tag = (1<<3)|2 = 10, length 2.
+        expect(lenBytes, [10, 2, 8, 42]);
+        expect(groupBytes, isNot(equals(lenBytes)));
 
-      // Round-trips through the group decoder.
-      expect(unmarshal(groupBytes, delimited)['m'], {'n': 42});
-      // A reader decodes a group by its wire type regardless of its own
-      // message_encoding feature (readers accept both encodings).
-      expect(unmarshal(groupBytes, lengthPrefixed)['m'], {'n': 42});
-    });
+        // Round-trips through the group decoder.
+        expect(unmarshal(groupBytes, delimited)['m'], {'n': 42});
+        // A reader decodes a group by its wire type regardless of its own
+        // message_encoding feature (readers accept both encodings).
+        expect(unmarshal(groupBytes, lengthPrefixed)['m'], {'n': 42});
+      },
+    );
 
     test('present empty submessage survives as a group (LEN would elide)', () {
       final delimited = msgDesc(delimited: true);
@@ -758,13 +764,16 @@ void main() {
       },
     ];
 
-    test('singular: out-of-range value routed to unknown (CLOSED); kept (OPEN)', () {
-      final bytes = marshal({'e': 99}, openDesc);
-      // CLOSED: 99 ∉ {0,1,2} → dropped, field stays unset.
-      expect(unmarshal(bytes, closedDesc).containsKey('e'), isFalse);
-      // OPEN: preserved.
-      expect(unmarshal(bytes, openDesc)['e'], 99);
-    });
+    test(
+      'singular: out-of-range value routed to unknown (CLOSED); kept (OPEN)',
+      () {
+        final bytes = marshal({'e': 99}, openDesc);
+        // CLOSED: 99 ∉ {0,1,2} → dropped, field stays unset.
+        expect(unmarshal(bytes, closedDesc).containsKey('e'), isFalse);
+        // OPEN: preserved.
+        expect(unmarshal(bytes, openDesc)['e'], 99);
+      },
+    );
 
     test('singular: in-range value kept under CLOSED', () {
       final bytes = marshal({'e': 2}, openDesc);
@@ -877,9 +886,12 @@ void main() {
       test('unknown enum name tolerated under LEGACY_BEST_EFFORT', () {
         expect(unmarshalJson('{"e":"NOPE"}', bestEffort)['e'], 'NOPE');
       });
-      test('unknown enum name tolerated when features absent (back-compat)', () {
-        expect(unmarshalJson('{"e":"NOPE"}', noFeatures)['e'], 'NOPE');
-      });
+      test(
+        'unknown enum name tolerated when features absent (back-compat)',
+        () {
+          expect(unmarshalJson('{"e":"NOPE"}', noFeatures)['e'], 'NOPE');
+        },
+      );
     });
 
     group('utf8_validation = VERIFY', () {
@@ -919,8 +931,10 @@ void main() {
         // U+1F600 😀 = surrogate pair D83D DE00 — valid.
         final emoji = String.fromCharCodes([0xD83D, 0xDE00]);
         expect(marshalJson({'s': emoji}, verify), isNotEmpty);
-        expect(unmarshalJson(marshalJson({'s': emoji}, verify), verify)['s'],
-            emoji);
+        expect(
+          unmarshalJson(marshalJson({'s': emoji}, verify), verify)['s'],
+          emoji,
+        );
       });
     });
 
@@ -991,7 +1005,11 @@ void main() {
           'number': 1,
           'type': 'TYPE_ENUM',
           'features': {featureEnumType: enumTypeClosed},
-          'enumValues': {0: 'A', 1: 'B', 2: 'C'}, // Map<int,String> (JSON shape)
+          'enumValues': {
+            0: 'A',
+            1: 'B',
+            2: 'C',
+          }, // Map<int,String> (JSON shape)
         },
       ];
       expect(

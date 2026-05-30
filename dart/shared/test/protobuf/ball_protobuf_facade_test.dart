@@ -42,8 +42,9 @@ void main() {
       );
       inlineModules = {
         for (final imp in facade.moduleImports)
-          Module.fromBuffer(imp.inline.protoBytes).name:
-              Module.fromBuffer(imp.inline.protoBytes),
+          Module.fromBuffer(imp.inline.protoBytes).name: Module.fromBuffer(
+            imp.inline.protoBytes,
+          ),
       };
     });
 
@@ -70,32 +71,38 @@ void main() {
     });
 
     test('carries the editions resolver + feature-aware codec modules', () {
-      expect(inlineModules.keys, containsAll(<String>[
-        'ball_protobuf.edition',
-        'ball_protobuf.editions',
-        'ball_protobuf.marshal',
-        'ball_protobuf.unmarshal',
-        'ball_protobuf.json_codec',
-      ]));
+      expect(
+        inlineModules.keys,
+        containsAll(<String>[
+          'ball_protobuf.edition',
+          'ball_protobuf.editions',
+          'ball_protobuf.marshal',
+          'ball_protobuf.unmarshal',
+          'ball_protobuf.json_codec',
+        ]),
+      );
     });
 
     test('editions module exposes the resolution + behavior API', () {
       final editions = inlineModules['ball_protobuf.editions']!;
       final fnNames = editions.functions.map((f) => f.name).toSet();
-      expect(fnNames, containsAll(<String>[
-        'resolveFileFeatures',
-        'mergeChildFeatures',
-        'mergeFeatureSet',
-        'baseFeaturesForEdition',
-        'isFixedFeature',
-        'inferLegacyFieldFeatures',
-        'inferLegacyFileFeatures',
-        'hasExplicitPresence',
-        'isClosedEnum',
-        'isDelimited',
-        'requiresUtf8Validation',
-        'jsonFormatIsAllow',
-      ]));
+      expect(
+        fnNames,
+        containsAll(<String>[
+          'resolveFileFeatures',
+          'mergeChildFeatures',
+          'mergeFeatureSet',
+          'baseFeaturesForEdition',
+          'isFixedFeature',
+          'inferLegacyFieldFeatures',
+          'inferLegacyFileFeatures',
+          'hasExplicitPresence',
+          'isClosedEnum',
+          'isDelimited',
+          'requiresUtf8Validation',
+          'jsonFormatIsAllow',
+        ]),
+      );
     });
 
     test('JSON and binary artifacts decode to the same module set', () {

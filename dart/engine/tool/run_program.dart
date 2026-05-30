@@ -15,8 +15,10 @@ Future<void> main(List<String> args) async {
     stderr.writeln('usage: run_program.dart <program.ball.json>');
     exit(64);
   }
-  final json = jsonDecode(File(args[0]).readAsStringSync()) as Map<String, dynamic>;
-  final program = Program()..mergeFromProto3Json(json, ignoreUnknownFields: true);
+  final json =
+      jsonDecode(File(args[0]).readAsStringSync()) as Map<String, dynamic>;
+  final program = Program()
+    ..mergeFromProto3Json(json, ignoreUnknownFields: true);
   final lines = <String>[];
   final engine = BallEngine(program, stdout: lines.add);
   await engine.run();

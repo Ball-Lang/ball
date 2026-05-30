@@ -14,19 +14,48 @@ BallCapabilityReport analyzeCapabilities(
   Program program, {
   bool reachableOnly = false,
 }) {
-  final analyzer = _Analyzer(program, reachableOnly: reachableOnly);
-  return analyzer.analyze();
+  return _Analyzer(
+    program.modules,
+    programName: program.name,
+    programVersion: program.version,
+    entryModule: program.entryModule,
+    entryFunction: program.entryFunction,
+    reachableOnly: reachableOnly,
+  ).analyze();
+}
+
+/// Analyze a library [module] (e.g. `ball_protobuf`) and return its capability
+/// report. The module and any [imports] (typically its inline `module_imports`)
+/// are walked directly — a library has no entry point, so reachability analysis
+/// does not apply and every function is analyzed. No synthetic `Program` is
+/// fabricated: a Module is audited as the Module it is.
+BallCapabilityReport analyzeModuleCapabilities(
+  Module module, {
+  Iterable<Module> imports = const [],
+}) {
+  return _Analyzer([module, ...imports], programName: module.name).analyze();
 }
 
 class _Analyzer {
-  final Program program;
+  final List<Module> modules;
+  final String programName;
+  final String programVersion;
+  final String entryModule;
+  final String entryFunction;
   final bool reachableOnly;
 
   final Map<String, Set<Capability>> _fnCaps = {};
   final Map<String, List<CallSite>> _capCallSites = {};
   final Set<String> _baseModules = {};
 
-  _Analyzer(this.program, {this.reachableOnly = false});
+  _Analyzer(
+    this.modules, {
+    this.programName = '',
+    this.programVersion = '',
+    this.entryModule = '',
+    this.entryFunction = '',
+    this.reachableOnly = false,
+  });
 
   BallCapabilityReport analyze() {
     _identifyBaseModules();
@@ -41,7 +70,7 @@ class _Analyzer {
   }
 
   void _identifyBaseModules() {
-    for (final module in program.modules) {
+    for (final module in modules) {
       final allBase = module.functions.every((f) => f.isBase);
       if (allBase && module.functions.isNotEmpty) {
         _baseModules.add(module.name);
@@ -50,7 +79,7 @@ class _Analyzer {
   }
 
   void _analyzeAll() {
-    for (final module in program.modules) {
+    for (final module in modules) {
       if (_baseModules.contains(module.name)) continue;
       for (final fn in module.functions) {
         if (fn.isBase) continue;
@@ -63,7 +92,7 @@ class _Analyzer {
 
   void _analyzeReachable() {
     final visited = <String>{};
-    final entryKey = '${program.entryModule}.${program.entryFunction}';
+    final entryKey = '$entryModule.$entryFunction';
     _analyzeFunction(entryKey, visited);
   }
 
@@ -78,7 +107,7 @@ class _Analyzer {
 
     if (_baseModules.contains(moduleName)) return;
 
-    for (final module in program.modules) {
+    for (final module in modules) {
       if (module.name != moduleName) continue;
       for (final fn in module.functions) {
         if (fn.name != fnName) continue;
@@ -247,8 +276,8 @@ class _Analyzer {
 
   BallCapabilityReport _buildReport() {
     final report = BallCapabilityReport()
-      ..programName = program.name
-      ..programVersion = program.version;
+      ..programName = programName
+      ..programVersion = programVersion;
 
     final allCaps = <Capability>{};
     var totalFns = 0;

@@ -480,9 +480,7 @@ Map<String, Object?> unmarshal(
           isClosedEnum(features) &&
           _enumValuesOf(fieldDesc) != null) {
         final allowed = _enumValuesOf(fieldDesc)!;
-        keptValues = decodedValues
-            .where((v) => allowed.contains(v))
-            .toList();
+        keptValues = decodedValues.where((v) => allowed.contains(v)).toList();
       } else {
         keptValues = decodedValues;
       }

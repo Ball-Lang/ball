@@ -93,39 +93,35 @@ List<Map<String, Object?>> _field(
 void main() {
   // ---- Resolved-features equivalence (legacy path == editions overrides) ----
 
-  _check('proto3 singular int32 resolves == edition2023[field_presence=IMPLICIT]',
-      () {
-    final legacy = _legacyField(
-      editionProto3,
-      inferLegacyFieldFeatures(
-        'LABEL_OPTIONAL',
-        'TYPE_INT32',
-        false,
-        null,
+  _check(
+    'proto3 singular int32 resolves == edition2023[field_presence=IMPLICIT]',
+    () {
+      final legacy = _legacyField(
         editionProto3,
-      ),
-    );
-    final editions = mergeFeatureSet(
-      baseFeaturesForEdition(edition2023),
-      {featureFieldPresence: fieldPresenceImplicit},
-      edition2023,
-    );
-    return _mapEq(legacy, editions);
-  });
+        inferLegacyFieldFeatures(
+          'LABEL_OPTIONAL',
+          'TYPE_INT32',
+          false,
+          null,
+          editionProto3,
+        ),
+      );
+      final editions = mergeFeatureSet(baseFeaturesForEdition(edition2023), {
+        featureFieldPresence: fieldPresenceImplicit,
+      }, edition2023);
+      return _mapEq(legacy, editions);
+    },
+  );
 
   _check('proto2 file features == edition2023 overridden to legacy values', () {
     final proto2 = baseFeaturesForEdition(editionProto2);
-    final editions = mergeFeatureSet(
-      baseFeaturesForEdition(edition2023),
-      {
-        featureFieldPresence: fieldPresenceExplicit,
-        featureEnumType: enumTypeClosed,
-        featureRepeatedFieldEncoding: repeatedFieldEncodingExpanded,
-        featureUtf8Validation: utf8ValidationNone,
-        featureJsonFormat: jsonFormatLegacyBestEffort,
-      },
-      edition2023,
-    );
+    final editions = mergeFeatureSet(baseFeaturesForEdition(edition2023), {
+      featureFieldPresence: fieldPresenceExplicit,
+      featureEnumType: enumTypeClosed,
+      featureRepeatedFieldEncoding: repeatedFieldEncodingExpanded,
+      featureUtf8Validation: utf8ValidationNone,
+      featureJsonFormat: jsonFormatLegacyBestEffort,
+    }, edition2023);
     return _mapEq(proto2, editions);
   });
 
@@ -147,11 +143,9 @@ void main() {
     );
     final editions = _field(
       'TYPE_INT32',
-      mergeFeatureSet(
-        baseFeaturesForEdition(edition2023),
-        {featureFieldPresence: fieldPresenceImplicit},
-        edition2023,
-      ),
+      mergeFeatureSet(baseFeaturesForEdition(edition2023), {
+        featureFieldPresence: fieldPresenceImplicit,
+      }, edition2023),
     );
     return _bytesEq(marshal({'f': 0}, legacy), marshal({'f': 0}, editions)) &&
         _bytesEq(marshal({'f': 5}, legacy), marshal({'f': 5}, editions)) &&
@@ -174,11 +168,9 @@ void main() {
     );
     final editions = _field(
       'TYPE_INT32',
-      mergeFeatureSet(
-        baseFeaturesForEdition(edition2023),
-        {featureFieldPresence: fieldPresenceExplicit},
-        edition2023,
-      ),
+      mergeFeatureSet(baseFeaturesForEdition(edition2023), {
+        featureFieldPresence: fieldPresenceExplicit,
+      }, edition2023),
     );
     return _bytesEq(marshal({'f': 0}, legacy), marshal({'f': 0}, editions)) &&
         marshal({'f': 0}, legacy).isNotEmpty; // EXPLICIT keeps default 0
@@ -200,11 +192,9 @@ void main() {
     );
     final editions = _field(
       'TYPE_INT32',
-      mergeFeatureSet(
-        baseFeaturesForEdition(edition2023),
-        {featureFieldPresence: fieldPresenceLegacyRequired},
-        edition2023,
-      ),
+      mergeFeatureSet(baseFeaturesForEdition(edition2023), {
+        featureFieldPresence: fieldPresenceLegacyRequired,
+      }, edition2023),
     );
     return _bytesEq(marshal({'f': 0}, legacy), marshal({'f': 0}, editions));
   });
@@ -226,11 +216,9 @@ void main() {
     );
     final editions = _field(
       'TYPE_INT32',
-      mergeFeatureSet(
-        baseFeaturesForEdition(edition2023),
-        {featureRepeatedFieldEncoding: repeatedFieldEncodingExpanded},
-        edition2023,
-      ),
+      mergeFeatureSet(baseFeaturesForEdition(edition2023), {
+        featureRepeatedFieldEncoding: repeatedFieldEncodingExpanded,
+      }, edition2023),
       repeated: true,
     );
     final data = {
@@ -259,11 +247,9 @@ void main() {
     );
     final editions = _field(
       'TYPE_MESSAGE',
-      mergeFeatureSet(
-        baseFeaturesForEdition(edition2023),
-        {featureMessageEncoding: messageEncodingDelimited},
-        edition2023,
-      ),
+      mergeFeatureSet(baseFeaturesForEdition(edition2023), {
+        featureMessageEncoding: messageEncodingDelimited,
+      }, edition2023),
       messageDescriptor: sub,
     );
     final data = {
@@ -275,19 +261,16 @@ void main() {
   // ---- Feature-matrix round-trips (binary) ----
 
   _check('EXPLICIT scalar binary round-trip preserves present default', () {
-    final desc = _field(
-      'TYPE_INT32',
-      {featureFieldPresence: fieldPresenceExplicit},
-    );
+    final desc = _field('TYPE_INT32', {
+      featureFieldPresence: fieldPresenceExplicit,
+    });
     return unmarshal(marshal({'f': 0}, desc), desc)['f'] == 0;
   });
 
   _check('EXPANDED repeated binary round-trip keeps 0 elements', () {
-    final desc = _field(
-      'TYPE_INT32',
-      {featureRepeatedFieldEncoding: repeatedFieldEncodingExpanded},
-      repeated: true,
-    );
+    final desc = _field('TYPE_INT32', {
+      featureRepeatedFieldEncoding: repeatedFieldEncodingExpanded,
+    }, repeated: true);
     final rt = unmarshal(
       marshal({
         'f': [1, 0, 3],
@@ -301,11 +284,9 @@ void main() {
     final sub = [
       {'name': 'n', 'number': 1, 'type': 'TYPE_INT32'},
     ];
-    final desc = _field(
-      'TYPE_MESSAGE',
-      {featureMessageEncoding: messageEncodingDelimited},
-      messageDescriptor: sub,
-    );
+    final desc = _field('TYPE_MESSAGE', {
+      featureMessageEncoding: messageEncodingDelimited,
+    }, messageDescriptor: sub);
     final data = {
       'f': {'n': 9},
     };
@@ -332,23 +313,20 @@ void main() {
   // ---- Feature-matrix round-trips (JSON) ----
 
   _check('EXPLICIT presence emits present default in JSON; IMPLICIT omits', () {
-    final explicit = _field(
-      'TYPE_INT32',
-      {featureFieldPresence: fieldPresenceExplicit},
-    );
-    final implicit = _field(
-      'TYPE_INT32',
-      {featureFieldPresence: fieldPresenceImplicit},
-    );
+    final explicit = _field('TYPE_INT32', {
+      featureFieldPresence: fieldPresenceExplicit,
+    });
+    final implicit = _field('TYPE_INT32', {
+      featureFieldPresence: fieldPresenceImplicit,
+    });
     return marshalJson({'f': 0}, explicit) == '{"f":0}' &&
         marshalJson({'f': 0}, implicit) == '{}';
   });
 
   _check('utf8_validation=VERIFY rejects ill-formed string in JSON', () {
-    final verify = _field(
-      'TYPE_STRING',
-      {featureUtf8Validation: utf8ValidationVerify},
-    );
+    final verify = _field('TYPE_STRING', {
+      featureUtf8Validation: utf8ValidationVerify,
+    });
     try {
       marshalJson({'f': String.fromCharCode(0xD800)}, verify);
       return false; // should have thrown

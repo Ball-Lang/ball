@@ -22,7 +22,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ball_base/ball_base.dart'
-    show decodeProgramJson, encodeBallFileBinary, encodeBallFileJson;
+    show
+        BallFile,
+        BallModuleFile,
+        BallProgramFile,
+        decodeBallFileBinary,
+        decodeBallFileJson,
+        decodeProgramJson,
+        encodeBallFileBinary,
+        encodeBallFileJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_base/capability_analyzer.dart';
 import 'package:ball_base/termination_analyzer.dart';
@@ -458,6 +466,39 @@ Program _loadProgram(String path) {
   }
 }
 
+/// Loads a ball file (a `Program` or a `Module`) for auditing, from either JSON
+/// or binary (`.ball.bin`) encoding. The caller dispatches on the result — a
+/// `Module` (a library such as `ball_protobuf`) is audited as the Module it is,
+/// never wrapped in a synthetic `Program`.
+BallFile _loadBallFile(String path) {
+  final file = File(path);
+  if (!file.existsSync()) {
+    stderr.writeln('Error: File not found: $path');
+    exit(1);
+  }
+  try {
+    return path.endsWith('.bin')
+        ? decodeBallFileBinary(file.readAsBytesSync())
+        : decodeBallFileJson(json.decode(file.readAsStringSync()));
+  } catch (e) {
+    stderr.writeln('Error deserializing ball file: $e');
+    exit(1);
+  }
+}
+
+/// The implementation modules a facade [module] embeds inline via its
+/// `module_imports` (e.g. `ball_protobuf`'s 13 modules) — analyzed alongside the
+/// facade itself so the audit covers the whole library.
+List<Module> _inlineImports(Module module) {
+  final imports = <Module>[];
+  for (final imp in module.moduleImports) {
+    if (imp.hasInline() && imp.inline.hasProtoBytes()) {
+      imports.add(Module.fromBuffer(imp.inline.protoBytes));
+    }
+  }
+  return imports;
+}
+
 // ── ball audit ──────────────────────────────────────────────────────────────
 
 void _audit(List<String> args) {
@@ -494,8 +535,26 @@ void _audit(List<String> args) {
     exit(1);
   }
 
-  final program = _loadProgram(inputPath);
-  final report = analyzeCapabilities(program, reachableOnly: reachableOnly);
+  // Audit a Program directly, or a library Module (e.g. ball_protobuf) as the
+  // Module it is — together with its inline module_imports. No synthetic
+  // Program is fabricated for a Module.
+  final BallCapabilityReport report;
+  final TerminationReport Function() runTermination;
+  switch (_loadBallFile(inputPath)) {
+    case BallProgramFile(:final program):
+      report = analyzeCapabilities(program, reachableOnly: reachableOnly);
+      runTermination = () => analyzeTermination(program);
+    case BallModuleFile(:final module):
+      final imports = _inlineImports(module);
+      if (reachableOnly) {
+        stderr.writeln(
+          'Note: --reachable-only has no effect on a library Module '
+          '(no entry point); analyzing all functions.',
+        );
+      }
+      report = analyzeModuleCapabilities(module, imports: imports);
+      runTermination = () => analyzeModuleTermination(module, imports: imports);
+  }
 
   if (outputPath != null) {
     final jsonOut = jsonEncode(report.toProto3Json());
@@ -508,7 +567,7 @@ void _audit(List<String> args) {
   }
 
   if (checkTermination) {
-    final termReport = analyzeTermination(program);
+    final termReport = runTermination();
     if (termReport.warnings.isNotEmpty) {
       stdout.writeln();
       stdout.writeln(formatTerminationReport(termReport));

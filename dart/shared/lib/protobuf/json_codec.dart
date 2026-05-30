@@ -584,7 +584,8 @@ Map<String, Object?> _marshalToMap(
       // (unset) field is omitted. With implicit (proto3) presence — or no
       // resolved features — defaults are omitted as before (regression
       // firewall).
-      final explicitPresence = features != null && hasExplicitPresence(features);
+      final explicitPresence =
+          features != null && hasExplicitPresence(features);
       if (explicitPresence) {
         if (value == null) continue;
       } else {

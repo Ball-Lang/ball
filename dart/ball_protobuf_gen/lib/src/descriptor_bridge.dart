@@ -10,6 +10,31 @@
 /// (FileDescriptorSet/FileDescriptorProto/...), so it is not Ball-portable —
 /// while the `ball_protobuf` `lib/` runtime stays dependency-free. The green
 /// conformance harness keeps its own copy under `ball_protobuf/tool/`.
+///
+/// ## Intentional fork — see `dart/ball_protobuf/tool/descriptor_bridge.dart`
+///
+/// This file is an **intentional fork** of
+/// `dart/ball_protobuf/tool/descriptor_bridge.dart`. The two CANNOT share one
+/// copy: the conformance copy lives in `ball_protobuf`'s own `tool/` (so the
+/// runtime package has no dependency on `ball_protobuf_gen`), while this copy
+/// lives in `ball_protobuf_gen` (which depends on `ball_protobuf`). A single
+/// shared copy would require one package to depend on the other in both
+/// directions — a dependency cycle — so the fork is deliberate.
+///
+/// There are TWO intentional behavioral differences between the copies:
+///   1. **Group handling.** This (gen) copy normalizes `TYPE_GROUP` ->
+///      `TYPE_MESSAGE` (a group is a DELIMITED-encoded message — the
+///      editions-canonical form; see `_buildField` below and `marshal.dart`'s
+///      `wireTypeForFieldType`), so generated typed views emit a single
+///      message-shaped accessor. The conformance copy keeps bare `TYPE_GROUP`
+///      because the upstream runner is pinned at 2769/2769 with that
+///      representation; changing it there would risk that pinned result.
+///   2. **Extension JSON name.** This copy overrides a folded extension's
+///      `jsonName` to the bracketed `[fully.qualified.name]` (the canonical
+///      proto3-JSON key for an extension), so generated models round-trip
+///      extensions through JSON. The conformance copy leaves protoc's
+///      camelCased simple `json_name` untouched.
+/// Keep the two in sync for everything EXCEPT these two divergences.
 library;
 
 import 'package:ball_base/ball_base.dart'
@@ -204,7 +229,15 @@ void _appendExtension(
   // named `groupliketype`). Keying by simple name would alias the two; the
   // bracketed FQN is both collision-free and the correct protobuf-JSON key.
   final fullName = scopeFqn.isEmpty ? ext.name : '$scopeFqn.${ext.name}';
-  f['name'] = '[$fullName]';
+  final key = '[$fullName]';
+  f['name'] = key;
+  // The canonical proto3-JSON key for an extension is the same bracketed
+  // `[fully.qualified.name]`, NOT the camelCased simple name protoc records in
+  // `json_name`. `_buildField` copied that simple `json_name`; override it so
+  // the JSON codec emits (and accepts) the bracketed form and the generated
+  // typed view's JSON round-trips exactly. (This gen-copy divergence does not
+  // touch the pinned conformance copy under `ball_protobuf/tool/`.)
+  f['jsonName'] = key;
   fields.add(f);
 }
 

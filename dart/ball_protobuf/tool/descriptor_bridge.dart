@@ -8,6 +8,26 @@
 /// Lives in `tool/` (not `lib/`) on purpose: it depends on `ball_base`'s
 /// generated `descriptor.pb.dart` (FileDescriptorSet/FileDescriptorProto/...),
 /// which is a dev-dependency only — the `lib/` runtime stays dependency-free.
+///
+/// ## Intentional fork — see
+/// `dart/ball_protobuf_gen/lib/src/descriptor_bridge.dart`
+///
+/// This file is an **intentional fork** of
+/// `dart/ball_protobuf_gen/lib/src/descriptor_bridge.dart`. The two CANNOT share
+/// one copy: this conformance copy lives in `ball_protobuf`'s own `tool/` (so
+/// the runtime package never depends on `ball_protobuf_gen`), while the codegen
+/// copy lives in `ball_protobuf_gen` (which depends on `ball_protobuf`). A
+/// single shared copy would require a dependency cycle, so the fork is
+/// deliberate.
+///
+/// The ONE behavioral difference is group handling:
+///   * **This (conformance) copy keeps bare `TYPE_GROUP`** in the emitted field
+///     descriptor (`'type': fld.type.name`). The upstream conformance runner is
+///     pinned at 2769/2769 with this representation — do NOT change it here.
+///   * **The codegen copy normalizes `TYPE_GROUP` -> `TYPE_MESSAGE`** (a group
+///     is a DELIMITED-encoded message — the editions-canonical form) so the
+///     generated typed view emits one message-shaped accessor.
+/// Keep the two in sync for everything EXCEPT this group representation.
 library;
 
 import 'package:ball_base/ball_base.dart'

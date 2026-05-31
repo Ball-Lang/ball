@@ -6325,6 +6325,549 @@ class EnumOnlyProto3 {
   );
 }
 
+// -------------------------------------------------------------------------
+// Extensions (typed handles + get/set/has/clear helpers). On the
+// wire an extension is just a numbered field; helpers read/write
+// the bracketed `[fqn]` key in the extended message backing map.
+// -------------------------------------------------------------------------
+
+/// Extension `protobuf_test_messages.editions.extension_int32` on `protobuf_test_messages.editions.TestAllTypesEdition2023`.
+final $pb.Extension extensionInt32 = $pb.Extension(
+  extendeeFullName: 'protobuf_test_messages.editions.TestAllTypesEdition2023',
+  fieldKey: '[protobuf_test_messages.editions.extension_int32]',
+  number: 120,
+  type: 'TYPE_INT32',
+);
+
+/// Reads extension `protobuf_test_messages.editions.extension_int32` from [message], or null
+/// when it is not set.
+int? getExtensionInt32(TestAllTypesEdition2023 message) {
+  final v =
+      message.$fields['[protobuf_test_messages.editions.extension_int32]'];
+  if (v == null) return null;
+  return v as int;
+}
+
+/// Sets extension `protobuf_test_messages.editions.extension_int32` on [message].
+void setExtensionInt32(TestAllTypesEdition2023 message, int value) {
+  message.$fields['[protobuf_test_messages.editions.extension_int32]'] = value;
+}
+
+/// Whether extension `protobuf_test_messages.editions.extension_int32` is set on [message].
+bool hasExtensionInt32(TestAllTypesEdition2023 message) =>
+    message.$fields['[protobuf_test_messages.editions.extension_int32]'] !=
+    null;
+
+/// Clears extension `protobuf_test_messages.editions.extension_int32` on [message].
+void clearExtensionInt32(TestAllTypesEdition2023 message) =>
+    message.$fields.remove('[protobuf_test_messages.editions.extension_int32]');
+
+/// Extension `protobuf_test_messages.editions.extension_string` on `protobuf_test_messages.editions.TestAllTypesEdition2023`.
+final $pb.Extension extensionString = $pb.Extension(
+  extendeeFullName: 'protobuf_test_messages.editions.TestAllTypesEdition2023',
+  fieldKey: '[protobuf_test_messages.editions.extension_string]',
+  number: 133,
+  type: 'TYPE_STRING',
+);
+
+/// Reads extension `protobuf_test_messages.editions.extension_string` from [message], or null
+/// when it is not set.
+String? getExtensionString(TestAllTypesEdition2023 message) {
+  final v =
+      message.$fields['[protobuf_test_messages.editions.extension_string]'];
+  if (v == null) return null;
+  return v as String;
+}
+
+/// Sets extension `protobuf_test_messages.editions.extension_string` on [message].
+void setExtensionString(TestAllTypesEdition2023 message, String value) {
+  message.$fields['[protobuf_test_messages.editions.extension_string]'] = value;
+}
+
+/// Whether extension `protobuf_test_messages.editions.extension_string` is set on [message].
+bool hasExtensionString(TestAllTypesEdition2023 message) =>
+    message.$fields['[protobuf_test_messages.editions.extension_string]'] !=
+    null;
+
+/// Clears extension `protobuf_test_messages.editions.extension_string` on [message].
+void clearExtensionString(TestAllTypesEdition2023 message) => message.$fields
+    .remove('[protobuf_test_messages.editions.extension_string]');
+
+/// Extension `protobuf_test_messages.editions.extension_bytes` on `protobuf_test_messages.editions.TestAllTypesEdition2023`.
+final $pb.Extension extensionBytes = $pb.Extension(
+  extendeeFullName: 'protobuf_test_messages.editions.TestAllTypesEdition2023',
+  fieldKey: '[protobuf_test_messages.editions.extension_bytes]',
+  number: 134,
+  type: 'TYPE_BYTES',
+);
+
+/// Reads extension `protobuf_test_messages.editions.extension_bytes` from [message], or null
+/// when it is not set.
+List<int>? getExtensionBytes(TestAllTypesEdition2023 message) {
+  final v =
+      message.$fields['[protobuf_test_messages.editions.extension_bytes]'];
+  if (v == null) return null;
+  return v as List<int>;
+}
+
+/// Sets extension `protobuf_test_messages.editions.extension_bytes` on [message].
+void setExtensionBytes(TestAllTypesEdition2023 message, List<int> value) {
+  message.$fields['[protobuf_test_messages.editions.extension_bytes]'] = value;
+}
+
+/// Whether extension `protobuf_test_messages.editions.extension_bytes` is set on [message].
+bool hasExtensionBytes(TestAllTypesEdition2023 message) =>
+    message.$fields['[protobuf_test_messages.editions.extension_bytes]'] !=
+    null;
+
+/// Clears extension `protobuf_test_messages.editions.extension_bytes` on [message].
+void clearExtensionBytes(TestAllTypesEdition2023 message) =>
+    message.$fields.remove('[protobuf_test_messages.editions.extension_bytes]');
+
+/// Extension `protobuf_test_messages.editions.groupliketype` on `protobuf_test_messages.editions.TestAllTypesEdition2023`.
+final $pb.Extension groupliketype = $pb.Extension(
+  extendeeFullName: 'protobuf_test_messages.editions.TestAllTypesEdition2023',
+  fieldKey: '[protobuf_test_messages.editions.groupliketype]',
+  number: 121,
+  type: 'TYPE_MESSAGE',
+  descriptor: $descriptorFor('protobuf_test_messages.editions.GroupLikeType'),
+);
+
+/// Reads extension `protobuf_test_messages.editions.groupliketype` from [message], or null
+/// when it is not set.
+GroupLikeType? getGroupliketype(TestAllTypesEdition2023 message) {
+  final v = message.$fields['[protobuf_test_messages.editions.groupliketype]'];
+  if (v == null) return null;
+  return GroupLikeType(v as Map<String, Object?>);
+}
+
+/// Sets extension `protobuf_test_messages.editions.groupliketype` on [message].
+void setGroupliketype(TestAllTypesEdition2023 message, GroupLikeType value) {
+  message.$fields['[protobuf_test_messages.editions.groupliketype]'] =
+      value.$fields;
+}
+
+/// Whether extension `protobuf_test_messages.editions.groupliketype` is set on [message].
+bool hasGroupliketype(TestAllTypesEdition2023 message) =>
+    message.$fields['[protobuf_test_messages.editions.groupliketype]'] != null;
+
+/// Clears extension `protobuf_test_messages.editions.groupliketype` on [message].
+void clearGroupliketype(TestAllTypesEdition2023 message) =>
+    message.$fields.remove('[protobuf_test_messages.editions.groupliketype]');
+
+/// Extension `protobuf_test_messages.editions.delimited_ext` on `protobuf_test_messages.editions.TestAllTypesEdition2023`.
+final $pb.Extension delimitedExt = $pb.Extension(
+  extendeeFullName: 'protobuf_test_messages.editions.TestAllTypesEdition2023',
+  fieldKey: '[protobuf_test_messages.editions.delimited_ext]',
+  number: 122,
+  type: 'TYPE_MESSAGE',
+  descriptor: $descriptorFor('protobuf_test_messages.editions.GroupLikeType'),
+);
+
+/// Reads extension `protobuf_test_messages.editions.delimited_ext` from [message], or null
+/// when it is not set.
+GroupLikeType? getDelimitedExt(TestAllTypesEdition2023 message) {
+  final v = message.$fields['[protobuf_test_messages.editions.delimited_ext]'];
+  if (v == null) return null;
+  return GroupLikeType(v as Map<String, Object?>);
+}
+
+/// Sets extension `protobuf_test_messages.editions.delimited_ext` on [message].
+void setDelimitedExt(TestAllTypesEdition2023 message, GroupLikeType value) {
+  message.$fields['[protobuf_test_messages.editions.delimited_ext]'] =
+      value.$fields;
+}
+
+/// Whether extension `protobuf_test_messages.editions.delimited_ext` is set on [message].
+bool hasDelimitedExt(TestAllTypesEdition2023 message) =>
+    message.$fields['[protobuf_test_messages.editions.delimited_ext]'] != null;
+
+/// Clears extension `protobuf_test_messages.editions.delimited_ext` on [message].
+void clearDelimitedExt(TestAllTypesEdition2023 message) =>
+    message.$fields.remove('[protobuf_test_messages.editions.delimited_ext]');
+
+/// Extension `protobuf_test_messages.proto2.extension_int32` on `protobuf_test_messages.proto2.TestAllTypesProto2`.
+final $pb.Extension extensionInt322 = $pb.Extension(
+  extendeeFullName: 'protobuf_test_messages.proto2.TestAllTypesProto2',
+  fieldKey: '[protobuf_test_messages.proto2.extension_int32]',
+  number: 120,
+  type: 'TYPE_INT32',
+);
+
+/// Reads extension `protobuf_test_messages.proto2.extension_int32` from [message], or null
+/// when it is not set.
+int? getExtensionInt322(TestAllTypesProto2 message) {
+  final v = message.$fields['[protobuf_test_messages.proto2.extension_int32]'];
+  if (v == null) return null;
+  return v as int;
+}
+
+/// Sets extension `protobuf_test_messages.proto2.extension_int32` on [message].
+void setExtensionInt322(TestAllTypesProto2 message, int value) {
+  message.$fields['[protobuf_test_messages.proto2.extension_int32]'] = value;
+}
+
+/// Whether extension `protobuf_test_messages.proto2.extension_int32` is set on [message].
+bool hasExtensionInt322(TestAllTypesProto2 message) =>
+    message.$fields['[protobuf_test_messages.proto2.extension_int32]'] != null;
+
+/// Clears extension `protobuf_test_messages.proto2.extension_int32` on [message].
+void clearExtensionInt322(TestAllTypesProto2 message) =>
+    message.$fields.remove('[protobuf_test_messages.proto2.extension_int32]');
+
+/// Extension `protobuf_test_messages.proto2.extension_string` on `protobuf_test_messages.proto2.TestAllTypesProto2`.
+final $pb.Extension extensionString2 = $pb.Extension(
+  extendeeFullName: 'protobuf_test_messages.proto2.TestAllTypesProto2',
+  fieldKey: '[protobuf_test_messages.proto2.extension_string]',
+  number: 133,
+  type: 'TYPE_STRING',
+);
+
+/// Reads extension `protobuf_test_messages.proto2.extension_string` from [message], or null
+/// when it is not set.
+String? getExtensionString2(TestAllTypesProto2 message) {
+  final v = message.$fields['[protobuf_test_messages.proto2.extension_string]'];
+  if (v == null) return null;
+  return v as String;
+}
+
+/// Sets extension `protobuf_test_messages.proto2.extension_string` on [message].
+void setExtensionString2(TestAllTypesProto2 message, String value) {
+  message.$fields['[protobuf_test_messages.proto2.extension_string]'] = value;
+}
+
+/// Whether extension `protobuf_test_messages.proto2.extension_string` is set on [message].
+bool hasExtensionString2(TestAllTypesProto2 message) =>
+    message.$fields['[protobuf_test_messages.proto2.extension_string]'] != null;
+
+/// Clears extension `protobuf_test_messages.proto2.extension_string` on [message].
+void clearExtensionString2(TestAllTypesProto2 message) =>
+    message.$fields.remove('[protobuf_test_messages.proto2.extension_string]');
+
+/// Extension `protobuf_test_messages.proto2.extension_bytes` on `protobuf_test_messages.proto2.TestAllTypesProto2`.
+final $pb.Extension extensionBytes2 = $pb.Extension(
+  extendeeFullName: 'protobuf_test_messages.proto2.TestAllTypesProto2',
+  fieldKey: '[protobuf_test_messages.proto2.extension_bytes]',
+  number: 134,
+  type: 'TYPE_BYTES',
+);
+
+/// Reads extension `protobuf_test_messages.proto2.extension_bytes` from [message], or null
+/// when it is not set.
+List<int>? getExtensionBytes2(TestAllTypesProto2 message) {
+  final v = message.$fields['[protobuf_test_messages.proto2.extension_bytes]'];
+  if (v == null) return null;
+  return v as List<int>;
+}
+
+/// Sets extension `protobuf_test_messages.proto2.extension_bytes` on [message].
+void setExtensionBytes2(TestAllTypesProto2 message, List<int> value) {
+  message.$fields['[protobuf_test_messages.proto2.extension_bytes]'] = value;
+}
+
+/// Whether extension `protobuf_test_messages.proto2.extension_bytes` is set on [message].
+bool hasExtensionBytes2(TestAllTypesProto2 message) =>
+    message.$fields['[protobuf_test_messages.proto2.extension_bytes]'] != null;
+
+/// Clears extension `protobuf_test_messages.proto2.extension_bytes` on [message].
+void clearExtensionBytes2(TestAllTypesProto2 message) =>
+    message.$fields.remove('[protobuf_test_messages.proto2.extension_bytes]');
+
+/// Extension `protobuf_test_messages.proto2.groupfield` on `protobuf_test_messages.proto2.TestAllTypesProto2`.
+final $pb.Extension groupfield = $pb.Extension(
+  extendeeFullName: 'protobuf_test_messages.proto2.TestAllTypesProto2',
+  fieldKey: '[protobuf_test_messages.proto2.groupfield]',
+  number: 121,
+  type: 'TYPE_MESSAGE',
+  descriptor: $descriptorFor('protobuf_test_messages.proto2.GroupField'),
+);
+
+/// Reads extension `protobuf_test_messages.proto2.groupfield` from [message], or null
+/// when it is not set.
+GroupField? getGroupfield(TestAllTypesProto2 message) {
+  final v = message.$fields['[protobuf_test_messages.proto2.groupfield]'];
+  if (v == null) return null;
+  return GroupField(v as Map<String, Object?>);
+}
+
+/// Sets extension `protobuf_test_messages.proto2.groupfield` on [message].
+void setGroupfield(TestAllTypesProto2 message, GroupField value) {
+  message.$fields['[protobuf_test_messages.proto2.groupfield]'] = value.$fields;
+}
+
+/// Whether extension `protobuf_test_messages.proto2.groupfield` is set on [message].
+bool hasGroupfield(TestAllTypesProto2 message) =>
+    message.$fields['[protobuf_test_messages.proto2.groupfield]'] != null;
+
+/// Clears extension `protobuf_test_messages.proto2.groupfield` on [message].
+void clearGroupfield(TestAllTypesProto2 message) =>
+    message.$fields.remove('[protobuf_test_messages.proto2.groupfield]');
+
+/// Extension `protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension1.message_set_extension` on `protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrect`.
+final $pb.Extension messageSetExtension = $pb.Extension(
+  extendeeFullName:
+      'protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrect',
+  fieldKey:
+      '[protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension1.message_set_extension]',
+  number: 1547769,
+  type: 'TYPE_MESSAGE',
+  descriptor: $descriptorFor(
+    'protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension1',
+  ),
+);
+
+/// Reads extension `protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension1.message_set_extension` from [message], or null
+/// when it is not set.
+TestAllTypesProto2_MessageSetCorrectExtension1? getMessageSetExtension(
+  TestAllTypesProto2_MessageSetCorrect message,
+) {
+  final v = message
+      .$fields['[protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension1.message_set_extension]'];
+  if (v == null) return null;
+  return TestAllTypesProto2_MessageSetCorrectExtension1(
+    v as Map<String, Object?>,
+  );
+}
+
+/// Sets extension `protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension1.message_set_extension` on [message].
+void setMessageSetExtension(
+  TestAllTypesProto2_MessageSetCorrect message,
+  TestAllTypesProto2_MessageSetCorrectExtension1 value,
+) {
+  message.$fields['[protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension1.message_set_extension]'] =
+      value.$fields;
+}
+
+/// Whether extension `protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension1.message_set_extension` is set on [message].
+bool hasMessageSetExtension(TestAllTypesProto2_MessageSetCorrect message) =>
+    message
+        .$fields['[protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension1.message_set_extension]'] !=
+    null;
+
+/// Clears extension `protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension1.message_set_extension` on [message].
+void clearMessageSetExtension(
+  TestAllTypesProto2_MessageSetCorrect message,
+) => message.$fields.remove(
+  '[protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension1.message_set_extension]',
+);
+
+/// Extension `protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension2.message_set_extension` on `protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrect`.
+final $pb.Extension messageSetExtension2 = $pb.Extension(
+  extendeeFullName:
+      'protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrect',
+  fieldKey:
+      '[protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension2.message_set_extension]',
+  number: 4135312,
+  type: 'TYPE_MESSAGE',
+  descriptor: $descriptorFor(
+    'protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension2',
+  ),
+);
+
+/// Reads extension `protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension2.message_set_extension` from [message], or null
+/// when it is not set.
+TestAllTypesProto2_MessageSetCorrectExtension2? getMessageSetExtension2(
+  TestAllTypesProto2_MessageSetCorrect message,
+) {
+  final v = message
+      .$fields['[protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension2.message_set_extension]'];
+  if (v == null) return null;
+  return TestAllTypesProto2_MessageSetCorrectExtension2(
+    v as Map<String, Object?>,
+  );
+}
+
+/// Sets extension `protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension2.message_set_extension` on [message].
+void setMessageSetExtension2(
+  TestAllTypesProto2_MessageSetCorrect message,
+  TestAllTypesProto2_MessageSetCorrectExtension2 value,
+) {
+  message.$fields['[protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension2.message_set_extension]'] =
+      value.$fields;
+}
+
+/// Whether extension `protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension2.message_set_extension` is set on [message].
+bool hasMessageSetExtension2(TestAllTypesProto2_MessageSetCorrect message) =>
+    message
+        .$fields['[protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension2.message_set_extension]'] !=
+    null;
+
+/// Clears extension `protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension2.message_set_extension` on [message].
+void clearMessageSetExtension2(
+  TestAllTypesProto2_MessageSetCorrect message,
+) => message.$fields.remove(
+  '[protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension2.message_set_extension]',
+);
+
+/// Extension `protobuf_test_messages.proto2.TestAllTypesProto2.ExtensionWithOneof.extension_with_oneof` on `protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrect`.
+final $pb.Extension extensionWithOneof = $pb.Extension(
+  extendeeFullName:
+      'protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrect',
+  fieldKey:
+      '[protobuf_test_messages.proto2.TestAllTypesProto2.ExtensionWithOneof.extension_with_oneof]',
+  number: 123456789,
+  type: 'TYPE_MESSAGE',
+  descriptor: $descriptorFor(
+    'protobuf_test_messages.proto2.TestAllTypesProto2.ExtensionWithOneof',
+  ),
+);
+
+/// Reads extension `protobuf_test_messages.proto2.TestAllTypesProto2.ExtensionWithOneof.extension_with_oneof` from [message], or null
+/// when it is not set.
+TestAllTypesProto2_ExtensionWithOneof? getExtensionWithOneof(
+  TestAllTypesProto2_MessageSetCorrect message,
+) {
+  final v = message
+      .$fields['[protobuf_test_messages.proto2.TestAllTypesProto2.ExtensionWithOneof.extension_with_oneof]'];
+  if (v == null) return null;
+  return TestAllTypesProto2_ExtensionWithOneof(v as Map<String, Object?>);
+}
+
+/// Sets extension `protobuf_test_messages.proto2.TestAllTypesProto2.ExtensionWithOneof.extension_with_oneof` on [message].
+void setExtensionWithOneof(
+  TestAllTypesProto2_MessageSetCorrect message,
+  TestAllTypesProto2_ExtensionWithOneof value,
+) {
+  message.$fields['[protobuf_test_messages.proto2.TestAllTypesProto2.ExtensionWithOneof.extension_with_oneof]'] =
+      value.$fields;
+}
+
+/// Whether extension `protobuf_test_messages.proto2.TestAllTypesProto2.ExtensionWithOneof.extension_with_oneof` is set on [message].
+bool hasExtensionWithOneof(TestAllTypesProto2_MessageSetCorrect message) =>
+    message
+        .$fields['[protobuf_test_messages.proto2.TestAllTypesProto2.ExtensionWithOneof.extension_with_oneof]'] !=
+    null;
+
+/// Clears extension `protobuf_test_messages.proto2.TestAllTypesProto2.ExtensionWithOneof.extension_with_oneof` on [message].
+void clearExtensionWithOneof(
+  TestAllTypesProto2_MessageSetCorrect message,
+) => message.$fields.remove(
+  '[protobuf_test_messages.proto2.TestAllTypesProto2.ExtensionWithOneof.extension_with_oneof]',
+);
+
+/// Extension `protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension1.message_set_extension` on `protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrect`.
+final $pb.Extension messageSetExtension3 = $pb.Extension(
+  extendeeFullName:
+      'protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrect',
+  fieldKey:
+      '[protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension1.message_set_extension]',
+  number: 1547769,
+  type: 'TYPE_MESSAGE',
+  descriptor: $descriptorFor(
+    'protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension1',
+  ),
+);
+
+/// Reads extension `protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension1.message_set_extension` from [message], or null
+/// when it is not set.
+TestAllRequiredTypesProto2_MessageSetCorrectExtension1? getMessageSetExtension3(
+  TestAllRequiredTypesProto2_MessageSetCorrect message,
+) {
+  final v = message
+      .$fields['[protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension1.message_set_extension]'];
+  if (v == null) return null;
+  return TestAllRequiredTypesProto2_MessageSetCorrectExtension1(
+    v as Map<String, Object?>,
+  );
+}
+
+/// Sets extension `protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension1.message_set_extension` on [message].
+void setMessageSetExtension3(
+  TestAllRequiredTypesProto2_MessageSetCorrect message,
+  TestAllRequiredTypesProto2_MessageSetCorrectExtension1 value,
+) {
+  message.$fields['[protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension1.message_set_extension]'] =
+      value.$fields;
+}
+
+/// Whether extension `protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension1.message_set_extension` is set on [message].
+bool hasMessageSetExtension3(
+  TestAllRequiredTypesProto2_MessageSetCorrect message,
+) =>
+    message
+        .$fields['[protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension1.message_set_extension]'] !=
+    null;
+
+/// Clears extension `protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension1.message_set_extension` on [message].
+void clearMessageSetExtension3(
+  TestAllRequiredTypesProto2_MessageSetCorrect message,
+) => message.$fields.remove(
+  '[protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension1.message_set_extension]',
+);
+
+/// Extension `protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension2.message_set_extension` on `protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrect`.
+final $pb.Extension messageSetExtension4 = $pb.Extension(
+  extendeeFullName:
+      'protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrect',
+  fieldKey:
+      '[protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension2.message_set_extension]',
+  number: 4135312,
+  type: 'TYPE_MESSAGE',
+  descriptor: $descriptorFor(
+    'protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension2',
+  ),
+);
+
+/// Reads extension `protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension2.message_set_extension` from [message], or null
+/// when it is not set.
+TestAllRequiredTypesProto2_MessageSetCorrectExtension2? getMessageSetExtension4(
+  TestAllRequiredTypesProto2_MessageSetCorrect message,
+) {
+  final v = message
+      .$fields['[protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension2.message_set_extension]'];
+  if (v == null) return null;
+  return TestAllRequiredTypesProto2_MessageSetCorrectExtension2(
+    v as Map<String, Object?>,
+  );
+}
+
+/// Sets extension `protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension2.message_set_extension` on [message].
+void setMessageSetExtension4(
+  TestAllRequiredTypesProto2_MessageSetCorrect message,
+  TestAllRequiredTypesProto2_MessageSetCorrectExtension2 value,
+) {
+  message.$fields['[protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension2.message_set_extension]'] =
+      value.$fields;
+}
+
+/// Whether extension `protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension2.message_set_extension` is set on [message].
+bool hasMessageSetExtension4(
+  TestAllRequiredTypesProto2_MessageSetCorrect message,
+) =>
+    message
+        .$fields['[protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension2.message_set_extension]'] !=
+    null;
+
+/// Clears extension `protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension2.message_set_extension` on [message].
+void clearMessageSetExtension4(
+  TestAllRequiredTypesProto2_MessageSetCorrect message,
+) => message.$fields.remove(
+  '[protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension2.message_set_extension]',
+);
+
+/// All extensions declared in this file, plus those from imported
+/// siblings (merged in), for option + Any resolution. Generated
+/// message types resolve for Any via `$descriptorForOrNull`.
+final $pb.ExtensionRegistry $extensionRegistry = () {
+  final r = $pb.ExtensionRegistry.of([
+    extensionInt32,
+    extensionString,
+    extensionBytes,
+    groupliketype,
+    delimitedExt,
+    extensionInt322,
+    extensionString2,
+    extensionBytes2,
+    groupfield,
+    messageSetExtension,
+    messageSetExtension2,
+    extensionWithOneof,
+    messageSetExtension3,
+    messageSetExtension4,
+  ]);
+  return r;
+}();
+
 enum TestAllTypesEdition2023_OneofFieldCase {
   oneofUint32,
   oneofNestedMessage,
@@ -6605,7 +7148,9 @@ final Map<String, List<Map<String, Object?>> Function()> $descriptorBuilders = {
 };
 
 /// Returns the resolved descriptor for [fullName], building it
-/// (and memoizing it) on first use.
+/// (and memoizing it) on first use. A type defined in a sibling
+/// generated file is resolved through that file's exported
+/// `$descriptorForOrNull` (cross-file references).
 List<Map<String, Object?>> $descriptorFor(String fullName) {
   final existing = $descriptors[fullName];
   if (existing != null) return existing;
@@ -6621,6 +7166,9 @@ List<Map<String, Object?>> $descriptorFor(String fullName) {
 
 /// Like [$descriptorFor] but returns null for unknown types
 /// (the Any/registry resolver shape the runtime expects).
+/// Resolves types defined in this file OR in imported siblings,
+/// so a per-call Any resolver wired to this function sees the
+/// whole imported type graph.
 List<Map<String, Object?>>? $descriptorForOrNull(String fullName) {
   if ($descriptorBuilders.containsKey(fullName)) {
     return $descriptorFor(fullName);
@@ -8393,7 +8941,7 @@ _build_protobuf_test_messages$editions$TestAllTypesEdition2023() => [
       'message_encoding': 'DELIMITED',
       'json_format': 'ALLOW',
     },
-    'jsonName': 'extensionInt32',
+    'jsonName': '[protobuf_test_messages.editions.extension_int32]',
   },
   <String, Object?>{
     'name': '[protobuf_test_messages.editions.extension_string]',
@@ -8408,7 +8956,7 @@ _build_protobuf_test_messages$editions$TestAllTypesEdition2023() => [
       'message_encoding': 'DELIMITED',
       'json_format': 'ALLOW',
     },
-    'jsonName': 'extensionString',
+    'jsonName': '[protobuf_test_messages.editions.extension_string]',
   },
   <String, Object?>{
     'name': '[protobuf_test_messages.editions.extension_bytes]',
@@ -8423,7 +8971,7 @@ _build_protobuf_test_messages$editions$TestAllTypesEdition2023() => [
       'message_encoding': 'DELIMITED',
       'json_format': 'ALLOW',
     },
-    'jsonName': 'extensionBytes',
+    'jsonName': '[protobuf_test_messages.editions.extension_bytes]',
   },
   <String, Object?>{
     'name': '[protobuf_test_messages.editions.groupliketype]',
@@ -8442,7 +8990,7 @@ _build_protobuf_test_messages$editions$TestAllTypesEdition2023() => [
     'messageDescriptor': $descriptorFor(
       'protobuf_test_messages.editions.GroupLikeType',
     ),
-    'jsonName': 'groupliketype',
+    'jsonName': '[protobuf_test_messages.editions.groupliketype]',
   },
   <String, Object?>{
     'name': '[protobuf_test_messages.editions.delimited_ext]',
@@ -8461,7 +9009,7 @@ _build_protobuf_test_messages$editions$TestAllTypesEdition2023() => [
     'messageDescriptor': $descriptorFor(
       'protobuf_test_messages.editions.GroupLikeType',
     ),
-    'jsonName': 'delimitedExt',
+    'jsonName': '[protobuf_test_messages.editions.delimited_ext]',
   },
 ];
 
@@ -11560,7 +12108,7 @@ _build_protobuf_test_messages$proto2$TestAllTypesProto2() => [
       'message_encoding': 'LENGTH_PREFIXED',
       'json_format': 'LEGACY_BEST_EFFORT',
     },
-    'jsonName': 'extensionInt32',
+    'jsonName': '[protobuf_test_messages.proto2.extension_int32]',
   },
   <String, Object?>{
     'name': '[protobuf_test_messages.proto2.extension_string]',
@@ -11575,7 +12123,7 @@ _build_protobuf_test_messages$proto2$TestAllTypesProto2() => [
       'message_encoding': 'LENGTH_PREFIXED',
       'json_format': 'LEGACY_BEST_EFFORT',
     },
-    'jsonName': 'extensionString',
+    'jsonName': '[protobuf_test_messages.proto2.extension_string]',
   },
   <String, Object?>{
     'name': '[protobuf_test_messages.proto2.extension_bytes]',
@@ -11590,7 +12138,7 @@ _build_protobuf_test_messages$proto2$TestAllTypesProto2() => [
       'message_encoding': 'LENGTH_PREFIXED',
       'json_format': 'LEGACY_BEST_EFFORT',
     },
-    'jsonName': 'extensionBytes',
+    'jsonName': '[protobuf_test_messages.proto2.extension_bytes]',
   },
   <String, Object?>{
     'name': '[protobuf_test_messages.proto2.groupfield]',
@@ -11609,7 +12157,7 @@ _build_protobuf_test_messages$proto2$TestAllTypesProto2() => [
     'messageDescriptor': $descriptorFor(
       'protobuf_test_messages.proto2.GroupField',
     ),
-    'jsonName': 'groupfield',
+    'jsonName': '[protobuf_test_messages.proto2.groupfield]',
   },
 ];
 
@@ -12503,7 +13051,8 @@ _build_protobuf_test_messages$proto2$TestAllTypesProto2$MessageSetCorrect() => [
     'messageDescriptor': $descriptorFor(
       'protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension1',
     ),
-    'jsonName': 'messageSetExtension',
+    'jsonName':
+        '[protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension1.message_set_extension]',
   },
   <String, Object?>{
     'name':
@@ -12524,7 +13073,8 @@ _build_protobuf_test_messages$proto2$TestAllTypesProto2$MessageSetCorrect() => [
     'messageDescriptor': $descriptorFor(
       'protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension2',
     ),
-    'jsonName': 'messageSetExtension',
+    'jsonName':
+        '[protobuf_test_messages.proto2.TestAllTypesProto2.MessageSetCorrectExtension2.message_set_extension]',
   },
   <String, Object?>{
     'name':
@@ -12545,7 +13095,8 @@ _build_protobuf_test_messages$proto2$TestAllTypesProto2$MessageSetCorrect() => [
     'messageDescriptor': $descriptorFor(
       'protobuf_test_messages.proto2.TestAllTypesProto2.ExtensionWithOneof',
     ),
-    'jsonName': 'extensionWithOneof',
+    'jsonName':
+        '[protobuf_test_messages.proto2.TestAllTypesProto2.ExtensionWithOneof.extension_with_oneof]',
   },
 ];
 
@@ -13615,7 +14166,8 @@ _build_protobuf_test_messages$proto2$TestAllRequiredTypesProto2$MessageSetCorrec
     'messageDescriptor': $descriptorFor(
       'protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension1',
     ),
-    'jsonName': 'messageSetExtension',
+    'jsonName':
+        '[protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension1.message_set_extension]',
   },
   <String, Object?>{
     'name':
@@ -13636,7 +14188,8 @@ _build_protobuf_test_messages$proto2$TestAllRequiredTypesProto2$MessageSetCorrec
     'messageDescriptor': $descriptorFor(
       'protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension2',
     ),
-    'jsonName': 'messageSetExtension',
+    'jsonName':
+        '[protobuf_test_messages.proto2.TestAllRequiredTypesProto2.MessageSetCorrectExtension2.message_set_extension]',
   },
 ];
 

@@ -42,6 +42,12 @@ String emitDartFile(GenFile file) {
   b.write(_header(file.protoPath));
   b.writeln();
   b.writeln("import 'package:ball_protobuf/ball_protobuf.dart' as \$pb;");
+  // Sibling-file imports for cross-file message/enum references. Each is
+  // prefixed with a stable `$importN` so the cross-file `$descriptorFor` can
+  // route a non-local reference to the file that defines it.
+  for (final imp in file.imports) {
+    b.writeln("import '${imp.path}' as ${imp.prefix};");
+  }
   b.writeln();
 
   // Enums first (messages reference them).
@@ -53,9 +59,19 @@ String emitDartFile(GenFile file) {
   // Messages (map-entry helpers are skipped — absorbed into map fields).
   for (final m in file.messages) {
     if (m.isMapEntry) continue;
-    _emitMessage(b, m);
+    _emitMessage(b, m, file.crossFilePrefixByFqn);
     b.writeln();
   }
+
+  // Extension handles + typed get/set/has/clear helpers (only when this file
+  // declares extensions).
+  if (file.extensions.isNotEmpty) {
+    _emitExtensions(b, file);
+  }
+  // The per-file extension registry is ALWAYS emitted (even when empty) so a
+  // sibling that imports this file can unconditionally merge `$extensionRegistry`
+  // regardless of whether this file happens to declare any extensions.
+  _emitExtensionRegistry(b, file);
 
   // The shared descriptor registry + lazy builders.
   _emitDescriptorRegistry(b, file);
@@ -124,7 +140,7 @@ void _emitEnum(StringBuffer b, GenEnum e) {
 // Messages
 // ---------------------------------------------------------------------------
 
-void _emitMessage(StringBuffer b, GenMessage m) {
+void _emitMessage(StringBuffer b, GenMessage m, Map<String, String> xprefix) {
   b.writeln('/// Generated from `${m.fullName}`.');
   b.writeln('class ${m.dartName} {');
   b.writeln('  /// The dynamic backing store (proto field names -> values).');
@@ -160,7 +176,7 @@ void _emitMessage(StringBuffer b, GenMessage m) {
 
   // Field accessors.
   for (final f in m.fields) {
-    _emitField(b, m, f);
+    _emitField(b, m, f, xprefix);
   }
 
   // Serialization delegates.
@@ -218,21 +234,31 @@ void _emitOneofDiscriminant(
   b.writeln();
 }
 
-void _emitField(StringBuffer b, GenMessage m, GenField f) {
+void _emitField(
+  StringBuffer b,
+  GenMessage m,
+  GenField f,
+  Map<String, String> xprefix,
+) {
   switch (f.cardinality) {
     case FieldCardinality.singular:
-      _emitSingular(b, m, f);
+      _emitSingular(b, m, f, xprefix);
     case FieldCardinality.repeated:
-      _emitRepeated(b, f);
+      _emitRepeated(b, f, xprefix);
     case FieldCardinality.map:
-      _emitMap(b, f);
+      _emitMap(b, f, xprefix);
   }
 }
 
-void _emitSingular(StringBuffer b, GenMessage m, GenField f) {
+void _emitSingular(
+  StringBuffer b,
+  GenMessage m,
+  GenField f,
+  Map<String, String> xprefix,
+) {
   final key = f.protoName;
   if (f.isMessage) {
-    final type = _messageDartType(f.messageTypeName!);
+    final type = _messageDartType(f.messageTypeName!, xprefix);
     // Getter returns a typed view over the stored sub-map (or null when absent).
     b.writeln('  /// `${f.protoName}` (message `${f.messageTypeName}`).');
     b.writeln('  $type? get ${f.dartName} {');
@@ -250,7 +276,7 @@ void _emitSingular(StringBuffer b, GenMessage m, GenField f) {
   }
 
   if (f.isEnum) {
-    final type = _enumDartType(f.enumTypeName!);
+    final type = _enumDartType(f.enumTypeName!, xprefix);
     b.writeln('  /// `${f.protoName}` (enum `${f.enumTypeName}`).');
     if (f.presence == PresenceKind.implicit) {
       b.writeln('  $type get ${f.dartName} {');
@@ -301,13 +327,13 @@ void _emitPresence(StringBuffer b, GenField f, String key) {
   b.writeln();
 }
 
-void _emitRepeated(StringBuffer b, GenField f) {
+void _emitRepeated(StringBuffer b, GenField f, Map<String, String> xprefix) {
   final key = f.protoName;
   final String elemType;
   if (f.isMessage) {
-    elemType = _messageDartType(f.messageTypeName!);
+    elemType = _messageDartType(f.messageTypeName!, xprefix);
   } else if (f.isEnum) {
-    elemType = _enumDartType(f.enumTypeName!);
+    elemType = _enumDartType(f.enumTypeName!, xprefix);
   } else {
     elemType = _scalarDartType(f.protoType);
   }
@@ -348,14 +374,14 @@ void _emitRepeated(StringBuffer b, GenField f) {
   b.writeln();
 }
 
-void _emitMap(StringBuffer b, GenField f) {
+void _emitMap(StringBuffer b, GenField f, Map<String, String> xprefix) {
   final key = f.protoName;
   final keyType = _scalarDartType(f.mapKeyType!);
   final String valType;
   if (f.mapValueType == 'TYPE_MESSAGE') {
-    valType = _messageDartType(f.messageTypeName!);
+    valType = _messageDartType(f.messageTypeName!, xprefix);
   } else if (f.mapValueType == 'TYPE_ENUM') {
-    valType = _enumDartType(f.enumTypeName!);
+    valType = _enumDartType(f.enumTypeName!, xprefix);
   } else {
     valType = _scalarDartType(f.mapValueType!);
   }
@@ -407,6 +433,152 @@ void _emitMap(StringBuffer b, GenField f) {
 }
 
 // ---------------------------------------------------------------------------
+// Extensions
+// ---------------------------------------------------------------------------
+
+/// Emits, for every extension in [file]: an [Extension] handle const, typed
+/// `get/set/has/clear` helpers reading/writing the bracketed `[fqn]` key in the
+/// extended message's backing map, and a per-file [ExtensionRegistry] that
+/// registers all of them and merges with imported siblings' registries.
+///
+/// The handle embeds the bridge's exact field descriptor (so a message
+/// extension's `messageDescriptor` resolves through `$descriptorFor`), and the
+/// helpers delegate all wire/JSON work to the runtime via the extendee's
+/// descriptor — no serialization code is generated.
+void _emitExtensions(StringBuffer b, GenFile file) {
+  final rule = '// ${'-' * 73}';
+  b.writeln(rule);
+  b.writeln(
+    '// Extensions (typed handles + get/set/has/clear helpers). On the',
+  );
+  b.writeln(
+    '// wire an extension is just a numbered field; helpers read/write',
+  );
+  b.writeln(
+    '// the bracketed `[fqn]` key in the extended message backing map.',
+  );
+  b.writeln(rule);
+  b.writeln();
+
+  final xprefix = file.crossFilePrefixByFqn;
+  for (final ext in file.extensions) {
+    _emitExtensionHandle(b, ext);
+    _emitExtensionHelpers(b, ext, xprefix);
+    b.writeln();
+  }
+}
+
+/// Emits the `final <name> = $pb.Extension(...)` handle for [ext].
+void _emitExtensionHandle(StringBuffer b, GenExtension ext) {
+  b.writeln('/// Extension `${ext.fullName}` on `${ext.extendeeFullName}`.');
+  b.writeln('final \$pb.Extension ${ext.dartName} = \$pb.Extension(');
+  b.writeln("  extendeeFullName: '${ext.extendeeFullName}',");
+  b.writeln("  fieldKey: ${_dartStringLiteral(ext.fieldKey)},");
+  b.writeln('  number: ${ext.number},');
+  b.writeln("  type: '${ext.protoType}',");
+  if (ext.isMessage && ext.messageTypeName != null) {
+    // The embedded message's descriptor, resolved lazily so recursion / cross-
+    // file references terminate.
+    b.writeln("  descriptor: \$descriptorFor('${ext.messageTypeName}'),");
+  }
+  b.writeln(');');
+}
+
+/// Emits the typed `getX/setX/hasX/clearX` top-level helpers for [ext]. The
+/// helpers operate on the extended message's typed view (its `$fields` map),
+/// reading/writing the bracketed `[fqn]` key the runtime stores extensions
+/// under, converting between the typed value and the runtime's stored shape.
+void _emitExtensionHelpers(
+  StringBuffer b,
+  GenExtension ext,
+  Map<String, String> xprefix,
+) {
+  final key = ext.fieldKey;
+  final keyLit = _dartStringLiteral(key);
+  final name = _pascal(ext.dartName);
+  final extendee = _messageDartType(ext.extendeeFullName, xprefix);
+
+  // Decide the typed value + its <-> stored-value conversions.
+  final String type;
+  final String readExpr; // from stored `v` (non-null) to typed
+  final String Function(String) writeExpr; // typed `value` -> stored
+  if (ext.isMessage) {
+    final mt = _messageDartType(ext.messageTypeName!, xprefix);
+    type = mt;
+    readExpr = '$mt(v as Map<String, Object?>)';
+    writeExpr = (val) => '$val.\$fields';
+  } else if (ext.isEnum) {
+    final et = _enumDartType(ext.enumTypeName!, xprefix);
+    type = et;
+    readExpr = '$et.fromValue(v as int)';
+    writeExpr = (val) => '$val.value';
+  } else {
+    final st = _scalarDartType(ext.protoType);
+    type = st;
+    readExpr = 'v as $st';
+    writeExpr = (val) => val;
+  }
+
+  // getX(message) -> typed value or null when unset.
+  b.writeln('/// Reads extension `${ext.fullName}` from [message], or null');
+  b.writeln('/// when it is not set.');
+  b.writeln('$type? get$name($extendee message) {');
+  b.writeln('  final v = message.\$fields[$keyLit];');
+  b.writeln('  if (v == null) return null;');
+  b.writeln('  return $readExpr;');
+  b.writeln('}');
+
+  // setX(message, value).
+  b.writeln('/// Sets extension `${ext.fullName}` on [message].');
+  b.writeln('void set$name($extendee message, $type value) {');
+  b.writeln('  message.\$fields[$keyLit] = ${writeExpr('value')};');
+  b.writeln('}');
+
+  // hasX(message).
+  b.writeln('/// Whether extension `${ext.fullName}` is set on [message].');
+  b.writeln(
+    'bool has$name($extendee message) => '
+    'message.\$fields[$keyLit] != null;',
+  );
+
+  // clearX(message).
+  b.writeln('/// Clears extension `${ext.fullName}` on [message].');
+  b.writeln(
+    'void clear$name($extendee message) => '
+    'message.\$fields.remove($keyLit);',
+  );
+}
+
+/// Emits the per-file `$extensionRegistry` (an [ExtensionRegistry]) that
+/// registers every extension declared in this file, then merges in each
+/// imported sibling file's registry so option/Any resolution sees the whole
+/// type graph. Message types resolve for Any via `$descriptorForOrNull`
+/// (already wired into every model's JSON delegates); the registry adds the
+/// extension surface on top.
+void _emitExtensionRegistry(StringBuffer b, GenFile file) {
+  b.writeln(
+    '/// All extensions declared in this file, plus those from imported',
+  );
+  b.writeln('/// siblings (merged in), for option + Any resolution. Generated');
+  b.writeln('/// message types resolve for Any via `\$descriptorForOrNull`.');
+  b.writeln('final \$pb.ExtensionRegistry \$extensionRegistry = () {');
+  b.writeln('  final r = \$pb.ExtensionRegistry.of([');
+  for (final ext in file.extensions) {
+    b.writeln('    ${ext.dartName},');
+  }
+  b.writeln('  ]);');
+  if (file.imports.isNotEmpty) {
+    b.writeln('  // Merge imported siblings\' extension registries.');
+    for (final imp in file.imports) {
+      b.writeln('  r.merge(${imp.prefix}.\$extensionRegistry);');
+    }
+  }
+  b.writeln('  return r;');
+  b.writeln('}();');
+  b.writeln();
+}
+
+// ---------------------------------------------------------------------------
 // Descriptor registry emission
 // ---------------------------------------------------------------------------
 
@@ -450,13 +622,40 @@ void _emitDescriptorRegistry(StringBuffer b, GenFile file) {
   }
   b.writeln('};');
   b.writeln();
+  // The list of imported files' cross-file resolvers, consulted (in stable
+  // order) when a referenced type is NOT defined in this file. This is what
+  // makes a cross-file message/enum reference (and Any-in-JSON whose embedded
+  // type lives in a sibling) resolve across separately-generated .pb.dart files.
+  final hasImports = file.imports.isNotEmpty;
+  if (hasImports) {
+    b.writeln('/// Imported sibling files\' cross-file descriptor resolvers,');
+    b.writeln('/// consulted when a referenced type is defined elsewhere.');
+    b.writeln(
+      'final List<List<Map<String, Object?>>? Function(String)> '
+      '\$importedResolvers = [',
+    );
+    for (final imp in file.imports) {
+      b.writeln('  ${imp.prefix}.\$descriptorForOrNull,');
+    }
+    b.writeln('];');
+    b.writeln();
+  }
+
   b.writeln('/// Returns the resolved descriptor for [fullName], building it');
-  b.writeln('/// (and memoizing it) on first use.');
+  b.writeln('/// (and memoizing it) on first use. A type defined in a sibling');
+  b.writeln('/// generated file is resolved through that file\'s exported');
+  b.writeln('/// `\$descriptorForOrNull` (cross-file references).');
   b.writeln('List<Map<String, Object?>> \$descriptorFor(String fullName) {');
   b.writeln('  final existing = \$descriptors[fullName];');
   b.writeln('  if (existing != null) return existing;');
   b.writeln('  final builder = \$descriptorBuilders[fullName];');
   b.writeln('  if (builder == null) {');
+  if (hasImports) {
+    b.writeln('    for (final resolve in \$importedResolvers) {');
+    b.writeln('      final d = resolve(fullName);');
+    b.writeln('      if (d != null) return d;');
+    b.writeln('    }');
+  }
   b.writeln(
     "    throw StateError('No descriptor for \$fullName in "
     "${file.protoPath}');",
@@ -470,12 +669,21 @@ void _emitDescriptorRegistry(StringBuffer b, GenFile file) {
   b.writeln();
   b.writeln('/// Like [\$descriptorFor] but returns null for unknown types');
   b.writeln('/// (the Any/registry resolver shape the runtime expects).');
+  b.writeln('/// Resolves types defined in this file OR in imported siblings,');
+  b.writeln('/// so a per-call Any resolver wired to this function sees the');
+  b.writeln('/// whole imported type graph.');
   b.writeln(
     'List<Map<String, Object?>>? \$descriptorForOrNull(String fullName) {',
   );
   b.writeln('  if (\$descriptorBuilders.containsKey(fullName)) {');
   b.writeln('    return \$descriptorFor(fullName);');
   b.writeln('  }');
+  if (hasImports) {
+    b.writeln('  for (final resolve in \$importedResolvers) {');
+    b.writeln('    final d = resolve(fullName);');
+    b.writeln('    if (d != null) return d;');
+    b.writeln('  }');
+  }
   b.writeln('  return null;');
   b.writeln('}');
   b.writeln();
@@ -638,11 +846,21 @@ String _scalarDefault(String type) {
   }
 }
 
-/// Maps a message FQN to its flattened Dart class name.
-String _messageDartType(String fqn) => _flattenName(fqn);
+/// Maps a message FQN to its flattened Dart class name, prefixing it with the
+/// sibling-file import prefix (`$importN.`) when the type is defined in a
+/// *different* generated file. [xprefix] maps a cross-file FQN to its import
+/// prefix; a local type is absent (no prefix).
+String _messageDartType(String fqn, Map<String, String> xprefix) =>
+    _qualify(_flattenName(fqn), xprefix[fqn]);
 
-/// Maps an enum FQN to its flattened Dart class name.
-String _enumDartType(String fqn) => _flattenName(fqn);
+/// Maps an enum FQN to its flattened Dart class name, prefixed with the
+/// sibling-file import prefix when cross-file (see [_messageDartType]).
+String _enumDartType(String fqn, Map<String, String> xprefix) =>
+    _qualify(_flattenName(fqn), xprefix[fqn]);
+
+/// Prepends `prefix.` to [name] when [prefix] is non-null (cross-file type).
+String _qualify(String name, String? prefix) =>
+    prefix == null ? name : '$prefix.$name';
 
 /// Flattens a (possibly cross-package, possibly nested) FQN to the Dart class
 /// name used in the generated file. The package prefix is dropped and the

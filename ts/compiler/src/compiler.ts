@@ -2269,6 +2269,27 @@ function __isUnknownFnError(e: any): boolean {
         properties.push({ name: f.name, type: "any", rawDartType: "", isStatic: false, isReadonly: false });
       }
     }
+    // Include inherited fields from the superclass chain so that
+    // references to inherited fields inside methods emit `this.name`
+    // instead of bare `name` (which would be undefined in JS).
+    const superclass = typeof meta["superclass"] === "string" ? meta["superclass"] : undefined;
+    if (superclass) {
+      const entryMod = this.program.modules.find(m => m.name === this.program.entryModule);
+      let sup = superclass;
+      while (sup && entryMod) {
+        const supTd = entryMod.typeDefs?.find(t => classTsName(t.name) === sup);
+        if (!supTd) break;
+        const supMeta: Struct = supTd.metadata ?? {};
+        const supFields = Array.isArray(supMeta["fields"]) ? supMeta["fields"] as any[] : [];
+        for (const sf of supFields) {
+          if (sf?.name) fieldNames.add(sf.name);
+        }
+        if (supTd.descriptor?.field) {
+          for (const f of supTd.descriptor.field) fieldNames.add(f.name);
+        }
+        sup = typeof supMeta["superclass"] === "string" ? supMeta["superclass"] : undefined;
+      }
+    }
 
     // Method-name set for `this.foo()` routing inside bodies.
     // Exclude static fields — they're emitted as module-level consts
@@ -2459,8 +2480,8 @@ function __isUnknownFnError(e: any): boolean {
       classFields,
       () =>
         this.captureInto(() => {
-          if (needsInputAlias) {
-            this.writeln(`${inputIsReassigned ? "let" : "const"} input = ${sanitize(params[0])};`);
+          if (needsInputAlias && !inputIsReassigned) {
+            this.writeln(`const input = ${sanitize(params[0])};`);
           }
           if (fn.body) this.emitStatementOrExpression(fn.body, true);
         }),
@@ -3345,8 +3366,8 @@ function __isUnknownFnError(e: any): boolean {
     const inputIsReassigned = needsInputAlias && fn.body && bodyAssignsToVar(fn.body, "input");
     const innerText = this.captureInto(() => {
       this.writeln("");
-      if (needsInputAlias) {
-        this.writeln(`${inputIsReassigned ? "let" : "const"} input = ${sanitize(params[0])};`);
+      if (needsInputAlias && !inputIsReassigned) {
+        this.writeln(`const input = ${sanitize(params[0])};`);
       }
       if (fn.body) this.emitStatementOrExpression(fn.body, true);
     }) + "\n";

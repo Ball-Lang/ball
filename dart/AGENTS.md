@@ -12,6 +12,9 @@ When working in the Dart packages. The Dart implementation is the **reference** 
 | `dart/engine` | Runtime interpreter (true async) | Library only |
 | `dart/resolver` | Package manager (pub/npm adapters) | Library only |
 | `dart/shared` | Protobuf types, std module, capability analyzer | Library only |
+| `dart/ball_protobuf` | Descriptor-driven protobuf runtime (Ball-portable) | Library only |
+| `dart/ball_protobuf_gen` | Consumer codegen: `protoc-gen-ball` / `-connect` / `-grpc` plugins | Plugin binaries |
+| `dart/ball_rpc` | Dart-target RPC transport runtime (Connect/gRPC) for generated stubs | Library only |
 | `dart/self_host` | Engine self-encoded as Ball (CI artifact) | N/A |
 | `dart/scripts` | Build/generation tooling | N/A |
 

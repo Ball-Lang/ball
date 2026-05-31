@@ -1,9 +1,18 @@
 # ball_rpc
 
 Dart-target RPC transport runtime for `ball_protobuf` service clients. Generated
-service stubs (from `ball_protobuf_gen`'s service plugins) delegate bytes-level
+service stubs (from [`ball_protobuf_gen`](../ball_protobuf_gen)'s
+`protoc-gen-ball-connect` / `protoc-gen-ball-grpc` plugins) delegate bytes-level
 calls to an `RpcTransport`; this package supplies the transports and the shared
-status model.
+status model. See `docs/PROTOBUF_CODEGEN_PLAN.md` for the full toolchain design.
+
+A generated client (`<Service>Client` / `<Service>GrpcClient`) takes an
+`RpcTransport` in its constructor. Each typed method marshals the request to
+bytes, calls the matching transport method (`unary` / `serverStream` /
+`clientStream` / `bidiStream`) on the `/{package}.{Service}/{Method}` path, and
+decodes the response bytes — so the same generated client runs over Connect or
+gRPC purely by swapping the transport passed in. `RpcException` (carrying an
+`RpcCode`) surfaces transport-level and application errors uniformly.
 
 > **Not Ball-portable.** Unlike `ball_protobuf` (which is pure
 > `dart:core`/`convert`/`typed_data` so it can be encoded to Ball IR and run on

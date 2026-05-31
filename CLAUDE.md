@@ -98,6 +98,14 @@ Five packages resolved as a workspace:
 
 Types are emitted from `typeDefs[]` only — each `TypeDefinition` carries the protobuf descriptor plus a cosmetic `metadata` bag. The former `Module.types` field (bare descriptors) and the `_meta_*` function hack were removed; `typeDefs[]` is the single type-declaration path.
 
+#### Protobuf consumer codegen (`ball_protobuf_gen` + `ball_rpc`)
+
+Two additional (non-Ball-portable) Dart packages turn a user's `.proto` into typed models + service stubs bound to the `ball_protobuf` runtime:
+- `ball_protobuf_gen` (`dart/ball_protobuf_gen/`) — the protoc/buf plugins `protoc-gen-ball` (message/enum/extension models → `.pb.dart`), `protoc-gen-ball-connect` (`.connect.dart`), and `protoc-gen-ball-grpc` (`.grpc.dart`). Generated models are thin: a mutable typed view over a `Map<String,Object?>` backing store plus an embedded resolved-Editions descriptor; all wire/JSON work delegates to the conformance-pinned `ball_protobuf` runtime (no serialization code is generated). Depends on `ball_base` + `ball_protobuf`.
+- `ball_rpc` (`dart/ball_rpc/`) — the Dart-target transport runtime generated service clients delegate to: `ConnectTransport`, `GrpcTransport` (over a pluggable `GrpcByteSender`), `FakeTransport`, and the shared `RpcCode`/`RpcException` status model.
+
+**Dart is the shipped target; C++/TS library targets are roadmap.** Full design, status, and the verified multi-target findings live in `docs/PROTOBUF_CODEGEN_PLAN.md`. These packages are independent of the repo's own `buf generate` bindings — do **not** wire them into the root `buf.gen.yaml`.
+
 ### C++ prototype (`cpp/`)
 - `BallValue = std::any`, `BallList = std::vector<BallValue>`, `BallMap = std::map<std::string, BallValue>` (ordered — **not** `unordered_map`).
 - Compiler emits C++ via string concatenation; blocks become immediately-invoked lambdas.

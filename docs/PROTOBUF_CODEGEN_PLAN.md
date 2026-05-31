@@ -1,6 +1,16 @@
-# Consumer Model Codegen for `ball_protobuf` — Design Plan
+# Consumer Model Codegen for `ball_protobuf` — Design Plan & Status
 
-> Status: PLAN — for review before any code is written.
+> Status: **Phases 0–4 DONE and tested on the DART target.** The
+> `protoc-gen-ball` / `protoc-gen-ball-connect` / `protoc-gen-ball-grpc` plugins
+> live in `dart/ball_protobuf_gen` (63 tests pass from the package dir) and the
+> transport runtime lives in `dart/ball_rpc` (45 tests); the `ball_protobuf`
+> runtime is at 232 tests. The Dart toolchain generates message models
+> (Editions / oneof / map / nested / WKT / Any), extensions + registries, and
+> gRPC + Connect service stubs that round-trip through the runtime. C++ and TS
+> *library* targets (the original §9 single-source vision) remain **roadmap** —
+> see "## Multi-target status & roadmap" below for the verified feasibility-spike
+> findings.
+>
 > Sources cited inline; all repo paths verified against the tree; all external
 > protocol facts verified against primary sources (protobuf `plugin.proto`,
 > connectrpc.com, buf docs) rather than recalled.
@@ -9,26 +19,31 @@
 
 ## 1. Executive Summary
 
-`ball_protobuf` is today a **descriptor-driven protobuf *runtime*** — binary +
+`ball_protobuf` is a **descriptor-driven protobuf *runtime*** — binary +
 proto3-JSON codecs, the full Editions feature model, WKT/Any, gRPC framing —
 authored in Ball-portable Dart and **conformance-tested at 2769/2769** against
-the upstream `conformance_test_runner`. What it has **no** path for is the thing
-every other protobuf ecosystem ships: **a code generator that turns a `.proto`
-into typed model classes (and service stubs) bound to that runtime.** A consumer
-who wants typed Dart/C++/TS models today must either use the stock plugins
-(which bind to `package:protobuf` / `@bufbuild/protobuf` / `libprotobuf`, *not*
-`ball_protobuf`) or hand-roll the dynamic `Map` API.
+the upstream `conformance_test_runner`. What it lacked was the thing every other
+protobuf ecosystem ships: **a code generator that turns a `.proto` into typed
+model classes (and service stubs) bound to that runtime.** Before this work, a
+consumer who wanted typed models had to use the stock plugins (which bind to
+`package:protobuf` / `@bufbuild/protobuf` / `libprotobuf`, *not* `ball_protobuf`)
+or hand-roll the dynamic `Map` API.
 
-This plan specifies that generator. The central decision, justified in §3, is to
+This document specified that generator, and it is now **built and shipped on the
+Dart target** as `dart/ball_protobuf_gen` (the `protoc-gen-ball` /
+`protoc-gen-ball-connect` / `protoc-gen-ball-grpc` plugins) plus the
+`dart/ball_rpc` transport runtime. The central decision, justified in §3, was to
 follow the **modern "thin schema + descriptor-driven runtime" model**
 (protobuf-es v2, protobuf-go `dynamicpb`, `hyperpb`) — **not** the classic
 "fat generated code" model (C++/Java/C#/`protoc-gen-dart`). Generated code stays
 thin (a typed view + an embedded descriptor); all encoding is delegated to the
-already-validated `ball_protobuf` runtime. The generator is **authored once in
-Ball-portable Dart and compiled by Ball's own toolchain to every target**, so a
-single source emits Dart, C++, and TS models — directly realizing Ball's
-portability thesis. The plan covers messages, **Editions**, **extensions**,
-**gRPC**, and **Connect RPC** as first-class concerns.
+already-validated `ball_protobuf` runtime. The eventual ambition — author the
+generator in Ball-portable Dart and **compile it (and the runtime) with Ball's
+own toolchain to every target**, so a single source emits Dart, C++, and TS
+models — is captured as roadmap (see "## Multi-target status & roadmap"); the
+Dart-native generator built first proves the model end-to-end. The toolchain
+covers messages, **Editions**, **extensions**, **gRPC**, and **Connect RPC** as
+first-class concerns.
 
 ---
 
@@ -316,21 +331,24 @@ seed of `ServiceDescriptor`. We generate the typed wrapper around it.
 
 ## 9. Authoring strategy: one generator, all targets
 
-Per Ball's thesis and your steer, the generator itself is **authored in
-Ball-portable Dart** and compiled by Ball's existing compilers to Dart, C++, and
-TS. A target is then a set of **emission templates** (string-building per the
-target's syntax) sharing one front end (request decode → resolved descriptors →
-an intermediate "GenModel" tree). This:
-- emits Dart **and** C++ **and** TS models from a single source of truth;
-- means the generator runs anywhere Ball runs;
-- dogfoods both `ball_protobuf` (request decode) and the Ball compiler (the
-  generator is itself a Ball program).
+The de-risking plan was to build and validate a **Dart-native generator first**
+(plain Dart in `dart/ball_protobuf_gen/`), prove the model end-to-end, *then*
+port the front end to Ball-portable Dart and emit C++/TS. **The first half is
+done** (Phases 0–4, Dart target). The generator is structured exactly for the
+port: a target-independent front end (request decode → resolved descriptors →
+an intermediate `GenModel` tree in `lib/src/gen_model.dart`) feeding per-target
+**emission templates** (`dart_emitter.dart`, `connect_emitter.dart`,
+`grpc_emitter.dart` — string-building per the target's syntax).
 
-Risk: the Ball compiler/encoder must handle a program this size and string-heavy.
-Mitigation: build and validate the **Dart-native generator first** (plain Dart in
-`dart/ball_protobuf_gen/`), prove the model end-to-end, *then* port the front end
-to Ball-portable Dart and add C++/TS templates. This de-risks the novel part
-without blocking the deliverable.
+The original ambition — author the generator itself in Ball-portable Dart and
+**compile it with Ball's own compilers** to Dart/C++/TS, so a single source
+emits models on every target and the generator runs anywhere Ball runs — turns
+out to depend on the Ball **compilers** being able to compile the `ball_protobuf`
+*runtime* into a working native library on those targets. A feasibility spike
+(running the Dart→TS and Dart→C++ compilers over `dart/ball_protobuf/lib/`)
+showed the runtime logic is correct but the compile-to-library path is currently
+blocked. Those verified findings, and the prioritized fixes, are recorded in
+"## Multi-target status & roadmap" below.
 
 ---
 
@@ -352,17 +370,19 @@ None require schema changes; all are additive to `ball_protobuf`'s public API.
 
 ## 11. Phased build plan
 
-| Phase | Deliverable | Gate |
-|---|---|---|
-| 0 | Scaffold `ball_protobuf_gen` package; move `descriptor_bridge` into it (depends on `ball_base`+`ball_protobuf`); add the §10 public runtime entry points to `ball_protobuf` | unit tests; analyze/format clean; conformance harness still green |
-| 1 | `protoc-gen-ball` skeleton (Dart-native): decode `CodeGeneratorRequest` via `ball_protobuf`, emit empty `CodeGeneratorResponse` with correct feature flags | runs under `protoc` and `buf generate` |
-| 2 | **Message codegen, Dart target** — enums, messages, oneofs, maps, nested, WKT views (mutable-over-Map, §4.3) | new conformance: generated-model round-trips for proto2/proto3/edition2023 |
-| 3 | **Extensions + registries** (Dart) | extension round-trips; Any-in-JSON via generated registry |
-| 4 | **Services** (separate plugins, §13.2): `ServiceDescriptor` + `protoc-gen-ball-connect` (unary + streaming), then `protoc-gen-ball-grpc` | echo/streaming integration tests against a reference server |
-| 5 | Port the generator front end to **Ball-portable Dart**; add **C++ and TS** emission templates | same `.proto` → models on Dart/C++/TS; cross-target golden tests |
-| 6 | `buf.gen.yaml` wiring, docs (`<lang>/AGENTS.md`, README), CI job | CI green on all targets |
+| Phase | Deliverable | Gate | Status |
+|---|---|---|---|
+| 0 | Scaffold `ball_protobuf_gen` package; move `descriptor_bridge` into it (depends on `ball_base`+`ball_protobuf`); add the §10 public runtime entry points to `ball_protobuf` | unit tests; analyze/format clean; conformance harness still green | **DONE** |
+| 1 | `protoc-gen-ball` skeleton (Dart-native): decode `CodeGeneratorRequest` via `ball_protobuf`, emit empty `CodeGeneratorResponse` with correct feature flags | runs under `protoc` and `buf generate` | **DONE** |
+| 2 | **Message codegen, Dart target** — enums, messages, oneofs, maps, nested, WKT views (mutable-over-Map, §4.3) | new conformance: generated-model round-trips for proto2/proto3/edition2023 | **DONE** (golden + round-trip tests) |
+| 3 | **Extensions + registries** (Dart) | extension round-trips; Any-in-JSON via generated registry | **DONE** |
+| 4 | **Services** (separate plugins, §13.2): `ServiceDescriptor` + `protoc-gen-ball-connect` (unary + streaming), then `protoc-gen-ball-grpc`; transports in `dart/ball_rpc` | echo/streaming integration tests against a reference server | **DONE** |
+| 5 | Port the generator front end to **Ball-portable Dart**; add **C++ and TS** emission templates / library targets | same `.proto` → models on Dart/C++/TS; cross-target golden tests | **ROADMAP** — blocked on Ball-compiler gaps; see "## Multi-target status & roadmap" |
+| 6 | `buf.gen.yaml` wiring, docs (`<lang>/AGENTS.md`, README), CI job | CI green on all targets | Dart docs + READMEs DONE; full CI matrix tracks Phase 5 |
 
-Each phase is independently shippable and leaves the tree green.
+Phases 0–4 are shipped on the Dart target and leave the tree green
+(`dart/ball_protobuf_gen` 63 tests, `dart/ball_rpc` 45 tests,
+`dart/ball_protobuf` 232 tests). Each is independently shippable.
 
 ---
 
@@ -393,6 +413,80 @@ Each phase is independently shippable and leaves the tree green.
    plain objects; only Java retains immutable+builder.
 4. **gRPC-Web** — deferred to a follow-up (transport-only delta over gRPC); not in
    the initial phases.
+
+---
+
+## Multi-target status & roadmap
+
+Phases 0–4 ship the full toolchain on the **Dart target only**. The original §9
+vision — author the generator in Ball-portable Dart and compile the
+`ball_protobuf` *runtime* with Ball's own compilers so the same `.proto` yields
+working native models on C++ and TS — was put through a feasibility spike:
+the Dart→TS and Dart→C++ compilers were run over `dart/ball_protobuf/lib/` and
+the resulting libraries were exercised. The findings below are **facts from
+running the compilers**, not estimates.
+
+### Finding: the runtime *logic* is correct; compiling it to a native library is blocked
+
+The `ball_protobuf` runtime logic is correct as authored. In Dart,
+`marshal({x: 7}, descriptor)` produces `[8, 7]` (field 1, varint 7) and full
+binary + proto3-JSON round-trips pass (this is the 232-test runtime, also pinned
+at 2769/2769 against the upstream conformance runner). Compiling that same
+runtime to a native **TS or C++ library** via the Ball compilers does **not**
+yet work:
+
+**TypeScript — compiles, but does not run correctly.**
+
+- **List-mutation lowering loses byte accumulation (dominant blocker).** In-place
+  `buffer.add(b)` is lowered to an immutable `[...buffer, b]` reassignment whose
+  return value callers discard, so the accumulated bytes are lost and `marshal`
+  returns `[]`. Compare the lowering in `ts/compiler/src/compiler.ts` (~line
+  3729) against the in-place append the runtime relies on in
+  `dart/ball_protobuf/lib/wire_varint.dart:56`.
+- **Call-arity misalignment** for named/optional parameters.
+- **No standalone shims** for `utf8` / `ByteData` / `Endian` / `jsonEncode`.
+- **`BallCompiler` has no library/`Module` emit mode** — it only emits a
+  `Program` with a `main` entry point.
+- **Emitted functions are not exported**, so even a correct compile would not be
+  importable as a library.
+
+**C++ — does not compile.**
+
+- **No `dart:typed_data` runtime (dominant blocker):** `ByteData` / `Endian` /
+  `getUint8` / `setFloat32|64` / `getFloat32|64` have no C++ equivalent provided.
+- **No `dart:convert`:** `jsonEncode` / `jsonDecode` unavailable.
+- **`StringBuffer` mis-emit.**
+- **Optional/named-parameter arity bugs.**
+- **`void`→`BallDyn` return-type mismatches.**
+- **Duplicate-body name collisions.**
+- **A stray `@` string-escaping bug.**
+- **Anonymous-namespace + global `main()`** output is an executable, not a
+  linkable library (a `--split` named-namespace mode exists but there is still no
+  library/`Module` compile mode in the CLI).
+- **The committed `dart/shared/ball_protobuf.bin` is STALE** — it predates
+  `messageToJson` / `messageFromJson`. Regenerate before any C++/TS compile via:
+
+  ```sh
+  cd dart/encoder && dart run bin/gen_ball_protobuf.dart
+  ```
+
+### Roadmap (prioritized)
+
+1. **Fix list-mutation lowering** (emit a genuine in-place push, not an immutable
+   reassign whose result is discarded) **and named-parameter call arity** in both
+   the TS and C++ compilers.
+2. **Provide `dart:typed_data` + `dart:convert` + `StringBuffer` runtime shims**
+   per target.
+3. **Add a library/`Module` emit mode** to the compilers: export public symbols,
+   emit no `main`, and accept a `Module` facade (not just a `Program`).
+4. **Regenerate `ball_protobuf.{json,bin}`** (`cd dart/encoder && dart run
+   bin/gen_ball_protobuf.dart`).
+5. **Compile + publish** the runtime as a native library per target —
+   `@ball-lang/ball-protobuf` on npm for TS, and a CMake / vcpkg / Conan target
+   for C++.
+
+All steps are gated on the existing **conformance + self-host suites** staying
+green.
 
 ---
 

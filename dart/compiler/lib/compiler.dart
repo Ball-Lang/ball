@@ -4605,6 +4605,14 @@ class DartCompiler {
     final isLate = meta['is_late'] == true;
 
     var type = meta['type'] as String?;
+    // Ball is dynamically typed; 'Object' in generic type parameters should
+    // be 'dynamic' so map/list access returns dynamic (implicitly castable)
+    // instead of Object (which requires explicit casts in null-safe Dart).
+    if (type != null) {
+      type = type
+          .replaceAll('Object>', 'dynamic>')
+          .replaceAll('Object,', 'dynamic,');
+    }
 
     // When the value is a call to a sync*/async* generator function, the
     // declared variable type may be `List<T>` but the actual return is

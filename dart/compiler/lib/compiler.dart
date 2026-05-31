@@ -2811,6 +2811,11 @@ class DartCompiler {
     } else {
       modulePrefix = '';
     }
+    // Strip module prefix from function name when it's a qualified constructor
+    // call encoded as FunctionCall (e.g. "main:Dog.new" → "Dog.new").
+    final fnName = call.function.contains(':')
+        ? call.function.substring(call.function.lastIndexOf(':') + 1)
+        : call.function;
     String result;
     if (call.hasInput()) {
       final inp = call.input;
@@ -2827,13 +2832,13 @@ class DartCompiler {
             : '';
         final args = allFields.where((f) => f.name != '__type_args__').toList();
         result = args.isEmpty
-            ? '$modulePrefix${call.function}$typeArgs()'
-            : '$modulePrefix${call.function}$typeArgs(${_compileArgs(args)})';
+            ? '$modulePrefix$fnName$typeArgs()'
+            : '$modulePrefix$fnName$typeArgs(${_compileArgs(args)})';
       } else {
-        result = '$modulePrefix${call.function}(${_e(inp)})';
+        result = '$modulePrefix$fnName(${_e(inp)})';
       }
     } else {
-      result = '$modulePrefix${call.function}()';
+      result = '$modulePrefix$fnName()';
     }
 
     // Auto-await: if the called function is known to be async, wrap the call

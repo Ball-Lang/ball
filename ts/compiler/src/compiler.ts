@@ -3175,7 +3175,13 @@ function __isUnknownFnError(e: any): boolean {
   }
 
   private compileFieldAccess(fa: NonNullable<Expression["fieldAccess"]>): string {
-    const obj = this.expr(fa.object);
+    // Ball's `self.field` in class methods → `this.field` in JS.
+    // Only when `self` is not an explicit method parameter (the engine
+    // passes `self` as a parameter in its own OOP dispatch).
+    const isSelfRef = fa.object.reference?.name === "self" &&
+      this.currentClassFields.size > 0 &&
+      !this.currentMethodParams.has("self");
+    const obj = isSelfRef ? "this" : this.expr(fa.object);
     const f = fa.field;
     if (f === "length") return `${obj}.length`;
     // Positional record field: `.$1` / `.$2` → [0] / [1].

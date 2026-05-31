@@ -2275,7 +2275,7 @@ function __isUnknownFnError(e: any): boolean {
     const superclass = typeof meta["superclass"] === "string" ? meta["superclass"] : undefined;
     if (superclass) {
       const entryMod = this.program.modules.find(m => m.name === this.program.entryModule);
-      let sup = superclass;
+      let sup: string | undefined = superclass;
       while (sup && entryMod) {
         const supTd = entryMod.typeDefs?.find(t => classTsName(t.name) === sup);
         if (!supTd) break;

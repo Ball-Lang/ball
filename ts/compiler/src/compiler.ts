@@ -75,6 +75,20 @@ export class BallCompiler {
   /** typeDefs in the entry module (typeName → definition). */
   private typeDefByName: Map<string, TypeDefinition> = new Map();
 
+  /**
+   * Variable names declared (via `let`) in the current function scope.
+   * Used to detect shadowing conflicts when hoisting block statements.
+   */
+  private scopeDeclaredVars: Set<string> = new Set();
+
+  /**
+   * Stack of rename maps for shadow-renamed variables. When a hoisted
+   * block declares a variable that conflicts with an already-declared
+   * name, we push a map entry (original → renamed) before emitting
+   * the block's statements and pop it afterward.
+   */
+  private renameStack: Map<string, string>[] = [];
+
   constructor(program: Program) {
     this.program = program;
   }
@@ -2557,7 +2571,17 @@ function __isUnknownFnError(e: any): boolean {
   }
 
   private emitBlock(block: NonNullable<Expression["block"]>, isFunctionBody: boolean): void {
+    // When entering a function body, start a fresh scope for variable tracking.
+    const savedScope = isFunctionBody ? this.scopeDeclaredVars : null;
+    const savedRenames = isFunctionBody ? this.renameStack : null;
+    if (isFunctionBody) {
+      this.scopeDeclaredVars = new Set();
+      this.renameStack = [];
+    }
     for (const s of block.statements ?? []) this.emitStatement(s);
+    // Restore previous scope state when leaving a function body.
+    if (savedScope !== null) this.scopeDeclaredVars = savedScope;
+    if (savedRenames !== null) this.renameStack = savedRenames;
     if (block.result !== undefined && isFunctionBody) {
       const r = block.result;
       // notSet literal → skip.
@@ -2575,6 +2599,42 @@ function __isUnknownFnError(e: any): boolean {
     }
   }
 
+  /**
+   * Resolve a variable name through the active rename stack.
+   * If a rename exists for the sanitized name, return the renamed version.
+   */
+  private resolveVarName(sanitizedName: string): string {
+    // Walk the stack top-down (most recent renames take priority).
+    for (let i = this.renameStack.length - 1; i >= 0; i--) {
+      const renamed = this.renameStack[i].get(sanitizedName);
+      if (renamed !== undefined) return renamed;
+    }
+    return sanitizedName;
+  }
+
+  /**
+   * Recursively collect all `let`-declared variable names from a block's
+   * statements that would be hoisted into the enclosing scope. This includes
+   * direct `let` statements and `let` statements inside nested
+   * block-expression-as-statement nodes (since those are also hoisted flat).
+   */
+  private collectHoistedLetNames(statements: Statement[]): string[] {
+    const names: string[] = [];
+    for (const s of statements) {
+      if (s.let) {
+        names.push(sanitize(s.let.name));
+      } else if (s.expression) {
+        const e = s.expression;
+        // Recurse into nested hoistable blocks (block-expression-as-statement
+        // with no result — the same pattern that triggers hoisting).
+        if (e.block && e.block.result === undefined && e.block.statements) {
+          names.push(...this.collectHoistedLetNames(e.block.statements));
+        }
+      }
+    }
+    return names;
+  }
+
   private emitStatement(stmt: Statement): void {
     if (stmt.let) {
       const meta: Struct = stmt.let.metadata ?? {};
@@ -2585,7 +2645,10 @@ function __isUnknownFnError(e: any): boolean {
       // output re-assigns in patterns the encoder generates (e.g.
       // _tryOperatorOverride's `left = input['left']`).
       const kw = "let";
-      const name = sanitize(stmt.let.name);
+      const rawName = sanitize(stmt.let.name);
+      const name = this.resolveVarName(rawName);
+      // Track this declaration in the current scope.
+      this.scopeDeclaredVars.add(name);
       if (stmt.let.value !== undefined) {
         this.writeln(`${kw} ${name} = ${this.expr(stmt.let.value)};`);
       } else {
@@ -2601,7 +2664,30 @@ function __isUnknownFnError(e: any): boolean {
       }
       // Block-expression-as-statement with no result: hoist inner stmts.
       if (e.block && e.block.result === undefined) {
-        for (const inner of e.block.statements ?? []) this.emitStatement(inner);
+        const innerStmts = e.block.statements ?? [];
+        // Detect variable name conflicts: collect all `let` names that
+        // would be hoisted, and check against already-declared names.
+        const hoistedNames = this.collectHoistedLetNames(innerStmts);
+        const conflicts = new Map<string, string>();
+        for (const n of hoistedNames) {
+          if (this.scopeDeclaredVars.has(n)) {
+            // Find a unique renamed version.
+            let counter = 1;
+            let renamed = `${n}$${counter}`;
+            while (this.scopeDeclaredVars.has(renamed)) {
+              counter++;
+              renamed = `${n}$${counter}`;
+            }
+            conflicts.set(n, renamed);
+          }
+        }
+        if (conflicts.size > 0) {
+          this.renameStack.push(conflicts);
+          for (const inner of innerStmts) this.emitStatement(inner);
+          this.renameStack.pop();
+        } else {
+          for (const inner of innerStmts) this.emitStatement(inner);
+        }
         return;
       }
       this.writeln(`${this.expr(e)};`);
@@ -2946,6 +3032,13 @@ function __isUnknownFnError(e: any): boolean {
     const value = field(call, "value");
     if (!target || !value) return;
     const op = stringField(call, "op") || "=";
+    // Dart's `~/=` (integer-division-assign) has no JS equivalent operator.
+    // Emit as `target = Math.trunc(target / value)` instead.
+    if (op === "~/=") {
+      const tgt = this.lvalueExpr(target);
+      this.writeln(`${tgt} = Math.trunc(${tgt} / ${this.expr(value)});`);
+      return;
+    }
     this.writeln(`${this.lvalueExpr(target)} ${op} ${this.expr(value)};`);
   }
 
@@ -3018,7 +3111,8 @@ function __isUnknownFnError(e: any): boolean {
           return `this.${short}.bind(this)`;
         }
       }
-      return sanitize(name);
+      // Apply shadow-rename resolution for hoisted block variables.
+      return this.resolveVarName(sanitize(name));
     }
     if (e.fieldAccess) return this.compileFieldAccess(e.fieldAccess);
     if (e.messageCreation) return this.compileMessageCreation(e.messageCreation);
@@ -3229,6 +3323,11 @@ function __isUnknownFnError(e: any): boolean {
   private compileLambda(fn: FunctionDef): string {
     const params = extractParams(fn);
     const paramList = params.map(sanitize).join(", ");
+    // Lambda creates a new JS function scope — save/restore variable tracking.
+    const savedScope = this.scopeDeclaredVars;
+    const savedRenames = this.renameStack;
+    this.scopeDeclaredVars = new Set();
+    this.renameStack = [];
     const innerText = this.captureInto(() => {
       this.writeln("");
       if (params.length === 1 && params[0] !== "input") {
@@ -3236,6 +3335,8 @@ function __isUnknownFnError(e: any): boolean {
       }
       if (fn.body) this.emitStatementOrExpression(fn.body, true);
     }) + "\n";
+    this.scopeDeclaredVars = savedScope;
+    this.renameStack = savedRenames;
     const isAsync = functionIsAsync(fn) || containsBareKeyword(innerText, "await");
     const isGenerator = containsBareKeyword(innerText, "yield");
     if (isGenerator) {
@@ -3437,6 +3538,11 @@ function __isUnknownFnError(e: any): boolean {
       case "assert":  return `console.assert(${this.expr(f.get("condition")!)})`;
       case "assign": {
         const op = stringField(call, "op") || "=";
+        // Dart's `~/=` (integer-division-assign) has no JS equivalent.
+        if (op === "~/=") {
+          const tgt = this.lvalueExpr(f.get("target")!);
+          return `(${tgt} = Math.trunc(${tgt} / ${this.expr(f.get("value")!)}))`;
+        }
         return `(${this.lvalueExpr(f.get("target")!)} ${op} ${this.expr(f.get("value")!)})`;
       }
       case "pre_increment":  return `(++${this.expr(f.get("value")!)})`;

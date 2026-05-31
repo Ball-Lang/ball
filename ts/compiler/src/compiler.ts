@@ -3537,6 +3537,12 @@ function __isUnknownFnError(e: any): boolean {
         const e = elseE ? this.expr(unwrapLambda(elseE)) : "undefined";
         return `(${cond} ? ${t} : ${e})`;
       }
+      case "try": {
+        // Ball's `try` is a function (usable as an expression), but TS's
+        // `try` is only a statement. Wrap in an IIFE for expression context.
+        const captured = this.captureInto(() => this.emitTryStmt(call));
+        return `(() => { ${captured} })()`;
+      }
       case "paren":   return `(${this.expr(f.get("value")!)})`;
       case "assert":  return `console.assert(${this.expr(f.get("condition")!)})`;
       case "assign": {

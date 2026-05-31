@@ -50,6 +50,9 @@ export class BallCompiler {
   /** Catch-bound variables currently in scope — subject to bracket access. */
   private readonly catchVars = new Set<string>();
 
+  /** Names of user-defined async functions (from metadata is_async). */
+  private asyncFnNames: Set<string> = new Set();
+
   /** Fields of the class currently being emitted (method bodies). */
   private currentClassFields: Set<string> = new Set();
 
@@ -113,6 +116,11 @@ export class BallCompiler {
 
     // Seed the function-name + typeDef lookup tables.
     this.allFunctionNames = new Set(entryMod.functions.map((f) => f.name));
+    this.asyncFnNames = new Set(
+      entryMod.functions
+        .filter((f) => f.metadata?.["is_async"] === true || f.metadata?.["is_async_star"] === true)
+        .map((f) => f.name),
+    );
     this.typeDefByName = new Map(
       (entryMod.typeDefs ?? []).map((td) => [td.name, td]),
     );
@@ -180,8 +188,16 @@ export class BallCompiler {
       (f) => f.name === this.program.entryFunction,
     );
     if (entryFn) {
-      this.emitFreeFunction(sf, entryFn, "main");
-      sf.addStatements("main();");
+      // Check if main calls any async function → make main async + await.
+      const asyncFnNames = new Set(
+        entryMod.functions
+          .filter((f) => f.metadata?.["is_async"] === true)
+          .map((f) => f.name),
+      );
+      const mainCallsAsync = asyncFnNames.size > 0 && entryFn.body &&
+        this.bodyReferencesAny(entryFn.body, asyncFnNames);
+      this.emitFreeFunction(sf, entryFn, "main", mainCallsAsync);
+      sf.addStatements(mainCallsAsync ? "await main();" : "main();");
     }
 
     sf.formatText({ indentSize: 2, convertTabsToSpaces: true });
@@ -2205,6 +2221,7 @@ function __isUnknownFnError(e: any): boolean {
     sf: ReturnType<Project["createSourceFile"]>,
     fn: FunctionDef,
     forceName?: string,
+    forceAsync?: boolean,
   ): void {
     const params = extractParams(fn);
     const name = forceName ?? sanitize(fn.name);
@@ -2216,7 +2233,7 @@ function __isUnknownFnError(e: any): boolean {
       }
       if (fn.body) this.emitStatementOrExpression(fn.body, true);
     });
-    const isAsync = functionIsAsync(fn);
+    const isAsync = forceAsync || functionIsAsync(fn);
     sf.addFunction({
       kind: StructureKind.Function,
       name,
@@ -2225,6 +2242,27 @@ function __isUnknownFnError(e: any): boolean {
       returnType: isAsync ? "Promise<any>" : "any",
       statements: body,
     });
+  }
+
+  /** Check if an expression tree references any name in the given set. */
+  private bodyReferencesAny(expr: Expression, names: Set<string>): boolean {
+    if (expr.reference && names.has(expr.reference.name)) return true;
+    if (expr.call && names.has(expr.call.function)) return true;
+    if (expr.call?.input && this.bodyReferencesAny(expr.call.input, names)) return true;
+    if (expr.block) {
+      for (const s of expr.block.statements ?? []) {
+        if (s.expression && this.bodyReferencesAny(s.expression, names)) return true;
+        if (s.let?.value && this.bodyReferencesAny(s.let.value, names)) return true;
+      }
+      if (expr.block.result && this.bodyReferencesAny(expr.block.result, names)) return true;
+    }
+    if (expr.messageCreation) {
+      for (const f of expr.messageCreation.fields ?? []) {
+        if (this.bodyReferencesAny(f.value, names)) return true;
+      }
+    }
+    if (expr.fieldAccess?.object && this.bodyReferencesAny(expr.fieldAccess.object, names)) return true;
+    return false;
   }
 
   private emitClass(
@@ -3456,7 +3494,9 @@ function __isUnknownFnError(e: any): boolean {
         thisPrefix = "this.";
       }
     }
-    if (!call.input) return `${thisPrefix}${fn}()`;
+    // Auto-await calls to known-async user functions.
+    const awaitPfx = this.asyncFnNames.has(call.function) ? "await " : "";
+    if (!call.input) return `${awaitPfx}${thisPrefix}${fn}()`;
     const input = call.input;
     if (input.messageCreation) {
       const fields = input.messageCreation.fields ?? [];
@@ -3484,9 +3524,9 @@ function __isUnknownFnError(e: any): boolean {
           : `${selfStr}.${fn}(${otherArgs})`;
       }
       const args = fields.map((f) => this.expr(f.value)).join(", ");
-      return `${thisPrefix}${fn}(${args})`;
+      return `${awaitPfx}${thisPrefix}${fn}(${args})`;
     }
-    return `${thisPrefix}${fn}(${this.expr(input)})`;
+    return `${awaitPfx}${thisPrefix}${fn}(${this.expr(input)})`;
   }
 
   private compileStdCall(call: FunctionCall): string {

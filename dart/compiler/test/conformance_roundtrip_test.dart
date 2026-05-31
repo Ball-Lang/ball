@@ -49,7 +49,12 @@ import 'package:test/test.dart';
 import 'support/pipeline_runners.dart';
 
 /// All legs this harness exercises, in a stable order.
-const _legs = <String>['engine', 'dart-compiled', 'ts-compiled', 'dart-roundtrip'];
+const _legs = <String>[
+  'engine',
+  'dart-compiled',
+  'ts-compiled',
+  'dart-roundtrip',
+];
 
 /// Result of running one leg against one program.
 enum _Outcome { pass, fail, skip }
@@ -123,10 +128,7 @@ Future<({_Outcome outcome, String? detail})> _runLeg(
         try {
           reencoded = DartEncoder().encode(dartSource);
         } catch (e) {
-          return (
-            outcome: _Outcome.fail,
-            detail: 'encoder threw: $e',
-          );
+          return (outcome: _Outcome.fail, detail: 'encoder threw: $e');
         }
         final out = await runRecompiledDart(reencoded, scratch, '${c.name}.rt');
         return out == c.expected
@@ -195,9 +197,7 @@ List<_Case> _discover(Directory conformanceDir) {
     final expected = normalizeOutput(goldenFile.readAsStringSync());
     Program program;
     try {
-      program = decodeProgramJson(
-        jsonDecode(jsonFile.readAsStringSync()),
-      );
+      program = decodeProgramJson(jsonDecode(jsonFile.readAsStringSync()));
     } catch (e) {
       // Keep an empty program; every leg will then fail loudly.
       program = Program();
@@ -213,7 +213,9 @@ Future<({Set<String> failures, Map<String, List<int>> tally, int total})>
 _runCorpus(List<_Case> cases, Directory scratch) async {
   final failures = <String>{};
   // tally[leg] = [pass, fail, skip].
-  final tally = {for (final l in _legs) l: <int>[0, 0, 0]};
+  final tally = {
+    for (final l in _legs) l: <int>[0, 0, 0],
+  };
 
   for (final c in cases) {
     final results = await _evaluate(c, scratch);
@@ -238,9 +240,7 @@ String _renderTally(Map<String, List<int>> tally, int total) {
   b.writeln('Conformance round-trip results over $total programs:');
   for (final leg in _legs) {
     final t = tally[leg]!;
-    b.writeln(
-      '  ${leg.padRight(16)} pass=${t[0]}  fail=${t[1]}  skip=${t[2]}',
-    );
+    b.writeln('  ${leg.padRight(16)} pass=${t[0]}  fail=${t[1]}  skip=${t[2]}');
   }
   return b.toString();
 }
@@ -253,7 +253,9 @@ void main() async {
   if (cases.isEmpty) {
     // Nothing to do; surface clearly rather than passing vacuously.
     test('conformance corpus present', () {
-      fail('no conformance programs with goldens found in ${conformanceDir.path}');
+      fail(
+        'no conformance programs with goldens found in ${conformanceDir.path}',
+      );
     });
     return;
   }
@@ -262,8 +264,7 @@ void main() async {
   // run overwrite tests/conformance/roundtrip_baseline.txt with the real
   // failure set (and still assert green against it afterwards). Works under
   // `dart test` since it reads a process environment variable.
-  final updateBaseline =
-      Platform.environment['BALL_RT_UPDATE_BASELINE'] == '1';
+  final updateBaseline = Platform.environment['BALL_RT_UPDATE_BASELINE'] == '1';
 
   // One monolithic test: the corpus run spawns thousands of child processes,
   // so it gets its own unbounded timeout. Per-program assertions are folded
@@ -301,8 +302,8 @@ void main() async {
 
         // New failures (regressions) and newly-passing combos (stale
         // baseline) both fail the suite.
-        final regressions =
-            actualFailures.difference(baseline).toList()..sort();
+        final regressions = actualFailures.difference(baseline).toList()
+          ..sort();
         final nowPassing = baseline.difference(actualFailures).toList()..sort();
 
         final msg = StringBuffer();

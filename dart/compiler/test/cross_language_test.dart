@@ -135,7 +135,11 @@ void main() {
         );
 
         // ── 4. DartCompiler → dart run.
-        final recompiledDartOut = await runRecompiledDart(program, scratch, name);
+        final recompiledDartOut = await runRecompiledDart(
+          program,
+          scratch,
+          name,
+        );
         expect(
           recompiledDartOut,
           equals(baseline),

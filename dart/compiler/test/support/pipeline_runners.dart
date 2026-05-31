@@ -49,13 +49,16 @@ Future<String> runProcessGuarded(
   process.stdout.transform(utf8.decoder).listen(stdoutBuf.write);
   process.stderr.transform(utf8.decoder).listen(stderrBuf.write);
 
-  final exitCode = await process.exitCode.timeout(timeout, onTimeout: () {
-    process.kill(ProcessSignal.sigkill);
-    throw TimeoutException(
-      '${label ?? executable} exceeded ${timeout.inSeconds}s (likely infinite loop)',
-      timeout,
-    );
-  });
+  final exitCode = await process.exitCode.timeout(
+    timeout,
+    onTimeout: () {
+      process.kill(ProcessSignal.sigkill);
+      throw TimeoutException(
+        '${label ?? executable} exceeded ${timeout.inSeconds}s (likely infinite loop)',
+        timeout,
+      );
+    },
+  );
 
   if (exitCode != 0) {
     throw StateError(
@@ -70,10 +73,10 @@ Future<String> runProcessGuarded(
 /// Throws [StateError] if the process exits non-zero.
 /// Throws [TimeoutException] if the program exceeds [programTimeout].
 Future<String> runDartNative(File dartFile) => runProcessGuarded(
-      Platform.resolvedExecutable,
-      ['run', dartFile.absolute.path],
-      label: 'dart run ${dartFile.uri.pathSegments.last}',
-    );
+  Platform.resolvedExecutable,
+  ['run', dartFile.absolute.path],
+  label: 'dart run ${dartFile.uri.pathSegments.last}',
+);
 
 /// Executes [program] with the Dart [BallEngine] and returns its normalized
 /// captured stdout.
@@ -86,7 +89,10 @@ Future<String> runBallEngine(Program program) async {
 /// Compiles [program] to Dart via [DartCompiler], writes it under [scratch]
 /// as `<name>.regen.dart`, runs it with `dart run`, and returns the output.
 Future<String> runRecompiledDart(
-    Program program, Directory scratch, String name) async {
+  Program program,
+  Directory scratch,
+  String name,
+) async {
   final dartSource = DartCompiler(program).compile();
   final out = File('${scratch.path}/$name.regen.dart');
   out.writeAsStringSync(dartSource);
@@ -96,7 +102,11 @@ Future<String> runRecompiledDart(
 /// Compile Ball → TypeScript via `@ball-lang/compiler` (ts/compiler/),
 /// then run via `node --experimental-strip-types`.
 /// Returns null if `node` isn't on PATH or the TS compiler isn't built.
-Future<String?> runTsCompiled(Program program, Directory scratch, String name) async {
+Future<String?> runTsCompiled(
+  Program program,
+  Directory scratch,
+  String name,
+) async {
   final nodeExe = Platform.isWindows ? 'node.exe' : 'node';
 
   // Locate the @ball-lang/compiler CLI relative to the repo root.
@@ -133,15 +143,11 @@ Future<String?> runTsCompiled(Program program, Directory scratch, String name) a
       );
     }
 
-    return await runProcessGuarded(
-      nodeExe,
-      [
-        '--experimental-strip-types',
-        '--disable-warning=ExperimentalWarning',
-        out.absolute.path,
-      ],
-      label: 'node $name.regen.ts',
-    );
+    return await runProcessGuarded(nodeExe, [
+      '--experimental-strip-types',
+      '--disable-warning=ExperimentalWarning',
+      out.absolute.path,
+    ], label: 'node $name.regen.ts');
   } on ProcessException {
     return null;
   }

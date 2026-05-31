@@ -192,12 +192,22 @@ String timestampToRfc3339(Map<String, Object?> timestamp) {
 ///
 /// Returns `{"seconds": int, "nanos": int}`.
 Map<String, Object?> rfc3339ToTimestamp(String rfc3339) {
-  final dt = DateTime.parse(rfc3339);
-  final seconds = dt.millisecondsSinceEpoch ~/ 1000;
+  // Strict RFC 3339 (proto3 JSON): a 4-digit year, the uppercase 'T'
+  // separator, and either an uppercase 'Z' or a numeric offset with a colon
+  // (±HH:MM). Rejects lenient variants (missing T/Z, lowercase z, offset
+  // without a colon).
+  if (!RegExp(
+    r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$',
+  ).hasMatch(rfc3339)) {
+    throw FormatException('Invalid RFC 3339 timestamp: "$rfc3339"');
+  }
 
   // Extract fractional seconds from the string to preserve full nanosecond
-  // precision (DateTime only holds microseconds).
+  // precision (DateTime only holds microseconds). protobuf nanos are ALWAYS in
+  // [0, 999999999] — even for negative timestamps — so the fraction is parsed
+  // separately and the whole-second part is floored, not truncated.
   int nanos = 0;
+  String forParse = rfc3339;
   final dotIndex = rfc3339.indexOf('.');
   if (dotIndex != -1) {
     // Find the end of the fractional part (before 'Z' or timezone offset).
@@ -213,8 +223,14 @@ Map<String, Object?> rfc3339ToTimestamp(String rfc3339) {
     }
     final fracStr = rfc3339.substring(dotIndex + 1, endIndex).padRight(9, '0');
     nanos = int.parse(fracStr.substring(0, 9));
+    // Strip the fraction so the parsed instant lands on a whole second; this
+    // makes `~/ 1000` exact (a negative fractional time would otherwise
+    // truncate toward zero, e.g. -1.5s -> -1s instead of the correct -2s+0.5).
+    forParse = rfc3339.substring(0, dotIndex) + rfc3339.substring(endIndex);
   }
 
+  final dt = DateTime.parse(forParse);
+  final seconds = dt.millisecondsSinceEpoch ~/ 1000;
   return {'seconds': seconds, 'nanos': nanos};
 }
 

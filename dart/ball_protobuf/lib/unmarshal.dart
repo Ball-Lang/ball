@@ -38,6 +38,13 @@ import 'field_len.dart';
 ///
 /// Scans [descriptor] for an entry whose `'number'` matches [fieldNumber].
 /// Returns `null` if no matching descriptor is found (unknown field).
+/// Reserved message-map key under which a decoded message stores the raw bytes
+/// (tag + value, in wire order) of fields not in its descriptor, so `marshal`
+/// can re-emit them. The `$` prefix cannot collide with a real proto field
+/// name. Skipped by the descriptor-driven marshalers, appended verbatim by
+/// `marshal`.
+const String unknownFieldsKey = r'$unknown';
+
 Map<String, Object?>? findFieldByNumber(
   List<Map<String, Object?>> descriptor,
   int fieldNumber,
@@ -370,14 +377,51 @@ Object? _mapDefaultForType(String type) {
 /// Unknown fields (not in the descriptor) are silently skipped.
 /// Repeated fields accumulate into lists. Map fields decode as
 /// `Map<Object?, Object?>` keyed by the map key type.
+/// Recursively merges message [b] into [a] (protobuf message-merge semantics):
+/// singular sub-messages merge recursively, repeated fields concatenate, and
+/// scalars are overwritten by [b]. Used when a singular message field appears
+/// more than once on the wire.
+Map<String, Object?> _mergeMessages(
+  Map<String, Object?> a,
+  Map<String, Object?> b,
+) {
+  final out = Map<String, Object?>.from(a);
+  for (final e in b.entries) {
+    final existing = out[e.key];
+    final incoming = e.value;
+    if (existing is Map<String, Object?> && incoming is Map<String, Object?>) {
+      out[e.key] = _mergeMessages(existing, incoming);
+    } else if (existing is List && incoming is List) {
+      out[e.key] = [...existing, ...incoming];
+    } else {
+      out[e.key] = incoming;
+    }
+  }
+  return out;
+}
+
+/// Maps each real-oneof group name to its member field names, from the
+/// descriptor's `'oneof'` tags (set by the descriptor bridge for non-synthetic
+/// oneof members). Used to clear siblings when a member is decoded.
+Map<String, List<String>> _oneofGroups(List<Map<String, Object?>> descriptor) {
+  final groups = <String, List<String>>{};
+  for (final f in descriptor) {
+    final o = f['oneof'] as String?;
+    if (o != null) (groups[o] ??= <String>[]).add(f['name'] as String);
+  }
+  return groups;
+}
+
 Map<String, Object?> unmarshal(
   List<int> bytes,
   List<Map<String, Object?>> descriptor,
 ) {
   final Map<String, Object?> message = {};
+  final oneofGroups = _oneofGroups(descriptor);
   int offset = 0;
 
   while (offset < bytes.length) {
+    final fieldStart = offset; // tag start, for unknown-field capture
     // 1. Read the tag.
     final tagResult = decodeTag(bytes, offset);
     final fieldNumber = tagResult['fieldNumber']!;
@@ -388,17 +432,28 @@ Map<String, Object?> unmarshal(
     final fieldDesc = findFieldByNumber(descriptor, fieldNumber);
 
     if (fieldDesc == null) {
-      // Unknown field — skip it. A START_GROUP (wire type 3) skips the entire
-      // group up to its matching END_GROUP.
+      // Unknown field — consume it, but RETAIN its raw bytes (tag + value) so
+      // they can be re-emitted on marshal, preserving unknown fields in order.
+      // A START_GROUP (wire type 3) spans up to its matching END_GROUP.
       if (wireType == 3) {
         offset += _consumeGroup(bytes, offset, fieldNumber)['bytesRead'] as int;
       } else {
         offset += skipField(bytes, offset, wireType);
       }
+      final unknown = (message[unknownFieldsKey] ??= <int>[]) as List<int>;
+      unknown.addAll(bytes.sublist(fieldStart, offset));
       continue;
     }
 
     final fieldName = fieldDesc['name'] as String;
+    // Oneof: setting any member clears its siblings, so the member that appears
+    // last on the wire wins (and at most one survives in the decoded message).
+    final oneof = fieldDesc['oneof'] as String?;
+    if (oneof != null) {
+      for (final sibling in oneofGroups[oneof] ?? const <String>[]) {
+        if (sibling != fieldName) message.remove(sibling);
+      }
+    }
     final rawFieldType = fieldDesc['type'] as String;
     // Accept both 'TYPE_INT32' (marshal format) and 'int32' (bare format).
     final fieldType = rawFieldType.startsWith('TYPE_')
@@ -429,7 +484,12 @@ Map<String, Object?> unmarshal(
           message[fieldName] = <Object?>[decoded];
         }
       } else {
-        message[fieldName] = decoded;
+        final existing = message[fieldName];
+        message[fieldName] =
+            (decoded is Map<String, Object?> &&
+                existing is Map<String, Object?>)
+            ? _mergeMessages(existing, decoded)
+            : decoded;
       }
       continue;
     }
@@ -557,7 +617,13 @@ Map<String, Object?> unmarshal(
         value = unmarshal(value, messageDescriptor);
       }
 
-      message[fieldName] = value;
+      // Singular message fields merge across repeated wire occurrences;
+      // scalars overwrite (last wins).
+      final existing = message[fieldName];
+      message[fieldName] =
+          (value is Map<String, Object?> && existing is Map<String, Object?>)
+          ? _mergeMessages(existing, value)
+          : value;
     }
   }
 

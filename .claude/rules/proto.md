@@ -41,9 +41,9 @@ Output directories are language-specific (e.g., `dart/shared/lib/gen/`, `cpp/sha
 
 `ball_protobuf`'s codecs are validated against the **official protobuf
 `conformance_test_runner`** (not just our own round-trips), covering the proto2,
-proto3, and edition2023 `TestAllTypes` messages (2513 pass; expected failures —
-WKT, oneof, message merge, remaining strictness — tracked in the failure list).
-Layout:
+proto3, and edition2023 `TestAllTypes` messages — all 2769 registered tests pass
+(WKT incl. Any, oneof, message merge, unknown-field retention, full proto3-JSON
+rules); the failure list is empty. Layout:
 
 - `dart/ball_protobuf/tool/descriptor_bridge.dart` — turns a protoc
   `FileDescriptorSet` into our Map-based field descriptors, resolving each

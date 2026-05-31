@@ -514,6 +514,9 @@ Map<String, Object?> processConformanceRequest(
 Future<void> runConformanceLoop(
   Map<String, List<Map<String, Object?>>> registry,
 ) async {
+  // Enable google.protobuf.Any JSON: resolve an embedded message's type URL to
+  // its descriptor via the same registry that drives the codecs.
+  anyTypeResolver = (typeName) => registry[typeName];
   var testCount = 0;
 
   while (true) {

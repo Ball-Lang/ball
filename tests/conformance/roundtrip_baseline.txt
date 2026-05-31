@@ -3,7 +3,6 @@
 # current toolchain cannot yet reproduce. Mirrors the upstream
 # protobuf failure_list discipline. Regenerate after deliberate
 # compiler/encoder changes.
-102_inheritance:ts-compiled
 103_abstract_class:ts-compiled
 104_getter_setter:ts-compiled
 105_static_methods:dart-compiled
@@ -58,8 +57,6 @@
 175_generator_empty_return:ts-compiled
 176_generator_early_return:ts-compiled
 177_oop_diamond:ts-compiled
-178_oop_abstract:ts-compiled
-179_oop_deep:ts-compiled
 180_generic_list_ops:ts-compiled
 181_generic_map_ops:ts-compiled
 182_list_patterns:ts-compiled
@@ -76,7 +73,6 @@
 190_utf8_encode_decode:ts-compiled
 191_base64_encode_decode:ts-compiled
 192_overflow_and_large_numbers:ts-compiled
-199_malicious_input_patterns:ts-compiled
 207_record_pattern_destructure:dart-compiled
 207_record_pattern_destructure:dart-roundtrip
 207_record_pattern_destructure:ts-compiled

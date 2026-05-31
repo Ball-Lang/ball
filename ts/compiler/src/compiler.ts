@@ -2799,8 +2799,9 @@ function __isUnknownFnError(e: any): boolean {
         let first = true;
         // Parse all cases, detecting fall-through (empty body = merge
         // with next case via ||).
-        const parsedCases: Array<{ conds: string[]; body?: Expression }> = [];
+        const parsedCases: Array<{ conds: string[]; body?: Expression; patText?: string }> = [];
         const pendingConds: string[] = [];
+        let lastPatText: string | undefined;
         for (const ce of caseExprs) {
           if (!ce.messageCreation) continue;
           let pattern: Expression | undefined;
@@ -2821,17 +2822,25 @@ function __isUnknownFnError(e: any): boolean {
             body.block.result === undefined;
           if (!body || isEmpty) {
             pendingConds.push(cond);
+            lastPatText = patText;
             continue;
           }
           pendingConds.push(cond);
-          parsedCases.push({ conds: [...pendingConds], body });
+          parsedCases.push({ conds: [...pendingConds], body, patText: patText ?? lastPatText });
           pendingConds.length = 0;
+          lastPatText = undefined;
         }
         for (const pc of parsedCases) {
           const combinedCond = pc.conds.join(" || ");
           const kw = first ? "if" : "else if";
           this.writeln(`${kw} (${combinedCond}) {`);
           this.depth++;
+          // Inject variable bindings for type-test / map patterns.
+          if (pc.patText) {
+            for (const b of patternBindings(pc.patText, "__sw")) {
+              this.writeln(`const ${b.varName} = ${b.expr};`);
+            }
+          }
           this.emitStatementOrExpression(pc.body!, false);
           this.depth--;
           this.writeln("}");
@@ -3622,9 +3631,25 @@ function __isUnknownFnError(e: any): boolean {
         return `(${cond} ? ${t} : ${e})`;
       }
       case "try": {
-        // Ball's `try` is a function (usable as an expression), but TS's
-        // `try` is only a statement. Wrap in an IIFE for expression context.
         const captured = this.captureInto(() => this.emitTryStmt(call));
+        return `(() => { ${captured} })()`;
+      }
+      // Ball control-flow functions usable as expressions → IIFE wrappers.
+      case "for": {
+        const captured = this.captureInto(() => this.emitForStmt(call));
+        return `(() => { ${captured} })()`;
+      }
+      case "for_in":
+      case "for_each": {
+        const captured = this.captureInto(() => this.emitForInStmt(call));
+        return `(() => { ${captured} })()`;
+      }
+      case "while": {
+        const captured = this.captureInto(() => this.emitWhileStmt(call));
+        return `(() => { ${captured} })()`;
+      }
+      case "do_while": {
+        const captured = this.captureInto(() => this.emitDoWhileStmt(call));
         return `(() => { ${captured} })()`;
       }
       case "paren":   return `(${this.expr(f.get("value")!)})`;
@@ -3638,10 +3663,10 @@ function __isUnknownFnError(e: any): boolean {
         }
         return `(${this.lvalueExpr(f.get("target")!)} ${op} ${this.expr(f.get("value")!)})`;
       }
-      case "pre_increment":  return `(++${this.expr(f.get("value")!)})`;
-      case "pre_decrement":  return `(--${this.expr(f.get("value")!)})`;
-      case "post_increment": return `(${this.expr(f.get("value")!)}++)`;
-      case "post_decrement": return `(${this.expr(f.get("value")!)}--)`;
+      case "pre_increment":  return `(++${this.lvalueExpr(f.get("value")!)})`;
+      case "pre_decrement":  return `(--${this.lvalueExpr(f.get("value")!)})`;
+      case "post_increment": return `(${this.lvalueExpr(f.get("value")!)}++)`;
+      case "post_decrement": return `(${this.lvalueExpr(f.get("value")!)}--)`;
       case "throw": {
         const v = f.get("value");
         if (!v) return "(() => { throw null; })()";
@@ -4296,7 +4321,18 @@ function __isUnknownFnError(e: any): boolean {
         defaultBody = body;
         break;
       }
-      branches.push({ cond, body: this.expr(body) });
+      // Check if the pattern introduces variable bindings.
+      const bindings = patternBindings(patText, subjectStr);
+      let bodyStr: string;
+      if (bindings.length > 0) {
+        // Wrap body in an IIFE that binds the pattern variables.
+        const params = bindings.map(b => b.varName).join(", ");
+        const args = bindings.map(b => b.expr).join(", ");
+        bodyStr = `((${params}) => ${this.expr(body)})(${args})`;
+      } else {
+        bodyStr = this.expr(body);
+      }
+      branches.push({ cond, body: bodyStr });
     }
     const tail = defaultBody ? this.expr(defaultBody) : "undefined";
     if (branches.length === 0) return tail;
@@ -4597,6 +4633,43 @@ function patternLiteralText(pat: Expression): string | undefined {
   return pat.literal?.stringValue;
 }
 
+/** Parse type-test patterns like `int n`, `double d`, `String s`, `bool b`.
+ *  Returns {type, varName} or undefined if not a type-test pattern. */
+function parseTypeTestPattern(pat: string): { type: string; varName: string } | undefined {
+  const m = /^(int|double|num|String|bool|Object|dynamic|List|Map|Set|Null)\s+([a-zA-Z_]\w*)$/.exec(pat.trim());
+  return m ? { type: m[1], varName: m[2] } : undefined;
+}
+
+/** Parse map patterns like `{'x': var v}` or `{'a': var a, 'b': var b}`.
+ *  Returns an array of {key, varName} or undefined if not a map pattern. */
+function parseMapPattern(pat: string): Array<{ key: string; varName: string }> | undefined {
+  const trimmed = pat.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return undefined;
+  const inner = trimmed.slice(1, -1).trim();
+  if (!inner.includes("var ")) return undefined;
+  const entries: Array<{ key: string; varName: string }> = [];
+  // Split on commas at the top level
+  const parts = splitTopLevelCommas(inner);
+  for (const part of parts) {
+    const m = /^\s*['"](\w+)['"]\s*:\s*var\s+([a-zA-Z_]\w*)\s*$/.exec(part);
+    if (!m) return undefined;
+    entries.push({ key: m[1], varName: m[2] });
+  }
+  return entries.length > 0 ? entries : undefined;
+}
+
+/** Extract variable bindings from a pattern string.
+ *  Returns an array of {varName, expr} for variables that should be bound
+ *  to the subject when the pattern matches. */
+function patternBindings(pat: string, subject: string): Array<{ varName: string; expr: string }> {
+  const trimmed = pat.trim();
+  const typeTest = parseTypeTestPattern(trimmed);
+  if (typeTest) return [{ varName: typeTest.varName, expr: subject }];
+  const mapPat = parseMapPattern(trimmed);
+  if (mapPat) return mapPat.map(e => ({ varName: e.varName, expr: `${subject}['${e.key}']` }));
+  return [];
+}
+
 function patternToTsCondition(pat: string, subject: string): string {
   const trimmed = pat.trim();
   if (trimmed === "") return "true";
@@ -4619,6 +4692,30 @@ function patternToTsCondition(pat: string, subject: string): string {
   ) {
     const inner = trimmed.slice(1, -1);
     return `(${subject} === ${jsStringLiteral(inner)})`;
+  }
+  // Type-test patterns: `int n`, `double d`, `String s`, `bool b`
+  const typeTest = parseTypeTestPattern(trimmed);
+  if (typeTest) {
+    switch (typeTest.type) {
+      case "int": return `(typeof ${subject} === 'number' && Number.isInteger(${subject}))`;
+      case "double":
+      case "num": return `(typeof ${subject} === 'number')`;
+      case "String": return `(typeof ${subject} === 'string')`;
+      case "bool": return `(typeof ${subject} === 'boolean')`;
+      case "Null": return `(${subject} == null)`;
+      case "Object":
+      case "dynamic": return "true";
+      case "List": return `(Array.isArray(${subject}))`;
+      case "Map": return `(typeof ${subject} === 'object' && ${subject} !== null && !Array.isArray(${subject}))`;
+      case "Set": return `(${subject} instanceof Set)`;
+      default: return `(typeof ${subject} === 'object' && ${subject} !== null)`;
+    }
+  }
+  // Map patterns: `{'x': var v}`, `{'a': var a, 'b': var b}`
+  const mapPat = parseMapPattern(trimmed);
+  if (mapPat) {
+    const checks = mapPat.map(e => `'${e.key}' in ${subject}`);
+    return `(typeof ${subject} === 'object' && ${subject} !== null && ${checks.join(" && ")})`;
   }
   return `(${subject} === (${trimmed}))`;
 }

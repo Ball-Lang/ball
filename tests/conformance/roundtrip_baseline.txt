@@ -19,7 +19,6 @@
 114_class_hierarchy:ts-compiled
 115_generic_class:ts-compiled
 118_set_operations:ts-compiled
-121_map_from_entries:ts-compiled
 123_queue_simulation:dart-compiled
 123_queue_simulation:dart-roundtrip
 123_queue_simulation:ts-compiled
@@ -29,12 +28,10 @@
 130_running_average:ts-compiled
 132_merge_sort:ts-compiled
 134_counting_sort:ts-compiled
-140_caesar_cipher:ts-compiled
 146_nested_try_catch_types:ts-compiled
 150_state_machine:ts-compiled
 151_recursive_descent_parser:dart-compiled
 151_recursive_descent_parser:dart-roundtrip
-151_recursive_descent_parser:ts-compiled
 155_pipeline_compose:ts-compiled
 160_async_basic:ts-compiled
 161_async_chained:ts-compiled

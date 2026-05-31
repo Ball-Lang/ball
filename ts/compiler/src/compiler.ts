@@ -2233,15 +2233,34 @@ function __isUnknownFnError(e: any): boolean {
       }
       if (fn.body) this.emitStatementOrExpression(fn.body, true);
     });
-    const isAsync = forceAsync || functionIsAsync(fn);
+    const isSyncStar = fn.metadata?.["is_sync_star"] === true;
+    const isAsyncStar = fn.metadata?.["is_async_star"] === true;
+    const isGenerator = isSyncStar || isAsyncStar;
+    const isAsync = forceAsync || functionIsAsync(fn) || isAsyncStar;
     sf.addFunction({
       kind: StructureKind.Function,
       name,
-      isAsync,
+      isAsync: isAsync && !isGenerator, // ts-morph: async generators use isGenerator + isAsync separately
+      isGenerator,
       parameters: params.map((p) => ({ name: sanitize(p), type: "any" })),
       returnType: isAsync ? "Promise<any>" : "any",
       statements: body,
     });
+  }
+
+  /** Wrap captured statements in an IIFE, choosing the right kind:
+   *  - yield present → `yield* (function* () { ... })()`
+   *  - await present → `await (async () => { ... })()`
+   *  - neither → `(() => { ... })()`
+   */
+  private wrapIIFE(captured: string): string {
+    if (containsBareKeyword(captured, "yield")) {
+      return `yield* (function* () { ${captured} })()`;
+    }
+    if (containsBareKeyword(captured, "await")) {
+      return `await (async () => { ${captured} })()`;
+    }
+    return `(() => { ${captured} })()`;
   }
 
   /** Check if an expression tree references any name in the given set. */
@@ -3672,21 +3691,21 @@ function __isUnknownFnError(e: any): boolean {
       }
       case "try": {
         const captured = this.captureInto(() => this.emitTryStmt(call));
-        return `(() => { ${captured} })()`;
+        return this.wrapIIFE(captured);
       }
       // Ball control-flow functions usable as expressions → IIFE wrappers.
       case "for": {
         const captured = this.captureInto(() => this.emitForStmt(call));
-        return `(() => { ${captured} })()`;
+        return this.wrapIIFE(captured);
       }
       case "for_in":
       case "for_each": {
         const captured = this.captureInto(() => this.emitForInStmt(call));
-        return `(() => { ${captured} })()`;
+        return this.wrapIIFE(captured);
       }
       case "while": {
         const captured = this.captureInto(() => this.emitWhileStmt(call));
-        return `(() => { ${captured} })()`;
+        return this.wrapIIFE(captured);
       }
       case "do_while": {
         const captured = this.captureInto(() => this.emitDoWhileStmt(call));

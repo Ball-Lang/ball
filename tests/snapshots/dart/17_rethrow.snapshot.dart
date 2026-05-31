@@ -7,12 +7,12 @@ void main() {
     try {
       throw 'inner-boom';
     } catch (__ball_e) {
-      final e = __ball_e;
+      final dynamic e = __ball_e;
       print(('inner caught: ' + e.toString()));
       rethrow;
     }
   } catch (__ball_e) {
-    final e = __ball_e;
+    final dynamic e = __ball_e;
     print(('outer caught: ' + e.toString()));
   }
   print('after');

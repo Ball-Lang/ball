@@ -38,6 +38,17 @@ class DartCompiler {
   final Map<String, FunctionDefinition> _functions = {};
   final Set<String> _baseModules = {};
 
+  /// Functions known to be async (by their unqualified name within
+  /// the entry module). Used to auto-insert `await` when calling them
+  /// and to auto-mark callers as `async`.
+  final Set<String> _asyncFunctions = {};
+
+  /// Functions known to be sync* generators (by unqualified name).
+  final Set<String> _syncStarFunctions = {};
+
+  /// Functions known to be async* generators (by unqualified name).
+  final Set<String> _asyncStarFunctions = {};
+
   /// Variables bound to thrown Ball values (maps) — inside a catch body
   /// their `fieldAccess` expressions compile to subscript `e['field']`
   /// rather than dotted `e.field`, because Ball throws Maps and Dart
@@ -151,6 +162,19 @@ class DartCompiler {
       }
       for (final func in module.functions) {
         _functions['${module.name}.${func.name}'] = func;
+        // Track async/generator functions for auto-await/return-type fixing.
+        if (func.hasMetadata()) {
+          final meta = _structToMap(func.metadata);
+          if (meta['is_async'] == true && meta['is_async_star'] != true) {
+            _asyncFunctions.add(func.name);
+          }
+          if (meta['is_sync_star'] == true) {
+            _syncStarFunctions.add(func.name);
+          }
+          if (meta['is_async_star'] == true) {
+            _asyncStarFunctions.add(func.name);
+          }
+        }
       }
     }
   }
@@ -322,6 +346,53 @@ class DartCompiler {
   static bool _hasNonVoidReturn(FunctionDefinition func) =>
       func.outputType.isNotEmpty && func.outputType != 'void';
 
+  /// Wraps the raw return type for async/generator functions:
+  /// - `async` → `Future<T>` (unless already `Future<...>` or `void`)
+  /// - `sync*` → `Iterable<T>` (unless already `Iterable<...>` or `List<...>`)
+  /// - `async*` → `Stream<T>` (unless already `Stream<...>` or collection)
+  ///
+  /// The Ball encoder often stores the "apparent" collection type
+  /// (e.g. `List<int>` for a sync* generator that yields ints). In those
+  /// cases we rewrite to the correct Dart generator return type.
+  static String _wrapReturnType(
+    String dartType, {
+    required bool isAsync,
+    required bool isAsyncStar,
+    required bool isSyncStar,
+  }) {
+    if (isSyncStar) {
+      if (dartType.startsWith('Iterable<') || dartType == 'Iterable') {
+        return dartType;
+      }
+      // List<T> → Iterable<T>: extract inner type
+      if (dartType.startsWith('List<') && dartType.endsWith('>')) {
+        final inner = dartType.substring(5, dartType.length - 1);
+        return 'Iterable<$inner>';
+      }
+      return 'Iterable<$dartType>';
+    }
+    if (isAsyncStar) {
+      if (dartType.startsWith('Stream<') || dartType == 'Stream') {
+        return dartType;
+      }
+      // List<T> → Stream<T>
+      if (dartType.startsWith('List<') && dartType.endsWith('>')) {
+        final inner = dartType.substring(5, dartType.length - 1);
+        return 'Stream<$inner>';
+      }
+      return 'Stream<$dartType>';
+    }
+    if (isAsync) {
+      if (dartType == 'void' ||
+          dartType.startsWith('Future<') ||
+          dartType == 'Future') {
+        return dartType;
+      }
+      return 'Future<$dartType>';
+    }
+    return dartType;
+  }
+
   cb.Library _buildLibrary(Module mainModule, FunctionDefinition? entryFunc) {
     // Build dart module → import alias mapping for this module.
     _dartModuleAliases = _buildDartModuleAliases(mainModule);
@@ -399,6 +470,12 @@ class DartCompiler {
       }
 
       b.directives.addAll(_buildDirectives(mainModule));
+
+      // ── Auto-imports for std_* modules ──
+      // If the program uses `std_convert`, inject `dart:convert` import.
+      if (_baseModules.contains('std_convert')) {
+        b.directives.add(cb.Directive.import('dart:convert'));
+      }
 
       // ── Linear memory runtime preamble ──
       // If the program uses `std_memory` (linear memory simulation),
@@ -1231,8 +1308,16 @@ class DartCompiler {
       if (isGetter) b.type = cb.MethodType.getter;
       if (isSetter) b.type = cb.MethodType.setter;
 
-      if (func.outputType.isNotEmpty)
-        b.returns = cb.refer(_dartType(func.outputType));
+      if (func.outputType.isNotEmpty) {
+        b.returns = cb.refer(
+          _wrapReturnType(
+            _dartType(func.outputType),
+            isAsync: isAsync,
+            isAsyncStar: isAsyncStar,
+            isSyncStar: isSyncStar,
+          ),
+        );
+      }
 
       if (isAsync && !isAsyncStar) b.modifier = cb.MethodModifier.async;
       if (isAsyncStar) b.modifier = cb.MethodModifier.asyncStar;
@@ -1246,6 +1331,8 @@ class DartCompiler {
         // expression references `n` which no longer exists. Demote to
         // block form so `_generateFunctionBody` emits the alias prologue.
         final mustUseBlockForm = _pendingParamAliases.isNotEmpty;
+        final savedInGen = _inGenerator;
+        _inGenerator = isSyncStar || isAsyncStar;
         if (isExpressionBody && !mustUseBlockForm) {
           b.lambda = true;
           b.body = _compileExpression(func.body).code;
@@ -1256,6 +1343,7 @@ class DartCompiler {
             ),
           );
         }
+        _inGenerator = savedInGen;
       } else {
         // Abstract/external/body-less methods must still clear stashed
         // aliases so they don't leak into the NEXT method's body and
@@ -1474,13 +1562,18 @@ class DartCompiler {
     final meta = _readMeta(func);
     final isAsync = meta['is_async'] == true;
 
+    // Compile the body first so _needsAsync can be set by auto-await.
+    _needsAsync = false;
+    final bodyCode = func.hasBody()
+        ? cb.Code(_captureBody(() => _generateFunctionBody(func.body, false)))
+        : const cb.Code('');
+    final shouldBeAsync = isAsync || _needsAsync;
+
     return cb.Method((b) {
       b.name = 'main';
       b.returns = cb.refer('void');
-      if (isAsync) b.modifier = cb.MethodModifier.async;
-      b.body = func.hasBody()
-          ? cb.Code(_captureBody(() => _generateFunctionBody(func.body, false)))
-          : const cb.Code('');
+      if (shouldBeAsync) b.modifier = cb.MethodModifier.async;
+      b.body = bodyCode;
     });
   }
 
@@ -1757,7 +1850,7 @@ class DartCompiler {
           _wl('${_letDeclKeyword(stmt.let)} ${stmt.let.name};');
         } else {
           _wl(
-            '${_letDeclKeyword(stmt.let)} ${stmt.let.name} = '
+            '${_letDeclKeyword(stmt.let, letExpr)} ${stmt.let.name} = '
             '${_e(letExpr)};',
           );
         }
@@ -1767,12 +1860,30 @@ class DartCompiler {
           _generateStdStatement(expr.call, false);
         } else if (expr.whichExpr() == Expression_Expr.block &&
             !expr.block.hasResult()) {
-          // A block-as-statement with no result (e.g. encoded pattern-var
-          // destructuring) must be emitted inline so its `let` bindings
-          // are visible to subsequent statements in the enclosing block.
-          // Wrapping in `(() { ... })()` would hide them.
-          for (final s in expr.block.statements) {
-            _generateStatement(s);
+          // A block-as-statement with no result. Two sub-cases:
+          // 1. Pattern-var destructuring (encoded with __ball_rec_ temp vars):
+          //    must be inlined so its `let` bindings are visible to subsequent
+          //    statements in the enclosing block.
+          // 2. Scope blocks (e.g. `{ var x = 20; print(x); }`): must be
+          //    wrapped in `{ }` to create a new Dart scope, otherwise
+          //    re-declarations of outer variables cause compile errors.
+          final isDestructure = expr.block.statements.any(
+            (s) =>
+                s.whichStmt() == Statement_Stmt.let &&
+                s.let.name.startsWith('__ball_rec_'),
+          );
+          if (isDestructure) {
+            for (final s in expr.block.statements) {
+              _generateStatement(s);
+            }
+          } else {
+            _wl('{');
+            _depth++;
+            for (final s in expr.block.statements) {
+              _generateStatement(s);
+            }
+            _depth--;
+            _wl('}');
           }
         } else {
           _wl('${_e(expr)};');
@@ -1784,15 +1895,24 @@ class DartCompiler {
 
   void _generateLocalFunction(String name, FunctionDefinition func) {
     final meta = _readMeta(func);
-    // If the function has no explicit return type, omit the return type
-    // annotation so Dart can infer it (e.g. `async` lambdas return `Future`).
-    final returnType = func.outputType.isEmpty
-        ? null
-        : _dartType(func.outputType);
     final isAsync = meta['is_async'] == true;
     final isAsyncStar = meta['is_async_star'] == true;
     final isSyncStar = meta['is_sync_star'] == true;
     final isExprBody = meta['expression_body'] == true;
+
+    // If the function has no explicit return type, omit the return type
+    // annotation so Dart can infer it (e.g. `async` lambdas return `Future`).
+    final rawReturnType = func.outputType.isEmpty
+        ? null
+        : _dartType(func.outputType);
+    final returnType = rawReturnType != null
+        ? _wrapReturnType(
+            rawReturnType,
+            isAsync: isAsync,
+            isAsyncStar: isAsyncStar,
+            isSyncStar: isSyncStar,
+          )
+        : null;
 
     final typePart = returnType != null ? '$returnType ' : '';
     final sig = StringBuffer('$typePart$name(${_buildParamList(meta)})');
@@ -1800,6 +1920,8 @@ class DartCompiler {
     if (isAsyncStar) sig.write(' async*');
     if (isSyncStar) sig.write(' sync*');
 
+    final savedInGen = _inGenerator;
+    _inGenerator = isSyncStar || isAsyncStar;
     if (isExprBody && func.hasBody()) {
       _wl('$sig => ${_e(func.body)};');
     } else {
@@ -1816,6 +1938,7 @@ class DartCompiler {
       _depth--;
       _wl('}');
     }
+    _inGenerator = savedInGen;
   }
 
   // ── std control-flow ────────────────────────────────────────
@@ -1881,7 +2004,8 @@ class DartCompiler {
         _generateTry(fields);
       case 'return':
         final v = fields['value'];
-        _wl(v != null ? 'return ${_e(v)};' : 'return;');
+        // Generators (sync*/async*) cannot return a value in Dart.
+        _wl(v != null && !_inGenerator ? 'return ${_e(v)};' : 'return;');
       case 'break':
         final label = _stringFieldValue(fields, 'label');
         _wl(label != null && label.isNotEmpty ? 'break $label;' : 'break;');
@@ -2029,19 +2153,152 @@ class DartCompiler {
     //   2. a block of let-bindings (encoder emits this for `for (var i = 0, j = 1; ...)`)
     //   3. an expression statement (`numArgs = args.length`)
     final initExpr = fields['init'];
-    final init = initExpr != null
-        ? (_stringFieldValue(fields, 'init') ??
-              _renderForInit(initExpr) ??
-              _e(initExpr))
-        : '';
-    final condStr = fields['condition'] != null ? _e(fields['condition']!) : '';
-    final updateStr = fields['update'] != null ? _e(fields['update']!) : '';
     final body = fields['body'];
-    _wl('for ($init; $condStr; $updateStr) {');
+
+    // Detect closure capture: if the for-body contains a lambda that
+    // references a loop variable declared in init, hoist the variable
+    // declaration before the for-loop. This implements Ball's shared-
+    // variable semantics (unlike Dart's per-iteration binding).
+    final initVarNames = _extractForInitVarNames(initExpr);
+    final needsHoist = initVarNames.isNotEmpty &&
+        body != null &&
+        _bodyContainsLambdaCapturing(body, initVarNames);
+
+    if (needsHoist && initExpr != null &&
+        initExpr.whichExpr() == Expression_Expr.block) {
+      // Hoist variable declarations before the loop.
+      for (final s in initExpr.block.statements) {
+        if (s.whichStmt() == Statement_Stmt.let) {
+          _wl('${_letDeclKeyword(s.let)} ${s.let.name} = ${_e(s.let.value)};');
+        }
+      }
+      final condStr = fields['condition'] != null ? _e(fields['condition']!) : '';
+      final updateStr = fields['update'] != null ? _e(fields['update']!) : '';
+      _wl('for (; $condStr; $updateStr) {');
+    } else {
+      final init = initExpr != null
+          ? (_stringFieldValue(fields, 'init') ??
+                _renderForInit(initExpr) ??
+                _e(initExpr))
+          : '';
+      final condStr = fields['condition'] != null ? _e(fields['condition']!) : '';
+      final updateStr = fields['update'] != null ? _e(fields['update']!) : '';
+      _wl('for ($init; $condStr; $updateStr) {');
+    }
     _depth++;
     if (body != null) _generateBranchBody(body, false);
     _depth--;
     _wl('}');
+  }
+
+  /// Extract variable names declared in a for-loop init block.
+  Set<String> _extractForInitVarNames(Expression? initExpr) {
+    if (initExpr == null) return const {};
+    if (initExpr.whichExpr() != Expression_Expr.block) return const {};
+    final names = <String>{};
+    for (final s in initExpr.block.statements) {
+      if (s.whichStmt() == Statement_Stmt.let) names.add(s.let.name);
+    }
+    return names;
+  }
+
+  /// Returns true if [expr] contains any lambda that references one of [varNames].
+  bool _bodyContainsLambdaCapturing(Expression expr, Set<String> varNames) {
+    switch (expr.whichExpr()) {
+      case Expression_Expr.lambda:
+        // Check if the lambda body references any of the varNames.
+        return _exprReferences(
+          Expression()..lambda = expr.lambda,
+          varNames,
+          insideLambda: true,
+        );
+      case Expression_Expr.call:
+        if (expr.call.hasInput()) {
+          if (_bodyContainsLambdaCapturing(expr.call.input, varNames)) {
+            return true;
+          }
+        }
+        return false;
+      case Expression_Expr.messageCreation:
+        for (final f in expr.messageCreation.fields) {
+          if (_bodyContainsLambdaCapturing(f.value, varNames)) return true;
+        }
+        return false;
+      case Expression_Expr.block:
+        for (final s in expr.block.statements) {
+          if (s.whichStmt() == Statement_Stmt.expression) {
+            if (_bodyContainsLambdaCapturing(s.expression, varNames)) {
+              return true;
+            }
+          } else if (s.whichStmt() == Statement_Stmt.let && s.let.hasValue()) {
+            if (_bodyContainsLambdaCapturing(s.let.value, varNames)) {
+              return true;
+            }
+          }
+        }
+        if (expr.block.hasResult()) {
+          return _bodyContainsLambdaCapturing(expr.block.result, varNames);
+        }
+        return false;
+      default:
+        return false;
+    }
+  }
+
+  /// Returns true if [expr] references any name in [varNames].
+  /// When [insideLambda] is true, we're already inside a lambda and any
+  /// reference to varNames counts as a capture.
+  bool _exprReferences(Expression expr, Set<String> varNames,
+      {bool insideLambda = false}) {
+    switch (expr.whichExpr()) {
+      case Expression_Expr.reference:
+        return insideLambda && varNames.contains(expr.reference.name);
+      case Expression_Expr.lambda:
+        // Recurse into the lambda body with insideLambda=true.
+        final func = expr.lambda;
+        if (func.hasBody()) {
+          return _exprReferences(func.body, varNames, insideLambda: true);
+        }
+        return false;
+      case Expression_Expr.call:
+        if (expr.call.hasInput()) {
+          return _exprReferences(expr.call.input, varNames,
+              insideLambda: insideLambda);
+        }
+        return false;
+      case Expression_Expr.messageCreation:
+        for (final f in expr.messageCreation.fields) {
+          if (_exprReferences(f.value, varNames,
+              insideLambda: insideLambda)) {
+            return true;
+          }
+        }
+        return false;
+      case Expression_Expr.block:
+        for (final s in expr.block.statements) {
+          if (s.whichStmt() == Statement_Stmt.expression) {
+            if (_exprReferences(s.expression, varNames,
+                insideLambda: insideLambda)) {
+              return true;
+            }
+          } else if (s.whichStmt() == Statement_Stmt.let && s.let.hasValue()) {
+            if (_exprReferences(s.let.value, varNames,
+                insideLambda: insideLambda)) {
+              return true;
+            }
+          }
+        }
+        if (expr.block.hasResult()) {
+          return _exprReferences(expr.block.result, varNames,
+              insideLambda: insideLambda);
+        }
+        return false;
+      case Expression_Expr.fieldAccess:
+        return _exprReferences(expr.fieldAccess.object, varNames,
+            insideLambda: insideLambda);
+      default:
+        return false;
+    }
   }
 
   /// Render a Ball for-loop `init` block as a Dart `for` initialiser
@@ -2341,7 +2598,9 @@ class DartCompiler {
           _wl('else {');
           _depth++;
         }
-        _wl('final $variable = __ball_e;');
+        // Use `dynamic` so the variable can be used freely (e.g. in
+        // string concatenation) without Dart type errors.
+        _wl('final dynamic $variable = __ball_e;');
         if (untypedStack != null && untypedStack != catchAllStack) {
           _wl('final $untypedStack = $catchAllStack;');
         }
@@ -2493,12 +2752,13 @@ class DartCompiler {
     // __cascade_self__ is a sentinel that means "no explicit receiver" inside
     // a cascade section — emit just the field name.
     if (_emit(obj) == '__cascade_self__') return cb.refer(fa.field_2);
-    // Historically we rewrote `e.x → e['x']` for bare `catch (e)` because the
-    // Ball engine throws Map-valued exceptions; Dart Maps don't support dotted
-    // access. That rewrite broke round-tripping when the source narrowed `e`
-    // via `is SomeType` and then did real property access. Authors of Ball
-    // programs that want Map access on a caught exception must now use
-    // IndexExpression (encoded as std.index), not PropertyAccess.
+    // When the receiver is a catch-bound variable from a Ball tag-typed catch,
+    // the caught value is a Map. Dart Maps don't support dotted access so we
+    // emit `e['field']` instead of `e.field`.
+    if (fa.object.whichExpr() == Expression_Expr.reference &&
+        _catchBoundVars.contains(fa.object.reference.name)) {
+      return _raw("${_emit(obj)}['${fa.field_2}']");
+    }
     return obj.property(fa.field_2);
   }
 
@@ -2551,6 +2811,7 @@ class DartCompiler {
     } else {
       modulePrefix = '';
     }
+    String result;
     if (call.hasInput()) {
       final inp = call.input;
       if (inp.whichExpr() == Expression_Expr.messageCreation &&
@@ -2565,14 +2826,40 @@ class DartCompiler {
             ? typeArgsField.value.literal.stringValue
             : '';
         final args = allFields.where((f) => f.name != '__type_args__').toList();
-        return args.isEmpty
+        result = args.isEmpty
             ? '$modulePrefix${call.function}$typeArgs()'
             : '$modulePrefix${call.function}$typeArgs(${_compileArgs(args)})';
+      } else {
+        result = '$modulePrefix${call.function}(${_e(inp)})';
       }
-      return '$modulePrefix${call.function}(${_e(inp)})';
+    } else {
+      result = '$modulePrefix${call.function}()';
     }
-    return '$modulePrefix${call.function}()';
+
+    // Auto-await: if the called function is known to be async, wrap the call
+    // in `await` so callers get the resolved value instead of a Future.
+    // Skip if we're already inside an explicit `std.await(...)` wrapper.
+    if (!_insideExplicitAwait &&
+        _asyncFunctions.contains(call.function) &&
+        (call.module.isEmpty || call.module == program.entryModule)) {
+      _needsAsync = true;
+      return 'await $result';
+    }
+    return result;
   }
+
+  /// Flag set by [_compileCall] when an auto-await is inserted.
+  /// Read by [_buildMainFunction] to decide whether to mark `main` as async.
+  bool _needsAsync = false;
+
+  /// True when the currently compiled function is a generator (`sync*` or
+  /// `async*`). Generators cannot `return <value>;` in Dart — only bare
+  /// `return;` — so the compiler drops the value from `std.return`.
+  bool _inGenerator = false;
+
+  /// True when we're inside a `std.await(value: ...)` expression. Suppresses
+  /// auto-await to avoid emitting `await await fn()`.
+  bool _insideExplicitAwait = false;
 
   String _compileBaseCall(FunctionCall call) {
     if (call.module == 'std_memory') return _compileMemoryCall(call);
@@ -2681,9 +2968,12 @@ class DartCompiler {
       'string_replace' => _compileStringReplace(f, 'replaceFirst'),
       'string_replace_all' => _compileStringReplace(f, 'replaceAll'),
       'string_split' => _methodCall2(f, 'split'),
-      'string_repeat' => _binOp(f, '*'),
+      'string_repeat' => '(${_e(f['value'] ?? f['left']!)} * ${_e(f['count'] ?? f['right']!)})',
       'string_pad_left' => _compileStringPad(f, 'padLeft'),
       'string_pad_right' => _compileStringPad(f, 'padRight'),
+      'string_join' => f.containsKey('separator')
+          ? '${_e(f['list']!)}.join(${_e(f['separator']!)})'
+          : '${_e(f['list']!)}.join()',
       // ── Regex ───────────────────────────────────────────────
       'regex_match' => _compileRegexMatch(f),
       'regex_find' => _compileRegexFind(f, all: false),
@@ -2729,10 +3019,10 @@ class DartCompiler {
       'to_string_as_fixed' => _methodCall2(f, 'toStringAsFixed'),
       'string_code_unit_at' => _methodCall2(f, 'codeUnitAt'),
       // ── Dart-specific ───────────────────────────────────────
-      'dart_list_generate' =>
-        'List.generate(${_e(f['count']!)}, ${_e(f['generator']!)})',
-      'dart_list_filled' =>
-        'List.filled(${_e(f['count']!)}, ${_e(f['value']!)})',
+      'dart_list_generate' || 'list_generate' =>
+        'List.generate(${_e(f['count'] ?? f['length']!)}, ${_e(f['generator']!)})',
+      'dart_list_filled' || 'list_filled' =>
+        'List.filled(${_e(f['count'] ?? f['length']!)}, ${_e(f['value'] ?? f['fill']!)})',
       _ => '/* unsupported: std.${call.function} */',
     };
   }
@@ -2980,6 +3270,7 @@ class DartCompiler {
       'list_concat' => '[...${_e(_left())}, ...${_e(_right())}]',
       'list_flat_map' => '${_e(f['list']!)}.expand(${_e(_cb())}).toList()',
       'list_clear' => '${_e(f['list']!)}..clear()',
+      'list_foreach' => '${_e(f['list']!)}.forEach(${_e(_cb())})',
       'list_to_list' => '${_e(f['list']!)}.toList()',
       'string_join' || 'list_join' =>
         f.containsKey('separator')
@@ -3039,11 +3330,11 @@ class DartCompiler {
     final f = _extractFields(call);
     return switch (call.function) {
       'json_encode' => 'jsonEncode(${_e(f['value']!)})',
-      'json_decode' => 'jsonDecode(${_e(f['source']!)})',
-      'utf8_encode' => 'utf8.encode(${_e(f['source']!)})',
-      'utf8_decode' => 'utf8.decode(${_e(f['bytes']!)})',
-      'base64_encode' => 'base64Encode(${_e(f['bytes']!)})',
-      'base64_decode' => 'base64Decode(${_e(f['source']!)})',
+      'json_decode' => 'jsonDecode(${_e(f['source'] ?? f['value']!)})',
+      'utf8_encode' => 'utf8.encode(${_e(f['source'] ?? f['value']!)})',
+      'utf8_decode' => 'utf8.decode(${_e(f['bytes'] ?? f['value']!)})',
+      'base64_encode' => 'base64Encode(${_e(f['bytes'] ?? f['value']!)})',
+      'base64_decode' => 'base64Decode(${_e(f['source'] ?? f['value']!)})',
       _ => '/* unsupported: std_convert.${call.function} */',
     };
   }
@@ -3080,9 +3371,9 @@ class DartCompiler {
       'now' => 'DateTime.now().millisecondsSinceEpoch',
       'now_micros' => 'DateTime.now().microsecondsSinceEpoch',
       'format_timestamp' =>
-        'DateTime.fromMillisecondsSinceEpoch(${_e(f['timestamp']!)}).toIso8601String()',
+        'DateTime.fromMillisecondsSinceEpoch(${_e(f['timestamp'] ?? f['timestamp_ms'] ?? f['value']!)}).toIso8601String()',
       'parse_timestamp' =>
-        'DateTime.parse(${_e(f['source']!)}).millisecondsSinceEpoch',
+        'DateTime.parse(${_e(f['source'] ?? f['value']!)}).millisecondsSinceEpoch',
       'duration_add' => '(${_e(f['left']!)} + ${_e(f['right']!)})',
       'duration_subtract' => '(${_e(f['left']!)} - ${_e(f['right']!)})',
       'year' => 'DateTime.now().year',
@@ -3186,7 +3477,14 @@ class DartCompiler {
 
   String _awaitExpr(Map<String, Expression> f) {
     final v = f['value'];
-    return v != null ? _emit(_compileExpression(v).awaited) : 'await null';
+    if (v == null) return 'await null';
+    // Set flag to suppress auto-await inside this explicit await expression.
+    final saved = _insideExplicitAwait;
+    _insideExplicitAwait = true;
+    _needsAsync = true;
+    final result = _emit(_compileExpression(v).awaited);
+    _insideExplicitAwait = saved;
+    return result;
   }
 
   String _throwExpr(Map<String, Expression> f) {
@@ -4287,13 +4585,32 @@ class DartCompiler {
       letExpr.whichExpr() == Expression_Expr.reference &&
       letExpr.reference.name == '__no_init__';
 
-  String _letDeclKeyword(LetBinding let) {
+  String _letDeclKeyword(LetBinding let, [Expression? valueExpr]) {
     if (!let.hasMetadata()) return 'final';
     final meta = _structToMap(let.metadata);
     final keyword = meta['keyword'] as String? ?? 'final';
     final isLate = meta['is_late'] == true;
 
-    final type = meta['type'] as String?;
+    var type = meta['type'] as String?;
+
+    // When the value is a call to a sync*/async* generator function, the
+    // declared variable type may be `List<T>` but the actual return is
+    // `Iterable<T>` or `Stream<T>`. Rewrite the type to match.
+    if (type != null && valueExpr != null &&
+        valueExpr.whichExpr() == Expression_Expr.call &&
+        !_isBaseModule(valueExpr.call.module)) {
+      final calledFn = valueExpr.call.function;
+      if (_syncStarFunctions.contains(calledFn)) {
+        if (type.startsWith('List<') && type.endsWith('>')) {
+          type = 'Iterable<${type.substring(5, type.length - 1)}>';
+        }
+      } else if (_asyncStarFunctions.contains(calledFn)) {
+        if (type.startsWith('List<') && type.endsWith('>')) {
+          type = 'Stream<${type.substring(5, type.length - 1)}>';
+        }
+      }
+    }
+
     final buf = StringBuffer();
     if (isLate) buf.write('late ');
     if (type != null) {

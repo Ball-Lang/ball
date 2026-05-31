@@ -6,7 +6,7 @@ void main() {
   try {
     throw 'boom';
   } catch (__ball_e, __ball_st) {
-    final e = __ball_e;
+    final dynamic e = __ball_e;
     final stack = __ball_st;
     print(e.toString());
     print(((stack.toString().length > 0) ? 'has-stack' : 'no-stack'));

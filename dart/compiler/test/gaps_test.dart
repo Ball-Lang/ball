@@ -36,7 +36,7 @@ void main() {
       // stable catch-all name `__ball_st` and aliases it to each clause's
       // requested name inside the branch.
       expect(out, contains('catch (__ball_e, __ball_st)'));
-      expect(out, contains('final e = __ball_e;'));
+      expect(out, contains('final dynamic e = __ball_e;'));
       expect(out, contains('final stack = __ball_st;'));
     });
 

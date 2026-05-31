@@ -3729,7 +3729,7 @@ function __isUnknownFnError(e: any): boolean {
       case "list_push": {
         const list = f.get("list");
         const value = f.get("value");
-        if (list && value) return `[...${this.expr(list)}, ${this.expr(value)}]`;
+        if (list && value) return `(${this.expr(list)}.push(${this.expr(value)}), ${this.expr(list)})`;
         return "[]";
       }
       case "list_pop": {

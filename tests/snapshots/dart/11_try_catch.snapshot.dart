@@ -11,7 +11,7 @@ void main() {
   try {
     throw 'boom';
   } catch (__ball_e) {
-    final e = __ball_e;
+    final dynamic e = __ball_e;
     print(e);
   }
   print('after');

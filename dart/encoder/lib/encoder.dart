@@ -1832,6 +1832,10 @@ class DartEncoder {
       final encoded = _tryEncodePatternVarDecl(decl);
       if (encoded != null) return encoded;
     }
+    // Empty statement (bare `;`): encode as a no-op literal null.
+    if (stmt is ast.EmptyStatement) {
+      return Statement()..expression = (Expression()..literal = Literal());
+    }
     // Unsupported statement — store sourc as string literal for round-tripping.
     return Statement()
       ..expression = (Expression()
@@ -2401,6 +2405,35 @@ class DartEncoder {
     if (stmt.catchClauses.isNotEmpty) {
       final catches = <Expression>[];
       for (final clause in stmt.catchClauses) {
+        // Detect compiler-generated catch pattern:
+        //   catch (__ball_e) { ... }
+        // or catch (__ball_e, __ball_st) { ... }
+        final isSyntheticCatch = clause.exceptionType == null &&
+            clause.exceptionParameter != null &&
+            clause.exceptionParameter!.name.lexeme == '__ball_e';
+
+        if (isSyntheticCatch) {
+          // Check if the body matches the "tag catch" pattern:
+          //   if (__ball_e is Map && __ball_e['__type'] == 'X') { final e = __ball_e; ... }
+          //   else if (...) { ... }
+          //   else { rethrow; }
+          final tagCatches = _tryExtractTagCatches(clause);
+          if (tagCatches != null) {
+            catches.addAll(tagCatches);
+            continue;
+          }
+
+          // Simple untyped catch with aliasing:
+          //   catch (__ball_e) { final dynamic e = __ball_e; ... }
+          // or catch (__ball_e, __ball_st) { final dynamic e = __ball_e; final st = __ball_st; ... }
+          final simple = _tryExtractSimpleCatch(clause);
+          if (simple != null) {
+            catches.add(simple);
+            continue;
+          }
+        }
+
+        // Standard encoding (real Dart on-type catch or unrecognized pattern).
         final catchFields = <FieldValuePair>[];
         if (clause.exceptionType != null) {
           catchFields.add(
@@ -2460,6 +2493,342 @@ class DartEncoder {
     }
 
     return _buildStdCall('try', fields);
+  }
+
+  /// Try to extract a simple untyped catch from the compiler's aliasing pattern:
+  ///   catch (__ball_e) { final dynamic e = __ball_e; <body...> }
+  /// Returns the encoded catch expression, or null if the pattern doesn't match.
+  Expression? _tryExtractSimpleCatch(ast.CatchClause clause) {
+    final stmts = clause.body.statements;
+    if (stmts.isEmpty) return null;
+
+    // Look for `final dynamic <name> = __ball_e;` as the first statement.
+    String? realVarName;
+    int bodyStart = 0;
+
+    final first = stmts[0];
+    if (first is ast.VariableDeclarationStatement) {
+      final vars = first.variables.variables;
+      if (vars.length == 1) {
+        final init = vars[0].initializer;
+        if (init is ast.SimpleIdentifier && init.name == '__ball_e') {
+          realVarName = vars[0].name.lexeme;
+          bodyStart = 1;
+        }
+      }
+    }
+
+    if (realVarName == null) return null;
+
+    // Check for stack trace aliasing: `final <st> = __ball_st;`
+    String? realStackName;
+    if (bodyStart < stmts.length) {
+      final next = stmts[bodyStart];
+      if (next is ast.VariableDeclarationStatement) {
+        final vars = next.variables.variables;
+        if (vars.length == 1) {
+          final init = vars[0].initializer;
+          if (init is ast.SimpleIdentifier && init.name == '__ball_st') {
+            realStackName = vars[0].name.lexeme;
+            bodyStart++;
+          }
+        }
+      }
+    }
+
+    final catchFields = <FieldValuePair>[];
+    catchFields.add(
+      FieldValuePair()
+        ..name = 'variable'
+        ..value = (Expression()
+          ..literal = (Literal()..stringValue = realVarName)),
+    );
+    if (realStackName != null) {
+      catchFields.add(
+        FieldValuePair()
+          ..name = 'stack_trace'
+          ..value = (Expression()
+            ..literal = (Literal()..stringValue = realStackName)),
+      );
+    }
+    catchFields.add(
+      FieldValuePair()
+        ..name = 'body'
+        ..value = _encodeBlock(
+          stmts.sublist(bodyStart),
+          hasReturn: false,
+        ),
+    );
+    return Expression()
+      ..messageCreation = (MessageCreation()..fields.addAll(catchFields));
+  }
+
+  /// Try to extract tag-typed catches from the compiler's pattern:
+  ///   catch (__ball_e) {
+  ///     if (__ball_e is Map && __ball_e['__type'] == 'TypeA') {
+  ///       final e = __ball_e;
+  ///       <body...>
+  ///     } else if (__ball_e is Map && __ball_e['__type'] == 'TypeB') { ... }
+  ///     else { rethrow; }         // implicit fallback
+  ///     // -or- else { final dynamic e = __ball_e; <body...> }  // untyped catch
+  ///   }
+  /// Returns the list of encoded catch expressions, or null if the pattern
+  /// doesn't match.
+  List<Expression>? _tryExtractTagCatches(ast.CatchClause clause) {
+    final stmts = clause.body.statements;
+    if (stmts.isEmpty) return null;
+
+    // Possible stack trace alias before the if-chain:
+    //   final <st> = __ball_st;
+    int ifStart = 0;
+    String? stackAlias;
+    if (stmts[0] is ast.VariableDeclarationStatement) {
+      final decl = stmts[0] as ast.VariableDeclarationStatement;
+      final vars = decl.variables.variables;
+      if (vars.length == 1) {
+        final init = vars[0].initializer;
+        if (init is ast.SimpleIdentifier && init.name == '__ball_st') {
+          stackAlias = vars[0].name.lexeme;
+          ifStart = 1;
+        }
+      }
+    }
+
+    // The body should be a single if/else-if chain.
+    if (ifStart >= stmts.length) return null;
+    final ifStmt = stmts[ifStart];
+    if (ifStmt is! ast.IfStatement) return null;
+    // Must be the only statement (aside from the optional stack alias above).
+    if (stmts.length > ifStart + 1) return null;
+
+    // Walk the if/else-if chain.
+    final results = <Expression>[];
+    ast.IfStatement? current = ifStmt;
+    while (current != null) {
+      // Try to match: __ball_e is Map && __ball_e['__type'] == 'TypeName'
+      final tagType = _extractTagType(current.expression);
+      if (tagType == null) {
+        // If this is an initial if with no tag match, the pattern doesn't
+        // match our expectations; bail.
+        return null;
+      }
+
+      // Extract the then-branch body, stripping `final <name> = __ball_e;`
+      // and optional `final <st> = __ball_st;`
+      final thenBody = _extractTagBranchBody(current.thenStatement, stackAlias);
+      if (thenBody == null) return null;
+
+      final catchFields = <FieldValuePair>[
+        FieldValuePair()
+          ..name = 'type'
+          ..value = (Expression()
+            ..literal = (Literal()..stringValue = tagType)),
+      ];
+      catchFields.add(
+        FieldValuePair()
+          ..name = 'variable'
+          ..value = (Expression()
+            ..literal = (Literal()..stringValue = thenBody.varName)),
+      );
+      if (thenBody.stackName != null) {
+        catchFields.add(
+          FieldValuePair()
+            ..name = 'stack_trace'
+            ..value = (Expression()
+              ..literal = (Literal()..stringValue = thenBody.stackName!)),
+        );
+      }
+      catchFields.add(
+        FieldValuePair()
+          ..name = 'body'
+          ..value = _encodeBlock(thenBody.bodyStatements, hasReturn: false),
+      );
+      results.add(
+        Expression()
+          ..messageCreation = (MessageCreation()..fields.addAll(catchFields)),
+      );
+
+      // Move to else branch.
+      final elseStmt = current.elseStatement;
+      if (elseStmt == null) {
+        break;
+      } else if (elseStmt is ast.IfStatement) {
+        current = elseStmt;
+      } else if (elseStmt is ast.Block) {
+        // else { rethrow; } — implicit fallback, just stop.
+        // else { final dynamic e = __ball_e; <body> } — untyped fallback catch.
+        final elseStmts = elseStmt.statements;
+        if (elseStmts.length == 1 &&
+            elseStmts[0] is ast.ExpressionStatement &&
+            (elseStmts[0] as ast.ExpressionStatement).expression
+                is ast.RethrowExpression) {
+          // Implicit rethrow fallback — no extra catch needed.
+          break;
+        }
+        // Check for untyped catch fallback:
+        //   final dynamic e = __ball_e; <body...>
+        if (elseStmts.isNotEmpty &&
+            elseStmts[0] is ast.VariableDeclarationStatement) {
+          final decl = elseStmts[0] as ast.VariableDeclarationStatement;
+          final vars = decl.variables.variables;
+          if (vars.length == 1) {
+            final init = vars[0].initializer;
+            if (init is ast.SimpleIdentifier && init.name == '__ball_e') {
+              final varName = vars[0].name.lexeme;
+              int bodyStart = 1;
+              String? st;
+              // Check for stack alias
+              if (bodyStart < elseStmts.length &&
+                  elseStmts[bodyStart] is ast.VariableDeclarationStatement) {
+                final sd =
+                    elseStmts[bodyStart] as ast.VariableDeclarationStatement;
+                final sv = sd.variables.variables;
+                if (sv.length == 1) {
+                  final si = sv[0].initializer;
+                  if (si is ast.SimpleIdentifier && si.name == '__ball_st') {
+                    st = sv[0].name.lexeme;
+                    bodyStart++;
+                  }
+                }
+              }
+              final catchFields2 = <FieldValuePair>[
+                FieldValuePair()
+                  ..name = 'variable'
+                  ..value = (Expression()
+                    ..literal = (Literal()..stringValue = varName)),
+              ];
+              if (st != null) {
+                catchFields2.add(
+                  FieldValuePair()
+                    ..name = 'stack_trace'
+                    ..value = (Expression()
+                      ..literal = (Literal()..stringValue = st)),
+                );
+              }
+              catchFields2.add(
+                FieldValuePair()
+                  ..name = 'body'
+                  ..value = _encodeBlock(
+                    elseStmts.sublist(bodyStart),
+                    hasReturn: false,
+                  ),
+              );
+              results.add(
+                Expression()
+                  ..messageCreation =
+                      (MessageCreation()..fields.addAll(catchFields2)),
+              );
+              break;
+            }
+          }
+        }
+        // Unrecognized else block — bail.
+        return null;
+      } else {
+        // Unrecognized else form — bail.
+        return null;
+      }
+    }
+
+    return results.isEmpty ? null : results;
+  }
+
+  /// Extract the type name from a condition like:
+  ///   __ball_e is Map && __ball_e['__type'] == 'TypeName'
+  /// Returns the type name string, or null if pattern doesn't match.
+  String? _extractTagType(ast.Expression condition) {
+    // The condition might be parenthesized.
+    var cond = condition;
+    while (cond is ast.ParenthesizedExpression) {
+      cond = cond.expression;
+    }
+    if (cond is! ast.BinaryExpression) return null;
+    if (cond.operator.lexeme != '&&') return null;
+
+    // Left: __ball_e is Map
+    var left = cond.leftOperand;
+    while (left is ast.ParenthesizedExpression) {
+      left = left.expression;
+    }
+    if (left is! ast.IsExpression) return null;
+    final isTarget = left.expression;
+    if (isTarget is! ast.SimpleIdentifier || isTarget.name != '__ball_e') {
+      return null;
+    }
+
+    // Right: __ball_e['__type'] == 'TypeName'
+    var right = cond.rightOperand;
+    while (right is ast.ParenthesizedExpression) {
+      right = right.expression;
+    }
+    if (right is! ast.BinaryExpression) return null;
+    if (right.operator.lexeme != '==') return null;
+
+    // The left side: __ball_e['__type']
+    final indexExpr = right.leftOperand;
+    if (indexExpr is! ast.IndexExpression) return null;
+    final target = indexExpr.target;
+    if (target is! ast.SimpleIdentifier || target.name != '__ball_e') {
+      return null;
+    }
+    final index = indexExpr.index;
+    if (index is! ast.SimpleStringLiteral || index.value != '__type') {
+      return null;
+    }
+
+    // The right side: 'TypeName'
+    final typeNameExpr = right.rightOperand;
+    if (typeNameExpr is! ast.SimpleStringLiteral) return null;
+    return typeNameExpr.value;
+  }
+
+  /// Extract variable name and body statements from a tag-catch then-branch:
+  ///   { final e = __ball_e; <optional stack alias>; <body...> }
+  ({String varName, String? stackName, List<ast.Statement> bodyStatements})?
+      _extractTagBranchBody(ast.Statement thenStmt, String? outerStackAlias) {
+    List<ast.Statement> stmts;
+    if (thenStmt is ast.Block) {
+      stmts = thenStmt.statements;
+    } else {
+      // Single statement (unlikely for tag catch, but handle gracefully).
+      stmts = [thenStmt];
+    }
+    if (stmts.isEmpty) return null;
+
+    // First statement should be: final <name> = __ball_e;
+    final first = stmts[0];
+    if (first is! ast.VariableDeclarationStatement) return null;
+    final vars = first.variables.variables;
+    if (vars.length != 1) return null;
+    final init = vars[0].initializer;
+    if (init is! ast.SimpleIdentifier || init.name != '__ball_e') return null;
+    final varName = vars[0].name.lexeme;
+    int bodyStart = 1;
+
+    // Optional stack alias: final <st> = __ball_st;
+    String? stackName;
+    if (bodyStart < stmts.length &&
+        stmts[bodyStart] is ast.VariableDeclarationStatement) {
+      final sd = stmts[bodyStart] as ast.VariableDeclarationStatement;
+      final sv = sd.variables.variables;
+      if (sv.length == 1) {
+        final si = sv[0].initializer;
+        if (si is ast.SimpleIdentifier && si.name == '__ball_st') {
+          stackName = sv[0].name.lexeme;
+          bodyStart++;
+        }
+      }
+    }
+    // If there's an outerStackAlias and the branch uses it directly, record it.
+    stackName ??= outerStackAlias;
+    // Actually only record stack if the branch explicitly aliases it.
+    if (stackName == outerStackAlias) stackName = null;
+
+    return (
+      varName: varName,
+      stackName: stackName,
+      bodyStatements: stmts.sublist(bodyStart),
+    );
   }
 
   // ============================================================
@@ -2581,8 +2950,27 @@ class DartEncoder {
       // Preserve parentheses when they affect operator precedence:
       // e.g. `(x ??= []).add(y)` vs `x ??= [].add(y)`.
       if (inner is ast.AssignmentExpression ||
-          inner is ast.CascadeExpression ||
           inner is ast.ConditionalExpression) {
+        _usedBaseFunctions.add('paren');
+        return _buildStdCall('paren', [
+          FieldValuePair()
+            ..name = 'value'
+            ..value = _encodeExpr(inner),
+        ]);
+      }
+      if (inner is ast.CascadeExpression) {
+        // Single-section cascades that route to a collection call don't need
+        // paren wrapping — the result is a plain function call, not a cascade
+        // that the compiler would re-wrap in parentheses.
+        if (inner.cascadeSections.length == 1 &&
+            !inner.isNullAware &&
+            inner.cascadeSections[0] is ast.MethodInvocation) {
+          final section = inner.cascadeSections[0] as ast.MethodInvocation;
+          final result =
+              _tryEncodeCascadeAsCollectionCall(inner.target, section);
+          if (result != null) return result;
+        }
+        // Multi-section or non-routed cascades still need the paren wrapper.
         _usedBaseFunctions.add('paren');
         return _buildStdCall('paren', [
           FieldValuePair()
@@ -3369,6 +3757,18 @@ class DartEncoder {
 
   // ---- Cascade ----
   Expression _encodeCascade(ast.CascadeExpression expr) {
+    // Optimization: single-section cascades where the section is a method call
+    // matching a known collection route can be encoded directly as that route.
+    // This avoids the compiler wrapping cascades in parentheses on round-trip,
+    // since the compiler generates `target..method(arg)` from collection ops.
+    if (expr.cascadeSections.length == 1 &&
+        !expr.isNullAware &&
+        expr.cascadeSections[0] is ast.MethodInvocation) {
+      final section = expr.cascadeSections[0] as ast.MethodInvocation;
+      final result = _tryEncodeCascadeAsCollectionCall(expr.target, section);
+      if (result != null) return result;
+    }
+
     _usedBaseFunctions.add('cascade');
     // Mark sections so null-target nodes (PropertyAccess, IndexExpression,
     // MethodInvocation) emit __cascade_self__ instead of crashing.
@@ -3400,6 +3800,95 @@ class DartEncoder {
       );
     }
     return _buildStdCall('cascade', fields);
+  }
+
+  /// Try to encode a single-section cascade as a collection/std call.
+  /// For example, `queue..add('Alice')` → std_collections.list_push.
+  /// Returns null if the cascade section doesn't match a known route.
+  Expression? _tryEncodeCascadeAsCollectionCall(
+    ast.Expression target,
+    ast.MethodInvocation section,
+  ) {
+    final methodName = section.methodName.name;
+
+    // Known mutating methods that the compiler generates as cascades.
+    const cascadeCollectionRoutes = <String, (String, String, String)>{
+      'add': ('std_collections', 'list_push', 'list'),
+      'addAll': ('std_collections', 'list_concat', 'list'),
+      'clear': ('std_collections', 'list_clear', 'list'),
+      'insert': ('std_collections', 'list_insert', 'list'),
+      'sort': ('std_collections', 'list_sort', 'list'),
+    };
+
+    final route = cascadeCollectionRoutes[methodName];
+    if (route == null) return null;
+
+    final (module, fnName, selfField) = route;
+    _usedBaseFunctions.add(fnName);
+    _usedCollectionsFunctions.add(fnName);
+
+    // Encode arguments using the same pattern as _encodeArgList.
+    final args = _encodeArgList(section.argumentList);
+
+    // Rename generic arg0/arg1 to meaningful field names.
+    for (var i = 0; i < args.length; i++) {
+      final a = args[i];
+      if (a.name == 'arg0') {
+        a.name = switch (fnName) {
+          'list_push' || 'list_contains' || 'list_index_of' => 'value',
+          'list_insert' => 'index',
+          'list_concat' => 'value',
+          _ => 'value',
+        };
+      } else if (a.name == 'arg1') {
+        a.name = switch (fnName) {
+          'list_insert' => 'value',
+          _ => 'value',
+        };
+      }
+    }
+
+    final encodedTarget = _encodeExpr(target);
+    final routedFields = <FieldValuePair>[
+      FieldValuePair()
+        ..name = selfField
+        ..value = encodedTarget,
+      ...args,
+    ];
+    final callExpr = Expression()
+      ..call = (FunctionCall()
+        ..module = module
+        ..function = fnName
+        ..input = (Expression()
+          ..messageCreation = (MessageCreation()..fields.addAll(routedFields))));
+
+    // Mutating methods: wrap in assign so non-mutating runtimes hold the
+    // new/mutated collection.
+    const mutatingMethods = {
+      'list_push',
+      'list_clear',
+      'list_sort',
+      'list_insert',
+      'list_concat',
+    };
+    if (mutatingMethods.contains(fnName) && target is ast.SimpleIdentifier) {
+      _usedBaseFunctions.add('assign');
+      return Expression()
+        ..call = (FunctionCall()
+          ..module = _moduleForFunction('assign')
+          ..function = 'assign'
+          ..input = (Expression()
+            ..messageCreation = (MessageCreation()
+              ..fields.addAll([
+                FieldValuePair()
+                  ..name = 'target'
+                  ..value = encodedTarget,
+                FieldValuePair()
+                  ..name = 'value'
+                  ..value = callExpr,
+              ]))));
+    }
+    return callExpr;
   }
 
   // ---- Lambda / FunctionExpression ----

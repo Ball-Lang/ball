@@ -3900,19 +3900,21 @@ function __isUnknownFnError(e: any): boolean {
         const cb = f.get("callback") ?? f.get("method") ?? f.get("value");
         return cb ? this.expr(cb) : "null";
       }
-      case "dart_list_generate": {
+      case "dart_list_generate":
+      case "list_generate": {
         const count = f.get("count") ?? f.get("length");
         const gen = f.get("generator");
         if (count && gen) {
-          return `List.generate(${this.expr(count)}, ${this.expr(gen)})`;
+          return `Array.from({length: ${this.expr(count)}}, (_, i) => (${this.expr(gen)})(i))`;
         }
         return "[]";
       }
-      case "dart_list_filled": {
+      case "dart_list_filled":
+      case "list_filled": {
         const count = f.get("count") ?? f.get("length");
         const value = f.get("value") ?? f.get("fill");
         if (count && value) {
-          return `List.filled(${this.expr(count)}, ${this.expr(value)})`;
+          return `Array(${this.expr(count)}).fill(${this.expr(value)})`;
         }
         return "[]";
       }

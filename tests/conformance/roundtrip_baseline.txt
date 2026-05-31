@@ -17,7 +17,6 @@
 113_operator_overloading:ts-compiled
 114_class_hierarchy:ts-compiled
 115_generic_class:ts-compiled
-118_set_operations:ts-compiled
 123_queue_simulation:dart-compiled
 123_queue_simulation:dart-roundtrip
 123_queue_simulation:ts-compiled
@@ -25,15 +24,10 @@
 125_group_by:ts-compiled
 129_unique_elements:ts-compiled
 130_running_average:ts-compiled
-132_merge_sort:ts-compiled
-134_counting_sort:ts-compiled
-146_nested_try_catch_types:ts-compiled
 150_state_machine:ts-compiled
 151_recursive_descent_parser:dart-compiled
 151_recursive_descent_parser:dart-roundtrip
 155_pipeline_compose:ts-compiled
-160_async_basic:ts-compiled
-161_async_chained:ts-compiled
 162_generator_sync:ts-compiled
 163_generator_async:dart-compiled
 163_generator_async:dart-roundtrip
@@ -51,8 +45,6 @@
 169_pattern_destructure:dart-roundtrip
 169_pattern_destructure:ts-compiled
 171_async_error_propagation:ts-compiled
-172_async_nested_await:ts-compiled
-173_async_multiple_futures:ts-compiled
 174_generator_yield_star:ts-compiled
 175_generator_empty_return:ts-compiled
 176_generator_early_return:ts-compiled
@@ -62,8 +54,6 @@
 182_list_patterns:ts-compiled
 184_nested_patterns:dart-compiled
 184_nested_patterns:dart-roundtrip
-186_list_generate:ts-compiled
-187_list_filled:ts-compiled
 188_std_time_now:dart-compiled
 188_std_time_now:dart-roundtrip
 188_std_time_now:ts-compiled
@@ -89,9 +79,6 @@
 230_signed_int_boundaries:ts-compiled
 231_negative_zero_compare:ts-compiled
 233_int_arithmetic_edges:ts-compiled
-237_map_pattern_switch:ts-compiled
-239_switch_expr_relational:ts-compiled
-240_switch_type_guard_patterns:ts-compiled
 241_generic_list_covariance:ts-compiled
 242_generic_fn_chains:ts-compiled
 251_bitwise_signed_edges:ts-compiled

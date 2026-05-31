@@ -4221,7 +4221,8 @@ function __isUnknownFnError(e: any): boolean {
           case "list_sort": {
             const l = this.expr(f.get("list")!);
             const cmp = f.get("comparator") ?? f.get("function") ?? f.get("value");
-            return cmp ? `[...${l}].sort(${this.expr(cmp)})` : `[...${l}].sort()`;
+            // JS .sort() is lexicographic by default; Dart's is numeric.
+            return cmp ? `[...${l}].sort(${this.expr(cmp)})` : `[...${l}].sort((a, b) => a < b ? -1 : a > b ? 1 : 0)`;
           }
           case "list_join": {
             const l = this.expr(f.get("list")!);

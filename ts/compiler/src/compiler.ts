@@ -3739,7 +3739,16 @@ function __isUnknownFnError(e: any): boolean {
         const elements: string[] = [];
         const inputFields = call.input?.messageCreation?.fields ?? [];
         for (const fd of inputFields) {
-          elements.push(this.expr(fd.value));
+          if (fd.name === "elements" || fd.name === "element") {
+            // The `elements` field contains a list of set elements.
+            const listElems = fd.value?.literal?.listValue?.elements ?? [];
+            if (listElems.length === 0) return "new Set()";
+            for (const el of listElems) {
+              elements.push(this.expr(el));
+            }
+          } else if (fd.name !== "__type_args__" && fd.name !== "__const__") {
+            elements.push(this.expr(fd.value));
+          }
         }
         if (elements.length === 0) return "new Set()";
         return `new Set([${elements.join(", ")}])`;
@@ -4017,8 +4026,12 @@ function __isUnknownFnError(e: any): boolean {
       }
       case "list_slice": case "list_sublist": {
         const list = f.get("list");
-        const start = f.get("start");
-        const end = f.get("end");
+        // Use raw field list for start/end because the encoder may emit
+        // duplicate 'value' keys (start and end both named 'value').
+        const rawNonList = (call.input?.messageCreation?.fields ?? [])
+          .filter((fd: any) => fd.name !== "list");
+        const start = f.get("start") ?? (rawNonList.length > 0 ? rawNonList[0].value : undefined);
+        const end = f.get("end") ?? (rawNonList.length > 1 ? rawNonList[1].value : undefined);
         if (list && start) {
           if (end) return `${this.expr(list)}.slice(${this.expr(start)}, ${this.expr(end)})`;
           return `${this.expr(list)}.slice(${this.expr(start)})`;
@@ -4698,7 +4711,7 @@ function patternToTsCondition(pat: string, subject: string): string {
   if (typeTest) {
     switch (typeTest.type) {
       case "int": return `(typeof ${subject} === 'number' && Number.isInteger(${subject}))`;
-      case "double":
+      case "double": return `(typeof ${subject} === 'number' && !Number.isInteger(${subject}))`;
       case "num": return `(typeof ${subject} === 'number')`;
       case "String": return `(typeof ${subject} === 'string')`;
       case "bool": return `(typeof ${subject} === 'boolean')`;

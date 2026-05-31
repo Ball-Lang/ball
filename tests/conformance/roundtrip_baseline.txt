@@ -43,10 +43,6 @@
 169_pattern_destructure:dart-compiled
 169_pattern_destructure:dart-roundtrip
 169_pattern_destructure:ts-compiled
-171_async_error_propagation:ts-compiled
-174_generator_yield_star:ts-compiled
-175_generator_empty_return:ts-compiled
-176_generator_early_return:ts-compiled
 177_oop_diamond:ts-compiled
 180_generic_list_ops:ts-compiled
 181_generic_map_ops:ts-compiled
@@ -67,7 +63,6 @@
 207_record_pattern_destructure:ts-compiled
 208_async_chain_rethrow:dart-compiled
 208_async_chain_rethrow:dart-roundtrip
-208_async_chain_rethrow:ts-compiled
 209_generator_filtered_state:ts-compiled
 214_nan_propagation:ts-compiled
 215_infinity_arithmetic:ts-compiled

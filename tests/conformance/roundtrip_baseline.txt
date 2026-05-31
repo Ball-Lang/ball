@@ -27,7 +27,6 @@
 150_state_machine:ts-compiled
 151_recursive_descent_parser:dart-compiled
 151_recursive_descent_parser:dart-roundtrip
-155_pipeline_compose:ts-compiled
 162_generator_sync:ts-compiled
 163_generator_async:dart-compiled
 163_generator_async:dart-roundtrip

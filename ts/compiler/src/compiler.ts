@@ -4170,6 +4170,14 @@ function __isUnknownFnError(e: any): boolean {
         const ms = f.get("value") ?? f.get("ms") ?? f.get("timestamp");
         return ms ? `DateTime.fromMillisecondsSinceEpoch(${this.expr(ms)}, true).toIso8601String()` : `""`;
       }
+      case "parse_timestamp": {
+        const s = f.get("value") ?? f.get("formatted") ?? f.get("input");
+        return s ? `DateTime.parse(${this.expr(s)}).millisecondsSinceEpoch` : `0`;
+      }
+      case "time_components": {
+        const ms = f.get("value") ?? f.get("ms") ?? f.get("timestamp");
+        return ms ? `(() => { const d = new Date(${this.expr(ms)}); return {year: d.getUTCFullYear(), month: d.getUTCMonth()+1, day: d.getUTCDate(), hour: d.getUTCHours(), minute: d.getUTCMinutes(), second: d.getUTCSeconds()}; })()` : `{}`;
+      }
       case "random_int": {
         const max = f.get("max") ?? f.get("value");
         return max ? `Math.floor(Math.random() * ${this.expr(max)})` : "0";

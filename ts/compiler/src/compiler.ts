@@ -165,7 +165,7 @@ export class BallCompiler {
       const body = fn.body ? this.captureInto(() => {
         this.writeln(`return ${this.expr(fn.body!)};`);
       }) : "undefined";
-      sf.addStatements(`const ${name} = (() => { ${body} })();`);
+      sf.addStatements(`let ${name} = (() => { ${body} })();`);
     }
 
     // Free top-level functions (exclude top-level variables).

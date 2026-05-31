@@ -4215,6 +4215,23 @@ function __isUnknownFnError(e: any): boolean {
         const v = f.get("value");
         return v ? `JSON.parse(${this.expr(v)})` : "null";
       }
+      // UTF-8 / Base64
+      case "utf8_encode": {
+        const v = f.get("value") ?? f.get("input");
+        return v ? `[...new TextEncoder().encode(${this.expr(v)})]` : "[]";
+      }
+      case "utf8_decode": {
+        const v = f.get("value") ?? f.get("input") ?? f.get("bytes");
+        return v ? `new TextDecoder().decode(new Uint8Array(${this.expr(v)}))` : "''";
+      }
+      case "base64_encode": {
+        const v = f.get("value") ?? f.get("input") ?? f.get("bytes");
+        return v ? `btoa(String.fromCharCode(...${this.expr(v)}))` : "''";
+      }
+      case "base64_decode": {
+        const v = f.get("value") ?? f.get("input");
+        return v ? `[...atob(${this.expr(v)})].map(c => c.charCodeAt(0))` : "[]";
+      }
       // Type ops
       case "symbol": case "type_literal": {
         const v = f.get("value") ?? f.get("name");

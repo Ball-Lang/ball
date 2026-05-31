@@ -29,14 +29,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ball_base/ball_base.dart' show encodeBallFileJson;
-import 'package:ball_base/gen/ball/v1/ball.pb.dart';
-import 'package:ball_compiler/compiler.dart';
-// ts_compiler.dart was deleted — the canonical TS compiler lives in
-// ts/compiler/ (@ball-lang/compiler). The TS leg of this test shells
-// out to its CLI directly.
 import 'package:ball_encoder/encoder.dart';
-import 'package:ball_engine/engine.dart';
 import 'package:test/test.dart';
+
+// Pipeline runners are shared with conformance_roundtrip_test.dart so there
+// is exactly one behavior-identical implementation of each leg.
+import 'support/pipeline_runners.dart';
 
 // ─── Pipeline-specific knobs ─────────────────────────────────────
 // Fixtures whose emitted C++ wouldn't run (e.g. uses a feature the C++
@@ -48,202 +46,6 @@ const _skipCppAny = <String, String>{};
 
 // Fixtures skipped for the TypeScript pipeline.
 const _skipTs = <String, String>{};
-
-String _norm(String s) =>
-    s.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trimRight();
-
-// ─── Pipeline runners ────────────────────────────────────────────
-
-String _runDartNative(File dartFile) {
-  final r = Process.runSync(
-    Platform.resolvedExecutable,
-    ['run', dartFile.absolute.path],
-    stdoutEncoding: utf8,
-    stderrEncoding: utf8,
-  );
-  if (r.exitCode != 0) {
-    throw StateError(
-      'dart run failed (rc=${r.exitCode})\nstderr:\n${r.stderr}',
-    );
-  }
-  return _norm(r.stdout as String);
-}
-
-Future<String> _runBallEngine(Program program) async {
-  final lines = <String>[];
-  await BallEngine(program, stdout: lines.add).run();
-  return _norm(lines.join('\n'));
-}
-
-String _runRecompiledDart(Program program, Directory scratch, String name) {
-  final dartSource = DartCompiler(program).compile();
-  final out = File('${scratch.path}/$name.regen.dart');
-  out.writeAsStringSync(dartSource);
-  return _runDartNative(out);
-}
-
-/// Compile Ball → TypeScript via `@ball-lang/compiler` (ts/compiler/),
-/// then run via `node --experimental-strip-types`.
-/// Returns null if `node` isn't on PATH or the TS compiler isn't built.
-String? _runTsCompiled(Program program, Directory scratch, String name) {
-  final nodeExe = Platform.isWindows ? 'node.exe' : 'node';
-
-  // Locate the @ball-lang/compiler CLI relative to the repo root.
-  var dir = Directory.current;
-  String? compilerCli;
-  while (true) {
-    final candidate = File('${dir.path}/ts/compiler/bin/ball-ts-compile.mjs');
-    if (candidate.existsSync()) {
-      compilerCli = candidate.absolute.path;
-      break;
-    }
-    final parent = dir.parent;
-    if (parent.path == dir.path) break;
-    dir = parent;
-  }
-  if (compilerCli == null) return null;
-
-  // Write program JSON to a temp file, invoke the TS compiler CLI.
-  final tmpIn = File('${scratch.path}/$name.ball.json');
-  tmpIn.writeAsStringSync(jsonEncode(program.toProto3Json()));
-  final out = File('${scratch.path}/$name.regen.ts');
-
-  try {
-    final compile = Process.runSync(
-      nodeExe,
-      [compilerCli, tmpIn.path, '--out', out.path],
-      stdoutEncoding: utf8,
-      stderrEncoding: utf8,
-    );
-    if (compile.exitCode != 0) {
-      throw StateError(
-        'ball-ts-compile failed (rc=${compile.exitCode})\n'
-        'stderr:\n${compile.stderr}',
-      );
-    }
-
-    final r = Process.runSync(
-      nodeExe,
-      [
-        '--experimental-strip-types',
-        '--disable-warning=ExperimentalWarning',
-        out.absolute.path,
-      ],
-      stdoutEncoding: utf8,
-      stderrEncoding: utf8,
-    );
-    if (r.exitCode != 0) {
-      throw StateError(
-        'node run failed (rc=${r.exitCode})\n'
-        'stderr:\n${r.stderr}\n'
-        '--- generated ts ---\n${out.readAsStringSync()}',
-      );
-    }
-    return _norm(r.stdout as String);
-  } on ProcessException {
-    return null;
-  }
-}
-
-/// Compile Ball → C++ → exe, run, return stdout.
-/// Returns null if the ball_cpp_compile binary isn't present.
-String? _runCppCompiled(
-  File ballJsonFile,
-  File compileBinary,
-  Directory scratch,
-  String name,
-) {
-  if (!compileBinary.existsSync()) return null;
-
-  final cppOut = File('${scratch.path}/$name.cpp');
-  final compileRes = Process.runSync(
-    compileBinary.absolute.path,
-    [ballJsonFile.absolute.path, cppOut.absolute.path],
-    stdoutEncoding: utf8,
-    stderrEncoding: utf8,
-  );
-  if (compileRes.exitCode != 0) {
-    throw StateError(
-      'ball_cpp_compile failed (rc=${compileRes.exitCode})\n'
-      'stderr:\n${compileRes.stderr}',
-    );
-  }
-
-  // Reuse the existing CMake-based build-a-scratch-project trick via a
-  // fresh mini CMake project; we invoke cmake directly.
-  final projDir = Directory('${scratch.path}/$name.proj');
-  projDir.createSync(recursive: true);
-  File(
-    '${projDir.path}/${name}.cpp',
-  ).writeAsStringSync(cppOut.readAsStringSync());
-  File('${projDir.path}/CMakeLists.txt').writeAsStringSync('''
-cmake_minimum_required(VERSION 3.14)
-project(ball_cross_$name CXX)
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-add_executable($name ${name}.cpp)
-''');
-
-  final buildDir = Directory('${projDir.path}/_b');
-  buildDir.createSync();
-  final gen = Process.runSync(
-    'cmake',
-    ['-S', projDir.absolute.path, '-B', buildDir.absolute.path],
-    stdoutEncoding: utf8,
-    stderrEncoding: utf8,
-  );
-  if (gen.exitCode != 0) {
-    throw StateError(
-      'cmake configure failed (rc=${gen.exitCode})\n'
-      'stderr:\n${gen.stderr}\n'
-      '--- emitted cpp ---\n${cppOut.readAsStringSync()}',
-    );
-  }
-  final build = Process.runSync(
-    'cmake',
-    ['--build', buildDir.absolute.path, '--config', 'Debug'],
-    stdoutEncoding: utf8,
-    stderrEncoding: utf8,
-  );
-  if (build.exitCode != 0) {
-    throw StateError(
-      'cmake build failed (rc=${build.exitCode})\n'
-      'stdout:\n${build.stdout}\nstderr:\n${build.stderr}\n'
-      '--- emitted cpp ---\n${cppOut.readAsStringSync()}',
-    );
-  }
-
-  // Locate the binary. Multi-config generators put it under <build>/Debug,
-  // single-config directly under <build>.
-  File? exeFile;
-  final exeName = Platform.isWindows ? '$name.exe' : name;
-  for (final sub in ['Debug', '']) {
-    final p = File('${buildDir.path}/$sub/$exeName');
-    if (p.existsSync()) {
-      exeFile = p;
-      break;
-    }
-  }
-  if (exeFile == null) {
-    throw StateError(
-      'compiled binary not found under ${buildDir.path} for $name',
-    );
-  }
-
-  final run = Process.runSync(
-    exeFile.absolute.path,
-    const [],
-    stdoutEncoding: utf8,
-    stderrEncoding: utf8,
-  );
-  if (run.exitCode != 0) {
-    throw StateError(
-      'compiled binary exited rc=${run.exitCode}\n'
-      'stderr:\n${run.stderr}',
-    );
-  }
-  return _norm(run.stdout as String);
-}
 
 // ─── Test harness ────────────────────────────────────────────────
 
@@ -299,7 +101,7 @@ void main() {
       final name = fixture.uri.pathSegments.last.replaceAll('.dart', '');
       test(name, () async {
         // ── 1. Baseline: dart run on the original source.
-        final baseline = _runDartNative(fixture);
+        final baseline = await runDartNative(fixture);
 
         // ── 2. Encode to Ball IR.
         final source = fixture.readAsStringSync();
@@ -322,7 +124,7 @@ void main() {
         ).writeAsStringSync('$baseline\n');
 
         // ── 3. Dart BallEngine.
-        final dartEngineOut = await _runBallEngine(program);
+        final dartEngineOut = await runBallEngine(program);
         expect(
           dartEngineOut,
           equals(baseline),
@@ -333,7 +135,7 @@ void main() {
         );
 
         // ── 4. DartCompiler → dart run.
-        final recompiledDartOut = _runRecompiledDart(program, scratch, name);
+        final recompiledDartOut = await runRecompiledDart(program, scratch, name);
         expect(
           recompiledDartOut,
           equals(baseline),
@@ -342,7 +144,7 @@ void main() {
 
         // ── 4b. TsCompiler → node --experimental-strip-types.
         if (!_skipTs.containsKey(name)) {
-          final tsOut = _runTsCompiled(program, scratch, name);
+          final tsOut = await runTsCompiled(program, scratch, name);
           if (tsOut != null) {
             expect(
               tsOut,
@@ -356,7 +158,7 @@ void main() {
         if (compileBin != null &&
             !_skipCppAny.containsKey(name) &&
             !_skipCppCompile.containsKey(name)) {
-          final cppCompiledOut = _runCppCompiled(
+          final cppCompiledOut = runCppCompiled(
             jsonOut,
             compileBin,
             scratch,

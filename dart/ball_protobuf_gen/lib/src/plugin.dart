@@ -31,7 +31,9 @@ library;
 
 import 'package:ball_protobuf/ball_protobuf.dart';
 
+import 'connect_emitter.dart';
 import 'generator.dart';
+import 'grpc_emitter.dart';
 
 /// `CodeGeneratorResponse.Feature.FEATURE_PROTO3_OPTIONAL` (bit 0).
 const int featureProto3Optional = 1;
@@ -281,3 +283,114 @@ PluginResponse generate(PluginRequest request) {
 /// one call (used by the `bin/` wrapper and the smoke test).
 List<int> runPlugin(List<int> requestBytes) =>
     encodeResponse(generate(decodeRequest(requestBytes)));
+
+// ---------------------------------------------------------------------------
+// Connect-service plugin core (protoc-gen-ball-connect).
+// ---------------------------------------------------------------------------
+
+/// The Connect service variant of [generate]: emits ONLY `<file>.connect.dart`
+/// service files (the message `.pb.dart` files come from `protoc-gen-ball`).
+///
+/// Reconstructs the `FileDescriptorSet` from the request's `proto_file` entries
+/// and runs the Connect emitter over the files named in `file_to_generate`.
+/// Files declaring no service produce no output (so a message-only `.proto`
+/// silently yields nothing). The same feature flags + edition range as the
+/// message plugin are advertised, since both share the `ball_protobuf` runtime.
+///
+/// Decoupled from stdin/stdout so it can be unit-tested directly.
+PluginResponse generateConnect(PluginRequest request) {
+  const features = featureProto3Optional | featureSupportsEditions;
+  if (request.filesToGenerate.isEmpty) {
+    return const PluginResponse(
+      supportedFeatures: features,
+      minimumEdition: minimumSupportedEdition,
+      maximumEdition: maximumSupportedEdition,
+    );
+  }
+
+  final List<GeneratedConnectFile> generated;
+  try {
+    generated = generateConnectServices(
+      _fileDescriptorSetBytes(request.protoFiles),
+      filesToGenerate: request.filesToGenerate.toSet(),
+    );
+  } catch (e) {
+    return PluginResponse(
+      error: 'protoc-gen-ball-connect: $e',
+      supportedFeatures: features,
+      minimumEdition: minimumSupportedEdition,
+      maximumEdition: maximumSupportedEdition,
+    );
+  }
+
+  return PluginResponse(
+    supportedFeatures: features,
+    minimumEdition: minimumSupportedEdition,
+    maximumEdition: maximumSupportedEdition,
+    files: [
+      for (final g in generated)
+        GeneratedFile(name: g.path, content: g.content),
+    ],
+  );
+}
+
+/// decode → [generateConnect] → encode, the stdin->stdout core for the Connect
+/// service plugin (`bin/protoc_gen_ball_connect.dart`).
+List<int> runConnectPlugin(List<int> requestBytes) =>
+    encodeResponse(generateConnect(decodeRequest(requestBytes)));
+
+// ---------------------------------------------------------------------------
+// gRPC-service plugin core (protoc-gen-ball-grpc).
+// ---------------------------------------------------------------------------
+
+/// The gRPC service variant of [generate]: emits ONLY `<file>.grpc.dart`
+/// service files (the message `.pb.dart` files come from `protoc-gen-ball`).
+///
+/// Reconstructs the `FileDescriptorSet` from the request's `proto_file` entries
+/// and runs the gRPC emitter over the files named in `file_to_generate`. Files
+/// declaring no service produce no output (so a message-only `.proto` silently
+/// yields nothing). The same feature flags + edition range as the message and
+/// Connect plugins are advertised, since all three share the `ball_protobuf`
+/// runtime.
+///
+/// Decoupled from stdin/stdout so it can be unit-tested directly.
+PluginResponse generateGrpc(PluginRequest request) {
+  const features = featureProto3Optional | featureSupportsEditions;
+  if (request.filesToGenerate.isEmpty) {
+    return const PluginResponse(
+      supportedFeatures: features,
+      minimumEdition: minimumSupportedEdition,
+      maximumEdition: maximumSupportedEdition,
+    );
+  }
+
+  final List<GeneratedGrpcFile> generated;
+  try {
+    generated = generateGrpcServices(
+      _fileDescriptorSetBytes(request.protoFiles),
+      filesToGenerate: request.filesToGenerate.toSet(),
+    );
+  } catch (e) {
+    return PluginResponse(
+      error: 'protoc-gen-ball-grpc: $e',
+      supportedFeatures: features,
+      minimumEdition: minimumSupportedEdition,
+      maximumEdition: maximumSupportedEdition,
+    );
+  }
+
+  return PluginResponse(
+    supportedFeatures: features,
+    minimumEdition: minimumSupportedEdition,
+    maximumEdition: maximumSupportedEdition,
+    files: [
+      for (final g in generated)
+        GeneratedFile(name: g.path, content: g.content),
+    ],
+  );
+}
+
+/// decode → [generateGrpc] → encode, the stdin->stdout core for the gRPC
+/// service plugin (`bin/protoc_gen_ball_grpc.dart`).
+List<int> runGrpcPlugin(List<int> requestBytes) =>
+    encodeResponse(generateGrpc(decodeRequest(requestBytes)));

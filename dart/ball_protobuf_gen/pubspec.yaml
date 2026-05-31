@@ -23,6 +23,11 @@ dependencies:
   ball_protobuf: ^0.3.0
 
 dev_dependencies:
+  # ball_rpc is NOT imported by this package's library code; it is the runtime
+  # the *generated* `.connect.dart` files import. Listed here so the
+  # connect-service test's subprocess driver (which compiles a generated client)
+  # can resolve `package:ball_rpc` through the workspace package config.
+  ball_rpc: ^0.3.0
   dart_style: ^3.0.0
   lints: ^6.1.0
   test: ^1.25.0

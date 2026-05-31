@@ -318,6 +318,21 @@ class GenModelBuilder {
   /// The shared resolved descriptor registry (message FQN -> field list).
   DescriptorRegistry get registry => _registry;
 
+  /// Message/enum FQN (no leading dot) -> its flattened Dart class/enum name.
+  /// Exposed so the service emitter (`connect_emitter.dart`) can resolve a
+  /// method's input/output message type to the same Dart class the message
+  /// emitter generates.
+  Map<String, String> get dartNamesByFqn => Map.unmodifiable(_dartNames);
+
+  /// Message/enum FQN (no leading dot) -> the generated **message** output path
+  /// (`foo/bar.pb.dart`) of the file that defines it. The service emitter uses
+  /// this to import the right `.pb.dart` for each referenced request/response
+  /// type (cross-file or local).
+  Map<String, String> get outputPathByFqn => Map.unmodifiable(_outputPathByFqn);
+
+  /// Every file in the underlying `FileDescriptorSet`, in topological order.
+  List<FileDescriptorProto> get files => List.unmodifiable(_fds.file);
+
   /// Builds [GenFile]s for every file in the set whose name is in
   /// [filesToGenerate]. An empty [filesToGenerate] generates every file.
   ///

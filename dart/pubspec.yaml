@@ -5,6 +5,7 @@ environment:
 workspace:
   - ball_protobuf
   - ball_protobuf_gen
+  - ball_rpc
   - shared
   - compiler
   - encoder

@@ -401,12 +401,17 @@ void main() {
 }
 
 String _packageRoot() {
+  // Locate the ball_protobuf_gen package root by finding the directory that
+  // actually contains the golden file — either the CWD itself (running from the
+  // package dir) or `<ancestor>/dart/ball_protobuf_gen` (running from the dart/
+  // workspace dir or the repo root). Robust to any CWD inside the repo, unlike
+  // a bare pubspec.yaml+lib/src walk-up (which misses from the workspace root).
+  const golden = 'test/golden/test_messages.pb.dart';
   var dir = Directory.current;
-  for (var i = 0; i < 8; i++) {
-    if (File('${dir.path}/pubspec.yaml').existsSync() &&
-        Directory('${dir.path}/lib/src').existsSync()) {
-      return dir.path;
-    }
+  for (var i = 0; i < 10; i++) {
+    if (File('${dir.path}/$golden').existsSync()) return dir.path;
+    final viaRepo = '${dir.path}/dart/ball_protobuf_gen';
+    if (File('$viaRepo/$golden').existsSync()) return viaRepo;
     final parent = dir.parent;
     if (parent.path == dir.path) break;
     dir = parent;

@@ -3134,6 +3134,14 @@ function __isUnknownFnError(e: any): boolean {
     if (e.reference) {
       const name = e.reference.name;
       if (name === "this") return "this";
+      // Ball's `self` → JS `this` in class methods, when `self` is not
+      // an explicit parameter or a locally declared variable.
+      if (name === "self" &&
+          this.currentClassFields.size > 0 &&
+          !this.currentMethodParams.has("self") &&
+          !this.scopeDeclaredVars.has("self")) {
+        return "this";
+      }
       // Inside a class method: bare references to fields need this.
       // prefix. Method references also need .bind(this) because Dart
       // tear-offs auto-bind but JS method references do not.
@@ -4301,7 +4309,29 @@ function __isUnknownFnError(e: any): boolean {
 
   private compileThrowValue(v: Expression): string | undefined {
     if (!v.messageCreation) return undefined;
-    if (v.messageCreation.typeName) return undefined;
+    const tn = v.messageCreation.typeName ?? "";
+    if (tn) {
+      // Dart exception types: emit tagged objects with `message` from arg0.
+      const shortName = tn.includes(":") ? tn.substring(tn.lastIndexOf(":") + 1) : tn;
+      const dartExceptions = new Set([
+        "FormatException", "StateError", "ArgumentError",
+        "UnsupportedError", "ConcurrentModificationError",
+        "IntegerDivisionByZeroException", "NoSuchMethodError",
+        "UnimplementedError", "AssertionError",
+      ]);
+      if (dartExceptions.has(shortName)) {
+        const fields = v.messageCreation.fields ?? [];
+        const arg0 = fields.find(f => f.name === "arg0");
+        const msgExpr = arg0 ? this.expr(arg0.value) : "''";
+        const extraFields = fields
+          .filter(f => f.name !== "arg0" && f.name !== "__type_args__" && f.name !== "__const__")
+          .map(f => `'${f.name}': ${this.expr(f.value)}`)
+          .join(", ");
+        const extra = extraFields ? `, ${extraFields}` : "";
+        return `{'__type__': '${shortName}', 'message': ${msgExpr}${extra}}`;
+      }
+      return undefined;
+    }
     const entries = (v.messageCreation.fields ?? [])
       .map((fd) => `'${fd.name}': ${this.expr(fd.value)}`)
       .join(", ");

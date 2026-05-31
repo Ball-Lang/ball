@@ -18,9 +18,7 @@
 113_operator_overloading:ts-compiled
 114_class_hierarchy:ts-compiled
 115_generic_class:ts-compiled
-116_map_iteration:ts-compiled
 118_set_operations:ts-compiled
-119_nested_maps:ts-compiled
 121_map_from_entries:ts-compiled
 123_queue_simulation:dart-compiled
 123_queue_simulation:dart-roundtrip

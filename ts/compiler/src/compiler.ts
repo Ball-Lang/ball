@@ -4070,6 +4070,12 @@ function __isUnknownFnError(e: any): boolean {
           case "list_any": return `${this.expr(f.get("list")!)}.some(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
           case "list_all": return `${this.expr(f.get("list")!)}.every(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
           case "list_to_list": return `[...${this.expr(f.get("list")!)}]`;
+          case "list_foreach": return `${this.expr(f.get("list")!)}.forEach(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
+          case "map_foreach": {
+            const map = this.expr(f.get("map") ?? f.get("value")!);
+            const cb = this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!);
+            return `Object.entries(${map}).forEach(([k, v]) => ${cb}(k, v))`;
+          }
           case "list_concat": return `__ball_concat(${this.expr(f.get("left") ?? f.get("list")!)}, ${this.expr(f.get("right") ?? f.get("other") ?? f.get("value")!)})`;
           case "list_reversed": return `[...${this.expr(f.get("list")!)}].reverse()`;
           case "compare_to": {

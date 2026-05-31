@@ -2208,8 +2208,10 @@ function __isUnknownFnError(e: any): boolean {
   ): void {
     const params = extractParams(fn);
     const name = forceName ?? sanitize(fn.name);
-    const body = this.captureInto(() => {
-      if (params.length === 1 && params[0] !== "input") {
+    const needsInputAlias = params.length === 1 && params[0] !== "input";
+    const inputIsReassigned = needsInputAlias && fn.body && bodyAssignsToVar(fn.body, "input");
+    let body = this.captureInto(() => {
+      if (needsInputAlias && !inputIsReassigned) {
         this.writeln(`const input = ${sanitize(params[0])};`);
       }
       if (fn.body) this.emitStatementOrExpression(fn.body, true);
@@ -2450,13 +2452,15 @@ function __isUnknownFnError(e: any): boolean {
 
   private buildMethod(fn: FunctionDef, meta: Struct, classFields: Set<string>) {
     const params = extractParams(fn);
+    const needsInputAlias = params.length === 1 && params[0] !== "input";
+    const inputIsReassigned = needsInputAlias && fn.body && bodyAssignsToVar(fn.body, "input");
     const body = this.withMethodContext(
       new Set(params),
       classFields,
       () =>
         this.captureInto(() => {
-          if (params.length === 1 && params[0] !== "input") {
-            this.writeln(`const input = ${sanitize(params[0])};`);
+          if (needsInputAlias) {
+            this.writeln(`${inputIsReassigned ? "let" : "const"} input = ${sanitize(params[0])};`);
           }
           if (fn.body) this.emitStatementOrExpression(fn.body, true);
         }),
@@ -3263,6 +3267,12 @@ function __isUnknownFnError(e: any): boolean {
       return `new ${shortTn}(${args})`;
     }
 
+    // Dart StringBuffer → empty string in TS (string concatenation replaces
+    // the mutable buffer). writeCharCode / write are handled in compileCall.
+    if (shortTn === "StringBuffer") {
+      return `""`;
+    }
+
     // BallValue wrapper types — transparent in TS (no wrapper needed).
     // BallMap(map) → just the map; BallList(list) → just the list; etc.
     const ballValueTransparent = new Set([
@@ -3331,10 +3341,12 @@ function __isUnknownFnError(e: any): boolean {
     const savedRenames = this.renameStack;
     this.scopeDeclaredVars = new Set();
     this.renameStack = [];
+    const needsInputAlias = params.length === 1 && params[0] !== "input";
+    const inputIsReassigned = needsInputAlias && fn.body && bodyAssignsToVar(fn.body, "input");
     const innerText = this.captureInto(() => {
       this.writeln("");
-      if (params.length === 1 && params[0] !== "input") {
-        this.writeln(`const input = ${sanitize(params[0])};`);
+      if (needsInputAlias) {
+        this.writeln(`${inputIsReassigned ? "let" : "const"} input = ${sanitize(params[0])};`);
       }
       if (fn.body) this.emitStatementOrExpression(fn.body, true);
     }) + "\n";
@@ -3386,6 +3398,18 @@ function __isUnknownFnError(e: any): boolean {
           .filter((f) => f.name !== "self" && f.name !== "__type_args__")
           .map((f) => this.expr(f.value))
           .join(", ");
+        // StringBuffer.writeCharCode(code) → self += String.fromCharCode(code)
+        if (fn === "writeCharCode") {
+          return `(${selfStr} += String.fromCharCode(${otherArgs}))`;
+        }
+        // StringBuffer.write(text) → self += text
+        if (fn === "write" && otherArgs !== "") {
+          return `(${selfStr} += ${otherArgs})`;
+        }
+        // Map.fromEntries(list) → Object.fromEntries(list.map(e => [e.arg0, e.arg1]))
+        if (fn === "fromEntries" && selfField.value.reference?.name === "Map") {
+          return `Object.fromEntries((${otherArgs}).map((e: any) => [e.arg0 ?? e.key, e.arg1 ?? e.value]))`;
+        }
         return otherArgs === ""
           ? `${selfStr}.${fn}()`
           : `${selfStr}.${fn}(${otherArgs})`;
@@ -4293,6 +4317,44 @@ function __isUnknownFnError(e: any): boolean {
 }
 
 // ───────────────────────── Free helpers ───────────────────────────────
+
+/**
+ * Recursively checks whether an expression tree contains an `assign` call
+ * whose target is a reference to `varName`. Used to decide whether a
+ * `const input = ...` alias should be `let` instead.
+ */
+function bodyAssignsToVar(expr: Expression, varName: string): boolean {
+  if (expr.block) {
+    for (const s of expr.block.statements ?? []) {
+      if (s.expression && bodyAssignsToVar(s.expression, varName)) return true;
+      if (s.let?.value && bodyAssignsToVar(s.let.value, varName)) return true;
+    }
+    if (expr.block.result && bodyAssignsToVar(expr.block.result, varName)) return true;
+  }
+  if (expr.call) {
+    if (
+      expr.call.function === "assign" &&
+      (expr.call.module === "std" || expr.call.module === "" || expr.call.module === undefined)
+    ) {
+      const fields = expr.call.input?.messageCreation?.fields ?? [];
+      for (const f of fields) {
+        if (f.name === "target" && f.value.reference?.name === varName) return true;
+      }
+    }
+    // Recurse into the call's input and all fields
+    if (expr.call.input) {
+      if (bodyAssignsToVar(expr.call.input, varName)) return true;
+    }
+  }
+  if (expr.messageCreation) {
+    for (const f of expr.messageCreation.fields ?? []) {
+      if (bodyAssignsToVar(f.value, varName)) return true;
+    }
+  }
+  if (expr.lambda?.body && bodyAssignsToVar(expr.lambda.body, varName)) return true;
+  if (expr.fieldAccess?.object && bodyAssignsToVar(expr.fieldAccess.object, varName)) return true;
+  return false;
+}
 
 function extractParams(fn: FunctionDef): string[] {
   const params = fn.metadata?.["params"];

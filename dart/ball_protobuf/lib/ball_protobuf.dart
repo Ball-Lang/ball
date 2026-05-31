@@ -15,5 +15,7 @@ export 'json_codec.dart';
 export 'well_known.dart';
 export 'editions.dart';
 export 'grpc_frame.dart';
+export 'service.dart';
+export 'extension.dart';
 
 // conformance.dart excluded — uses dart:io, not Ball-portable

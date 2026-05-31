@@ -317,12 +317,14 @@ bool isWellKnownJsonType(String typeName) =>
     _wktWrappers.containsKey(typeName) || _wktStructural.contains(typeName);
 
 /// Converts a decoded WKT message [value] (snake_case proto field names) to its
-/// proto3-JSON representation.
+/// proto3-JSON representation. [resolver] is the per-call Any resolver (unused
+/// by the structural WKTs, threaded only for signature uniformity).
 Object? wktToJson(
   String typeName,
   Object? value,
-  Map<String, String>? features,
-) {
+  Map<String, String>? features, [
+  AnyTypeResolver? resolver,
+]) {
   final wrapped = _wktWrappers[typeName];
   if (wrapped != null) {
     final v = (value is Map) ? value['value'] : null;
@@ -350,11 +352,14 @@ Object? wktToJson(
 }
 
 /// Converts proto3-JSON [json] into a decoded WKT message map (snake_case).
+/// [resolver] is the per-call Any resolver (unused by the structural WKTs,
+/// threaded only for signature uniformity).
 Object? wktFromJson(
   String typeName,
   Object? json,
-  Map<String, String>? features,
-) {
+  Map<String, String>? features, [
+  AnyTypeResolver? resolver,
+]) {
   final wrapped = _wktWrappers[typeName];
   if (wrapped != null) {
     if (json == null) return <String, Object?>{};
@@ -522,9 +527,31 @@ Map<String, Object?> _listValueMsgFromJson(Object? j) {
 // message, so the host injects a resolver (e.g. the conformance program from
 // its descriptor registry). When unset, Any falls back to a generic message.
 
-/// Resolves a message type name (stripped FQN, e.g. `google.protobuf.Duration`)
-/// to its field descriptor list. Set by the host to enable Any JSON.
+/// A function resolving a message type name (stripped FQN, e.g.
+/// `google.protobuf.Duration`) to its field descriptor list.
+typedef AnyTypeResolver = List<Map<String, Object?>>? Function(String typeName);
+
+/// The **library-global** Any resolver, set by the host (e.g.
+/// `conformance.dart`) to enable Any JSON. It is the *fallback* used when a JSON
+/// (de)serialization is started without a per-call resolver — preserving full
+/// backward compatibility for callers that set this once and never thread a
+/// resolver per call.
+///
+/// Prefer the per-call [AnyTypeResolver] threaded through
+/// [messageToJson]/[messageFromJson] (and `marshalJson`/`unmarshalJson`); it
+/// does not mutate this global, so concurrent generated models with different
+/// registries do not stomp on each other.
 List<Map<String, Object?>>? Function(String typeName)? anyTypeResolver;
+
+/// Installs the library-global [anyTypeResolver] hook (used to resolve the type
+/// embedded in a `google.protobuf.Any` during JSON conversion when no per-call
+/// resolver is supplied). Kept for backward compatibility — `conformance.dart`
+/// sets it once at startup.
+void setAnyTypeResolver(
+  List<Map<String, Object?>>? Function(String typeName)? resolver,
+) {
+  anyTypeResolver = resolver;
+}
 
 String _anyTypeName(String typeUrl) {
   final slash = typeUrl.lastIndexOf('/');
@@ -534,28 +561,38 @@ String _anyTypeName(String typeUrl) {
 /// A decoded Any message `{type_url, value: <bytes>}` -> proto3 JSON. A
 /// well-known embedded type is nested under a `"value"` member alongside
 /// `"@type"`; any other message merges its fields into the same object.
-Object? _anyToJson(Object? value, Map<String, String>? features) {
+///
+/// [resolver] is the per-call Any type resolver; when null the library-global
+/// [anyTypeResolver] is used (backward compatibility).
+Object? _anyToJson(
+  Object? value,
+  Map<String, String>? features,
+  AnyTypeResolver? resolver,
+) {
   if (value is! Map) return value;
   final url = value['type_url'];
   if (url is! String || url.isEmpty) return <String, Object?>{};
   final fqn = _anyTypeName(url);
-  final desc = anyTypeResolver?.call(fqn);
+  final desc = (resolver ?? anyTypeResolver)?.call(fqn);
   if (desc == null) throw FormatException('Any: unknown type "$url"');
   final raw = value['value'];
   final msg = unmarshal(raw is List<int> ? raw : <int>[], desc);
   // A type with a custom JSON form (the WKTs, and Any itself) embeds under a
   // "value" member alongside "@type"; an ordinary message merges its fields.
   if (fqn == 'google.protobuf.Any') {
-    return {'@type': url, 'value': _anyToJson(msg, features)};
+    return {'@type': url, 'value': _anyToJson(msg, features, resolver)};
   }
   if (isWellKnownJsonType(fqn)) {
-    return {'@type': url, 'value': wktToJson(fqn, msg, features)};
+    return {'@type': url, 'value': wktToJson(fqn, msg, features, resolver)};
   }
-  return {'@type': url, ..._marshalToMap(msg, desc)};
+  return {'@type': url, ..._marshalToMap(msg, desc, resolver)};
 }
 
 /// A proto3-JSON Any object -> decoded message `{type_url, value: <bytes>}`.
-Object? _anyFromJson(Object? json) {
+///
+/// [resolver] is the per-call Any type resolver; when null the library-global
+/// [anyTypeResolver] is used (backward compatibility).
+Object? _anyFromJson(Object? json, AnyTypeResolver? resolver) {
   if (json is! Map) throw FormatException('Any must be a JSON object');
   // An empty JSON object is a valid (empty) Any.
   if (json.isEmpty) return {'type_url': '', 'value': <int>[]};
@@ -564,20 +601,20 @@ Object? _anyFromJson(Object? json) {
     throw FormatException('Any is missing a valid "@type"');
   }
   final fqn = _anyTypeName(url);
-  final desc = anyTypeResolver?.call(fqn);
+  final desc = (resolver ?? anyTypeResolver)?.call(fqn);
   if (desc == null) throw FormatException('Any: unknown type "$url"');
   final Map<String, Object?> embedded;
   if (fqn == 'google.protobuf.Any') {
-    embedded = _asWktMap(_anyFromJson(json['value']));
+    embedded = _asWktMap(_anyFromJson(json['value'], resolver));
   } else if (isWellKnownJsonType(fqn)) {
-    embedded = _asWktMap(wktFromJson(fqn, json['value'], null));
+    embedded = _asWktMap(wktFromJson(fqn, json['value'], null, resolver));
   } else {
     final fields = <String, Object?>{};
     for (final e in json.entries) {
       if (e.key == '@type') continue;
       fields[e.key.toString()] = e.value;
     }
-    embedded = _unmarshalFromMap(fields, desc);
+    embedded = _unmarshalFromMap(fields, desc, resolver);
   }
   return {'type_url': url, 'value': marshal(embedded, desc)};
 }
@@ -589,6 +626,7 @@ Object? fieldToJson(
   Map<int, String>? enumValues,
   List<Map<String, Object?>>? messageDescriptor,
   Map<String, String>? features,
+  AnyTypeResolver? resolver,
 }) {
   if (value == null) return null;
 
@@ -635,14 +673,15 @@ Object? fieldToJson(
 
     // message: recursive marshal (or a well-known-type JSON mapping).
     case 'TYPE_MESSAGE':
-      if (typeName == 'google.protobuf.Any' && anyTypeResolver != null) {
-        return _anyToJson(value, features);
+      if (typeName == 'google.protobuf.Any' &&
+          (resolver ?? anyTypeResolver) != null) {
+        return _anyToJson(value, features, resolver);
       }
       if (typeName != null && isWellKnownJsonType(typeName)) {
-        return wktToJson(typeName, value, features);
+        return wktToJson(typeName, value, features, resolver);
       }
       if (messageDescriptor != null && value is Map<String, Object?>) {
-        return _marshalToMap(value, messageDescriptor);
+        return _marshalToMap(value, messageDescriptor, resolver);
       }
       return value;
 
@@ -684,6 +723,7 @@ Object? fieldFromJson(
   Map<String, int>? enumNames,
   List<Map<String, Object?>>? messageDescriptor,
   Map<String, String>? features,
+  AnyTypeResolver? resolver,
 }) {
   if (jsonValue == null) {
     // A JSON null on a google.protobuf.Value field is the null *value*
@@ -781,11 +821,12 @@ Object? fieldFromJson(
 
     // message: recursive unmarshal (or a well-known-type JSON mapping).
     case 'TYPE_MESSAGE':
-      if (typeName == 'google.protobuf.Any' && anyTypeResolver != null) {
-        return _anyFromJson(jsonValue);
+      if (typeName == 'google.protobuf.Any' &&
+          (resolver ?? anyTypeResolver) != null) {
+        return _anyFromJson(jsonValue, resolver);
       }
       if (typeName != null && isWellKnownJsonType(typeName)) {
-        return wktFromJson(typeName, jsonValue, features);
+        return wktFromJson(typeName, jsonValue, features, resolver);
       }
       if (messageDescriptor != null) {
         if (jsonValue is! Map) {
@@ -798,7 +839,7 @@ Object? fieldFromJson(
         for (final entry in jsonValue.entries) {
           stringMap[entry.key.toString()] = entry.value;
         }
-        return _unmarshalFromMap(stringMap, messageDescriptor);
+        return _unmarshalFromMap(stringMap, messageDescriptor, resolver);
       }
       return jsonValue;
 
@@ -935,6 +976,62 @@ Map<String, Object?> unmarshalJson(
 }
 
 // ---------------------------------------------------------------------------
+// Message-level proto3-JSON: public object-valued entry points (for codegen)
+// ---------------------------------------------------------------------------
+
+/// Converts a decoded message [message] (snake_case proto field names) to its
+/// proto3-JSON value — a JSON-compatible `Map<String, Object?>` (camelCase
+/// keys, defaults omitted), NOT a serialized string.
+///
+/// This is the object-valued sibling of [marshalJson] (`marshalJson` is exactly
+/// `jsonEncode(messageToJson(message, descriptor))`). Generated model code
+/// delegates its `toProto3Json()` here so the conformance-pinned runtime does
+/// the conversion.
+///
+/// `google.protobuf.Any` fields need a type registry to resolve the embedded
+/// message. Pass [anyTypeResolver] to supply one **for this call only** — it is
+/// threaded through the codec internals and does **not** mutate the
+/// library-global [anyTypeResolver] hook, so independent generated models with
+/// different registries never stomp on each other. When omitted, the
+/// already-installed library-global hook (if any) is used as a fallback
+/// (preserving backward compatibility for `conformance.dart` and other callers
+/// that set the global once).
+Object? messageToJson(
+  Map<String, Object?> message,
+  List<Map<String, Object?>> descriptor, {
+  List<Map<String, Object?>>? Function(String typeName)? anyTypeResolver,
+}) {
+  return _marshalToMap(message, descriptor, anyTypeResolver);
+}
+
+/// Converts a proto3-JSON value [json] (a decoded `Map`/`List`/scalar, NOT a
+/// serialized string) into a decoded message map (snake_case proto field
+/// names).
+///
+/// This is the object-valued sibling of [unmarshalJson] (`unmarshalJson` first
+/// `jsonDecode`s its string, then calls this). Generated model code delegates
+/// its `fromProto3Json()` here.
+///
+/// See [messageToJson] for the per-call [anyTypeResolver] threading (no global
+/// mutation; falls back to the library-global hook when omitted).
+Map<String, Object?> messageFromJson(
+  Object? json,
+  List<Map<String, Object?>> descriptor, {
+  List<Map<String, Object?>>? Function(String typeName)? anyTypeResolver,
+}) {
+  if (json is! Map) {
+    throw FormatException(
+      'Expected a JSON object at top level, got ${json.runtimeType}',
+    );
+  }
+  final stringMap = <String, Object?>{};
+  for (final entry in json.entries) {
+    stringMap[entry.key.toString()] = entry.value;
+  }
+  return _unmarshalFromMap(stringMap, descriptor, anyTypeResolver);
+}
+
+// ---------------------------------------------------------------------------
 // Internal marshal helpers
 // ---------------------------------------------------------------------------
 
@@ -945,8 +1042,9 @@ Map<String, Object?> unmarshalJson(
 /// messages, repeated fields, and map fields.
 Map<String, Object?> _marshalToMap(
   Map<String, Object?> message,
-  List<Map<String, Object?>> descriptor,
-) {
+  List<Map<String, Object?>> descriptor, [
+  AnyTypeResolver? resolver,
+]) {
   final result = <String, Object?>{};
 
   for (final field in descriptor) {
@@ -979,6 +1077,7 @@ Map<String, Object?> _marshalToMap(
           enumValues: enumVals,
           messageDescriptor: msgDesc,
           features: features,
+          resolver: resolver,
         );
       }
       result[camelName] = jsonMap;
@@ -997,6 +1096,7 @@ Map<String, Object?> _marshalToMap(
             enumValues: enumVals,
             messageDescriptor: msgDesc,
             features: features,
+            resolver: resolver,
           ),
       ];
     } else {
@@ -1024,6 +1124,7 @@ Map<String, Object?> _marshalToMap(
         enumValues: enumVals,
         messageDescriptor: msgDesc,
         features: features,
+        resolver: resolver,
       );
     }
   }
@@ -1060,8 +1161,9 @@ Map<String, Map<String, Object?>> _buildFieldLookup(
 /// snake_case.
 Map<String, Object?> _unmarshalFromMap(
   Map<String, Object?> jsonMap,
-  List<Map<String, Object?>> descriptor,
-) {
+  List<Map<String, Object?>> descriptor, [
+  AnyTypeResolver? resolver,
+]) {
   final lookup = _buildFieldLookup(descriptor);
   final result = <String, Object?>{};
   final seenOneofs = <String>{};
@@ -1110,6 +1212,7 @@ Map<String, Object?> _unmarshalFromMap(
             enumNames: enumNames,
             messageDescriptor: msgDesc,
             features: features,
+            resolver: resolver,
           );
         }
         result[name] = dartMap;
@@ -1129,6 +1232,7 @@ Map<String, Object?> _unmarshalFromMap(
               enumNames: enumNames,
               messageDescriptor: msgDesc,
               features: features,
+              resolver: resolver,
             ),
         ];
       } else if (jsonValue != null) {
@@ -1148,6 +1252,7 @@ Map<String, Object?> _unmarshalFromMap(
         enumNames: enumNames,
         messageDescriptor: msgDesc,
         features: features,
+        resolver: resolver,
       );
     }
   }

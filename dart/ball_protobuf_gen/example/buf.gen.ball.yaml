@@ -1,0 +1,52 @@
+# buf.gen.ball.yaml — example buf v2 generation template for the Ball
+# consumer-model codegen plugins.
+#
+# This wires the THREE Ball plugins as LOCAL plugins. `buf generate` invokes a
+# local plugin by spawning the executable named on each `local:` line, so each
+# plugin must first be compiled to a native executable with `dart compile exe`
+# (see this directory's README.md):
+#
+#   cd dart/ball_protobuf_gen
+#   dart compile exe bin/protoc_gen_ball.dart         -o protoc-gen-ball
+#   dart compile exe bin/protoc_gen_ball_connect.dart -o protoc-gen-ball-connect
+#   dart compile exe bin/protoc_gen_ball_grpc.dart    -o protoc-gen-ball-grpc
+#
+# Then, from wherever your `.proto` inputs live, run:
+#
+#   buf generate --template path/to/buf.gen.ball.yaml
+#
+# The `local:` paths below are written relative to the repo root (the directory
+# you run `buf generate` from); adjust them to wherever you placed the compiled
+# executables. On Windows the executables are `protoc-gen-ball.exe` etc.; buf
+# resolves the `.exe` suffix automatically, so the paths below need no change.
+#
+# IMPORTANT: this is a SEPARATE template from the repo-root `buf.gen.yaml`, which
+# generates the standard language bindings for `proto/ball/v1/ball.proto`. Do not
+# merge these plugins into that file — keep this example self-contained so a
+# consumer can copy it next to their own `.proto` tree.
+version: v2
+
+plugins:
+  # protoc-gen-ball — messages, enums, oneofs, maps, nested types, extensions.
+  # Emits `<file>.pb.dart`: mutable model classes over a Map<String, Object?>
+  # backing store, each embedding its resolved (Editions-aware) ball_protobuf
+  # descriptor and delegating all wire/JSON work to the ball_protobuf runtime.
+  - local: ./dart/ball_protobuf_gen/protoc-gen-ball
+    out: gen
+    # opt: some=option   # forwarded verbatim as the plugin `parameter`
+
+  # protoc-gen-ball-connect — Connect-protocol service stubs. Emits
+  # `<file>.connect.dart`: a typed `ball_rpc` client + a ball_protobuf
+  # `ServiceDescriptor` per service. Request/response types are imported from
+  # the `.pb.dart` files produced above, so this plugin must run alongside
+  # protoc-gen-ball into the same `out` directory. A message-only `.proto`
+  # produces no output here.
+  - local: ./dart/ball_protobuf_gen/protoc-gen-ball-connect
+    out: gen
+
+  # protoc-gen-ball-grpc — gRPC-over-HTTP/2 service stubs. Emits
+  # `<file>.grpc.dart`: a typed `<Service>GrpcClient` + a ball_protobuf
+  # `ServiceDescriptor` per service, again importing types from the `.pb.dart`
+  # files. Connect and gRPC are independent: keep only the plugin(s) you need.
+  - local: ./dart/ball_protobuf_gen/protoc-gen-ball-grpc
+    out: gen

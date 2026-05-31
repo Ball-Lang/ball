@@ -93,6 +93,38 @@ jobs:
         run: cd dart/self_host && dart test
 
   # ──────────────────────────────────────────────────
+  # Protobuf Codegen — the protoc-gen-ball / -connect / -grpc plugins
+  # (dart/ball_protobuf_gen) + the transport runtime (dart/ball_rpc).
+  # Each package is analyzed and tested FROM ITS OWN PACKAGE DIRECTORY
+  # (the canonical invocation), after a single workspace `dart pub get`.
+  # No Node is needed: these packages never shell out to the TS compiler.
+  # ──────────────────────────────────────────────────
+  protobuf-codegen:
+    name: Protobuf Codegen (gen + rpc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: cd dart && dart pub get
+
+      # ball_protobuf_gen — protoc-gen-ball / -connect / -grpc plugins
+      - name: Analyze ball_protobuf_gen
+        run: cd dart/ball_protobuf_gen && dart analyze
+      - name: Test ball_protobuf_gen
+        run: cd dart/ball_protobuf_gen && dart test
+
+      # ball_rpc — Connect + gRPC transport runtime
+      - name: Analyze ball_rpc
+        run: cd dart/ball_rpc && dart analyze
+      - name: Test ball_rpc
+        run: cd dart/ball_rpc && dart test
+
+  # ──────────────────────────────────────────────────
   # C++ — build + test on all platforms
   # ──────────────────────────────────────────────────
   cpp:

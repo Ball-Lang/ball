@@ -1,0 +1,28 @@
+name: ball_rpc
+description: >-
+  Dart-target RPC transport runtime for ball_protobuf service clients: the
+  canonical status-code model (RpcCode), exceptions/metadata, and pluggable
+  transports for the Connect protocol and gRPC-over-HTTP/2, plus an in-memory
+  FakeTransport for testing generated clients. Generated service stubs delegate
+  bytes-level calls here. NOT Ball-portable — it uses dart:io / dart:async.
+version: 0.3.0
+homepage: https://github.com/ball-lang/ball
+repository: https://github.com/ball-lang/ball
+issue_tracker: https://github.com/ball-lang/ball/issues
+topics:
+  - protobuf
+  - grpc
+  - connect
+  - rpc
+  - ball
+
+environment:
+  sdk: ^3.9.0
+resolution: workspace
+
+dependencies:
+  ball_protobuf: ^0.3.0
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.25.0

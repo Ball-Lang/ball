@@ -5,29 +5,36 @@
 /// our descriptor-driven, feature-aware codecs against real messages such as
 /// `protobuf_test_messages.editions.TestAllTypesEdition2023`.
 ///
-/// Lives in `tool/` (not `lib/`) on purpose: it depends on `ball_base`'s
-/// generated `descriptor.pb.dart` (FileDescriptorSet/FileDescriptorProto/...),
-/// which is a dev-dependency only — the `lib/` runtime stays dependency-free.
+/// Lives in `ball_protobuf_gen` (not the `ball_protobuf` runtime `lib/`) on
+/// purpose: it depends on `ball_base`'s generated `descriptor.pb.dart`
+/// (FileDescriptorSet/FileDescriptorProto/...), so it is not Ball-portable —
+/// while the `ball_protobuf` `lib/` runtime stays dependency-free. The green
+/// conformance harness keeps its own copy under `ball_protobuf/tool/`.
 ///
-/// ## Intentional fork — see
-/// `dart/ball_protobuf_gen/lib/src/descriptor_bridge.dart`
+/// ## Intentional fork — see `dart/ball_protobuf/tool/descriptor_bridge.dart`
 ///
 /// This file is an **intentional fork** of
-/// `dart/ball_protobuf_gen/lib/src/descriptor_bridge.dart`. The two CANNOT share
-/// one copy: this conformance copy lives in `ball_protobuf`'s own `tool/` (so
-/// the runtime package never depends on `ball_protobuf_gen`), while the codegen
-/// copy lives in `ball_protobuf_gen` (which depends on `ball_protobuf`). A
-/// single shared copy would require a dependency cycle, so the fork is
-/// deliberate.
+/// `dart/ball_protobuf/tool/descriptor_bridge.dart`. The two CANNOT share one
+/// copy: the conformance copy lives in `ball_protobuf`'s own `tool/` (so the
+/// runtime package has no dependency on `ball_protobuf_gen`), while this copy
+/// lives in `ball_protobuf_gen` (which depends on `ball_protobuf`). A single
+/// shared copy would require one package to depend on the other in both
+/// directions — a dependency cycle — so the fork is deliberate.
 ///
-/// The ONE behavioral difference is group handling:
-///   * **This (conformance) copy keeps bare `TYPE_GROUP`** in the emitted field
-///     descriptor (`'type': fld.type.name`). The upstream conformance runner is
-///     pinned at 2769/2769 with this representation — do NOT change it here.
-///   * **The codegen copy normalizes `TYPE_GROUP` -> `TYPE_MESSAGE`** (a group
-///     is a DELIMITED-encoded message — the editions-canonical form) so the
-///     generated typed view emits one message-shaped accessor.
-/// Keep the two in sync for everything EXCEPT this group representation.
+/// There are TWO intentional behavioral differences between the copies:
+///   1. **Group handling.** This (gen) copy normalizes `TYPE_GROUP` ->
+///      `TYPE_MESSAGE` (a group is a DELIMITED-encoded message — the
+///      editions-canonical form; see `_buildField` below and `marshal.dart`'s
+///      `wireTypeForFieldType`), so generated typed views emit a single
+///      message-shaped accessor. The conformance copy keeps bare `TYPE_GROUP`
+///      because the upstream runner is pinned at 2769/2769 with that
+///      representation; changing it there would risk that pinned result.
+///   2. **Extension JSON name.** This copy overrides a folded extension's
+///      `jsonName` to the bracketed `[fully.qualified.name]` (the canonical
+///      proto3-JSON key for an extension), so generated models round-trip
+///      extensions through JSON. The conformance copy leaves protoc's
+///      camelCased simple `json_name` untouched.
+/// Keep the two in sync for everything EXCEPT these two divergences.
 library;
 
 import 'package:ball_base/ball_base.dart'
@@ -222,7 +229,15 @@ void _appendExtension(
   // named `groupliketype`). Keying by simple name would alias the two; the
   // bracketed FQN is both collision-free and the correct protobuf-JSON key.
   final fullName = scopeFqn.isEmpty ? ext.name : '$scopeFqn.${ext.name}';
-  f['name'] = '[$fullName]';
+  final key = '[$fullName]';
+  f['name'] = key;
+  // The canonical proto3-JSON key for an extension is the same bracketed
+  // `[fully.qualified.name]`, NOT the camelCased simple name protoc records in
+  // `json_name`. `_buildField` copied that simple `json_name`; override it so
+  // the JSON codec emits (and accepts) the bracketed form and the generated
+  // typed view's JSON round-trips exactly. (This gen-copy divergence does not
+  // touch the pinned conformance copy under `ball_protobuf/tool/`.)
+  f['jsonName'] = key;
   fields.add(f);
 }
 
@@ -304,10 +319,17 @@ Map<String, Object?> _buildField(
     }
   }
 
+  // Normalize TYPE_GROUP to TYPE_MESSAGE. On the wire a group is just a
+  // DELIMITED-encoded message; the runtime codecs only key on TYPE_MESSAGE +
+  // the resolved `message_encoding = DELIMITED` feature (which the editions
+  // resolver / legacy inference already sets for groups). Emitting the bare
+  // 'TYPE_GROUP' string instead makes marshalField throw ("Unknown protobuf
+  // field type") and makes unmarshal mis-skip the field as an unknown group,
+  // so the typed group accessor would not round-trip.
   final m = <String, Object?>{
     'name': fld.name,
     'number': fld.number,
-    'type': fld.type.name,
+    'type': isMessage ? 'TYPE_MESSAGE' : fld.type.name,
     'label': fld.label.name,
     'features': features,
   };

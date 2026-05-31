@@ -73,6 +73,12 @@ const int _wtI32 = 5;
 /// The [type] must be one of the `TYPE_*` constants from
 /// `FieldDescriptorProto.Type` (e.g. `'TYPE_INT32'`, `'TYPE_STRING'`).
 ///
+/// Note: there is intentionally no `'TYPE_GROUP'` case. By design a group is
+/// represented as `TYPE_MESSAGE` + `message_encoding = DELIMITED` (the
+/// editions-canonical form); the DELIMITED wire type is chosen by the caller
+/// from the resolved feature, not from the type string. The absence of a
+/// `TYPE_GROUP` branch is therefore deliberate, not a bug.
+///
 /// Throws [ArgumentError] for unrecognized type strings.
 int wireTypeForFieldType(String type) {
   switch (type) {

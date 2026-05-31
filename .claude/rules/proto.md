@@ -65,3 +65,22 @@ not native Windows. CI: job *Upstream Conformance (Editions)* in `ci.yml`.
 Text-format tests and unregistered message types are reported `skipped`. When a
 codec change moves the numbers, regenerate `conformance/failure_list_ball.txt`
 (bare test names, reasons stripped) — see that file's header.
+
+## Consumer codegen (`ball_protobuf_gen` + `ball_rpc`)
+
+Two Dart packages turn a *user's* `.proto` into typed models + service stubs
+bound to the `ball_protobuf` runtime (this is **separate** from Ball's own
+`buf generate` bindings — do NOT wire it into the root `buf.gen.yaml`, which the
+"Proto Checks" CI job guards):
+
+- `dart/ball_protobuf_gen` — the protoc/buf plugins `protoc-gen-ball`
+  (messages/enums/extensions → `.pb.dart`), `protoc-gen-ball-connect`
+  (`.connect.dart`), `protoc-gen-ball-grpc` (`.grpc.dart`). The descriptor bridge
+  lives here now (it imports `ball_base`, so it is not Ball-portable);
+  `ball_protobuf/tool/` keeps its own conformance copy.
+- `dart/ball_rpc` — the Dart-target transport runtime (Connect / gRPC /
+  Fake transports + the shared `RpcCode`/`RpcException` model) generated clients
+  delegate to.
+
+**Dart is the shipped target; C++/TS library targets are roadmap.** Full design
++ verified multi-target findings: `docs/PROTOBUF_CODEGEN_PLAN.md`.

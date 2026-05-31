@@ -526,6 +526,16 @@ Map<String, Object?> _listValueMsgFromJson(Object? j) {
 /// to its field descriptor list. Set by the host to enable Any JSON.
 List<Map<String, Object?>>? Function(String typeName)? anyTypeResolver;
 
+/// Installs the library-level [anyTypeResolver] hook (used to resolve the type
+/// embedded in a `google.protobuf.Any` during JSON conversion). A small setter
+/// so callers — e.g. the public [messageToJson] / [messageFromJson] — can
+/// thread a resolver without a name clash against a same-named parameter.
+void setAnyTypeResolver(
+  List<Map<String, Object?>>? Function(String typeName)? resolver,
+) {
+  anyTypeResolver = resolver;
+}
+
 String _anyTypeName(String typeUrl) {
   final slash = typeUrl.lastIndexOf('/');
   return slash >= 0 ? typeUrl.substring(slash + 1) : typeUrl;
@@ -929,6 +939,63 @@ Map<String, Object?> unmarshalJson(
   }
   final stringMap = <String, Object?>{};
   for (final entry in jsonMap.entries) {
+    stringMap[entry.key.toString()] = entry.value;
+  }
+  return _unmarshalFromMap(stringMap, descriptor);
+}
+
+// ---------------------------------------------------------------------------
+// Message-level proto3-JSON: public object-valued entry points (for codegen)
+// ---------------------------------------------------------------------------
+
+/// Converts a decoded message [message] (snake_case proto field names) to its
+/// proto3-JSON value — a JSON-compatible `Map<String, Object?>` (camelCase
+/// keys, defaults omitted), NOT a serialized string.
+///
+/// This is the object-valued sibling of [marshalJson] (`marshalJson` is exactly
+/// `jsonEncode(messageToJson(message, descriptor))`). Generated model code
+/// delegates its `toProto3Json()` here so the conformance-pinned runtime does
+/// the conversion.
+///
+/// `google.protobuf.Any` fields need a type registry to resolve the embedded
+/// message. Pass [anyTypeResolver] to install one for this call (it sets the
+/// library-level [anyTypeResolver] hook, mirroring how `conformance.dart` wires
+/// the registry); when omitted, the already-installed hook (if any) is used.
+Object? messageToJson(
+  Map<String, Object?> message,
+  List<Map<String, Object?>> descriptor, {
+  List<Map<String, Object?>>? Function(String typeName)? anyTypeResolver,
+}) {
+  if (anyTypeResolver != null) {
+    setAnyTypeResolver(anyTypeResolver);
+  }
+  return _marshalToMap(message, descriptor);
+}
+
+/// Converts a proto3-JSON value [json] (a decoded `Map`/`List`/scalar, NOT a
+/// serialized string) into a decoded message map (snake_case proto field
+/// names).
+///
+/// This is the object-valued sibling of [unmarshalJson] (`unmarshalJson` first
+/// `jsonDecode`s its string, then calls this). Generated model code delegates
+/// its `fromProto3Json()` here.
+///
+/// See [messageToJson] for the [anyTypeResolver] threading.
+Map<String, Object?> messageFromJson(
+  Object? json,
+  List<Map<String, Object?>> descriptor, {
+  List<Map<String, Object?>>? Function(String typeName)? anyTypeResolver,
+}) {
+  if (anyTypeResolver != null) {
+    setAnyTypeResolver(anyTypeResolver);
+  }
+  if (json is! Map) {
+    throw FormatException(
+      'Expected a JSON object at top level, got ${json.runtimeType}',
+    );
+  }
+  final stringMap = <String, Object?>{};
+  for (final entry in json.entries) {
     stringMap[entry.key.toString()] = entry.value;
   }
   return _unmarshalFromMap(stringMap, descriptor);

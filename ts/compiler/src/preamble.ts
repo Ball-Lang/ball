@@ -122,6 +122,8 @@ function __ball_to_string(v: any): string {
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (v instanceof BallDouble) return v.toString();
   if (typeof v === 'number') {
+    if (!isFinite(v) || Number.isNaN(v)) return v.toString();
+    if (v === 0 && 1/v === -Infinity) return '-0.0';
     if (Number.isInteger(v)) return v.toString();
     const s = v.toString();
     return s.includes('.') || s.includes('e') ? s : s + '.0';

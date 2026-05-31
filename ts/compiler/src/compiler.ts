@@ -3071,7 +3071,10 @@ function __isUnknownFnError(e: any): boolean {
     if (type === "FormatException") {
       return "(__ball_active_error instanceof Error && __ball_active_error.message.startsWith('FormatException'))";
     }
-    return `(__ball_active_error instanceof ${type} || (typeof __ball_active_error === 'object' && __ball_active_error !== null && __ball_active_error['__type'] === '${type}'))`;
+    if (type === "Exception" || type === "Object") return "true";
+    // Guard instanceof with typeof check to avoid ReferenceError for
+    // user-defined types that don't exist as JS classes.
+    return `((typeof ${type} !== 'undefined' && __ball_active_error instanceof ${type}) || (typeof __ball_active_error === 'object' && __ball_active_error !== null && (__ball_active_error['__type'] === '${type}' || __ball_active_error['__type__'] === '${type}')))`;
   }
 
   // ───────────────────────── Expressions ─────────────────────────────

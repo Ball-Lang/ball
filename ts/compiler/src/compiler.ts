@@ -4165,6 +4165,11 @@ function __isUnknownFnError(e: any): boolean {
         return ms ? `await new Promise(r => setTimeout(r, ${this.expr(ms)}))` : `undefined`;
       }
       case "timestamp_ms": return `Date.now()`;
+      case "now": return `DateTime.now()`;
+      case "format_timestamp": {
+        const ms = f.get("value") ?? f.get("ms") ?? f.get("timestamp");
+        return ms ? `DateTime.fromMillisecondsSinceEpoch(${this.expr(ms)}, true).toIso8601String()` : `""`;
+      }
       case "random_int": {
         const max = f.get("max") ?? f.get("value");
         return max ? `Math.floor(Math.random() * ${this.expr(max)})` : "0";
@@ -4628,7 +4633,8 @@ function classTsName(qualified: string): string {
 function isStd(module: string | undefined): boolean {
   return module === "std" || module === "dart_std" ||
     module === "std_collections" || module === "std_io" ||
-    module === "std_convert" || module === "std_memory";
+    module === "std_convert" || module === "std_memory" ||
+    module === "std_time";
 }
 
 function containsBareKeyword(text: string, kw: string): boolean {

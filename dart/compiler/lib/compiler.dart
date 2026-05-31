@@ -414,7 +414,14 @@ class DartCompiler {
       final meta = _readMeta(func);
       final kind = meta['kind'] as String? ?? 'function';
 
-      if (kind == 'method' || kind == 'constructor' || kind == 'static_field') {
+      // Detect class members: explicit metadata kind OR name pattern
+      // (e.g. "main:Animal.new" → constructor, "main:Animal.speak" → method).
+      final isClassMemberByName = func.name.contains(':') &&
+          func.name.substring(func.name.lastIndexOf(':') + 1).contains('.');
+      if (kind == 'method' ||
+          kind == 'constructor' ||
+          kind == 'static_field' ||
+          isClassMemberByName) {
         // Class members have the form '.module:ClassName.memberName'.
         // Find the dot that separates ClassName from memberName by first
         // locating the colon (module:class boundary), then the first dot
@@ -946,11 +953,17 @@ class DartCompiler {
       _withClassContext(memberNames, () {
         for (final method in methods) {
           final mMeta = _readMeta(method);
-          final mKind = mMeta['kind'] as String? ?? 'method';
+          var mKind = mMeta['kind'] as String? ?? 'method';
+          // Detect constructors by name pattern (.new suffix) when metadata
+          // doesn't explicitly mark them as constructors.
+          if (mKind == 'method' && _memberName(method.name) == 'new') {
+            mKind = 'constructor';
+          }
           if (mKind == 'static_field') continue;
           if (mKind == 'constructor') {
             b.constructors.add(
-              _buildConstructor(descriptor.name, method, mMeta),
+              _buildConstructor(descriptor.name, method, mMeta,
+                  classFields: meta['fields'] as List?),
             );
           } else {
             b.methods.add(_buildMethod(descriptor.name, method, mMeta));
@@ -1099,7 +1112,14 @@ class DartCompiler {
             if (hasExplicitType && fieldType != null) {
               fb.type = cb.refer(fieldType);
             }
-            fb.late = isLate;
+            // Non-nullable fields without an initializer need `late` in
+            // null-safe Dart (they're set in the constructor body).
+            fb.late = isLate ||
+                (initializer == null &&
+                    hasExplicitType &&
+                    fieldType != null &&
+                    !fieldType.endsWith('?') &&
+                    modifier != 'const');
             if (initializer != null) fb.assignment = cb.Code(initializer);
             switch (modifier) {
               case 'final':
@@ -1236,7 +1256,8 @@ class DartCompiler {
           if (mKind == 'static_field') {
             b.fields.add(_buildStaticField(method));
           } else if (mKind == 'constructor') {
-            b.constructors.add(_buildConstructor(td.name, method, mMeta));
+            b.constructors.add(_buildConstructor(td.name, method, mMeta,
+                classFields: meta['fields'] as List?));
           } else {
             b.methods.add(_buildMethod(td.name, method, mMeta));
           }
@@ -1359,8 +1380,9 @@ class DartCompiler {
   cb.Constructor _buildConstructor(
     String className,
     FunctionDefinition func,
-    Map<String, Object?> meta,
-  ) {
+    Map<String, Object?> meta, {
+    List<dynamic>? classFields,
+  }) {
     final isExpressionBody = meta['expression_body'] == true;
     final redirectsTo = meta['redirects_to'] as String?;
     final initializers = meta['initializers'] as List?;
@@ -1387,6 +1409,29 @@ class DartCompiler {
 
       _addParameters(b, meta);
 
+      // When the constructor uses Ball's single-input convention (one param
+      // named "input") and the class has fields, replace with `this.fieldName`
+      // initializing formals. This handles the common encoding pattern where
+      // `MyClass(this.name)` becomes `params: [{name: 'input', type: 'String'}]`.
+      final params = meta['params'];
+      final isSingleInput = params is List &&
+          params.length == 1 &&
+          params[0] is Map &&
+          (params[0] as Map)['name'] == 'input';
+      if (isSingleInput && classFields != null && classFields.isNotEmpty) {
+        b.requiredParameters.clear();
+        b.optionalParameters.clear();
+        for (final f in classFields) {
+          if (f is Map) {
+            final fieldName = f['name'] as String? ?? '';
+            b.requiredParameters.add(cb.Parameter((p) {
+              p.name = fieldName;
+              p.toThis = true;
+            }));
+          }
+        }
+      }
+
       if (redirectsTo != null) {
         b.redirect = cb.refer(redirectsTo);
       } else if (initializers != null && initializers.isNotEmpty) {
@@ -1395,13 +1440,19 @@ class DartCompiler {
         );
       }
 
-      if (!b.external && func.hasBody() && !_isEmptyBody(func.body)) {
+      final isFactory = meta['is_factory'] == true;
+      if (!b.external &&
+          func.hasBody() &&
+          !_isEmptyBody(func.body) &&
+          // Non-factory constructors: strip the Ball "create self + return"
+          // boilerplate and simple reference bodies that are artifacts of the
+          // Ball IR encoding and have no meaning in Dart.
+          (isFactory || !_isConstructorBoilerplateBody(func.body))) {
         // If `_addParameters` stashed renames (e.g. original param `n`
         // became `input`), we can't use `=> expr` form since the
         // expression references `n` which no longer exists. Demote to
         // block form so `_generateFunctionBody` emits the alias prologue.
         final mustUseBlockForm = _pendingParamAliases.isNotEmpty;
-        final isFactory = meta['is_factory'] == true;
         if (isExpressionBody && !mustUseBlockForm) {
           b.lambda = true;
           b.body = _compileExpression(func.body).code;
@@ -4654,6 +4705,73 @@ class DartCompiler {
     }
     return body.whichExpr() == Expression_Expr.literal &&
         body.literal.whichValue() == Literal_Value.notSet;
+  }
+
+  /// Detects Ball IR constructor boilerplate patterns that have no meaningful
+  /// Dart equivalent and should be stripped from non-factory constructor bodies.
+  ///
+  /// Patterns detected:
+  /// 1. A single `reference` expression (references a param or `input`).
+  /// 2. A block with `let self = TypeName(); return self;` (create-self idiom).
+  /// 3. A block with only `let v = input/param; [v;]` (param alias artifact).
+  bool _isConstructorBoilerplateBody(Expression body) {
+    // Pattern 1: bare reference (e.g. `input` or a param name).
+    if (body.whichExpr() == Expression_Expr.reference) {
+      return true;
+    }
+
+    if (body.whichExpr() != Expression_Expr.block) return false;
+    final stmts = body.block.statements;
+    if (stmts.isEmpty) return false;
+
+    // Pattern 2: `let self = TypeName(); return self;`
+    // A block of exactly 2 statements where the first is a `let` whose value
+    // is a `messageCreation` and the second is a `return` of that variable.
+    if (stmts.length == 2) {
+      final first = stmts[0];
+      final second = stmts[1];
+      if (first.whichStmt() == Statement_Stmt.let &&
+          second.whichStmt() == Statement_Stmt.expression) {
+        final letStmt = first.let;
+        final expr = second.expression;
+        // Check let value is a messageCreation (object construction).
+        if (letStmt.hasValue() &&
+            letStmt.value.whichExpr() == Expression_Expr.messageCreation) {
+          // Check the second statement is `return self`.
+          if (expr.whichExpr() == Expression_Expr.call &&
+              expr.call.function == 'return' &&
+              expr.call.module == 'std') {
+            return true;
+          }
+        }
+        // Also: let + bare reference to the let variable.
+        if (letStmt.hasValue() &&
+            expr.whichExpr() == Expression_Expr.reference &&
+            expr.reference.name == letStmt.name) {
+          return true;
+        }
+      }
+    }
+
+    // Pattern 3: single `let v = input;` (possibly followed by a bare
+    // reference to v). The let value is a `reference` to `input` or a param.
+    if (stmts.length == 1) {
+      final first = stmts[0];
+      if (first.whichStmt() == Statement_Stmt.let) {
+        final letStmt = first.let;
+        if (letStmt.hasValue() &&
+            letStmt.value.whichExpr() == Expression_Expr.reference) {
+          return true;
+        }
+      }
+      // Single expression statement that is just a reference (passthrough).
+      if (first.whichStmt() == Statement_Stmt.expression &&
+          first.expression.whichExpr() == Expression_Expr.reference) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   // ════════════════════════════════════════════════════════════

@@ -1332,7 +1332,9 @@ class DartCompiler {
         // block form so `_generateFunctionBody` emits the alias prologue.
         final mustUseBlockForm = _pendingParamAliases.isNotEmpty;
         final savedInGen = _inGenerator;
+        final savedInsideInstance = _insideInstanceMethod;
         _inGenerator = isSyncStar || isAsyncStar;
+        _insideInstanceMethod = !isStatic;
         if (isExpressionBody && !mustUseBlockForm) {
           b.lambda = true;
           b.body = _compileExpression(func.body).code;
@@ -1344,6 +1346,7 @@ class DartCompiler {
           );
         }
         _inGenerator = savedInGen;
+        _insideInstanceMethod = savedInsideInstance;
       } else {
         // Abstract/external/body-less methods must still clear stashed
         // aliases so they don't leak into the NEXT method's body and
@@ -2737,7 +2740,11 @@ class DartCompiler {
       switch (expr.whichExpr()) {
         Expression_Expr.call => _raw(_compileCall(expr.call)),
         Expression_Expr.literal => _compileLiteral(expr.literal),
-        Expression_Expr.reference => cb.refer(expr.reference.name),
+        Expression_Expr.reference => cb.refer(
+          (_insideInstanceMethod && expr.reference.name == 'self')
+              ? 'this'
+              : expr.reference.name,
+        ),
         Expression_Expr.fieldAccess => _compileFieldAccess(expr.fieldAccess),
         Expression_Expr.messageCreation => _raw(
           _compileMessageCreation(expr.messageCreation),
@@ -2861,6 +2868,7 @@ class DartCompiler {
   /// `async*`). Generators cannot `return <value>;` in Dart — only bare
   /// `return;` — so the compiler drops the value from `std.return`.
   bool _inGenerator = false;
+  bool _insideInstanceMethod = false;
 
   /// True when we're inside a `std.await(value: ...)` expression. Suppresses
   /// auto-await to avoid emitting `await await fn()`.

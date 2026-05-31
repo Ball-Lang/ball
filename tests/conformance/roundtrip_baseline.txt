@@ -55,8 +55,6 @@
 189_std_time_components:dart-compiled
 189_std_time_components:dart-roundtrip
 189_std_time_components:ts-compiled
-190_utf8_encode_decode:ts-compiled
-191_base64_encode_decode:ts-compiled
 192_overflow_and_large_numbers:ts-compiled
 207_record_pattern_destructure:dart-compiled
 207_record_pattern_destructure:dart-roundtrip
@@ -71,7 +69,6 @@
 227_generic_type_ops:ts-compiled
 229_closure_loop_var_semantics:ts-compiled
 230_signed_int_boundaries:ts-compiled
-231_negative_zero_compare:ts-compiled
 233_int_arithmetic_edges:ts-compiled
 241_generic_list_covariance:ts-compiled
 242_generic_fn_chains:ts-compiled

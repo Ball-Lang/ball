@@ -3325,11 +3325,18 @@ class DartCompiler {
             : '(${_e(f['list']!)}..sort())',
       'list_reverse' => '${_e(f['list']!)}.reversed.toList()',
       'list_slice' => () {
-        final args = f.entries.where((e) => e.key != 'list').toList();
-        if (args.length >= 2) {
-          return '${_e(f['list']!)}.sublist(${_e(args[0].value)}, ${_e(args[1].value)})';
+        // Use the raw field list (not the deduplicated map) because the
+        // encoder may emit duplicate 'value' keys for start and end args.
+        final rawFields = call.hasInput() &&
+                call.input.whichExpr() == Expression_Expr.messageCreation
+            ? call.input.messageCreation.fields
+                .where((fld) => fld.name != 'list')
+                .toList()
+            : <FieldValuePair>[];
+        if (rawFields.length >= 2) {
+          return '${_e(f['list']!)}.sublist(${_e(rawFields[0].value)}, ${_e(rawFields[1].value)})';
         }
-        return '${_e(f['list']!)}.sublist(${_e(args.isNotEmpty ? args[0].value : _start())})';
+        return '${_e(f['list']!)}.sublist(${rawFields.isNotEmpty ? _e(rawFields[0].value) : _e(_start())})';
       }(),
       'list_concat' => '[...${_e(_left())}, ...${_e(_right())}]',
       'list_flat_map' => '${_e(f['list']!)}.expand(${_e(_cb())}).toList()',

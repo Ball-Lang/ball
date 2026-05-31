@@ -3088,18 +3088,30 @@ function __isUnknownFnError(e: any): boolean {
   }
 
   private typedCatchCondition(type: string): string {
+    // Helper: check plain-object __type__ / __type, stripping module prefix.
+    const objCheck = `(typeof __ball_active_error === 'object' && __ball_active_error !== null && (() => { const __t = __ball_active_error['__type__'] ?? __ball_active_error['__type'] ?? ''; const __bare = __t.indexOf(':') >= 0 ? __t.substring(__t.indexOf(':') + 1) : __t; return __bare === '${type}' || __t === '${type}'; })())`;
     const builtins = new Set([
       "Error", "TypeError", "RangeError", "SyntaxError",
       "ReferenceError", "URIError", "EvalError",
     ]);
-    if (builtins.has(type)) return `__ball_active_error instanceof ${type}`;
+    if (builtins.has(type)) return `(__ball_active_error instanceof ${type} || ${objCheck})`;
     if (type === "FormatException") {
-      return "(__ball_active_error instanceof Error && __ball_active_error.message.startsWith('FormatException'))";
+      return `((__ball_active_error instanceof Error && __ball_active_error.message.startsWith('FormatException')) || ${objCheck})`;
     }
     if (type === "Exception" || type === "Object") return "true";
+    // Dart exception types that are not JS globals.
+    const dartExceptions = new Set([
+      "StateError", "ArgumentError", "UnsupportedError",
+      "ConcurrentModificationError", "StackOverflowError",
+      "IntegerDivisionByZeroException", "NoSuchMethodError",
+      "UnimplementedError", "AssertionError",
+    ]);
+    if (dartExceptions.has(type)) {
+      return `((__ball_active_error instanceof Error && __ball_active_error.message.includes('${type}')) || ${objCheck})`;
+    }
     // Guard instanceof with typeof check to avoid ReferenceError for
     // user-defined types that don't exist as JS classes.
-    return `((typeof ${type} !== 'undefined' && __ball_active_error instanceof ${type}) || (typeof __ball_active_error === 'object' && __ball_active_error !== null && (__ball_active_error['__type'] === '${type}' || __ball_active_error['__type__'] === '${type}')))`;
+    return `((typeof ${type} !== 'undefined' && __ball_active_error instanceof ${type}) || ${objCheck})`;
   }
 
   // ───────────────────────── Expressions ─────────────────────────────
@@ -3393,6 +3405,19 @@ function __isUnknownFnError(e: any): boolean {
       ((call.module === undefined || call.module === "") && emptyModuleStd.has(call.function))
     ) {
       return this.compileStdCall(call);
+    }
+    // Detect constructor calls: "module:ClassName.new" → new ClassName(args).
+    const colonIdx = call.function.lastIndexOf(":");
+    if (colonIdx >= 0) {
+      const afterColon = call.function.substring(colonIdx + 1);
+      if (afterColon.endsWith(".new")) {
+        const className = afterColon.slice(0, -4);
+        const args = call.input?.messageCreation?.fields
+          ?.filter((f: any) => f.name !== "__type_args__" && f.name !== "__const__")
+          ?.map((f: any) => this.expr(f.value))
+          ?.join(", ") ?? "";
+        return `new ${className}(${args})`;
+      }
     }
     const fn = sanitize(call.function);
     // Prefix with this. when the function name is a class method OR

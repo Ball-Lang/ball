@@ -3592,16 +3592,9 @@ function __isUnknownFnError(e: any): boolean {
       case "negate":       return un("-");
       // Comparison
       case "equals": {
-        // Use loose == when comparing against null so undefined matches
-        // too (Dart has no undefined; JS returns undefined for missing
-        // map keys, unset fields, etc.)
         const l = f.get("left"), r = f.get("right");
-        if (l && r) {
-          const le = this.expr(l), re = this.expr(r);
-          const op = le === "null" || re === "null" ? "==" : "===";
-          return `(${le} ${op} ${re})`;
-        }
-        return bin("===");
+        if (l && r) return `__ball_eq(${this.expr(l)}, ${this.expr(r)})`;
+        return `__ball_eq(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
       }
       case "not_equals": {
         const l = f.get("left"), r = f.get("right");

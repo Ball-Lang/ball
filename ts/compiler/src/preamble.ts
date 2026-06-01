@@ -103,6 +103,10 @@ class BallDouble {
   readonly value: number;
   constructor(v: number) { this.value = v; }
   valueOf(): number { return this.value; }
+  get isNaN(): boolean { return Number.isNaN(this.value); }
+  get isFinite(): boolean { return Number.isFinite(this.value); }
+  get isInfinite(): boolean { return !Number.isFinite(this.value) && !Number.isNaN(this.value); }
+  get isNegative(): boolean { return this.value < 0 || (this.value === 0 && 1/this.value === -Infinity); }
   toString(): string {
     const v = this.value;
     if (!isFinite(v)) return v.toString();
@@ -136,6 +140,19 @@ function __ball_sub(a: any, b: any): any {
   const bv = b instanceof BallDouble ? b.value : b;
   const r = av - bv;
   return (a instanceof BallDouble || b instanceof BallDouble) ? new BallDouble(r) : r;
+}
+
+// Dart equality: NaN != NaN, BallDouble value comparison, null == undefined.
+function __ball_eq(a: any, b: any): boolean {
+  if (a instanceof BallDouble || b instanceof BallDouble) {
+    const av = a instanceof BallDouble ? a.value : a;
+    const bv = b instanceof BallDouble ? b.value : b;
+    if (Number.isNaN(av) || Number.isNaN(bv)) return false;
+    return av === bv;
+  }
+  if (a == null && b == null) return true;
+  if (a == null || b == null) return a == b;
+  return a === b;
 }
 
 function __ball_to_string(v: any): string {

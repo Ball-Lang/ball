@@ -4178,6 +4178,7 @@ class DartCompiler {
     if (subject == null) return '/* invalid switch expr */';
     final buf = StringBuffer('switch (${_e(subject)}) {\n');
     final cases = f['cases'];
+    var hasDefault = false;
     if (cases != null &&
         cases.whichExpr() == Expression_Expr.literal &&
         cases.literal.whichValue() == Literal_Value.listValue) {
@@ -4189,14 +4190,17 @@ class DartCompiler {
         final body = cf['body'];
         if (isDefault && body != null) {
           buf.write('_ => ${_e(body)},\n');
+          hasDefault = true;
         } else if (pattern != null && body != null) {
+          if (pattern == '_') hasDefault = true;
           buf.write('$pattern => ${_e(body)},\n');
         } else if (cf['value'] != null && body != null) {
-          // Fallback: use the value expression as a constant pattern
           buf.write('${_e(cf['value']!)} => ${_e(body)},\n');
         }
       }
     }
+    // Ensure exhaustiveness for Dart null-safety
+    if (!hasDefault) buf.write("_ => throw StateError('non-exhaustive'),\n");
     buf.write('}');
     return buf.toString();
   }

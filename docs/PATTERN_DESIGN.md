@@ -1,37 +1,56 @@
 # Ball Pattern Matching Design
 
-> 12 pattern kinds covering all 11 target languages (Dart, TS, C++, Rust, Python,
-> Java, Go, Ruby, Kotlin, Swift, Scala, C#, Haskell).
+> Patterns are represented as **function calls**, following Ball's core design:
+> "control flow is function calls." No dedicated proto messages needed.
 
-## The 12 Pattern Kinds
+## Design Principle
 
-| # | Kind | What It Covers |
-|---|---|---|
-| 1 | **Wildcard** | `_` in all languages |
-| 2 | **Variable** | `var x`, `int x`, capture patterns |
-| 3 | **Constant** | `42`, `"hi"`, enum values |
-| 4 | **TypeTest** | `is Type`, cast, null-check, null-assert |
-| 5 | **Destructure** | Tuples, records, constructors, positional/named |
-| 6 | **List** | `[p1, p2, ...rest]`, slice patterns |
-| 7 | **Map** | `{'key': pattern}`, mapping patterns |
-| 8 | **Or** | `p1 \| p2`, alternatives |
-| 9 | **And** | `p1 && p2`, conjunctive |
-| 10 | **Relational** | `< 5`, `>= 10` |
-| 11 | **Binding** | `name @ pattern`, `pattern as name` |
-| 12 | **Rest** | `..`, `...rest`, `*rest` |
+Ball already has `std.if`, `std.for`, `std.while` as base functions for control
+flow. Pattern matching follows the same principle: `std.switch_expr` with pattern
+cases encoded using std pattern functions and metadata conventions.
 
-## Why 12 Is Minimal
+## Pattern Encoding
 
-- Fewer would require lossy encoding (stuffing patterns into guards or metadata)
-- More would be redundant (parenthesized = tree structure, ranges = And+Relational)
-- Guards live on Pattern, not match arms (supports Dart `if-case`)
-- Metadata handles language-specific details (Rust ref/mut, Swift let/var)
+Patterns are encoded as MessageCreation fields within switch case entries,
+using the `__pattern_kind__` metadata convention and existing Ball expressions:
 
-## Language Coverage Matrix
+- **Variable pattern**: `{__pattern_kind__: "var", name: "x"}`
+- **Record pattern**: `{__pattern_kind__: "record", fields: [...]}`
+- **Type pattern**: `{__pattern_kind__: "type", type: "int"}`
+- **Wildcard**: `{__pattern_kind__: "wildcard"}`
+- **Constant**: `{__pattern_kind__: "constant", value: expr}`
+- **List pattern**: `{__pattern_kind__: "list", elements: [...]}`
 
-Every pattern in every target language maps to one of these 12 kinds.
-See full mapping table in the research output.
+These use Ball's existing Expression tree — no new proto messages required.
+The `__pattern_kind__` discriminator is metadata (cosmetic), and the patterns
+themselves decompose into type checks (`std.is`) + field access + variable
+binding — all primitives Ball already supports.
 
-## Proto Schema
+## Cross-Language Coverage
 
-See `proto/ball/v1/ball.proto` for the implementation.
+The 12 semantic pattern categories identified in research:
+
+1. **Wildcard** — `_` in all languages
+2. **Variable** — capture/binding patterns
+3. **Constant** — literal/value matching
+4. **Type test** — `is Type` checks (use `std.is`)
+5. **Destructure** — positional/named field extraction
+6. **List/Sequence** — `[p1, p2, ...rest]`
+7. **Map/Mapping** — `{'key': pattern}`
+8. **Or** — `p1 | p2` alternatives
+9. **And** — `p1 && p2` conjunction
+10. **Relational** — `< 5`, `>= 10`
+11. **Binding** — `name @ pattern`
+12. **Rest** — `..`, `...rest`
+
+All can be expressed through Ball's existing function call + metadata system.
+Guard expressions are just expressions in the case's `guard` field.
+
+## Why Not Proto Messages
+
+Adding 15 proto messages for patterns would duplicate what Ball already
+expresses through its 7 Expression node types + base functions. Ball's power
+comes from its minimal IR — control flow IS function calls, patterns ARE
+expressions. The metadata convention (`__pattern_kind__`) is the right
+level of abstraction for a cosmetic hint that tells compilers how to
+reconstruct source-level pattern syntax.

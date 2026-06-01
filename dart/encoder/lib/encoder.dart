@@ -3284,30 +3284,15 @@ class DartEncoder {
         final msg = MessageCreation()
           ..typeName = fullTypeName
           ..fields.addAll(args);
-        // Preserve type arguments (e.g. `CancelableCompleter<void>()`).
-        if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-          msg.fields.insert(
-            0,
-            FieldValuePair()
-              ..name = '__type_args__'
-              ..value = (Expression()
-                ..literal = (Literal()..stringValue = typeArgSrc)),
-          );
-        }
+        // Preserve type arguments (e.g. `CancelableCompleter<void>()`) as
+        // structured TypeRef in metadata.
+        _setTypeArgsMetadata(msg, typeArgSrc);
         return Expression()..messageCreation = msg;
       }
 
       final call = FunctionCall()..function = methodName;
       // Preserve type arguments (e.g. `binarySearchBy<E, E>(...)`).
-      if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-        args.insert(
-          0,
-          FieldValuePair()
-            ..name = '__type_args__'
-            ..value = (Expression()
-              ..literal = (Literal()..stringValue = typeArgSrc)),
-        );
-      }
+      call.typeArgs.addAll(_parseTypeArgs(typeArgSrc));
       _setCallInput(call, args);
       return Expression()..call = call;
     }
@@ -3320,15 +3305,7 @@ class DartEncoder {
         ..module = module
         ..function = methodName;
       // Preserve type arguments on prefixed calls.
-      if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-        args.insert(
-          0,
-          FieldValuePair()
-            ..name = '__type_args__'
-            ..value = (Expression()
-              ..literal = (Literal()..stringValue = typeArgSrc)),
-        );
-      }
+      call.typeArgs.addAll(_parseTypeArgs(typeArgSrc));
       _setCallInput(call, args);
       return Expression()..call = call;
     }
@@ -3448,17 +3425,19 @@ class DartEncoder {
           ..name = 'method'
           ..value = (Expression()
             ..literal = (Literal()..stringValue = methodName)),
+        ...args,
       ];
-      if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-        naFields.add(
-          FieldValuePair()
-            ..name = '__type_args__'
-            ..value = (Expression()
-              ..literal = (Literal()..stringValue = typeArgSrc)),
-        );
-      }
-      naFields.addAll(args);
-      return _buildStdCall('null_aware_call', naFields);
+      // Structured type arguments on the FunctionCall (forwarded to the inner
+      // method by the engine's null_aware_call implementation).
+      final call = FunctionCall()
+        ..module = _moduleForFunction('null_aware_call')
+        ..function = 'null_aware_call'
+        ..input = (Expression()
+          ..messageCreation = (MessageCreation()
+            ..typeName = ''
+            ..fields.addAll(naFields)));
+      call.typeArgs.addAll(_parseTypeArgs(typeArgSrc));
+      return Expression()..call = call;
     }
 
     // Collection/built-in method calls route to std_collections or std
@@ -3610,15 +3589,8 @@ class DartEncoder {
           ..value = _encodeExpr(realTarget),
         ...args,
       ];
-      if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-        methodArgs.insert(
-          1,
-          FieldValuePair()
-            ..name = '__type_args__'
-            ..value = (Expression()
-              ..literal = (Literal()..stringValue = typeArgSrc)),
-        );
-      }
+      // Preserve type arguments as structured TypeRef on the FunctionCall.
+      call.typeArgs.addAll(_parseTypeArgs(typeArgSrc));
       call.input = Expression()
         ..messageCreation = (MessageCreation()..fields.addAll(methodArgs));
       return Expression()..call = call;
@@ -3626,15 +3598,7 @@ class DartEncoder {
 
     final call = FunctionCall()..function = methodName;
     // Preserve type arguments (e.g. `binarySearchBy<E, E>(...)`).
-    if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-      args.insert(
-        0,
-        FieldValuePair()
-          ..name = '__type_args__'
-          ..value = (Expression()
-            ..literal = (Literal()..stringValue = typeArgSrc)),
-      );
-    }
+    call.typeArgs.addAll(_parseTypeArgs(typeArgSrc));
     _setCallInput(call, args);
     return Expression()..call = call;
   }
@@ -3695,7 +3659,7 @@ class DartEncoder {
     final args = _encodeArgList(expr.argumentList);
 
     // Preserve type arguments (e.g. `Map<String,String>.from(...)`)
-    // stored as a synthetic `__type_args__` field.
+    // as structured TypeRef in metadata.
     final typeArgSrc = namedType.typeArguments?.toSource();
     final fullTypeName = ctorName != null
         ? '$ballTypeName.$ctorName'
@@ -3703,23 +3667,11 @@ class DartEncoder {
     final msg = MessageCreation()
       ..typeName = fullTypeName
       ..fields.addAll(args);
-    if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-      msg.fields.insert(
-        0,
-        FieldValuePair()
-          ..name = '__type_args__'
-          ..value = (Expression()
-            ..literal = (Literal()..stringValue = typeArgSrc)),
-      );
-    }
-    // Preserve const keyword for const constructor calls.
+    _setTypeArgsMetadata(msg, typeArgSrc);
+    // Preserve const keyword for const constructor calls in metadata.
     if (expr.keyword?.lexeme == 'const') {
-      msg.fields.insert(
-        0,
-        FieldValuePair()
-          ..name = '__const__'
-          ..value = (Expression()..literal = (Literal()..boolValue = true)),
-      );
+      msg.metadata.fields['is_const'] =
+          structpb.Value()..boolValue = true;
     }
 
     return Expression()..messageCreation = msg;
@@ -4586,6 +4538,123 @@ class DartEncoder {
   // ============================================================
   // Helpers
   // ============================================================
+
+  /// Parse a Dart type string into a structured [TypeRef].
+  ///
+  /// Handles generic types (`Box<int>`), nested generics
+  /// (`Map<String, List<int>>`), nullable types (`int?`), and
+  /// `Function` type syntax (simplified to just the name `Function`).
+  static TypeRef _parseTypeRef(String typeStr) {
+    typeStr = typeStr.trim();
+    if (typeStr.isEmpty) return TypeRef()..name = '';
+
+    // Handle nullable suffix.
+    final nullable = typeStr.endsWith('?');
+    if (nullable) typeStr = typeStr.substring(0, typeStr.length - 1).trim();
+
+    // Find the top-level '<' that starts generic arguments.
+    final angleBracketStart = _findTopLevelAngleBracket(typeStr);
+    if (angleBracketStart == -1) {
+      // No generics — plain type name.
+      return TypeRef()
+        ..name = typeStr
+        ..nullable = nullable;
+    }
+
+    final name = typeStr.substring(0, angleBracketStart).trim();
+    // Strip the outer angle brackets: `<int, String>` → `int, String`
+    final innerStr =
+        typeStr.substring(angleBracketStart + 1, typeStr.length - 1).trim();
+    final typeArgs = _splitTopLevelCommas(innerStr).map(_parseTypeRef).toList();
+
+    return TypeRef()
+      ..name = name
+      ..typeArgs.addAll(typeArgs)
+      ..nullable = nullable;
+  }
+
+  /// Parse a Dart type-arguments string (e.g. `"<int, String>"`) into a list
+  /// of [TypeRef]. Returns an empty list for null/empty input.
+  static List<TypeRef> _parseTypeArgs(String? typeArgsSrc) {
+    if (typeArgsSrc == null || typeArgsSrc.isEmpty) return [];
+    var s = typeArgsSrc.trim();
+    // Strip outer angle brackets if present.
+    if (s.startsWith('<') && s.endsWith('>')) {
+      s = s.substring(1, s.length - 1).trim();
+    }
+    if (s.isEmpty) return [];
+    return _splitTopLevelCommas(s).map(_parseTypeRef).toList();
+  }
+
+  /// Find the index of the first `<` that is at nesting depth 0, returning -1
+  /// if none exists. Skips any `<` inside nested angle brackets.
+  static int _findTopLevelAngleBracket(String s) {
+    var depth = 0;
+    for (var i = 0; i < s.length; i++) {
+      final c = s[i];
+      if (c == '<') {
+        if (depth == 0) return i;
+        depth++;
+      } else if (c == '>') {
+        depth--;
+      }
+    }
+    return -1;
+  }
+
+  /// Split a comma-separated type string at top-level commas only (respecting
+  /// nested angle brackets). E.g. `"String, List<int>"` → `["String", "List<int>"]`.
+  static List<String> _splitTopLevelCommas(String s) {
+    final parts = <String>[];
+    var depth = 0;
+    var start = 0;
+    for (var i = 0; i < s.length; i++) {
+      final c = s[i];
+      if (c == '<') {
+        depth++;
+      } else if (c == '>') {
+        depth--;
+      } else if (c == ',' && depth == 0) {
+        parts.add(s.substring(start, i).trim());
+        start = i + 1;
+      }
+    }
+    final last = s.substring(start).trim();
+    if (last.isNotEmpty) parts.add(last);
+    return parts;
+  }
+
+  /// Set `type_args` metadata on a [MessageCreation] from a Dart type-arguments
+  /// source string. Used for constructor calls (MessageCreation without a
+  /// FunctionCall) where the structured TypeRef cannot be placed on
+  /// FunctionCall.typeArgs.
+  static void _setTypeArgsMetadata(
+      MessageCreation msg, String? typeArgsSrc) {
+    if (typeArgsSrc == null || typeArgsSrc.isEmpty) return;
+    final refs = _parseTypeArgs(typeArgsSrc);
+    if (refs.isEmpty) return;
+    msg.metadata.fields['type_args'] = structpb.Value()
+      ..listValue = (structpb.ListValue()
+        ..values.addAll(refs.map(_typeRefToStructValue)));
+  }
+
+  /// Convert a [TypeRef] into a [structpb.Value] (Struct representation) for
+  /// storage in metadata.
+  static structpb.Value _typeRefToStructValue(TypeRef ref) {
+    final fields = <String, structpb.Value>{
+      'name': structpb.Value()..stringValue = ref.name,
+    };
+    if (ref.typeArgs.isNotEmpty) {
+      fields['type_args'] = structpb.Value()
+        ..listValue = (structpb.ListValue()
+          ..values.addAll(ref.typeArgs.map(_typeRefToStructValue)));
+    }
+    if (ref.nullable) {
+      fields['nullable'] = structpb.Value()..boolValue = true;
+    }
+    return structpb.Value()
+      ..structValue = (structpb.Struct()..fields.addAll(fields));
+  }
 
   /// Build a base function call with named fields.
   /// Automatically routes to 'std' or 'dart_std' based on the function name.

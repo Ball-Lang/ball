@@ -1367,7 +1367,15 @@ class DartCompiler {
         } else {
           b.body = cb.Code(
             _captureBody(
-              () => _generateFunctionBody(func.body, _hasNonVoidReturn(func)),
+              () {
+                _generateFunctionBody(func.body, _hasNonVoidReturn(func));
+                // Async/generator functions: safety return for null-safety
+                if ((isAsync || isAsyncStar || isSyncStar) &&
+                    func.outputType.isNotEmpty &&
+                    _dartType(func.outputType) != 'void') {
+                  _wl('return null as dynamic;');
+                }
+              },
             ),
           );
         }

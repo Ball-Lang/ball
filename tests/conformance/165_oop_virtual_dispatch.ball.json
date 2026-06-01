@@ -1,20 +1,21 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "165_oop_virtual_dispatch",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "add",
           "isBase": true
         },
         {
-          "name": "concat",
+          "name": "print",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -26,6 +27,26 @@
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
               }
             ]
           }
@@ -53,9 +74,10 @@
           "body": {
             "call": {
               "module": "std",
-              "function": "concat",
+              "function": "add",
               "input": {
                 "messageCreation": {
+                  "typeName": "",
                   "fields": [
                     {
                       "name": "left",
@@ -94,7 +116,9 @@
           },
           "metadata": {
             "kind": "method",
-            "is_override": true
+            "annotations": [
+              "override"
+            ]
           }
         },
         {
@@ -275,6 +299,7 @@
           "descriptor": {
             "name": "main:Base"
           },
+          "description": "Class metadata for main:Base",
           "metadata": {
             "kind": "class"
           }
@@ -284,6 +309,7 @@
           "descriptor": {
             "name": "main:Derived"
           },
+          "description": "Class metadata for main:Derived",
           "metadata": {
             "kind": "class",
             "superclass": "Base"

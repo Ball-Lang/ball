@@ -7,7 +7,7 @@
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "throw",
           "isBase": true
         },
         {
@@ -15,22 +15,23 @@
           "isBase": true
         },
         {
-          "name": "throw",
+          "name": "await",
+          "isBase": true
+        },
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "print",
           "isBase": true
         },
         {
           "name": "rethrow",
           "isBase": true
-        },
-        {
-          "name": "await",
-          "isBase": true
-        },
-        {
-          "name": "concat",
-          "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -39,6 +40,40 @@
             "field": [
               {
                 "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
@@ -54,13 +89,14 @@
         {
           "name": "innerFail",
           "inputType": "int",
-          "outputType": "int",
+          "outputType": "Future<int>",
           "body": {
             "call": {
               "module": "std",
               "function": "throw",
               "input": {
                 "messageCreation": {
+                  "typeName": "",
                   "fields": [
                     {
                       "name": "value",
@@ -89,26 +125,28 @@
         {
           "name": "middle",
           "inputType": "int",
-          "outputType": "int",
+          "outputType": "Future<int>",
           "body": {
-            "call": {
-              "module": "std",
-              "function": "try",
-              "input": {
-                "messageCreation": {
-                  "fields": [
-                    {
-                      "name": "body",
-                      "value": {
-                        "block": {
-                          "statements": [
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "try",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
                             {
-                              "expression": {
+                              "name": "body",
+                              "value": {
                                 "call": {
                                   "module": "std",
                                   "function": "await",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
@@ -116,17 +154,8 @@
                                             "call": {
                                               "function": "innerFail",
                                               "input": {
-                                                "messageCreation": {
-                                                  "fields": [
-                                                    {
-                                                      "name": "arg0",
-                                                      "value": {
-                                                        "literal": {
-                                                          "intValue": "0"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
+                                                "literal": {
+                                                  "intValue": "0"
                                                 }
                                               }
                                             }
@@ -137,107 +166,108 @@
                                   }
                                 }
                               }
-                            }
-                          ]
-                        }
-                      }
-                    },
-                    {
-                      "name": "catches",
-                      "value": {
-                        "literal": {
-                          "listValue": {
-                            "elements": [
-                              {
-                                "messageCreation": {
-                                  "fields": [
-                                    {
-                                      "name": "variable",
-                                      "value": {
-                                        "literal": {
-                                          "stringValue": "e"
-                                        }
-                                      }
-                                    },
-                                    {
-                                      "name": "body",
-                                      "value": {
-                                        "block": {
-                                          "statements": [
+                            },
+                            {
+                              "name": "catches",
+                              "value": {
+                                "literal": {
+                                  "listValue": {
+                                    "elements": [
+                                      {
+                                        "messageCreation": {
+                                          "fields": [
                                             {
-                                              "expression": {
-                                                "call": {
-                                                  "module": "std",
-                                                  "function": "print",
-                                                  "input": {
-                                                    "messageCreation": {
-                                                      "typeName": "PrintInput",
-                                                      "fields": [
-                                                        {
-                                                          "name": "message",
-                                                          "value": {
-                                                            "call": {
-                                                              "module": "std",
-                                                              "function": "concat",
-                                                              "input": {
-                                                                "messageCreation": {
-                                                                  "fields": [
-                                                                    {
-                                                                      "name": "left",
-                                                                      "value": {
-                                                                        "literal": {
-                                                                          "stringValue": "middle saw: "
-                                                                        }
-                                                                      }
-                                                                    },
-                                                                    {
-                                                                      "name": "right",
-                                                                      "value": {
-                                                                        "reference": {
-                                                                          "name": "e"
-                                                                        }
-                                                                      }
-                                                                    }
-                                                                  ]
-                                                                }
-                                                              }
-                                                            }
-                                                          }
-                                                        }
-                                                      ]
-                                                    }
-                                                  }
+                                              "name": "variable",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "e"
                                                 }
                                               }
                                             },
                                             {
-                                              "expression": {
-                                                "call": {
-                                                  "module": "std",
-                                                  "function": "rethrow",
-                                                  "input": {
-                                                    "messageCreation": {
-                                                      "fields": []
+                                              "name": "body",
+                                              "value": {
+                                                "block": {
+                                                  "statements": [
+                                                    {
+                                                      "expression": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "print",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "PrintInput",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "message",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "module": "std",
+                                                                      "function": "add",
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "typeName": "",
+                                                                          "fields": [
+                                                                            {
+                                                                              "name": "left",
+                                                                              "value": {
+                                                                                "literal": {
+                                                                                  "stringValue": "middle saw: "
+                                                                                }
+                                                                              }
+                                                                            },
+                                                                            {
+                                                                              "name": "right",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "e"
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "expression": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "rethrow",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": ""
+                                                            }
+                                                          }
+                                                        }
+                                                      }
                                                     }
-                                                  }
+                                                  ]
                                                 }
                                               }
                                             }
                                           ]
                                         }
                                       }
-                                    }
-                                  ]
+                                    ]
+                                  }
                                 }
                               }
-                            ]
-                          }
+                            }
+                          ]
                         }
                       }
                     }
-                  ]
+                  }
                 }
-              }
+              ]
             }
           },
           "metadata": {
@@ -255,24 +285,26 @@
           "name": "main",
           "outputType": "void",
           "body": {
-            "call": {
-              "module": "std",
-              "function": "try",
-              "input": {
-                "messageCreation": {
-                  "fields": [
-                    {
-                      "name": "body",
-                      "value": {
-                        "block": {
-                          "statements": [
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "try",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
                             {
-                              "expression": {
+                              "name": "body",
+                              "value": {
                                 "call": {
                                   "module": "std",
                                   "function": "await",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
@@ -280,17 +312,8 @@
                                             "call": {
                                               "function": "middle",
                                               "input": {
-                                                "messageCreation": {
-                                                  "fields": [
-                                                    {
-                                                      "name": "arg0",
-                                                      "value": {
-                                                        "literal": {
-                                                          "intValue": "0"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
+                                                "literal": {
+                                                  "intValue": "0"
                                                 }
                                               }
                                             }
@@ -301,35 +324,27 @@
                                   }
                                 }
                               }
-                            }
-                          ]
-                        }
-                      }
-                    },
-                    {
-                      "name": "catches",
-                      "value": {
-                        "literal": {
-                          "listValue": {
-                            "elements": [
-                              {
-                                "messageCreation": {
-                                  "fields": [
-                                    {
-                                      "name": "variable",
-                                      "value": {
-                                        "literal": {
-                                          "stringValue": "err"
-                                        }
-                                      }
-                                    },
-                                    {
-                                      "name": "body",
-                                      "value": {
-                                        "block": {
-                                          "statements": [
+                            },
+                            {
+                              "name": "catches",
+                              "value": {
+                                "literal": {
+                                  "listValue": {
+                                    "elements": [
+                                      {
+                                        "messageCreation": {
+                                          "fields": [
                                             {
-                                              "expression": {
+                                              "name": "variable",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "err"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "body",
+                                              "value": {
                                                 "call": {
                                                   "module": "std",
                                                   "function": "print",
@@ -342,9 +357,10 @@
                                                           "value": {
                                                             "call": {
                                                               "module": "std",
-                                                              "function": "concat",
+                                                              "function": "add",
                                                               "input": {
                                                                 "messageCreation": {
+                                                                  "typeName": "",
                                                                   "fields": [
                                                                     {
                                                                       "name": "left",
@@ -377,22 +393,23 @@
                                           ]
                                         }
                                       }
-                                    }
-                                  ]
+                                    ]
+                                  }
                                 }
                               }
-                            ]
-                          }
+                            }
+                          ]
                         }
                       }
                     }
-                  ]
+                  }
                 }
-              }
+              ]
             }
           },
           "metadata": {
-            "kind": "function"
+            "kind": "function",
+            "is_async": true
           }
         }
       ],

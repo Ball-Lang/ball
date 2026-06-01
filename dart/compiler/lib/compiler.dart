@@ -1928,17 +1928,19 @@ class DartCompiler {
   void _generateStatement(Statement stmt) {
     switch (stmt.whichStmt()) {
       case Statement_Stmt.let:
-        final letExpr = stmt.let.value;
-        if (letExpr.whichExpr() == Expression_Expr.lambda) {
-          _generateLocalFunction(stmt.let.name, letExpr.lambda);
-        } else if (_isNoInit(letExpr)) {
-          // Uninitialized variable: `Type? x;`
+        if (_isNoInit(stmt.let)) {
+          // Uninitialized variable: `Type? x;` or `late int x;`
           _wl('${_letDeclKeyword(stmt.let)} ${stmt.let.name};');
         } else {
-          _wl(
-            '${_letDeclKeyword(stmt.let, letExpr)} ${stmt.let.name} = '
-            '${_e(letExpr)};',
-          );
+          final letExpr = stmt.let.value;
+          if (letExpr.whichExpr() == Expression_Expr.lambda) {
+            _generateLocalFunction(stmt.let.name, letExpr.lambda);
+          } else {
+            _wl(
+              '${_letDeclKeyword(stmt.let, letExpr)} ${stmt.let.name} = '
+              '${_e(letExpr)};',
+            );
+          }
         }
       case Statement_Stmt.expression:
         final expr = stmt.expression;
@@ -2426,9 +2428,7 @@ class DartCompiler {
       if (typeStr != null) types.add(typeStr);
 
       String binding = let.name;
-      if (let.hasValue() &&
-          !(let.value.whichExpr() == Expression_Expr.reference &&
-              let.value.reference.name == '__no_init__')) {
+      if (let.hasValue()) {
         binding = '${let.name} = ${_e(let.value)}';
       }
       bindings.add(binding);
@@ -2850,9 +2850,12 @@ class DartCompiler {
 
   cb.Expression _compileFieldAccess(FieldAccess fa) {
     final obj = _compileExpression(fa.object);
-    // __cascade_self__ is a sentinel that means "no explicit receiver" inside
-    // a cascade section — emit just the field name.
-    if (_emit(obj) == '__cascade_self__') return cb.refer(fa.field_2);
+    // isCascadeTarget means "no explicit receiver" inside a cascade section
+    // — emit just the field name.
+    if (fa.object.whichExpr() == Expression_Expr.reference &&
+        fa.object.reference.isCascadeTarget) {
+      return cb.refer(fa.field_2);
+    }
     // When the receiver is a catch-bound variable from a Ball tag-typed catch,
     // the caught value is a Map. Dart Maps don't support dotted access so we
     // emit `e['field']` instead of `e.field`.
@@ -2879,10 +2882,13 @@ class DartCompiler {
             .where((f) => f.name != 'self')
             .toList();
         final selfStr = _e(selfField.value);
-        // __cascade_self__ is a sentinel for "no explicit receiver" inside
-        // a cascade section — emit just the method call without a target so
-        // the outer `..` prefix is sufficient.
-        if (selfStr == '__cascade_self__') {
+        // isCascadeTarget means "no explicit receiver" inside a cascade
+        // section — emit just the method call without a target so the outer
+        // `..` prefix is sufficient.
+        final isCascadeSelf =
+            selfField.value.whichExpr() == Expression_Expr.reference &&
+            selfField.value.reference.isCascadeTarget;
+        if (isCascadeSelf) {
           return remaining.isEmpty
               ? '${call.function}$typeArgs()'
               : '${call.function}$typeArgs(${_compileArgs(remaining)})';
@@ -3812,11 +3818,11 @@ class DartCompiler {
   /// The target may be:
   ///  * A reference: `x`
   ///  * A fieldAccess: `obj.field`
-  ///  * A call (index): `arr[i]`       <- also used for __cascade_self__
+  ///  * A call (index): `arr[i]`       <- also used for cascade targets
   ///
-  /// When the target is a reference named `__cascade_self__` (from a cascade
-  /// section like `..field = 1`) we emit just `field = 1` so that the outer
-  /// `..` prefix supplied by [_compileCascade] produces `..field = 1`.
+  /// When the target is a cascade-target reference (from a cascade section
+  /// like `..field = 1`) we emit just `field = 1` so that the outer `..`
+  /// prefix supplied by [_compileCascade] produces `..field = 1`.
   String _compileAssign(Map<String, Expression> f) {
     final target = f['target'];
     final value = f['value'];
@@ -3876,17 +3882,17 @@ class DartCompiler {
     return _emit(expr);
   }
 
-  /// Compile a target expression, stripping the `__cascade_self__.` prefix
+  /// Compile a target expression, stripping the cascade-target prefix
   /// that is emitted by the encoder for cascade property-access sections.
   ///
-  /// `__cascade_self__.field`  →  `field`
-  /// `__cascade_self__[i]`     →  `[i]` (rare, handled separately)
-  /// anything else             →  normal compile
+  /// `cascadeTarget.field`  →  `field`
+  /// `cascadeTarget[i]`     →  `[i]` (rare, handled separately)
+  /// anything else          →  normal compile
   String _compileCascadeAwareTarget(Expression target) {
     if (target.whichExpr() == Expression_Expr.fieldAccess) {
       final fa = target.fieldAccess;
       if (fa.object.whichExpr() == Expression_Expr.reference &&
-          fa.object.reference.name == '__cascade_self__') {
+          fa.object.reference.isCascadeTarget) {
         return fa.field_2; // just the field name for cascade
       }
     }
@@ -3947,7 +3953,7 @@ class DartCompiler {
         // subsequent sections always use `..`.
         final prefix = (nullAware && isFirst) ? '?..' : '..';
         isFirst = false;
-        // Compile the section, then strip the __cascade_self__ placeholder
+        // Compile the section, then strip the cascade-target placeholder
         // that the encoder inserts so that cascade receiver is represented.
         final raw = _e(s);
         final section = _stripCascadeSelf(raw);
@@ -3959,10 +3965,12 @@ class DartCompiler {
     return '(${buf.toString()})';
   }
 
-  /// string.  The encoder emits this sentinel so that the decoder can
-  /// restore `..member` syntax.
+  /// Strip the cascade-target reference name from compiled cascade sections.
+  /// The encoder emits `Reference(name: "self", isCascadeTarget: true)` which
+  /// compiles to the string `"self"`. Strip it so the decoder can restore
+  /// `..member` syntax.
   static String _stripCascadeSelf(String s) {
-    const sentinel = '__cascade_self__';
+    const sentinel = 'self';
     if (!s.startsWith(sentinel)) return s;
     var i = sentinel.length;
     // Skip any whitespace inserted by code_builder between the sentinel
@@ -4495,17 +4503,12 @@ class DartCompiler {
     final typeArgs = _currentCallTypeArgs.isNotEmpty
         ? '<${_currentCallTypeArgs.map(_typeRefToStr).join(', ')}>'
         : '';
-    // Check for __const__ flag stored by the encoder.
-    final constField = msg.fields
-        .where((f) => f.name == '__const__')
-        .firstOrNull;
-    final isConst =
-        constField != null &&
-        constField.value.whichExpr() == Expression_Expr.literal &&
-        constField.value.literal.boolValue == true;
-    final actualFields = msg.fields
-        .where((f) => f.name != '__const__')
-        .toList();
+    // Check for is_const flag in MessageCreation.metadata.
+    final isConst = msg.hasMetadata() &&
+        msg.metadata.fields.containsKey('is_const') &&
+        msg.metadata.fields['is_const']!.hasBoolValue() &&
+        msg.metadata.fields['is_const']!.boolValue == true;
+    final actualFields = msg.fields.toList();
 
     // Reconstruct the correct Dart constructor form:
     // `Map<String,String>.from(...)` uses `TypeName<T>.ctorName(...)` syntax.
@@ -4785,11 +4788,9 @@ class DartCompiler {
     }
   }
 
-  /// True when the [letExpr] was encoded with the `__no_init__` sentinel:
-  /// i.e. the original Dart variable had no initializer (`Type? x;`).
-  static bool _isNoInit(Expression letExpr) =>
-      letExpr.whichExpr() == Expression_Expr.reference &&
-      letExpr.reference.name == '__no_init__';
+  /// True when the LetBinding has no value — i.e. the original Dart variable
+  /// had no initializer (`Type? x;` or `late int x;`).
+  static bool _isNoInit(LetBinding let) => !let.hasValue();
 
   String _letDeclKeyword(LetBinding let, [Expression? valueExpr]) {
     if (!let.hasMetadata()) return 'final';

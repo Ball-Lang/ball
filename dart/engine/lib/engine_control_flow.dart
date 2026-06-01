@@ -1342,9 +1342,10 @@ extension BallEngineControlFlow on BallEngine {
 
   /// `dart_await_for` — in a single-threaded engine this is just `for_in`
   /// over a list (streams aren't real).
-  /// Lazy cascade evaluation: evaluate `target`, bind it as `__cascade_self__`
-  /// in scope, then evaluate `sections` (list of calls on the target), and
-  /// return the target. For `null_aware_cascade`, return null if target is null.
+  /// Lazy cascade evaluation: evaluate `target`, bind it as `self`
+  /// in scope (with isCascadeTarget on the Reference), then evaluate
+  /// `sections` (list of calls on the target), and return the target.
+  /// For `null_aware_cascade`, return null if target is null.
   Future<Object?> _evalLazyCascade(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final targetExpr = fields['target'];
@@ -1355,9 +1356,10 @@ extension BallEngineControlFlow on BallEngine {
     // null_aware_cascade: if target is null, skip sections and return null.
     if (call.function == 'null_aware_cascade' && target == null) return null;
 
-    // Bind the target as __cascade_self__ so section expressions can reference it.
+    // Bind the target as `self` so cascade section expressions can reference it
+    // via Reference(name: "self", isCascadeTarget: true).
     final cascadeScope = scope.child();
-    cascadeScope.bind('__cascade_self__', target);
+    cascadeScope.bind('self', target);
 
     final sectionsExpr = fields['sections'];
     if (sectionsExpr != null) {

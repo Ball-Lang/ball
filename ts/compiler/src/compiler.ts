@@ -308,7 +308,7 @@ export class BallCompiler {
           const __target = await this._evalExpression(__targetExpr, scope);
           if (__sw === 'null_aware_cascade' && __target == null) return null;
           const __cScope = scope.child();
-          __cScope.bind('__cascade_self__', __target);
+          __cScope.bind('self', __target);
           const __sectionsExpr = __cf['sections'];
           if (__sectionsExpr) {
             if (__sectionsExpr.whichExpr && __sectionsExpr.whichExpr() === 'literal' && __sectionsExpr.literal && __sectionsExpr.literal.whichValue && __sectionsExpr.literal.whichValue() === 'listValue') {
@@ -3518,6 +3518,9 @@ function __isUnknownFnError(e: any): boolean {
     if (e.literal) return this.compileLiteral(e.literal);
     if (e.reference) {
       const name = e.reference.name;
+      // Cascade target reference: isCascadeTarget maps to the __cascade_self__
+      // IIFE parameter emitted by cascade/null_aware_cascade compilation.
+      if (e.reference.isCascadeTarget) return "__cascade_self__";
       if (name === "this") return "this";
       // Ball's `self` → JS `this` in class methods, when `self` is not
       // an explicit parameter or a locally declared variable.
@@ -3707,14 +3710,12 @@ function __isUnknownFnError(e: any): boolean {
       "SplayTreeMap", "SplayTreeMap.from", "SplayTreeMap.of",
     ]);
     if (mapCtors.has(shortTn)) {
-      const dataFields = fields.filter(f => f.name !== "__const__");
-      const arg = dataFields.length > 0 ? this.expr(dataFields[0].value) : "{}";
+      const arg = fields.length > 0 ? this.expr(fields[0].value) : "{}";
       return `({...${arg}})`;
     }
     // List / List.of / List.from → spread-copy as array
     if (shortTn === "List.of" || shortTn === "List.from") {
-      const dataFields = fields.filter(f => f.name !== "__const__");
-      const arg = dataFields.length > 0 ? this.expr(dataFields[0].value) : "[]";
+      const arg = fields.length > 0 ? this.expr(fields[0].value) : "[]";
       return `([...${arg}])`;
     }
 
@@ -3754,7 +3755,6 @@ function __isUnknownFnError(e: any): boolean {
     const named: Array<[string, string]> = [];
     const argRe = /^arg(\d+)$/;
     for (const f of fields) {
-      if (f.name === "__const__") continue;
       if (argRe.test(f.name)) {
         positional.push(this.expr(f.value));
       } else {
@@ -3836,7 +3836,6 @@ function __isUnknownFnError(e: any): boolean {
       if (afterColon.endsWith(".new")) {
         const className = afterColon.slice(0, -4);
         const args = call.input?.messageCreation?.fields
-          ?.filter((f: any) => f.name !== "__const__")
           ?.map((f: any) => this.expr(f.value))
           ?.join(", ") ?? "";
         return `new ${className}(${args})`;
@@ -3885,7 +3884,7 @@ function __isUnknownFnError(e: any): boolean {
           ? `${selfStr}.${fn}()`
           : `${selfStr}.${fn}(${otherArgs})`;
       }
-      const args = fields.filter((f) => f.name !== "__const__").map((f) => this.expr(f.value)).join(", ");
+      const args = fields.map((f) => this.expr(f.value)).join(", ");
       return `${awaitPfx}${thisPrefix}${fn}(${args})`;
     }
     return `${awaitPfx}${thisPrefix}${fn}(${this.expr(input)})`;
@@ -4133,7 +4132,7 @@ function __isUnknownFnError(e: any): boolean {
             for (const el of listElems) {
               elements.push(this.expr(el));
             }
-          } else if (fd.name !== "__const__") {
+          } else {
             elements.push(this.expr(fd.value));
           }
         }
@@ -4848,7 +4847,7 @@ function __isUnknownFnError(e: any): boolean {
         const arg0 = fields.find(f => f.name === "arg0");
         const msgExpr = arg0 ? this.expr(arg0.value) : "''";
         const extraFields = fields
-          .filter(f => f.name !== "arg0" && f.name !== "__const__")
+          .filter(f => f.name !== "arg0")
           .map(f => `'${f.name}': ${this.expr(f.value)}`)
           .join(", ");
         const extra = extraFields ? `, ${extraFields}` : "";

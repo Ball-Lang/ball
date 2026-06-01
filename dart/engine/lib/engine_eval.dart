@@ -1588,6 +1588,11 @@ extension BallEngineEval on BallEngine {
   Future<Object?> _evalStatement(Statement stmt, _Scope scope) async {
     switch (stmt.whichStmt()) {
       case Statement_Stmt.let:
+        // No-init variable (e.g. `late int x;`): bind as null.
+        if (!stmt.let.hasValue()) {
+          scope.bind(stmt.let.name, null);
+          return null;
+        }
         var value = await _evalExpression(stmt.let.value, scope);
         if (value is _FlowSignal) return value;
         // If the let type says Map but we got an empty Set or List,

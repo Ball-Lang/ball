@@ -552,6 +552,10 @@ message ListLiteral {
 // The special name "input" refers to the current function's input parameter.
 message Reference {
   string name = 1;
+
+  // When true, this reference targets the cascade expression's receiver
+  // (Dart's `..` chains). Replaces the former "__cascade_self__" sentinel.
+  bool is_cascade_target = 2;
 }
 
 // Accesses a field of a message-typed expression.

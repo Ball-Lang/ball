@@ -93,6 +93,22 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int IS_CASCADE_TARGET_FIELD_NUMBER = 2;
+  private boolean isCascadeTarget_ = false;
+  /**
+   * <pre>
+   * When true, this reference targets the cascade expression's receiver
+   * (Dart's `..` chains). Replaces the former "__cascade_self__" sentinel.
+   * </pre>
+   *
+   * <code>bool is_cascade_target = 2 [json_name = "isCascadeTarget"];</code>
+   * @return The isCascadeTarget.
+   */
+  @java.lang.Override
+  public boolean getIsCascadeTarget() {
+    return isCascadeTarget_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -110,12 +126,19 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(name_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 1, name_);
     }
+    if (isCascadeTarget_ != false) {
+      output.writeBool(2, isCascadeTarget_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(name_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(1, name_);
+    }
+    if (isCascadeTarget_ != false) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeBoolSize(2, isCascadeTarget_);
     }
     return size;
   }
@@ -143,6 +166,8 @@ private static final long serialVersionUID = 0L;
 
     if (!getName()
         .equals(other.getName())) return false;
+    if (getIsCascadeTarget()
+        != other.getIsCascadeTarget()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -156,6 +181,9 @@ private static final long serialVersionUID = 0L;
     hash = (19 * hash) + getDescriptor().hashCode();
     hash = (37 * hash) + NAME_FIELD_NUMBER;
     hash = (53 * hash) + getName().hashCode();
+    hash = (37 * hash) + IS_CASCADE_TARGET_FIELD_NUMBER;
+    hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+        getIsCascadeTarget());
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -293,6 +321,7 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       name_ = "";
+      isCascadeTarget_ = false;
       return this;
     }
 
@@ -329,6 +358,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.name_ = name_;
       }
+      if (((from_bitField0_ & 0x00000002) != 0)) {
+        result.isCascadeTarget_ = isCascadeTarget_;
+      }
     }
 
     @java.lang.Override
@@ -347,6 +379,9 @@ private static final long serialVersionUID = 0L;
         name_ = other.name_;
         bitField0_ |= 0x00000001;
         onChanged();
+      }
+      if (other.getIsCascadeTarget() != false) {
+        setIsCascadeTarget(other.getIsCascadeTarget());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -379,6 +414,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000001;
               break;
             } // case 10
+            case 16: {
+              isCascadeTarget_ = input.readBool();
+              bitField0_ |= 0x00000002;
+              break;
+            } // case 16
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -464,6 +504,53 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       name_ = value;
       bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
+    }
+
+    private boolean isCascadeTarget_ ;
+    /**
+     * <pre>
+     * When true, this reference targets the cascade expression's receiver
+     * (Dart's `..` chains). Replaces the former "__cascade_self__" sentinel.
+     * </pre>
+     *
+     * <code>bool is_cascade_target = 2 [json_name = "isCascadeTarget"];</code>
+     * @return The isCascadeTarget.
+     */
+    @java.lang.Override
+    public boolean getIsCascadeTarget() {
+      return isCascadeTarget_;
+    }
+    /**
+     * <pre>
+     * When true, this reference targets the cascade expression's receiver
+     * (Dart's `..` chains). Replaces the former "__cascade_self__" sentinel.
+     * </pre>
+     *
+     * <code>bool is_cascade_target = 2 [json_name = "isCascadeTarget"];</code>
+     * @param value The isCascadeTarget to set.
+     * @return This builder for chaining.
+     */
+    public Builder setIsCascadeTarget(boolean value) {
+
+      isCascadeTarget_ = value;
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * When true, this reference targets the cascade expression's receiver
+     * (Dart's `..` chains). Replaces the former "__cascade_self__" sentinel.
+     * </pre>
+     *
+     * <code>bool is_cascade_target = 2 [json_name = "isCascadeTarget"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearIsCascadeTarget() {
+      bitField0_ = (bitField0_ & ~0x00000002);
+      isCascadeTarget_ = false;
       onChanged();
       return this;
     }

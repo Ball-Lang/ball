@@ -267,7 +267,8 @@
                                                     "name": "self",
                                                     "value": {
                                                       "reference": {
-                                                        "name": "__cascade_self__"
+                                                        "name": "self",
+                                                        "isCascadeTarget": true
                                                       }
                                                     }
                                                   },
@@ -294,7 +295,8 @@
                                                     "name": "self",
                                                     "value": {
                                                       "reference": {
-                                                        "name": "__cascade_self__"
+                                                        "name": "self",
+                                                        "isCascadeTarget": true
                                                       }
                                                     }
                                                   },
@@ -321,7 +323,8 @@
                                                     "name": "self",
                                                     "value": {
                                                       "reference": {
-                                                        "name": "__cascade_self__"
+                                                        "name": "self",
+                                                        "isCascadeTarget": true
                                                       }
                                                     }
                                                   },
@@ -424,7 +427,8 @@
                                                   "name": "self",
                                                   "value": {
                                                     "reference": {
-                                                      "name": "__cascade_self__"
+                                                      "name": "self",
+                                                      "isCascadeTarget": true
                                                     }
                                                   }
                                                 }
@@ -443,7 +447,8 @@
                                                   "name": "self",
                                                   "value": {
                                                     "reference": {
-                                                      "name": "__cascade_self__"
+                                                      "name": "self",
+                                                      "isCascadeTarget": true
                                                     }
                                                   }
                                                 },
@@ -470,7 +475,8 @@
                                                   "name": "self",
                                                   "value": {
                                                     "reference": {
-                                                      "name": "__cascade_self__"
+                                                      "name": "self",
+                                                      "isCascadeTarget": true
                                                     }
                                                   }
                                                 },

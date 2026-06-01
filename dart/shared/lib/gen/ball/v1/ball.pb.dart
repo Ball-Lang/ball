@@ -2224,9 +2224,11 @@ class ListLiteral extends $pb.GeneratedMessage {
 class Reference extends $pb.GeneratedMessage {
   factory Reference({
     $core.String? name,
+    $core.bool? isCascadeTarget,
   }) {
     final result = create();
     if (name != null) result.name = name;
+    if (isCascadeTarget != null) result.isCascadeTarget = isCascadeTarget;
     return result;
   }
 
@@ -2244,6 +2246,7 @@ class Reference extends $pb.GeneratedMessage {
       package: const $pb.PackageName(_omitMessageNames ? '' : 'ball.v1'),
       createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'name')
+    ..aOB(2, _omitFieldNames ? '' : 'isCascadeTarget')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2272,6 +2275,17 @@ class Reference extends $pb.GeneratedMessage {
   $core.bool hasName() => $_has(0);
   @$pb.TagNumber(1)
   void clearName() => $_clearField(1);
+
+  /// When true, this reference targets the cascade expression's receiver
+  /// (Dart's `..` chains). Replaces the former "__cascade_self__" sentinel.
+  @$pb.TagNumber(2)
+  $core.bool get isCascadeTarget => $_getBF(1);
+  @$pb.TagNumber(2)
+  set isCascadeTarget($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasIsCascadeTarget() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearIsCascadeTarget() => $_clearField(2);
 }
 
 /// Accesses a field of a message-typed expression.

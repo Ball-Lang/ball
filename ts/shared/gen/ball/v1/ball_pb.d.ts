@@ -1046,6 +1046,14 @@ export declare type Reference = Message<"ball.v1.Reference"> & {
    * @generated from field: string name = 1;
    */
   name: string;
+
+  /**
+   * When true, this reference targets the cascade expression's receiver
+   * (Dart's `..` chains). Replaces the former "__cascade_self__" sentinel.
+   *
+   * @generated from field: bool is_cascade_target = 2;
+   */
+  isCascadeTarget: boolean;
 };
 
 /**

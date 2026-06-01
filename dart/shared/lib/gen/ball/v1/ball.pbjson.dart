@@ -764,12 +764,14 @@ const Reference$json = {
   '1': 'Reference',
   '2': [
     {'1': 'name', '3': 1, '4': 1, '5': 9, '10': 'name'},
+    {'1': 'is_cascade_target', '3': 2, '4': 1, '5': 8, '10': 'isCascadeTarget'},
   ],
 };
 
 /// Descriptor for `Reference`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List referenceDescriptor =
-    $convert.base64Decode('CglSZWZlcmVuY2USEgoEbmFtZRgBIAEoCVIEbmFtZQ==');
+final $typed_data.Uint8List referenceDescriptor = $convert.base64Decode(
+    'CglSZWZlcmVuY2USEgoEbmFtZRgBIAEoCVIEbmFtZRIqChFpc19jYXNjYWRlX3RhcmdldBgCIA'
+    'EoCFIPaXNDYXNjYWRlVGFyZ2V0');
 
 @$core.Deprecated('Use fieldAccessDescriptor instead')
 const FieldAccess$json = {

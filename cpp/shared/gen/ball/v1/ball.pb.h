@@ -1126,6 +1126,7 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED Reference final : public ::google::
   // accessors -------------------------------------------------------
   enum : int {
     kNameFieldNumber = 1,
+    kIsCascadeTargetFieldNumber = 2,
   };
   // string name = 1 [json_name = "name"];
   void clear_name() ;
@@ -1142,11 +1143,21 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED Reference final : public ::google::
   ::std::string* PROTOBUF_NONNULL _internal_mutable_name();
 
   public:
+  // bool is_cascade_target = 2 [json_name = "isCascadeTarget"];
+  void clear_is_cascade_target() ;
+  [[nodiscard]] bool is_cascade_target() const;
+  void set_is_cascade_target(bool value);
+
+  private:
+  bool _internal_is_cascade_target() const;
+  void _internal_set_is_cascade_target(bool value);
+
+  public:
   // @@protoc_insertion_point(class_scope:ball.v1.Reference)
  private:
   class _Internal;
   using ParseTableT_ =
-      ::google::protobuf::internal::TcParseTable<0, 1,
+      ::google::protobuf::internal::TcParseTable<1, 2,
                           0, 30,
                           2>;
   static constexpr ParseTableT_ InternalGenerateParseTable_(
@@ -1176,6 +1187,7 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED Reference final : public ::google::
     ::google::protobuf::internal::HasBits<1> _has_bits_;
     ::google::protobuf::internal::CachedSize _cached_size_;
     ::google::protobuf::internal::ArenaStringPtr name_;
+    bool is_cascade_target_;
     PROTOBUF_TSAN_DECLARE_MEMBER
   };
   union { Impl_ _impl_; };
@@ -15781,6 +15793,30 @@ inline void Reference::set_allocated_name(::std::string* PROTOBUF_NULLABLE value
     _impl_.name_.Set("", GetArena());
   }
   // @@protoc_insertion_point(field_set_allocated:ball.v1.Reference.name)
+}
+
+// bool is_cascade_target = 2 [json_name = "isCascadeTarget"];
+inline void Reference::clear_is_cascade_target() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.is_cascade_target_ = false;
+  ClearHasBit(_impl_._has_bits_[0], 0x00000002U);
+}
+inline bool Reference::is_cascade_target() const {
+  // @@protoc_insertion_point(field_get:ball.v1.Reference.is_cascade_target)
+  return _internal_is_cascade_target();
+}
+inline void Reference::set_is_cascade_target(bool value) {
+  _internal_set_is_cascade_target(value);
+  SetHasBit(_impl_._has_bits_[0], 0x00000002U);
+  // @@protoc_insertion_point(field_set:ball.v1.Reference.is_cascade_target)
+}
+inline bool Reference::_internal_is_cascade_target() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.is_cascade_target_;
+}
+inline void Reference::_internal_set_is_cascade_target(bool value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.is_cascade_target_ = value;
 }
 
 // -------------------------------------------------------------------

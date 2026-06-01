@@ -21,4 +21,15 @@ public interface ReferenceOrBuilder extends
    */
   com.google.protobuf.ByteString
       getNameBytes();
+
+  /**
+   * <pre>
+   * When true, this reference targets the cascade expression's receiver
+   * (Dart's `..` chains). Replaces the former "__cascade_self__" sentinel.
+   * </pre>
+   *
+   * <code>bool is_cascade_target = 2 [json_name = "isCascadeTarget"];</code>
+   * @return The isCascadeTarget.
+   */
+  boolean getIsCascadeTarget();
 }

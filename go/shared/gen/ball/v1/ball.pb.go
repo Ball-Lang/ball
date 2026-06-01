@@ -1986,10 +1986,13 @@ func (x *ListLiteral) GetElements() []*Expression {
 // A reference to a named variable.
 // The special name "input" refers to the current function's input parameter.
 type Reference struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// When true, this reference targets the cascade expression's receiver
+	// (Dart's `..` chains). Replaces the former "__cascade_self__" sentinel.
+	IsCascadeTarget bool `protobuf:"varint,2,opt,name=is_cascade_target,json=isCascadeTarget,proto3" json:"is_cascade_target,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Reference) Reset() {
@@ -2027,6 +2030,13 @@ func (x *Reference) GetName() string {
 		return x.Name
 	}
 	return ""
+}
+
+func (x *Reference) GetIsCascadeTarget() bool {
+	if x != nil {
+		return x.IsCascadeTarget
+	}
+	return false
 }
 
 // Accesses a field of a message-typed expression.
@@ -3313,9 +3323,10 @@ const file_ball_v1_ball_proto_rawDesc = "" +
 	"list_value\x18\x06 \x01(\v2\x14.ball.v1.ListLiteralH\x00R\tlistValueB\a\n" +
 	"\x05value\">\n" +
 	"\vListLiteral\x12/\n" +
-	"\belements\x18\x01 \x03(\v2\x13.ball.v1.ExpressionR\belements\"\x1f\n" +
+	"\belements\x18\x01 \x03(\v2\x13.ball.v1.ExpressionR\belements\"K\n" +
 	"\tReference\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"P\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12*\n" +
+	"\x11is_cascade_target\x18\x02 \x01(\bR\x0fisCascadeTarget\"P\n" +
 	"\vFieldAccess\x12+\n" +
 	"\x06object\x18\x01 \x01(\v2\x13.ball.v1.ExpressionR\x06object\x12\x14\n" +
 	"\x05field\x18\x02 \x01(\tR\x05field\"\x94\x01\n" +

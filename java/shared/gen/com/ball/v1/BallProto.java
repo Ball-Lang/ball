@@ -309,87 +309,88 @@ public final class BallProto extends com.google.protobuf.GeneratedFile {
       "esValue\0225\n\nlist_value\030\006 \001(\0132\024.ball.v1.Li" +
       "stLiteralH\000R\tlistValueB\007\n\005value\">\n\013ListL" +
       "iteral\022/\n\010elements\030\001 \003(\0132\023.ball.v1.Expre" +
-      "ssionR\010elements\"\037\n\tReference\022\022\n\004name\030\001 \001" +
-      "(\tR\004name\"P\n\013FieldAccess\022+\n\006object\030\001 \001(\0132" +
-      "\023.ball.v1.ExpressionR\006object\022\024\n\005field\030\002 " +
-      "\001(\tR\005field\"\224\001\n\017MessageCreation\022\033\n\ttype_n" +
-      "ame\030\001 \001(\tR\010typeName\022/\n\006fields\030\002 \003(\0132\027.ba" +
-      "ll.v1.FieldValuePairR\006fields\0223\n\010metadata" +
-      "\030\003 \001(\0132\027.google.protobuf.StructR\010metadat" +
-      "a\"O\n\016FieldValuePair\022\022\n\004name\030\001 \001(\tR\004name\022" +
-      ")\n\005value\030\002 \001(\0132\023.ball.v1.ExpressionR\005val" +
-      "ue\"h\n\005Block\0222\n\nstatements\030\001 \003(\0132\022.ball.v" +
-      "1.StatementR\nstatements\022+\n\006result\030\002 \001(\0132" +
-      "\023.ball.v1.ExpressionR\006result\"s\n\tStatemen" +
-      "t\022\'\n\003let\030\001 \001(\0132\023.ball.v1.LetBindingH\000R\003l" +
-      "et\0225\n\nexpression\030\002 \001(\0132\023.ball.v1.Express" +
-      "ionH\000R\nexpressionB\006\n\004stmt\"\200\001\n\nLetBinding" +
-      "\022\022\n\004name\030\001 \001(\tR\004name\022)\n\005value\030\002 \001(\0132\023.ba" +
-      "ll.v1.ExpressionR\005value\0223\n\010metadata\030\003 \001(" +
-      "\0132\027.google.protobuf.StructR\010metadata\"\332\002\n" +
-      "\014BallManifest\022\022\n\004name\030\001 \001(\tR\004name\022\030\n\007ver" +
-      "sion\030\002 \001(\tR\007version\022 \n\013description\030\003 \001(\t" +
-      "R\013description\022!\n\014entry_module\030\004 \001(\tR\013ent" +
-      "ryModule\022%\n\016entry_function\030\005 \001(\tR\rentryF" +
-      "unction\0229\n\014dependencies\030\006 \003(\0132\025.ball.v1." +
-      "ModuleImportR\014dependencies\022@\n\020dev_depend" +
-      "encies\030\007 \003(\0132\025.ball.v1.ModuleImportR\017dev" +
-      "Dependencies\0223\n\010metadata\030\010 \001(\0132\027.google." +
-      "protobuf.StructR\010metadata\"j\n\014BallLockfil" +
-      "e\0227\n\010packages\030\001 \003(\0132\033.ball.v1.ResolvedDe" +
-      "pendencyR\010packages\022!\n\014lock_version\030\002 \001(\t" +
-      "R\013lockVersion\"\344\002\n\022ResolvedDependency\022\022\n\004" +
-      "name\030\001 \001(\tR\004name\022)\n\020resolved_version\030\002 \001" +
-      "(\tR\017resolvedVersion\022\034\n\tintegrity\030\003 \001(\tR\t" +
-      "integrity\022)\n\004http\030\004 \001(\0132\023.ball.v1.HttpSo" +
-      "urceH\000R\004http\022&\n\003git\030\005 \001(\0132\022.ball.v1.GitS" +
-      "ourceH\000R\003git\022)\n\004file\030\006 \001(\0132\023.ball.v1.Fil" +
-      "eSourceH\000R\004file\0225\n\010registry\030\007 \001(\0132\027.ball" +
-      ".v1.RegistrySourceH\000R\010registry\022)\n\020depend" +
-      "ency_names\030\010 \003(\tR\017dependencyNamesB\021\n\017res" +
-      "olved_source\"\221\002\n\024BallCapabilityReport\022!\n" +
-      "\014program_name\030\001 \001(\tR\013programName\022\'\n\017prog" +
-      "ram_version\030\002 \001(\tR\016programVersion\022<\n\014cap" +
-      "abilities\030\003 \003(\0132\030.ball.v1.CapabilityEntr" +
-      "yR\014capabilities\0229\n\tfunctions\030\004 \003(\0132\033.bal" +
-      "l.v1.FunctionCapabilityR\tfunctions\0224\n\007su" +
-      "mmary\030\005 \001(\0132\032.ball.v1.CapabilitySummaryR" +
-      "\007summary\"\202\001\n\017CapabilityEntry\022\036\n\ncapabili" +
-      "ty\030\001 \001(\tR\ncapability\022\035\n\nrisk_level\030\002 \001(\t" +
-      "R\triskLevel\0220\n\ncall_sites\030\003 \003(\0132\021.ball.v" +
-      "1.CallSiteR\tcallSites\"\214\001\n\010CallSite\022\026\n\006mo" +
-      "dule\030\001 \001(\tR\006module\022\032\n\010function\030\002 \001(\tR\010fu" +
-      "nction\022#\n\rcallee_module\030\003 \001(\tR\014calleeMod" +
-      "ule\022\'\n\017callee_function\030\004 \001(\tR\016calleeFunc" +
-      "tion\"l\n\022FunctionCapability\022\026\n\006module\030\001 \001" +
-      "(\tR\006module\022\032\n\010function\030\002 \001(\tR\010function\022\"" +
-      "\n\014capabilities\030\003 \003(\tR\014capabilities\"\365\004\n\021C" +
-      "apabilitySummary\022\027\n\007is_pure\030\001 \001(\010R\006isPur" +
-      "e\022)\n\020reads_filesystem\030\002 \001(\010R\017readsFilesy" +
-      "stem\022+\n\021writes_filesystem\030\003 \001(\010R\020writesF" +
-      "ilesystem\022\037\n\013reads_stdin\030\004 \001(\010R\nreadsStd" +
-      "in\022#\n\rwrites_stdout\030\005 \001(\010R\014writesStdout\022" +
-      "#\n\rwrites_stderr\030\006 \001(\010R\014writesStderr\022+\n\021" +
-      "reads_environment\030\007 \001(\010R\020readsEnvironmen" +
-      "t\022)\n\020controls_process\030\010 \001(\010R\017controlsPro" +
-      "cess\022\037\n\013uses_memory\030\t \001(\010R\nusesMemory\022\033\n" +
-      "\tuses_time\030\n \001(\010R\010usesTime\022\037\n\013uses_rando" +
-      "m\030\013 \001(\010R\nusesRandom\022)\n\020uses_concurrency\030" +
-      "\014 \001(\010R\017usesConcurrency\022!\n\014uses_network\030\r" +
-      " \001(\010R\013usesNetwork\022\'\n\017total_functions\030\016 \001" +
-      "(\005R\016totalFunctions\022%\n\016pure_functions\030\017 \001" +
-      "(\005R\rpureFunctions\022/\n\023effectful_functions" +
-      "\030\020 \001(\005R\022effectfulFunctions*\227\001\n\010Registry\022" +
-      "\030\n\024REGISTRY_UNSPECIFIED\020\000\022\020\n\014REGISTRY_PU" +
-      "B\020\001\022\020\n\014REGISTRY_NPM\020\002\022\022\n\016REGISTRY_NUGET\020" +
-      "\003\022\022\n\016REGISTRY_CARGO\020\004\022\021\n\rREGISTRY_PYPI\020\005" +
-      "\022\022\n\016REGISTRY_MAVEN\020\006*f\n\016ModuleEncoding\022\037" +
-      "\n\033MODULE_ENCODING_UNSPECIFIED\020\000\022\031\n\025MODUL" +
-      "E_ENCODING_PROTO\020\001\022\030\n\024MODULE_ENCODING_JS" +
-      "ON\020\002B\215\001\n\013com.ball.v1B\tBallProtoP\001Z6githu" +
-      "b.com/ball-lang/ball/go/shared/gen/ball/" +
-      "v1;ballv1\242\002\003BXX\252\002\007Ball.V1\312\002\007Ball\\V1\342\002\023Ba" +
-      "ll\\V1\\GPBMetadata\352\002\010Ball::V1b\006proto3"
+      "ssionR\010elements\"K\n\tReference\022\022\n\004name\030\001 \001" +
+      "(\tR\004name\022*\n\021is_cascade_target\030\002 \001(\010R\017isC" +
+      "ascadeTarget\"P\n\013FieldAccess\022+\n\006object\030\001 " +
+      "\001(\0132\023.ball.v1.ExpressionR\006object\022\024\n\005fiel" +
+      "d\030\002 \001(\tR\005field\"\224\001\n\017MessageCreation\022\033\n\tty" +
+      "pe_name\030\001 \001(\tR\010typeName\022/\n\006fields\030\002 \003(\0132" +
+      "\027.ball.v1.FieldValuePairR\006fields\0223\n\010meta" +
+      "data\030\003 \001(\0132\027.google.protobuf.StructR\010met" +
+      "adata\"O\n\016FieldValuePair\022\022\n\004name\030\001 \001(\tR\004n" +
+      "ame\022)\n\005value\030\002 \001(\0132\023.ball.v1.ExpressionR" +
+      "\005value\"h\n\005Block\0222\n\nstatements\030\001 \003(\0132\022.ba" +
+      "ll.v1.StatementR\nstatements\022+\n\006result\030\002 " +
+      "\001(\0132\023.ball.v1.ExpressionR\006result\"s\n\tStat" +
+      "ement\022\'\n\003let\030\001 \001(\0132\023.ball.v1.LetBindingH" +
+      "\000R\003let\0225\n\nexpression\030\002 \001(\0132\023.ball.v1.Exp" +
+      "ressionH\000R\nexpressionB\006\n\004stmt\"\200\001\n\nLetBin" +
+      "ding\022\022\n\004name\030\001 \001(\tR\004name\022)\n\005value\030\002 \001(\0132" +
+      "\023.ball.v1.ExpressionR\005value\0223\n\010metadata\030" +
+      "\003 \001(\0132\027.google.protobuf.StructR\010metadata" +
+      "\"\332\002\n\014BallManifest\022\022\n\004name\030\001 \001(\tR\004name\022\030\n" +
+      "\007version\030\002 \001(\tR\007version\022 \n\013description\030\003" +
+      " \001(\tR\013description\022!\n\014entry_module\030\004 \001(\tR" +
+      "\013entryModule\022%\n\016entry_function\030\005 \001(\tR\ren" +
+      "tryFunction\0229\n\014dependencies\030\006 \003(\0132\025.ball" +
+      ".v1.ModuleImportR\014dependencies\022@\n\020dev_de" +
+      "pendencies\030\007 \003(\0132\025.ball.v1.ModuleImportR" +
+      "\017devDependencies\0223\n\010metadata\030\010 \001(\0132\027.goo" +
+      "gle.protobuf.StructR\010metadata\"j\n\014BallLoc" +
+      "kfile\0227\n\010packages\030\001 \003(\0132\033.ball.v1.Resolv" +
+      "edDependencyR\010packages\022!\n\014lock_version\030\002" +
+      " \001(\tR\013lockVersion\"\344\002\n\022ResolvedDependency" +
+      "\022\022\n\004name\030\001 \001(\tR\004name\022)\n\020resolved_version" +
+      "\030\002 \001(\tR\017resolvedVersion\022\034\n\tintegrity\030\003 \001" +
+      "(\tR\tintegrity\022)\n\004http\030\004 \001(\0132\023.ball.v1.Ht" +
+      "tpSourceH\000R\004http\022&\n\003git\030\005 \001(\0132\022.ball.v1." +
+      "GitSourceH\000R\003git\022)\n\004file\030\006 \001(\0132\023.ball.v1" +
+      ".FileSourceH\000R\004file\0225\n\010registry\030\007 \001(\0132\027." +
+      "ball.v1.RegistrySourceH\000R\010registry\022)\n\020de" +
+      "pendency_names\030\010 \003(\tR\017dependencyNamesB\021\n" +
+      "\017resolved_source\"\221\002\n\024BallCapabilityRepor" +
+      "t\022!\n\014program_name\030\001 \001(\tR\013programName\022\'\n\017" +
+      "program_version\030\002 \001(\tR\016programVersion\022<\n" +
+      "\014capabilities\030\003 \003(\0132\030.ball.v1.Capability" +
+      "EntryR\014capabilities\0229\n\tfunctions\030\004 \003(\0132\033" +
+      ".ball.v1.FunctionCapabilityR\tfunctions\0224" +
+      "\n\007summary\030\005 \001(\0132\032.ball.v1.CapabilitySumm" +
+      "aryR\007summary\"\202\001\n\017CapabilityEntry\022\036\n\ncapa" +
+      "bility\030\001 \001(\tR\ncapability\022\035\n\nrisk_level\030\002" +
+      " \001(\tR\triskLevel\0220\n\ncall_sites\030\003 \003(\0132\021.ba" +
+      "ll.v1.CallSiteR\tcallSites\"\214\001\n\010CallSite\022\026" +
+      "\n\006module\030\001 \001(\tR\006module\022\032\n\010function\030\002 \001(\t" +
+      "R\010function\022#\n\rcallee_module\030\003 \001(\tR\014calle" +
+      "eModule\022\'\n\017callee_function\030\004 \001(\tR\016callee" +
+      "Function\"l\n\022FunctionCapability\022\026\n\006module" +
+      "\030\001 \001(\tR\006module\022\032\n\010function\030\002 \001(\tR\010functi" +
+      "on\022\"\n\014capabilities\030\003 \003(\tR\014capabilities\"\365" +
+      "\004\n\021CapabilitySummary\022\027\n\007is_pure\030\001 \001(\010R\006i" +
+      "sPure\022)\n\020reads_filesystem\030\002 \001(\010R\017readsFi" +
+      "lesystem\022+\n\021writes_filesystem\030\003 \001(\010R\020wri" +
+      "tesFilesystem\022\037\n\013reads_stdin\030\004 \001(\010R\nread" +
+      "sStdin\022#\n\rwrites_stdout\030\005 \001(\010R\014writesStd" +
+      "out\022#\n\rwrites_stderr\030\006 \001(\010R\014writesStderr" +
+      "\022+\n\021reads_environment\030\007 \001(\010R\020readsEnviro" +
+      "nment\022)\n\020controls_process\030\010 \001(\010R\017control" +
+      "sProcess\022\037\n\013uses_memory\030\t \001(\010R\nusesMemor" +
+      "y\022\033\n\tuses_time\030\n \001(\010R\010usesTime\022\037\n\013uses_r" +
+      "andom\030\013 \001(\010R\nusesRandom\022)\n\020uses_concurre" +
+      "ncy\030\014 \001(\010R\017usesConcurrency\022!\n\014uses_netwo" +
+      "rk\030\r \001(\010R\013usesNetwork\022\'\n\017total_functions" +
+      "\030\016 \001(\005R\016totalFunctions\022%\n\016pure_functions" +
+      "\030\017 \001(\005R\rpureFunctions\022/\n\023effectful_funct" +
+      "ions\030\020 \001(\005R\022effectfulFunctions*\227\001\n\010Regis" +
+      "try\022\030\n\024REGISTRY_UNSPECIFIED\020\000\022\020\n\014REGISTR" +
+      "Y_PUB\020\001\022\020\n\014REGISTRY_NPM\020\002\022\022\n\016REGISTRY_NU" +
+      "GET\020\003\022\022\n\016REGISTRY_CARGO\020\004\022\021\n\rREGISTRY_PY" +
+      "PI\020\005\022\022\n\016REGISTRY_MAVEN\020\006*f\n\016ModuleEncodi" +
+      "ng\022\037\n\033MODULE_ENCODING_UNSPECIFIED\020\000\022\031\n\025M" +
+      "ODULE_ENCODING_PROTO\020\001\022\030\n\024MODULE_ENCODIN" +
+      "G_JSON\020\002B\215\001\n\013com.ball.v1B\tBallProtoP\001Z6g" +
+      "ithub.com/ball-lang/ball/go/shared/gen/b" +
+      "all/v1;ballv1\242\002\003BXX\252\002\007Ball.V1\312\002\007Ball\\V1\342" +
+      "\002\023Ball\\V1\\GPBMetadata\352\002\010Ball::V1b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -522,7 +523,7 @@ public final class BallProto extends com.google.protobuf.GeneratedFile {
     internal_static_ball_v1_Reference_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_Reference_descriptor,
-        new java.lang.String[] { "Name", });
+        new java.lang.String[] { "Name", "IsCascadeTarget", });
     internal_static_ball_v1_FieldAccess_descriptor =
       getDescriptor().getMessageType(20);
     internal_static_ball_v1_FieldAccess_fieldAccessorTable = new

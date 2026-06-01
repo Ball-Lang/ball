@@ -1331,12 +1331,10 @@ class DartCompiler {
 
       if (func.outputType.isNotEmpty) {
         var dartRetType = _dartType(func.outputType);
-        // Async non-void returns → nullable inner type for null-safety
-        if (isAsync && !isAsyncStar &&
-            dartRetType != 'void' && dartRetType != 'dynamic' &&
-            !dartRetType.endsWith('?')) {
-          dartRetType = '$dartRetType?';
-        }
+        // Note: do NOT make async return types nullable (int→int?) here —
+        // it causes cascading type errors in callers (int? can't be assigned
+        // to int). Instead, individual functions that don't return in all
+        // paths get a safety return in _generateLocalFunction.
         b.returns = cb.refer(
           _wrapReturnType(
             dartRetType,
@@ -1969,15 +1967,9 @@ class DartCompiler {
     // For async functions with non-void/non-dynamic return types, make the
     // inner type nullable (int → int?) so Dart null-safety allows implicit
     // null returns in paths that always throw/rethrow.
-    var adjustedReturnType = rawReturnType;
-    if (adjustedReturnType != null && isAsync && !isAsyncStar &&
-        adjustedReturnType != 'void' && adjustedReturnType != 'dynamic' &&
-        !adjustedReturnType.endsWith('?')) {
-      adjustedReturnType = '$adjustedReturnType?';
-    }
-    final returnType = adjustedReturnType != null
+    final returnType = rawReturnType != null
         ? _wrapReturnType(
-            adjustedReturnType,
+            rawReturnType,
             isAsync: isAsync,
             isAsyncStar: isAsyncStar,
             isSyncStar: isSyncStar,

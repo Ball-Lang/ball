@@ -1,17 +1,17 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "167_generics_reified",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "to_string",
           "isBase": true
         },
         {
-          "name": "to_string",
+          "name": "print",
           "isBase": true
         },
         {
@@ -19,6 +19,7 @@
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -35,15 +36,15 @@
           }
         },
         {
-          "name": "IntInput",
+          "name": "UnaryInput",
           "descriptor": {
-            "name": "IntInput",
+            "name": "UnaryInput",
             "field": [
               {
                 "name": "value",
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
-                "type": "TYPE_INT64"
+                "type": "TYPE_STRING"
               }
             ]
           }
@@ -95,7 +96,14 @@
                               }
                             }
                           }
-                        ]
+                        ],
+                        "metadata": {
+                          "type_args": [
+                            {
+                              "name": "int"
+                            }
+                          ]
+                        }
                       }
                     },
                     "metadata": {
@@ -121,7 +129,7 @@
                                   "function": "to_string",
                                   "input": {
                                     "messageCreation": {
-                                      "typeName": "IntInput",
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
@@ -171,7 +179,14 @@
                               }
                             }
                           }
-                        ]
+                        ],
+                        "metadata": {
+                          "type_args": [
+                            {
+                              "name": "String"
+                            }
+                          ]
+                        }
                       }
                     },
                     "metadata": {
@@ -189,6 +204,7 @@
                         "function": "is",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
                                 "name": "value",
@@ -249,6 +265,7 @@
                         "function": "is",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
                                 "name": "value",
@@ -332,12 +349,14 @@
               "name": "T"
             }
           ],
+          "description": "Class metadata for main:Box",
           "metadata": {
             "kind": "class",
             "fields": [
               {
                 "name": "value",
-                "type": "T"
+                "type": "T",
+                "is_late": true
               }
             ],
             "type_params": [

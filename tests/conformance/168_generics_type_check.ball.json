@@ -1,24 +1,21 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "168_generics_type_check",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "print",
-          "isBase": true
-        },
-        {
           "name": "to_string",
           "isBase": true
         },
         {
-          "name": "concat",
+          "name": "print",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -35,15 +32,15 @@
           }
         },
         {
-          "name": "IntInput",
+          "name": "UnaryInput",
           "descriptor": {
-            "name": "IntInput",
+            "name": "UnaryInput",
             "field": [
               {
                 "name": "value",
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
-                "type": "TYPE_INT64"
+                "type": "TYPE_STRING"
               }
             ]
           }
@@ -56,17 +53,11 @@
         {
           "name": "main:Container.new",
           "outputType": "main:Container",
-          "body": {
-            "reference": {
-              "name": "value"
-            }
-          },
           "metadata": {
             "kind": "constructor",
             "params": [
               {
                 "name": "value",
-                "type": "T",
                 "is_this": true
               }
             ]
@@ -93,30 +84,50 @@
         },
         {
           "name": "process",
-          "inputType": "main:Container",
+          "inputType": "Container<T>",
           "outputType": "String",
           "body": {
-            "call": {
-              "module": "std",
-              "function": "to_string",
-              "input": {
-                "messageCreation": {
-                  "typeName": "IntInput",
-                  "fields": [
-                    {
-                      "name": "value",
-                      "value": {
-                        "fieldAccess": {
-                          "object": {
-                            "reference": {
-                              "name": "c"
-                            }
-                          },
-                          "field": "getValue"
-                        }
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "c",
+                    "value": {
+                      "reference": {
+                        "name": "input"
                       }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Container<T>"
                     }
-                  ]
+                  }
+                }
+              ],
+              "result": {
+                "call": {
+                  "module": "std",
+                  "function": "to_string",
+                  "input": {
+                    "messageCreation": {
+                      "typeName": "",
+                      "fields": [
+                        {
+                          "name": "value",
+                          "value": {
+                            "fieldAccess": {
+                              "object": {
+                                "reference": {
+                                  "name": "c"
+                                }
+                              },
+                              "field": "getValue"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
                 }
               }
             }
@@ -125,7 +136,7 @@
             "kind": "function",
             "params": [
               {
-                "name": "c",
+                "name": "input",
                 "type": "Container<T>"
               }
             ],
@@ -163,7 +174,14 @@
                               }
                             }
                           }
-                        ]
+                        ],
+                        "metadata": {
+                          "type_args": [
+                            {
+                              "name": "int"
+                            }
+                          ]
+                        }
                       }
                     },
                     "metadata": {
@@ -187,17 +205,8 @@
                                 "call": {
                                   "function": "process",
                                   "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "arg0",
-                                          "value": {
-                                            "reference": {
-                                              "name": "intContainer"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                    "reference": {
+                                      "name": "intContainer"
                                     }
                                   }
                                 }
@@ -232,7 +241,14 @@
                               }
                             }
                           }
-                        ]
+                        ],
+                        "metadata": {
+                          "type_args": [
+                            {
+                              "name": "String"
+                            }
+                          ]
+                        }
                       }
                     },
                     "metadata": {
@@ -256,17 +272,8 @@
                                 "call": {
                                   "function": "process",
                                   "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "arg0",
-                                          "value": {
-                                            "reference": {
-                                              "name": "strContainer"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                    "reference": {
+                                      "name": "strContainer"
                                     }
                                   }
                                 }
@@ -310,12 +317,14 @@
               "name": "T"
             }
           ],
+          "description": "Class metadata for main:Container",
           "metadata": {
             "kind": "class",
             "fields": [
               {
                 "name": "value",
-                "type": "T"
+                "type": "T",
+                "is_late": true
               }
             ],
             "type_params": [

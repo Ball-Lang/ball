@@ -3106,7 +3106,7 @@ class DartEncoder {
 
     // ---- This / Super ----
     if (expr is ast.ThisExpression) {
-      return Expression()..reference = (Reference()..name = 'this');
+      return Expression()..reference = (Reference()..name = 'self');
     }
     if (expr is ast.SuperExpression) {
       return Expression()..reference = (Reference()..name = 'super');
@@ -3287,6 +3287,16 @@ class DartEncoder {
         // Preserve type arguments (e.g. `CancelableCompleter<void>()`) as
         // structured TypeRef in metadata.
         _setTypeArgsMetadata(msg, typeArgSrc);
+        // Also store as `__type_args__` field for engine reified generics.
+        if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
+          msg.fields.insert(
+            0,
+            FieldValuePair()
+              ..name = '__type_args__'
+              ..value = (Expression()
+                ..literal = (Literal()..stringValue = typeArgSrc)),
+          );
+        }
         return Expression()..messageCreation = msg;
       }
 
@@ -3668,6 +3678,17 @@ class DartEncoder {
       ..typeName = fullTypeName
       ..fields.addAll(args);
     _setTypeArgsMetadata(msg, typeArgSrc);
+    // Also store type args as a `__type_args__` field so the engine can use
+    // them for reified generic type checks (e.g. `Box<int>` vs `Box<String>`).
+    if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
+      msg.fields.insert(
+        0,
+        FieldValuePair()
+          ..name = '__type_args__'
+          ..value = (Expression()
+            ..literal = (Literal()..stringValue = typeArgSrc)),
+      );
+    }
     // Preserve const keyword for const constructor calls in metadata.
     if (expr.keyword?.lexeme == 'const') {
       msg.metadata.fields['is_const'] =

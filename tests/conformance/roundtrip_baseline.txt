@@ -18,13 +18,9 @@
 168_generics_type_check:ts-compiled
 180_generic_list_ops:ts-compiled
 181_generic_map_ops:ts-compiled
-184_nested_patterns:dart-compiled
-184_nested_patterns:dart-roundtrip
 192_overflow_and_large_numbers:ts-compiled
 207_record_pattern_destructure:dart-compiled
 207_record_pattern_destructure:dart-roundtrip
-208_async_chain_rethrow:dart-compiled
-208_async_chain_rethrow:dart-roundtrip
 216_int_double_truncation:ts-compiled
 227_generic_type_ops:ts-compiled
 229_closure_loop_var_semantics:ts-compiled

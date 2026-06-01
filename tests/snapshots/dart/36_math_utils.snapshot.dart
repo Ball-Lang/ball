@@ -2,7 +2,7 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-int abs(int input) {
+int? abs(int input) {
   int x = input;
   if ((x < 0)) {
     return -x;
@@ -10,14 +10,14 @@ int abs(int input) {
   return x;
 }
 
-int max(int a, int b) {
+int? max(int a, int b) {
   if ((a > b)) {
     return a;
   }
   return b;
 }
 
-int min(int a, int b) {
+int? min(int a, int b) {
   if ((a < b)) {
     return a;
   }

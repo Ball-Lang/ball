@@ -2,7 +2,7 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-bool isEven(int input) {
+bool? isEven(int input) {
   int n = input;
   if ((n == 0)) {
     return true;
@@ -10,7 +10,7 @@ bool isEven(int input) {
   return isOdd((n - 1));
 }
 
-bool isOdd(int input) {
+bool? isOdd(int input) {
   int n = input;
   if ((n == 0)) {
     return false;

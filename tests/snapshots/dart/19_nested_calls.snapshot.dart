@@ -2,17 +2,17 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-int triple(int input) {
+int? triple(int input) {
   int x = input;
   return (x * 3);
 }
 
-int addOne(int input) {
+int? addOne(int input) {
   int x = input;
   return (x + 1);
 }
 
-int pipeline(int input) {
+int? pipeline(int input) {
   int x = input;
   return triple(addOne(triple(x)));
 }

@@ -2,8 +2,8 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-int add(int a, int b) => (a + b);
-int square(int input) {
+int? add(int a, int b) => (a + b);
+int? square(int input) {
   int x = input;
   return (x * x);
 }

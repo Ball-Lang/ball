@@ -2,7 +2,7 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-int firstPositive(int a, int b, int c) {
+int? firstPositive(int a, int b, int c) {
   if ((a > 0)) {
     return a;
   }

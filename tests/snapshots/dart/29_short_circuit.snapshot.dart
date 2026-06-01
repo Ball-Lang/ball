@@ -2,7 +2,7 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-bool sideEffect(String tag, bool v) {
+bool? sideEffect(String tag, bool v) {
   print(('eval:' + tag.toString()));
   return v;
 }

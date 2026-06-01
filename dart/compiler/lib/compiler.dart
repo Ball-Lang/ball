@@ -1331,10 +1331,11 @@ class DartCompiler {
 
       if (func.outputType.isNotEmpty) {
         var dartRetType = _dartType(func.outputType);
-        // Async non-void returns → nullable inner type for null-safety
-        if (isAsync && !isAsyncStar &&
-            dartRetType != 'void' && dartRetType != 'dynamic' &&
-            !dartRetType.endsWith('?')) {
+        // Non-void returns → nullable type for null-safety compliance.
+        // Ball programs compiled from pattern matching may have incomplete
+        // if/else chains that don't return in all paths.
+        if (dartRetType != 'void' && dartRetType != 'dynamic' &&
+            !dartRetType.endsWith('?') && !isGetter) {
           dartRetType = '$dartRetType?';
         }
         b.returns = cb.refer(
@@ -2005,12 +2006,10 @@ class DartCompiler {
         final hasReturn = meta['has_return'] == true || _hasNonVoidReturn(func);
         _generateFunctionBody(func.body, hasReturn);
       }
-      // Async/generator functions with non-void return types need a safety
-      // return to satisfy Dart null-safety when not all paths return
-      // (e.g. try/catch that always rethrows).
-      if ((isAsync || isAsyncStar || isSyncStar) &&
-          rawReturnType != null &&
-          rawReturnType != 'void') {
+      // Safety return for non-void functions: satisfies Dart null-safety
+      // when not all paths return (e.g. incomplete if/else from pattern
+      // matching, try/catch that always rethrows).
+      if (rawReturnType != null && rawReturnType != 'void') {
         _wl('return null as dynamic;');
       }
       _depth--;

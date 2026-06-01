@@ -2,7 +2,7 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-int fib(int input) {
+int? fib(int input) {
   int n = input;
   if ((n <= 1)) {
     return n;

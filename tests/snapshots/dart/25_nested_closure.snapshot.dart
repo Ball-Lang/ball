@@ -2,7 +2,7 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-int Function(int) compose(int Function(int) f, int Function(int) g) {
+int Function(int)? compose(int Function(int) f, int Function(int) g) {
   return (int x) => f(g(x));
 }
 

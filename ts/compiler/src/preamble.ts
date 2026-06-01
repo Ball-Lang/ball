@@ -225,9 +225,10 @@ function __ball_to_int(v: any): any {
       if (b > 9007199254740991n || b < -9007199254740991n) return b;
       return Number(b);
     }
-    return Math.trunc(Number(v));
+    return Math.trunc(Number(v)) || 0;
   }
-  return Math.trunc(v);
+  // (|| 0) converts JS -0 to 0 (Dart truncate() never returns -0).
+  return Math.trunc(v) || 0;
 }
 
 function __ball_parse_double(s: string): number {

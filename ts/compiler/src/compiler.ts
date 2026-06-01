@@ -4491,8 +4491,14 @@ function __isUnknownFnError(e: any): boolean {
       }
       case "timestamp_ms": return `Date.now()`;
       case "now": return `DateTime.now()`;
+      case "year": return `DateTime.now().year`;
+      case "month": return `DateTime.now().month`;
+      case "day": return `DateTime.now().day`;
+      case "hour": return `DateTime.now().hour`;
+      case "minute": return `DateTime.now().minute`;
+      case "second": return `DateTime.now().second`;
       case "format_timestamp": {
-        const ms = f.get("value") ?? f.get("ms") ?? f.get("timestamp");
+        const ms = f.get("timestamp_ms") ?? f.get("value") ?? f.get("ms") ?? f.get("timestamp");
         return ms ? `DateTime.fromMillisecondsSinceEpoch(${this.expr(ms)}, true).toIso8601String()` : `""`;
       }
       case "parse_timestamp": {
@@ -4500,7 +4506,7 @@ function __isUnknownFnError(e: any): boolean {
         return s ? `DateTime.parse(${this.expr(s)}).millisecondsSinceEpoch` : `0`;
       }
       case "time_components": {
-        const ms = f.get("value") ?? f.get("ms") ?? f.get("timestamp");
+        const ms = f.get("timestamp_ms") ?? f.get("value") ?? f.get("ms") ?? f.get("timestamp");
         return ms ? `(() => { const d = new Date(${this.expr(ms)}); return {year: d.getUTCFullYear(), month: d.getUTCMonth()+1, day: d.getUTCDate(), hour: d.getUTCHours(), minute: d.getUTCMinutes(), second: d.getUTCSeconds()}; })()` : `{}`;
       }
       case "random_int": {

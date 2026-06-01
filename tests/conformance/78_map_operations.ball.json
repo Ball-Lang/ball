@@ -1,13 +1,13 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "78_map_operations",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "set_create",
+          "name": "map_create",
           "isBase": true
         },
         {
@@ -70,7 +70,7 @@
                     "value": {
                       "call": {
                         "module": "std",
-                        "function": "set_create",
+                        "function": "map_create",
                         "input": {
                           "messageCreation": {
                             "typeName": "",

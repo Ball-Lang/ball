@@ -1,13 +1,13 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "125_group_by",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "set_create",
+          "name": "map_create",
           "isBase": true
         },
         {
@@ -47,6 +47,10 @@
           "isBase": true
         },
         {
+          "name": "paren",
+          "isBase": true
+        },
+        {
           "name": "equals",
           "isBase": true
         },
@@ -55,11 +59,15 @@
           "isBase": true
         },
         {
+          "name": "list_sort",
+          "isBase": true
+        },
+        {
           "name": "list_to_list",
           "isBase": true
         },
         {
-          "name": "concat",
+          "name": "add",
           "isBase": true
         },
         {
@@ -128,20 +136,14 @@
       ]
     },
     {
-      "name": "dart_std",
-      "functions": [
-        {
-          "name": "cascade",
-          "isBase": true
-        }
-      ],
-      "description": "Dart-specific standard library base module"
-    },
-    {
       "name": "std_collections",
       "functions": [
         {
           "name": "list_push",
+          "isBase": true
+        },
+        {
+          "name": "list_sort",
           "isBase": true
         },
         {
@@ -171,7 +173,7 @@
                     "value": {
                       "call": {
                         "module": "std",
-                        "function": "set_create",
+                        "function": "map_create",
                         "input": {
                           "messageCreation": {
                             "typeName": "",
@@ -570,27 +572,27 @@
                                     "body": {
                                       "call": {
                                         "module": "std",
-                                        "function": "if",
+                                        "function": "paren",
                                         "input": {
                                           "messageCreation": {
                                             "typeName": "",
                                             "fields": [
                                               {
-                                                "name": "condition",
+                                                "name": "value",
                                                 "value": {
                                                   "call": {
                                                     "module": "std",
-                                                    "function": "equals",
+                                                    "function": "if",
                                                     "input": {
                                                       "messageCreation": {
                                                         "typeName": "",
                                                         "fields": [
                                                           {
-                                                            "name": "left",
+                                                            "name": "condition",
                                                             "value": {
                                                               "call": {
                                                                 "module": "std",
-                                                                "function": "modulo",
+                                                                "function": "equals",
                                                                 "input": {
                                                                   "messageCreation": {
                                                                     "typeName": "",
@@ -598,8 +600,32 @@
                                                                       {
                                                                         "name": "left",
                                                                         "value": {
-                                                                          "reference": {
-                                                                            "name": "n"
+                                                                          "call": {
+                                                                            "module": "std",
+                                                                            "function": "modulo",
+                                                                            "input": {
+                                                                              "messageCreation": {
+                                                                                "typeName": "",
+                                                                                "fields": [
+                                                                                  {
+                                                                                    "name": "left",
+                                                                                    "value": {
+                                                                                      "reference": {
+                                                                                        "name": "n"
+                                                                                      }
+                                                                                    }
+                                                                                  },
+                                                                                  {
+                                                                                    "name": "right",
+                                                                                    "value": {
+                                                                                      "literal": {
+                                                                                        "intValue": "2"
+                                                                                      }
+                                                                                    }
+                                                                                  }
+                                                                                ]
+                                                                              }
+                                                                            }
                                                                           }
                                                                         }
                                                                       },
@@ -607,7 +633,7 @@
                                                                         "name": "right",
                                                                         "value": {
                                                                           "literal": {
-                                                                            "intValue": "2"
+                                                                            "intValue": "0"
                                                                           }
                                                                         }
                                                                       }
@@ -618,32 +644,24 @@
                                                             }
                                                           },
                                                           {
-                                                            "name": "right",
+                                                            "name": "then",
                                                             "value": {
                                                               "literal": {
-                                                                "intValue": "0"
+                                                                "stringValue": "even"
+                                                              }
+                                                            }
+                                                          },
+                                                          {
+                                                            "name": "else",
+                                                            "value": {
+                                                              "literal": {
+                                                                "stringValue": "odd"
                                                               }
                                                             }
                                                           }
                                                         ]
                                                       }
                                                     }
-                                                  }
-                                                }
-                                              },
-                                              {
-                                                "name": "then",
-                                                "value": {
-                                                  "literal": {
-                                                    "stringValue": "even"
-                                                  }
-                                                }
-                                              },
-                                              {
-                                                "name": "else",
-                                                "value": {
-                                                  "literal": {
-                                                    "stringValue": "odd"
                                                   }
                                                 }
                                               }
@@ -681,14 +699,13 @@
                     "name": "keys",
                     "value": {
                       "call": {
-                        "module": "dart_std",
-                        "function": "cascade",
+                        "module": "std_collections",
+                        "function": "list_sort",
                         "input": {
                           "messageCreation": {
-                            "typeName": "",
                             "fields": [
                               {
-                                "name": "target",
+                                "name": "list",
                                 "value": {
                                   "call": {
                                     "module": "std_collections",
@@ -711,36 +728,6 @@
                                           }
                                         ]
                                       }
-                                    }
-                                  }
-                                }
-                              },
-                              {
-                                "name": "sections",
-                                "value": {
-                                  "literal": {
-                                    "listValue": {
-                                      "elements": [
-                                        {
-                                          "call": {
-                                            "function": "sort",
-                                            "input": {
-                                              "messageCreation": {
-                                                "fields": [
-                                                  {
-                                                    "name": "self",
-                                                    "value": {
-                                                      "reference": {
-                                                        "name": "__cascade_self__"
-                                                      }
-                                                    }
-                                                  }
-                                                ]
-                                              }
-                                            }
-                                          }
-                                        }
-                                      ]
                                     }
                                   }
                                 }
@@ -804,7 +791,7 @@
                                           "value": {
                                             "call": {
                                               "module": "std",
-                                              "function": "concat",
+                                              "function": "add",
                                               "input": {
                                                 "messageCreation": {
                                                   "typeName": "",
@@ -814,7 +801,7 @@
                                                       "value": {
                                                         "call": {
                                                           "module": "std",
-                                                          "function": "concat",
+                                                          "function": "add",
                                                           "input": {
                                                             "messageCreation": {
                                                               "typeName": "",
@@ -948,56 +935,72 @@
                                     "body": {
                                       "call": {
                                         "module": "std",
-                                        "function": "if",
+                                        "function": "paren",
                                         "input": {
                                           "messageCreation": {
                                             "typeName": "",
                                             "fields": [
                                               {
-                                                "name": "condition",
+                                                "name": "value",
                                                 "value": {
                                                   "call": {
                                                     "module": "std",
-                                                    "function": "lte",
+                                                    "function": "if",
                                                     "input": {
                                                       "messageCreation": {
                                                         "typeName": "",
                                                         "fields": [
                                                           {
-                                                            "name": "left",
+                                                            "name": "condition",
                                                             "value": {
-                                                              "reference": {
-                                                                "name": "n"
+                                                              "call": {
+                                                                "module": "std",
+                                                                "function": "lte",
+                                                                "input": {
+                                                                  "messageCreation": {
+                                                                    "typeName": "",
+                                                                    "fields": [
+                                                                      {
+                                                                        "name": "left",
+                                                                        "value": {
+                                                                          "reference": {
+                                                                            "name": "n"
+                                                                          }
+                                                                        }
+                                                                      },
+                                                                      {
+                                                                        "name": "right",
+                                                                        "value": {
+                                                                          "literal": {
+                                                                            "intValue": "5"
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                }
                                                               }
                                                             }
                                                           },
                                                           {
-                                                            "name": "right",
+                                                            "name": "then",
                                                             "value": {
                                                               "literal": {
-                                                                "intValue": "5"
+                                                                "stringValue": "small"
+                                                              }
+                                                            }
+                                                          },
+                                                          {
+                                                            "name": "else",
+                                                            "value": {
+                                                              "literal": {
+                                                                "stringValue": "large"
                                                               }
                                                             }
                                                           }
                                                         ]
                                                       }
                                                     }
-                                                  }
-                                                }
-                                              },
-                                              {
-                                                "name": "then",
-                                                "value": {
-                                                  "literal": {
-                                                    "stringValue": "small"
-                                                  }
-                                                }
-                                              },
-                                              {
-                                                "name": "else",
-                                                "value": {
-                                                  "literal": {
-                                                    "stringValue": "large"
                                                   }
                                                 }
                                               }
@@ -1035,14 +1038,13 @@
                     "name": "sizeKeys",
                     "value": {
                       "call": {
-                        "module": "dart_std",
-                        "function": "cascade",
+                        "module": "std_collections",
+                        "function": "list_sort",
                         "input": {
                           "messageCreation": {
-                            "typeName": "",
                             "fields": [
                               {
-                                "name": "target",
+                                "name": "list",
                                 "value": {
                                   "call": {
                                     "module": "std_collections",
@@ -1065,36 +1067,6 @@
                                           }
                                         ]
                                       }
-                                    }
-                                  }
-                                }
-                              },
-                              {
-                                "name": "sections",
-                                "value": {
-                                  "literal": {
-                                    "listValue": {
-                                      "elements": [
-                                        {
-                                          "call": {
-                                            "function": "sort",
-                                            "input": {
-                                              "messageCreation": {
-                                                "fields": [
-                                                  {
-                                                    "name": "self",
-                                                    "value": {
-                                                      "reference": {
-                                                        "name": "__cascade_self__"
-                                                      }
-                                                    }
-                                                  }
-                                                ]
-                                              }
-                                            }
-                                          }
-                                        }
-                                      ]
                                     }
                                   }
                                 }
@@ -1158,7 +1130,7 @@
                                           "value": {
                                             "call": {
                                               "module": "std",
-                                              "function": "concat",
+                                              "function": "add",
                                               "input": {
                                                 "messageCreation": {
                                                   "typeName": "",
@@ -1168,7 +1140,7 @@
                                                       "value": {
                                                         "call": {
                                                           "module": "std",
-                                                          "function": "concat",
+                                                          "function": "add",
                                                           "input": {
                                                             "messageCreation": {
                                                               "typeName": "",
@@ -1288,9 +1260,6 @@
       "moduleImports": [
         {
           "name": "std"
-        },
-        {
-          "name": "dart_std"
         }
       ]
     }

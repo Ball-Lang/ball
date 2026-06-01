@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "123_queue_simulation",
   "version": "1.0.0",
   "modules": [
     {
@@ -15,7 +15,7 @@
           "isBase": true
         },
         {
-          "name": "concat",
+          "name": "add",
           "isBase": true
         },
         {
@@ -127,13 +127,13 @@
                 {
                   "expression": {
                     "call": {
-                      "module": "std",
-                      "function": "assign",
+                      "module": "std_collections",
+                      "function": "list_push",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "target",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "queue"
@@ -143,31 +143,8 @@
                             {
                               "name": "value",
                               "value": {
-                                "call": {
-                                  "module": "std_collections",
-                                  "function": "list_push",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "list",
-                                          "value": {
-                                            "reference": {
-                                              "name": "queue"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "literal": {
-                                              "stringValue": "Alice"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
+                                "literal": {
+                                  "stringValue": "Alice"
                                 }
                               }
                             }
@@ -180,13 +157,13 @@
                 {
                   "expression": {
                     "call": {
-                      "module": "std",
-                      "function": "assign",
+                      "module": "std_collections",
+                      "function": "list_push",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "target",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "queue"
@@ -196,31 +173,8 @@
                             {
                               "name": "value",
                               "value": {
-                                "call": {
-                                  "module": "std_collections",
-                                  "function": "list_push",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "list",
-                                          "value": {
-                                            "reference": {
-                                              "name": "queue"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "literal": {
-                                              "stringValue": "Bob"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
+                                "literal": {
+                                  "stringValue": "Bob"
                                 }
                               }
                             }
@@ -233,13 +187,13 @@
                 {
                   "expression": {
                     "call": {
-                      "module": "std",
-                      "function": "assign",
+                      "module": "std_collections",
+                      "function": "list_push",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "target",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "queue"
@@ -249,31 +203,8 @@
                             {
                               "name": "value",
                               "value": {
-                                "call": {
-                                  "module": "std_collections",
-                                  "function": "list_push",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "list",
-                                          "value": {
-                                            "reference": {
-                                              "name": "queue"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "literal": {
-                                              "stringValue": "Charlie"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
+                                "literal": {
+                                  "stringValue": "Charlie"
                                 }
                               }
                             }
@@ -297,7 +228,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "concat",
+                                  "function": "add",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -351,13 +282,13 @@
                     "name": "first",
                     "value": {
                       "call": {
-                        "module": "std",
-                        "function": "assign",
+                        "module": "std_collections",
+                        "function": "list_remove_at",
                         "input": {
                           "messageCreation": {
                             "fields": [
                               {
-                                "name": "target",
+                                "name": "list",
                                 "value": {
                                   "reference": {
                                     "name": "queue"
@@ -365,33 +296,10 @@
                                 }
                               },
                               {
-                                "name": "value",
+                                "name": "index",
                                 "value": {
-                                  "call": {
-                                    "module": "std_collections",
-                                    "function": "list_remove_at",
-                                    "input": {
-                                      "messageCreation": {
-                                        "fields": [
-                                          {
-                                            "name": "list",
-                                            "value": {
-                                              "reference": {
-                                                "name": "queue"
-                                              }
-                                            }
-                                          },
-                                          {
-                                            "name": "index",
-                                            "value": {
-                                              "literal": {
-                                                "intValue": "0"
-                                              }
-                                            }
-                                          }
-                                        ]
-                                      }
-                                    }
+                                  "literal": {
+                                    "intValue": "0"
                                   }
                                 }
                               }
@@ -420,7 +328,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "concat",
+                                  "function": "add",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -483,7 +391,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "concat",
+                                  "function": "add",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -535,13 +443,13 @@
                 {
                   "expression": {
                     "call": {
-                      "module": "std",
-                      "function": "assign",
+                      "module": "std_collections",
+                      "function": "list_push",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "target",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "queue"
@@ -551,31 +459,8 @@
                             {
                               "name": "value",
                               "value": {
-                                "call": {
-                                  "module": "std_collections",
-                                  "function": "list_push",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "list",
-                                          "value": {
-                                            "reference": {
-                                              "name": "queue"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "literal": {
-                                              "stringValue": "Diana"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
+                                "literal": {
+                                  "stringValue": "Diana"
                                 }
                               }
                             }
@@ -588,13 +473,13 @@
                 {
                   "expression": {
                     "call": {
-                      "module": "std",
-                      "function": "assign",
+                      "module": "std_collections",
+                      "function": "list_push",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "target",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "queue"
@@ -604,31 +489,8 @@
                             {
                               "name": "value",
                               "value": {
-                                "call": {
-                                  "module": "std_collections",
-                                  "function": "list_push",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "list",
-                                          "value": {
-                                            "reference": {
-                                              "name": "queue"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "literal": {
-                                              "stringValue": "Eve"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
+                                "literal": {
+                                  "stringValue": "Eve"
                                 }
                               }
                             }
@@ -652,7 +514,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "concat",
+                                  "function": "add",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -733,13 +595,13 @@
                                         "name": "served",
                                         "value": {
                                           "call": {
-                                            "module": "std",
-                                            "function": "assign",
+                                            "module": "std_collections",
+                                            "function": "list_remove_at",
                                             "input": {
                                               "messageCreation": {
                                                 "fields": [
                                                   {
-                                                    "name": "target",
+                                                    "name": "list",
                                                     "value": {
                                                       "reference": {
                                                         "name": "queue"
@@ -747,33 +609,10 @@
                                                     }
                                                   },
                                                   {
-                                                    "name": "value",
+                                                    "name": "index",
                                                     "value": {
-                                                      "call": {
-                                                        "module": "std_collections",
-                                                        "function": "list_remove_at",
-                                                        "input": {
-                                                          "messageCreation": {
-                                                            "fields": [
-                                                              {
-                                                                "name": "list",
-                                                                "value": {
-                                                                  "reference": {
-                                                                    "name": "queue"
-                                                                  }
-                                                                }
-                                                              },
-                                                              {
-                                                                "name": "index",
-                                                                "value": {
-                                                                  "literal": {
-                                                                    "intValue": "0"
-                                                                  }
-                                                                }
-                                                              }
-                                                            ]
-                                                          }
-                                                        }
+                                                      "literal": {
+                                                        "intValue": "0"
                                                       }
                                                     }
                                                   }
@@ -802,7 +641,7 @@
                                                   "value": {
                                                     "call": {
                                                       "module": "std",
-                                                      "function": "concat",
+                                                      "function": "add",
                                                       "input": {
                                                         "messageCreation": {
                                                           "typeName": "",
@@ -875,7 +714,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "concat",
+                                  "function": "add",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",

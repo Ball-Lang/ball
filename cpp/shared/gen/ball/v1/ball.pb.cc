@@ -4041,12 +4041,12 @@ constexpr MessageCreation::ParseTableT_ MessageCreation::InternalGenerateParseTa
     {
       PROTOBUF_FIELD_OFFSET(MessageCreation, _impl_._has_bits_),
       0, // no _extensions_
-      2, 8,  // max_field_number, fast_idx_mask
+      3, 24,  // max_field_number, fast_idx_mask
       offsetof(ParseTableT_, field_lookup_table),
-      4294967292,  // skipmap
+      4294967288,  // skipmap
       offsetof(ParseTableT_, field_entries),
-      2,  // num_field_entries
-      1,  // num_aux_entries
+      3,  // num_field_entries
+      2,  // num_aux_entries
       offsetof(ParseTableT_, aux_entries),
       class_data,
       nullptr,  // post_loop_handler
@@ -4055,14 +4055,19 @@ constexpr MessageCreation::ParseTableT_ MessageCreation::InternalGenerateParseTa
       ::_pbi::TcParser::GetTable<::ball::v1::MessageCreation>(),  // to_prefetch
       #endif  // PROTOBUF_PREFETCH_PARSE_TABLE
     }, {{
-      // repeated .ball.v1.FieldValuePair fields = 2 [json_name = "fields"];
-      {::_pbi::TcParser::FastMtR1,
-       {18, 0, 0,
-        PROTOBUF_FIELD_OFFSET(MessageCreation, _impl_.fields_)}},
+      {::_pbi::TcParser::MiniParse, {}},
       // string type_name = 1 [json_name = "typeName"];
       {::_pbi::TcParser::FastUS1,
        {10, 1, 0,
         PROTOBUF_FIELD_OFFSET(MessageCreation, _impl_.type_name_)}},
+      // repeated .ball.v1.FieldValuePair fields = 2 [json_name = "fields"];
+      {::_pbi::TcParser::FastMtR1,
+       {18, 0, 0,
+        PROTOBUF_FIELD_OFFSET(MessageCreation, _impl_.fields_)}},
+      // .google.protobuf.Struct metadata = 3 [json_name = "metadata"];
+      {::_pbi::TcParser::FastMtS1,
+       {26, 2, 1,
+        PROTOBUF_FIELD_OFFSET(MessageCreation, _impl_.metadata_)}},
     }}, {{
       65535, 65535
     }}, {{
@@ -4070,12 +4075,19 @@ constexpr MessageCreation::ParseTableT_ MessageCreation::InternalGenerateParseTa
       {PROTOBUF_FIELD_OFFSET(MessageCreation, _impl_.type_name_), _Internal::kHasBitsOffset + 1, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
       // repeated .ball.v1.FieldValuePair fields = 2 [json_name = "fields"];
       {PROTOBUF_FIELD_OFFSET(MessageCreation, _impl_.fields_), _Internal::kHasBitsOffset + 0, 0, (0 | ::_fl::kFcRepeated | ::_fl::kMessage | ::_fl::kTvTable)},
+      // .google.protobuf.Struct metadata = 3 [json_name = "metadata"];
+      {PROTOBUF_FIELD_OFFSET(MessageCreation, _impl_.metadata_), _Internal::kHasBitsOffset + 2, 1, (0 | ::_fl::kFcOptional | ::_fl::kMessage | ::_fl::kTvTable)},
     }},
     {{
         #ifndef PROTOBUF_MESSAGE_GLOBALS
         {::_pbi::TcParser::GetTable<::ball::v1::FieldValuePair>()},
         #else
         {::_pbi::FieldAuxMessageGlobals(), &::ball::v1::FieldValuePair_globals_},
+        #endif
+        #ifndef PROTOBUF_MESSAGE_GLOBALS
+        {::_pbi::TcParser::GetTable<::google::protobuf::Struct>()},
+        #else
+        {::_pbi::FieldAuxMessageGlobals(), &::google::protobuf::Struct_globals_},
         #endif
     }},
     {{
@@ -4098,7 +4110,8 @@ inline constexpr MessageCreation::Impl_::Impl_(
         ,
         type_name_(
             &::google::protobuf::internal::fixed_address_empty_string,
-            ::_pbi::ConstantInitialized()) {}
+            ::_pbi::ConstantInitialized()),
+        metadata_{nullptr} {}
 
 template <typename>
 constexpr MessageCreation::MessageCreation(::_pbi::ConstantInitialized,
@@ -6672,11 +6685,13 @@ const ::uint32_t
         0,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::ball::v1::MessageCreation, _impl_._has_bits_),
-        5, // hasbit index offset
+        6, // hasbit index offset
         PROTOBUF_FIELD_OFFSET(::ball::v1::MessageCreation, _impl_.type_name_),
         PROTOBUF_FIELD_OFFSET(::ball::v1::MessageCreation, _impl_.fields_),
+        PROTOBUF_FIELD_OFFSET(::ball::v1::MessageCreation, _impl_.metadata_),
         1,
         0,
+        2,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::ball::v1::FieldValuePair, _impl_._has_bits_),
         5, // hasbit index offset
@@ -6856,18 +6871,18 @@ static const ::_pbi::MigrationSchema
         {227, sizeof(::ball::v1::Reference)},
         {232, sizeof(::ball::v1::FieldAccess)},
         {239, sizeof(::ball::v1::MessageCreation)},
-        {246, sizeof(::ball::v1::FieldValuePair)},
-        {253, sizeof(::ball::v1::Block)},
-        {260, sizeof(::ball::v1::Statement)},
-        {265, sizeof(::ball::v1::LetBinding)},
-        {274, sizeof(::ball::v1::BallManifest)},
-        {293, sizeof(::ball::v1::BallLockfile)},
-        {300, sizeof(::ball::v1::ResolvedDependency)},
-        {321, sizeof(::ball::v1::BallCapabilityReport)},
-        {334, sizeof(::ball::v1::CapabilityEntry)},
-        {343, sizeof(::ball::v1::CallSite)},
-        {354, sizeof(::ball::v1::FunctionCapability)},
-        {363, sizeof(::ball::v1::CapabilitySummary)},
+        {248, sizeof(::ball::v1::FieldValuePair)},
+        {255, sizeof(::ball::v1::Block)},
+        {262, sizeof(::ball::v1::Statement)},
+        {267, sizeof(::ball::v1::LetBinding)},
+        {276, sizeof(::ball::v1::BallManifest)},
+        {295, sizeof(::ball::v1::BallLockfile)},
+        {302, sizeof(::ball::v1::ResolvedDependency)},
+        {323, sizeof(::ball::v1::BallCapabilityReport)},
+        {336, sizeof(::ball::v1::CapabilityEntry)},
+        {345, sizeof(::ball::v1::CallSite)},
+        {356, sizeof(::ball::v1::FunctionCapability)},
+        {365, sizeof(::ball::v1::CapabilitySummary)},
 };
 static const ::_pbi::MessageGlobalsBase* PROTOBUF_NONNULL const
     file_message_globals[] = {
@@ -7011,83 +7026,84 @@ const char descriptor_table_protodef_ball_2fv1_2fball_2eproto[] ABSL_ATTRIBUTE_S
     "ssionR\010elements\"\037\n\tReference\022\022\n\004name\030\001 \001"
     "(\tR\004name\"P\n\013FieldAccess\022+\n\006object\030\001 \001(\0132"
     "\023.ball.v1.ExpressionR\006object\022\024\n\005field\030\002 "
-    "\001(\tR\005field\"_\n\017MessageCreation\022\033\n\ttype_na"
-    "me\030\001 \001(\tR\010typeName\022/\n\006fields\030\002 \003(\0132\027.bal"
-    "l.v1.FieldValuePairR\006fields\"O\n\016FieldValu"
-    "ePair\022\022\n\004name\030\001 \001(\tR\004name\022)\n\005value\030\002 \001(\013"
-    "2\023.ball.v1.ExpressionR\005value\"h\n\005Block\0222\n"
-    "\nstatements\030\001 \003(\0132\022.ball.v1.StatementR\ns"
-    "tatements\022+\n\006result\030\002 \001(\0132\023.ball.v1.Expr"
-    "essionR\006result\"s\n\tStatement\022\'\n\003let\030\001 \001(\013"
-    "2\023.ball.v1.LetBindingH\000R\003let\0225\n\nexpressi"
-    "on\030\002 \001(\0132\023.ball.v1.ExpressionH\000R\nexpress"
-    "ionB\006\n\004stmt\"\200\001\n\nLetBinding\022\022\n\004name\030\001 \001(\t"
-    "R\004name\022)\n\005value\030\002 \001(\0132\023.ball.v1.Expressi"
-    "onR\005value\0223\n\010metadata\030\003 \001(\0132\027.google.pro"
-    "tobuf.StructR\010metadata\"\332\002\n\014BallManifest\022"
-    "\022\n\004name\030\001 \001(\tR\004name\022\030\n\007version\030\002 \001(\tR\007ve"
-    "rsion\022 \n\013description\030\003 \001(\tR\013description\022"
-    "!\n\014entry_module\030\004 \001(\tR\013entryModule\022%\n\016en"
-    "try_function\030\005 \001(\tR\rentryFunction\0229\n\014dep"
-    "endencies\030\006 \003(\0132\025.ball.v1.ModuleImportR\014"
-    "dependencies\022@\n\020dev_dependencies\030\007 \003(\0132\025"
-    ".ball.v1.ModuleImportR\017devDependencies\0223"
-    "\n\010metadata\030\010 \001(\0132\027.google.protobuf.Struc"
-    "tR\010metadata\"j\n\014BallLockfile\0227\n\010packages\030"
-    "\001 \003(\0132\033.ball.v1.ResolvedDependencyR\010pack"
-    "ages\022!\n\014lock_version\030\002 \001(\tR\013lockVersion\""
-    "\344\002\n\022ResolvedDependency\022\022\n\004name\030\001 \001(\tR\004na"
-    "me\022)\n\020resolved_version\030\002 \001(\tR\017resolvedVe"
-    "rsion\022\034\n\tintegrity\030\003 \001(\tR\tintegrity\022)\n\004h"
-    "ttp\030\004 \001(\0132\023.ball.v1.HttpSourceH\000R\004http\022&"
-    "\n\003git\030\005 \001(\0132\022.ball.v1.GitSourceH\000R\003git\022)"
-    "\n\004file\030\006 \001(\0132\023.ball.v1.FileSourceH\000R\004fil"
-    "e\0225\n\010registry\030\007 \001(\0132\027.ball.v1.RegistrySo"
-    "urceH\000R\010registry\022)\n\020dependency_names\030\010 \003"
-    "(\tR\017dependencyNamesB\021\n\017resolved_source\"\221"
-    "\002\n\024BallCapabilityReport\022!\n\014program_name\030"
-    "\001 \001(\tR\013programName\022\'\n\017program_version\030\002 "
-    "\001(\tR\016programVersion\022<\n\014capabilities\030\003 \003("
-    "\0132\030.ball.v1.CapabilityEntryR\014capabilitie"
-    "s\0229\n\tfunctions\030\004 \003(\0132\033.ball.v1.FunctionC"
-    "apabilityR\tfunctions\0224\n\007summary\030\005 \001(\0132\032."
-    "ball.v1.CapabilitySummaryR\007summary\"\202\001\n\017C"
-    "apabilityEntry\022\036\n\ncapability\030\001 \001(\tR\ncapa"
-    "bility\022\035\n\nrisk_level\030\002 \001(\tR\triskLevel\0220\n"
-    "\ncall_sites\030\003 \003(\0132\021.ball.v1.CallSiteR\tca"
-    "llSites\"\214\001\n\010CallSite\022\026\n\006module\030\001 \001(\tR\006mo"
-    "dule\022\032\n\010function\030\002 \001(\tR\010function\022#\n\rcall"
-    "ee_module\030\003 \001(\tR\014calleeModule\022\'\n\017callee_"
-    "function\030\004 \001(\tR\016calleeFunction\"l\n\022Functi"
-    "onCapability\022\026\n\006module\030\001 \001(\tR\006module\022\032\n\010"
-    "function\030\002 \001(\tR\010function\022\"\n\014capabilities"
-    "\030\003 \003(\tR\014capabilities\"\365\004\n\021CapabilitySumma"
-    "ry\022\027\n\007is_pure\030\001 \001(\010R\006isPure\022)\n\020reads_fil"
-    "esystem\030\002 \001(\010R\017readsFilesystem\022+\n\021writes"
-    "_filesystem\030\003 \001(\010R\020writesFilesystem\022\037\n\013r"
-    "eads_stdin\030\004 \001(\010R\nreadsStdin\022#\n\rwrites_s"
-    "tdout\030\005 \001(\010R\014writesStdout\022#\n\rwrites_stde"
-    "rr\030\006 \001(\010R\014writesStderr\022+\n\021reads_environm"
-    "ent\030\007 \001(\010R\020readsEnvironment\022)\n\020controls_"
-    "process\030\010 \001(\010R\017controlsProcess\022\037\n\013uses_m"
-    "emory\030\t \001(\010R\nusesMemory\022\033\n\tuses_time\030\n \001"
-    "(\010R\010usesTime\022\037\n\013uses_random\030\013 \001(\010R\nusesR"
-    "andom\022)\n\020uses_concurrency\030\014 \001(\010R\017usesCon"
-    "currency\022!\n\014uses_network\030\r \001(\010R\013usesNetw"
-    "ork\022\'\n\017total_functions\030\016 \001(\005R\016totalFunct"
-    "ions\022%\n\016pure_functions\030\017 \001(\005R\rpureFuncti"
-    "ons\022/\n\023effectful_functions\030\020 \001(\005R\022effect"
-    "fulFunctions*\227\001\n\010Registry\022\030\n\024REGISTRY_UN"
-    "SPECIFIED\020\000\022\020\n\014REGISTRY_PUB\020\001\022\020\n\014REGISTR"
-    "Y_NPM\020\002\022\022\n\016REGISTRY_NUGET\020\003\022\022\n\016REGISTRY_"
-    "CARGO\020\004\022\021\n\rREGISTRY_PYPI\020\005\022\022\n\016REGISTRY_M"
-    "AVEN\020\006*f\n\016ModuleEncoding\022\037\n\033MODULE_ENCOD"
-    "ING_UNSPECIFIED\020\000\022\031\n\025MODULE_ENCODING_PRO"
-    "TO\020\001\022\030\n\024MODULE_ENCODING_JSON\020\002B\215\001\n\013com.b"
-    "all.v1B\tBallProtoP\001Z6github.com/ball-lan"
-    "g/ball/go/shared/gen/ball/v1;ballv1\242\002\003BX"
-    "X\252\002\007Ball.V1\312\002\007Ball\\V1\342\002\023Ball\\V1\\GPBMetad"
-    "ata\352\002\010Ball::V1b\006proto3"
+    "\001(\tR\005field\"\224\001\n\017MessageCreation\022\033\n\ttype_n"
+    "ame\030\001 \001(\tR\010typeName\022/\n\006fields\030\002 \003(\0132\027.ba"
+    "ll.v1.FieldValuePairR\006fields\0223\n\010metadata"
+    "\030\003 \001(\0132\027.google.protobuf.StructR\010metadat"
+    "a\"O\n\016FieldValuePair\022\022\n\004name\030\001 \001(\tR\004name\022"
+    ")\n\005value\030\002 \001(\0132\023.ball.v1.ExpressionR\005val"
+    "ue\"h\n\005Block\0222\n\nstatements\030\001 \003(\0132\022.ball.v"
+    "1.StatementR\nstatements\022+\n\006result\030\002 \001(\0132"
+    "\023.ball.v1.ExpressionR\006result\"s\n\tStatemen"
+    "t\022\'\n\003let\030\001 \001(\0132\023.ball.v1.LetBindingH\000R\003l"
+    "et\0225\n\nexpression\030\002 \001(\0132\023.ball.v1.Express"
+    "ionH\000R\nexpressionB\006\n\004stmt\"\200\001\n\nLetBinding"
+    "\022\022\n\004name\030\001 \001(\tR\004name\022)\n\005value\030\002 \001(\0132\023.ba"
+    "ll.v1.ExpressionR\005value\0223\n\010metadata\030\003 \001("
+    "\0132\027.google.protobuf.StructR\010metadata\"\332\002\n"
+    "\014BallManifest\022\022\n\004name\030\001 \001(\tR\004name\022\030\n\007ver"
+    "sion\030\002 \001(\tR\007version\022 \n\013description\030\003 \001(\t"
+    "R\013description\022!\n\014entry_module\030\004 \001(\tR\013ent"
+    "ryModule\022%\n\016entry_function\030\005 \001(\tR\rentryF"
+    "unction\0229\n\014dependencies\030\006 \003(\0132\025.ball.v1."
+    "ModuleImportR\014dependencies\022@\n\020dev_depend"
+    "encies\030\007 \003(\0132\025.ball.v1.ModuleImportR\017dev"
+    "Dependencies\0223\n\010metadata\030\010 \001(\0132\027.google."
+    "protobuf.StructR\010metadata\"j\n\014BallLockfil"
+    "e\0227\n\010packages\030\001 \003(\0132\033.ball.v1.ResolvedDe"
+    "pendencyR\010packages\022!\n\014lock_version\030\002 \001(\t"
+    "R\013lockVersion\"\344\002\n\022ResolvedDependency\022\022\n\004"
+    "name\030\001 \001(\tR\004name\022)\n\020resolved_version\030\002 \001"
+    "(\tR\017resolvedVersion\022\034\n\tintegrity\030\003 \001(\tR\t"
+    "integrity\022)\n\004http\030\004 \001(\0132\023.ball.v1.HttpSo"
+    "urceH\000R\004http\022&\n\003git\030\005 \001(\0132\022.ball.v1.GitS"
+    "ourceH\000R\003git\022)\n\004file\030\006 \001(\0132\023.ball.v1.Fil"
+    "eSourceH\000R\004file\0225\n\010registry\030\007 \001(\0132\027.ball"
+    ".v1.RegistrySourceH\000R\010registry\022)\n\020depend"
+    "ency_names\030\010 \003(\tR\017dependencyNamesB\021\n\017res"
+    "olved_source\"\221\002\n\024BallCapabilityReport\022!\n"
+    "\014program_name\030\001 \001(\tR\013programName\022\'\n\017prog"
+    "ram_version\030\002 \001(\tR\016programVersion\022<\n\014cap"
+    "abilities\030\003 \003(\0132\030.ball.v1.CapabilityEntr"
+    "yR\014capabilities\0229\n\tfunctions\030\004 \003(\0132\033.bal"
+    "l.v1.FunctionCapabilityR\tfunctions\0224\n\007su"
+    "mmary\030\005 \001(\0132\032.ball.v1.CapabilitySummaryR"
+    "\007summary\"\202\001\n\017CapabilityEntry\022\036\n\ncapabili"
+    "ty\030\001 \001(\tR\ncapability\022\035\n\nrisk_level\030\002 \001(\t"
+    "R\triskLevel\0220\n\ncall_sites\030\003 \003(\0132\021.ball.v"
+    "1.CallSiteR\tcallSites\"\214\001\n\010CallSite\022\026\n\006mo"
+    "dule\030\001 \001(\tR\006module\022\032\n\010function\030\002 \001(\tR\010fu"
+    "nction\022#\n\rcallee_module\030\003 \001(\tR\014calleeMod"
+    "ule\022\'\n\017callee_function\030\004 \001(\tR\016calleeFunc"
+    "tion\"l\n\022FunctionCapability\022\026\n\006module\030\001 \001"
+    "(\tR\006module\022\032\n\010function\030\002 \001(\tR\010function\022\""
+    "\n\014capabilities\030\003 \003(\tR\014capabilities\"\365\004\n\021C"
+    "apabilitySummary\022\027\n\007is_pure\030\001 \001(\010R\006isPur"
+    "e\022)\n\020reads_filesystem\030\002 \001(\010R\017readsFilesy"
+    "stem\022+\n\021writes_filesystem\030\003 \001(\010R\020writesF"
+    "ilesystem\022\037\n\013reads_stdin\030\004 \001(\010R\nreadsStd"
+    "in\022#\n\rwrites_stdout\030\005 \001(\010R\014writesStdout\022"
+    "#\n\rwrites_stderr\030\006 \001(\010R\014writesStderr\022+\n\021"
+    "reads_environment\030\007 \001(\010R\020readsEnvironmen"
+    "t\022)\n\020controls_process\030\010 \001(\010R\017controlsPro"
+    "cess\022\037\n\013uses_memory\030\t \001(\010R\nusesMemory\022\033\n"
+    "\tuses_time\030\n \001(\010R\010usesTime\022\037\n\013uses_rando"
+    "m\030\013 \001(\010R\nusesRandom\022)\n\020uses_concurrency\030"
+    "\014 \001(\010R\017usesConcurrency\022!\n\014uses_network\030\r"
+    " \001(\010R\013usesNetwork\022\'\n\017total_functions\030\016 \001"
+    "(\005R\016totalFunctions\022%\n\016pure_functions\030\017 \001"
+    "(\005R\rpureFunctions\022/\n\023effectful_functions"
+    "\030\020 \001(\005R\022effectfulFunctions*\227\001\n\010Registry\022"
+    "\030\n\024REGISTRY_UNSPECIFIED\020\000\022\020\n\014REGISTRY_PU"
+    "B\020\001\022\020\n\014REGISTRY_NPM\020\002\022\022\n\016REGISTRY_NUGET\020"
+    "\003\022\022\n\016REGISTRY_CARGO\020\004\022\021\n\rREGISTRY_PYPI\020\005"
+    "\022\022\n\016REGISTRY_MAVEN\020\006*f\n\016ModuleEncoding\022\037"
+    "\n\033MODULE_ENCODING_UNSPECIFIED\020\000\022\031\n\025MODUL"
+    "E_ENCODING_PROTO\020\001\022\030\n\024MODULE_ENCODING_JS"
+    "ON\020\002B\215\001\n\013com.ball.v1B\tBallProtoP\001Z6githu"
+    "b.com/ball-lang/ball/go/shared/gen/ball/"
+    "v1;ballv1\242\002\003BXX\252\002\007Ball.V1\312\002\007Ball\\V1\342\002\023Ba"
+    "ll\\V1\\GPBMetadata\352\002\010Ball::V1b\006proto3"
 };
 static const ::_pbi::DescriptorTable* PROTOBUF_NONNULL const
     descriptor_table_ball_2fv1_2fball_2eproto_deps[2] = {
@@ -7098,7 +7114,7 @@ static ::absl::once_flag descriptor_table_ball_2fv1_2fball_2eproto_once;
 PROTOBUF_CONSTINIT const ::_pbi::DescriptorTable descriptor_table_ball_2fv1_2fball_2eproto = {
     false,
     false,
-    7142,
+    7196,
     descriptor_table_protodef_ball_2fv1_2fball_2eproto,
     "ball/v1/ball.proto",
     &descriptor_table_ball_2fv1_2fball_2eproto_once,
@@ -14482,6 +14498,11 @@ void FieldAccess::InternalSwap(FieldAccess* PROTOBUF_RESTRICT PROTOBUF_NONNULL o
 }
 // ===================================================================
 
+void MessageCreation::clear_metadata() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (_impl_.metadata_ != nullptr) _impl_.metadata_->Clear();
+  ClearHasBit(_impl_._has_bits_[0], 0x00000004U);
+}
 MessageCreation::MessageCreation(::google::protobuf::Arena* PROTOBUF_NULLABLE arena)
 #if defined(PROTOBUF_CUSTOM_VTABLE)
     : ::google::protobuf::Message(arena, MessageCreation_get_class_data()) {
@@ -14520,6 +14541,10 @@ MessageCreation::MessageCreation(
   _internal_metadata_.MergeFrom<::google::protobuf::UnknownFieldSet>(
       from._internal_metadata_);
   new (&_impl_) Impl_(internal_visibility(), arena, from._impl_, from);
+  ::uint32_t cached_has_bits = _impl_._has_bits_[0];
+  _impl_.metadata_ = (CheckHasBit(cached_has_bits, 0x00000004U))
+                ? ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.metadata_)
+                : nullptr;
 
   // @@protoc_insertion_point(copy_constructor:ball.v1.MessageCreation)
 }
@@ -14536,6 +14561,7 @@ PROTOBUF_NDEBUG_INLINE MessageCreation::Impl_::Impl_(
 
 inline void MessageCreation::SharedCtor(::_pb::Arena* PROTOBUF_NULLABLE arena) {
   new (&_impl_) Impl_(internal_visibility(), arena);
+  _impl_.metadata_ = {};
 }
 MessageCreation::~MessageCreation() {
   // @@protoc_insertion_point(destructor:ball.v1.MessageCreation)
@@ -14549,6 +14575,7 @@ inline void MessageCreation::SharedDtor(MessageLite& self) {
   this_._internal_metadata_.Delete<::google::protobuf::UnknownFieldSet>();
   ABSL_DCHECK(this_.GetArena() == nullptr);
   this_._impl_.type_name_.Destroy();
+  delete this_._impl_.metadata_;
   this_._impl_.~Impl_();
 }
 
@@ -14586,12 +14613,16 @@ PROTOBUF_NOINLINE void MessageCreation::Clear() {
   (void) cached_has_bits;
 
   cached_has_bits = _impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000003U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       _impl_.fields_.Clear();
     }
     if (CheckHasBit(cached_has_bits, 0x00000002U)) {
       _impl_.type_name_.ClearNonDefaultToEmpty();
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+      ABSL_DCHECK(_impl_.metadata_ != nullptr);
+      _impl_.metadata_->Clear();
     }
   }
   _impl_._has_bits_.Clear();
@@ -14640,6 +14671,13 @@ PROTOBUF_NOINLINE void MessageCreation::Clear() {
     }
   }
 
+  // .google.protobuf.Struct metadata = 3 [json_name = "metadata"];
+  if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+    target = ::google::protobuf::internal::WireFormatLite::InternalWriteMessage(
+        3, *this_._impl_.metadata_, this_._impl_.metadata_->GetCachedSize(), target,
+        stream);
+  }
+
   if (ABSL_PREDICT_FALSE(this_._internal_metadata_.have_unknown_fields())) {
     target =
         ::_pbi::WireFormat::InternalSerializeUnknownFieldsToArray(
@@ -14665,7 +14703,7 @@ PROTOBUF_NOINLINE void MessageCreation::Clear() {
 
   ::_pbi::Prefetch5LinesFrom7Lines(&this_);
   cached_has_bits = this_._impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000003U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
     // repeated .ball.v1.FieldValuePair fields = 2 [json_name = "fields"];
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       total_size += 1UL * this_._internal_fields_size();
@@ -14679,6 +14717,11 @@ PROTOBUF_NOINLINE void MessageCreation::Clear() {
         total_size += 1 + ::google::protobuf::internal::WireFormatLite::StringSize(
                                         this_._internal_type_name());
       }
+    }
+    // .google.protobuf.Struct metadata = 3 [json_name = "metadata"];
+    if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+      total_size += 1 +
+                    ::google::protobuf::internal::WireFormatLite::MessageSize(*this_._impl_.metadata_);
     }
   }
   return this_.MaybeComputeUnknownFieldsSize(total_size,
@@ -14699,7 +14742,7 @@ void MessageCreation::MergeImpl(::google::protobuf::MessageLite& to_msg,
   (void)cached_has_bits;
 
   cached_has_bits = from._impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000003U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
       _this->_internal_mutable_fields()->InternalMergeFromWithArena(
           ::google::protobuf::MessageLite::internal_visibility(), arena,
@@ -14712,6 +14755,14 @@ void MessageCreation::MergeImpl(::google::protobuf::MessageLite& to_msg,
         if (_this->_impl_.type_name_.IsDefault()) {
           _this->_internal_set_type_name("");
         }
+      }
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+      ABSL_DCHECK(from._impl_.metadata_ != nullptr);
+      if (_this->_impl_.metadata_ == nullptr) {
+        _this->_impl_.metadata_ = ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.metadata_);
+      } else {
+        _this->_impl_.metadata_->MergeFrom(*from._impl_.metadata_);
       }
     }
   }
@@ -14736,6 +14787,7 @@ void MessageCreation::InternalSwap(MessageCreation* PROTOBUF_RESTRICT PROTOBUF_N
   swap(_impl_._has_bits_[0], other->_impl_._has_bits_[0]);
   _impl_.fields_.InternalSwap(&other->_impl_.fields_);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.type_name_, &other->_impl_.type_name_, arena);
+  swap(_impl_.metadata_, other->_impl_.metadata_);
 }
 
 ::google::protobuf::Metadata MessageCreation::GetMetadata() const {

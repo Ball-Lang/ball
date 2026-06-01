@@ -73,4 +73,37 @@ public interface MessageCreationOrBuilder extends
    */
   com.ball.v1.FieldValuePairOrBuilder getFieldsOrBuilder(
       int index);
+
+  /**
+   * <pre>
+   * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+   * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+   * Stripping metadata must never change what the program computes.
+   * </pre>
+   *
+   * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+   * @return Whether the metadata field is set.
+   */
+  boolean hasMetadata();
+  /**
+   * <pre>
+   * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+   * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+   * Stripping metadata must never change what the program computes.
+   * </pre>
+   *
+   * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+   * @return The metadata.
+   */
+  com.google.protobuf.Struct getMetadata();
+  /**
+   * <pre>
+   * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+   * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+   * Stripping metadata must never change what the program computes.
+   * </pre>
+   *
+   * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+   */
+  com.google.protobuf.StructOrBuilder getMetadataOrBuilder();
 }

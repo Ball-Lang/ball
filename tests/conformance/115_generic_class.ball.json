@@ -527,17 +527,7 @@
                     "name": "s",
                     "value": {
                       "messageCreation": {
-                        "typeName": "main:Stack",
-                        "fields": [
-                          {
-                            "name": "__type_args__",
-                            "value": {
-                              "literal": {
-                                "stringValue": "<int>"
-                              }
-                            }
-                          }
-                        ]
+                        "typeName": "main:Stack"
                       }
                     },
                     "metadata": {

@@ -2005,10 +2005,7 @@ class FunctionCall extends $pb.GeneratedMessage {
   Expression ensureInput() => $_ensure(2);
 
   /// Generic type arguments for this call (e.g., identity<int>(42)).
-  /// Replaces the unstructured "__type_args__" string convention in
-  /// MessageCreation fields. Compilers should prefer this field when
-  /// present; fall back to the "__type_args__" metadata string for
-  /// backward compatibility with older Ball programs.
+  /// Replaces the former "__type_args__" string convention.
   @$pb.TagNumber(4)
   $pb.PbList<TypeRef> get typeArgs => $_getList(3);
 }
@@ -2356,10 +2353,12 @@ class MessageCreation extends $pb.GeneratedMessage {
   factory MessageCreation({
     $core.String? typeName,
     $core.Iterable<FieldValuePair>? fields,
+    $0.Struct? metadata,
   }) {
     final result = create();
     if (typeName != null) result.typeName = typeName;
     if (fields != null) result.fields.addAll(fields);
+    if (metadata != null) result.metadata = metadata;
     return result;
   }
 
@@ -2379,6 +2378,8 @@ class MessageCreation extends $pb.GeneratedMessage {
     ..aOS(1, _omitFieldNames ? '' : 'typeName')
     ..pPM<FieldValuePair>(2, _omitFieldNames ? '' : 'fields',
         subBuilder: FieldValuePair.create)
+    ..aOM<$0.Struct>(3, _omitFieldNames ? '' : 'metadata',
+        subBuilder: $0.Struct.create)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2413,6 +2414,20 @@ class MessageCreation extends $pb.GeneratedMessage {
   /// Field values for the new message
   @$pb.TagNumber(2)
   $pb.PbList<FieldValuePair> get fields => $_getList(1);
+
+  /// Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+  /// Follows the same metadata pattern as Module, FunctionDefinition, etc.
+  /// Stripping metadata must never change what the program computes.
+  @$pb.TagNumber(3)
+  $0.Struct get metadata => $_getN(2);
+  @$pb.TagNumber(3)
+  set metadata($0.Struct value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasMetadata() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearMetadata() => $_clearField(3);
+  @$pb.TagNumber(3)
+  $0.Struct ensureMetadata() => $_ensure(2);
 }
 
 /// A name-value pair for MessageCreation fields.

@@ -572,6 +572,11 @@ message MessageCreation {
 
   // Field values for the new message
   repeated FieldValuePair fields = 2;
+
+  // Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+  // Follows the same metadata pattern as Module, FunctionDefinition, etc.
+  // Stripping metadata must never change what the program computes.
+  google.protobuf.Struct metadata = 3;
 }
 
 // A name-value pair for MessageCreation fields.

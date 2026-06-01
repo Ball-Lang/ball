@@ -3798,18 +3798,15 @@
                                                         }
                                                       }
                                                     }
-                                                  },
-                                                  {
-                                                    "name": "type",
-                                                    "value": {
-                                                      "literal": {
-                                                        "stringValue": "int"
-                                                      }
-                                                    }
                                                   }
                                                 ]
                                               }
-                                            }
+                                            },
+                                            "typeArgs": [
+                                              {
+                                                "name": "int"
+                                              }
+                                            ]
                                           }
                                         },
                                         "metadata": {
@@ -4535,18 +4532,23 @@
                                     }
                                   }
                                 }
-                              },
-                              {
-                                "name": "type",
-                                "value": {
-                                  "literal": {
-                                    "stringValue": "Map<String, String>"
-                                  }
-                                }
                               }
                             ]
                           }
-                        }
+                        },
+                        "typeArgs": [
+                          {
+                            "name": "Map",
+                            "typeArgs": [
+                              {
+                                "name": "String"
+                              },
+                              {
+                                "name": "String"
+                              }
+                            ]
+                          }
+                        ]
                       }
                     },
                     "metadata": {
@@ -4596,18 +4598,23 @@
                                     }
                                   }
                                 }
-                              },
-                              {
-                                "name": "type",
-                                "value": {
-                                  "literal": {
-                                    "stringValue": "Map<String, String>"
-                                  }
-                                }
                               }
                             ]
                           }
-                        }
+                        },
+                        "typeArgs": [
+                          {
+                            "name": "Map",
+                            "typeArgs": [
+                              {
+                                "name": "String"
+                              },
+                              {
+                                "name": "String"
+                              }
+                            ]
+                          }
+                        ]
                       }
                     },
                     "metadata": {
@@ -4759,18 +4766,23 @@
                                     }
                                   }
                                 }
-                              },
-                              {
-                                "name": "type",
-                                "value": {
-                                  "literal": {
-                                    "stringValue": "Map<String, String>"
-                                  }
-                                }
                               }
                             ]
                           }
-                        }
+                        },
+                        "typeArgs": [
+                          {
+                            "name": "Map",
+                            "typeArgs": [
+                              {
+                                "name": "String"
+                              },
+                              {
+                                "name": "String"
+                              }
+                            ]
+                          }
+                        ]
                       }
                     },
                     "metadata": {
@@ -7468,18 +7480,15 @@
                                                                               "name": "value"
                                                                             }
                                                                           }
-                                                                        },
-                                                                        {
-                                                                          "name": "type",
-                                                                          "value": {
-                                                                            "literal": {
-                                                                              "stringValue": "String"
-                                                                            }
-                                                                          }
                                                                         }
                                                                       ]
                                                                     }
-                                                                  }
+                                                                  },
+                                                                  "typeArgs": [
+                                                                    {
+                                                                      "name": "String"
+                                                                    }
+                                                                  ]
                                                                 }
                                                               }
                                                             },

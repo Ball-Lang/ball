@@ -81,10 +81,17 @@ export interface Expression {
   lambda?: Lambda;
 }
 
+export interface TypeRef {
+  name: string;
+  typeArgs?: TypeRef[];
+  nullable?: boolean;
+}
+
 export interface FunctionCall {
   module?: string;
   function: string;
   input?: Expression;
+  typeArgs?: TypeRef[];
 }
 
 export interface Literal {

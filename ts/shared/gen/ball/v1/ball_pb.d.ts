@@ -938,10 +938,7 @@ export declare type FunctionCall = Message<"ball.v1.FunctionCall"> & {
 
   /**
    * Generic type arguments for this call (e.g., identity<int>(42)).
-   * Replaces the unstructured "__type_args__" string convention in
-   * MessageCreation fields. Compilers should prefer this field when
-   * present; fall back to the "__type_args__" metadata string for
-   * backward compatibility with older Ball programs.
+   * Replaces the former "__type_args__" string convention.
    *
    * @generated from field: repeated ball.v1.TypeRef type_args = 4;
    */
@@ -1105,6 +1102,15 @@ export declare type MessageCreation = Message<"ball.v1.MessageCreation"> & {
    * @generated from field: repeated ball.v1.FieldValuePair fields = 2;
    */
   fields: FieldValuePair[];
+
+  /**
+   * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+   * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+   * Stripping metadata must never change what the program computes.
+   *
+   * @generated from field: google.protobuf.Struct metadata = 3;
+   */
+  metadata?: JsonObject | undefined;
 };
 
 /**

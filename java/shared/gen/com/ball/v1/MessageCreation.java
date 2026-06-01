@@ -55,6 +55,7 @@ private static final long serialVersionUID = 0L;
             com.ball.v1.MessageCreation.class, com.ball.v1.MessageCreation.Builder.class);
   }
 
+  private int bitField0_;
   public static final int TYPE_NAME_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
   private volatile java.lang.Object typeName_ = "";
@@ -163,6 +164,50 @@ private static final long serialVersionUID = 0L;
     return fields_.get(index);
   }
 
+  public static final int METADATA_FIELD_NUMBER = 3;
+  private com.google.protobuf.Struct metadata_;
+  /**
+   * <pre>
+   * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+   * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+   * Stripping metadata must never change what the program computes.
+   * </pre>
+   *
+   * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+   * @return Whether the metadata field is set.
+   */
+  @java.lang.Override
+  public boolean hasMetadata() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+   * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+   * Stripping metadata must never change what the program computes.
+   * </pre>
+   *
+   * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+   * @return The metadata.
+   */
+  @java.lang.Override
+  public com.google.protobuf.Struct getMetadata() {
+    return metadata_ == null ? com.google.protobuf.Struct.getDefaultInstance() : metadata_;
+  }
+  /**
+   * <pre>
+   * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+   * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+   * Stripping metadata must never change what the program computes.
+   * </pre>
+   *
+   * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.StructOrBuilder getMetadataOrBuilder() {
+    return metadata_ == null ? com.google.protobuf.Struct.getDefaultInstance() : metadata_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -183,6 +228,9 @@ private static final long serialVersionUID = 0L;
     for (int i = 0; i < fields_.size(); i++) {
       output.writeMessage(2, fields_.get(i));
     }
+    if (((bitField0_ & 0x00000001) != 0)) {
+      output.writeMessage(3, getMetadata());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -199,6 +247,10 @@ private static final long serialVersionUID = 0L;
           }
           size += 1 * count;
         }
+    if (((bitField0_ & 0x00000001) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(3, getMetadata());
+    }
     return size;
   }
   @java.lang.Override
@@ -227,6 +279,11 @@ private static final long serialVersionUID = 0L;
         .equals(other.getTypeName())) return false;
     if (!getFieldsList()
         .equals(other.getFieldsList())) return false;
+    if (hasMetadata() != other.hasMetadata()) return false;
+    if (hasMetadata()) {
+      if (!getMetadata()
+          .equals(other.getMetadata())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -243,6 +300,10 @@ private static final long serialVersionUID = 0L;
     if (getFieldsCount() > 0) {
       hash = (37 * hash) + FIELDS_FIELD_NUMBER;
       hash = (53 * hash) + getFieldsList().hashCode();
+    }
+    if (hasMetadata()) {
+      hash = (37 * hash) + METADATA_FIELD_NUMBER;
+      hash = (53 * hash) + getMetadata().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -368,13 +429,20 @@ private static final long serialVersionUID = 0L;
 
     // Construct using com.ball.v1.MessageCreation.newBuilder()
     private Builder() {
-
+      maybeForceBuilderInitialization();
     }
 
     private Builder(
         com.google.protobuf.GeneratedMessage.BuilderParent parent) {
       super(parent);
-
+      maybeForceBuilderInitialization();
+    }
+    private void maybeForceBuilderInitialization() {
+      if (com.google.protobuf.GeneratedMessage
+              .alwaysUseFieldBuilders) {
+        internalGetFieldsFieldBuilder();
+        internalGetMetadataFieldBuilder();
+      }
     }
     @java.lang.Override
     public Builder clear() {
@@ -388,6 +456,11 @@ private static final long serialVersionUID = 0L;
         fieldsBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000002);
+      metadata_ = null;
+      if (metadataBuilder_ != null) {
+        metadataBuilder_.dispose();
+        metadataBuilder_ = null;
+      }
       return this;
     }
 
@@ -437,6 +510,14 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.typeName_ = typeName_;
       }
+      int to_bitField0_ = 0;
+      if (((from_bitField0_ & 0x00000004) != 0)) {
+        result.metadata_ = metadataBuilder_ == null
+            ? metadata_
+            : metadataBuilder_.build();
+        to_bitField0_ |= 0x00000001;
+      }
+      result.bitField0_ |= to_bitField0_;
     }
 
     @java.lang.Override
@@ -482,6 +563,9 @@ private static final long serialVersionUID = 0L;
           }
         }
       }
+      if (other.hasMetadata()) {
+        mergeMetadata(other.getMetadata());
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -526,6 +610,13 @@ private static final long serialVersionUID = 0L;
               }
               break;
             } // case 18
+            case 26: {
+              input.readMessage(
+                  internalGetMetadataFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000004;
+              break;
+            } // case 26
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -945,6 +1036,181 @@ private static final long serialVersionUID = 0L;
         fields_ = null;
       }
       return fieldsBuilder_;
+    }
+
+    private com.google.protobuf.Struct metadata_;
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Struct, com.google.protobuf.Struct.Builder, com.google.protobuf.StructOrBuilder> metadataBuilder_;
+    /**
+     * <pre>
+     * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+     * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+     * Stripping metadata must never change what the program computes.
+     * </pre>
+     *
+     * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+     * @return Whether the metadata field is set.
+     */
+    public boolean hasMetadata() {
+      return ((bitField0_ & 0x00000004) != 0);
+    }
+    /**
+     * <pre>
+     * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+     * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+     * Stripping metadata must never change what the program computes.
+     * </pre>
+     *
+     * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+     * @return The metadata.
+     */
+    public com.google.protobuf.Struct getMetadata() {
+      if (metadataBuilder_ == null) {
+        return metadata_ == null ? com.google.protobuf.Struct.getDefaultInstance() : metadata_;
+      } else {
+        return metadataBuilder_.getMessage();
+      }
+    }
+    /**
+     * <pre>
+     * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+     * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+     * Stripping metadata must never change what the program computes.
+     * </pre>
+     *
+     * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+     */
+    public Builder setMetadata(com.google.protobuf.Struct value) {
+      if (metadataBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        metadata_ = value;
+      } else {
+        metadataBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+     * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+     * Stripping metadata must never change what the program computes.
+     * </pre>
+     *
+     * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+     */
+    public Builder setMetadata(
+        com.google.protobuf.Struct.Builder builderForValue) {
+      if (metadataBuilder_ == null) {
+        metadata_ = builderForValue.build();
+      } else {
+        metadataBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+     * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+     * Stripping metadata must never change what the program computes.
+     * </pre>
+     *
+     * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+     */
+    public Builder mergeMetadata(com.google.protobuf.Struct value) {
+      if (metadataBuilder_ == null) {
+        if (((bitField0_ & 0x00000004) != 0) &&
+          metadata_ != null &&
+          metadata_ != com.google.protobuf.Struct.getDefaultInstance()) {
+          getMetadataBuilder().mergeFrom(value);
+        } else {
+          metadata_ = value;
+        }
+      } else {
+        metadataBuilder_.mergeFrom(value);
+      }
+      if (metadata_ != null) {
+        bitField0_ |= 0x00000004;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+     * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+     * Stripping metadata must never change what the program computes.
+     * </pre>
+     *
+     * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+     */
+    public Builder clearMetadata() {
+      bitField0_ = (bitField0_ & ~0x00000004);
+      metadata_ = null;
+      if (metadataBuilder_ != null) {
+        metadataBuilder_.dispose();
+        metadataBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+     * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+     * Stripping metadata must never change what the program computes.
+     * </pre>
+     *
+     * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+     */
+    public com.google.protobuf.Struct.Builder getMetadataBuilder() {
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return internalGetMetadataFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+     * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+     * Stripping metadata must never change what the program computes.
+     * </pre>
+     *
+     * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+     */
+    public com.google.protobuf.StructOrBuilder getMetadataOrBuilder() {
+      if (metadataBuilder_ != null) {
+        return metadataBuilder_.getMessageOrBuilder();
+      } else {
+        return metadata_ == null ?
+            com.google.protobuf.Struct.getDefaultInstance() : metadata_;
+      }
+    }
+    /**
+     * <pre>
+     * Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+     * Follows the same metadata pattern as Module, FunctionDefinition, etc.
+     * Stripping metadata must never change what the program computes.
+     * </pre>
+     *
+     * <code>.google.protobuf.Struct metadata = 3 [json_name = "metadata"];</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        com.google.protobuf.Struct, com.google.protobuf.Struct.Builder, com.google.protobuf.StructOrBuilder> 
+        internalGetMetadataFieldBuilder() {
+      if (metadataBuilder_ == null) {
+        metadataBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            com.google.protobuf.Struct, com.google.protobuf.Struct.Builder, com.google.protobuf.StructOrBuilder>(
+                getMetadata(),
+                getParentForChildren(),
+                isClean());
+        metadata_ = null;
+      }
+      return metadataBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:ball.v1.MessageCreation)

@@ -805,13 +805,22 @@ const MessageCreation$json = {
       '6': '.ball.v1.FieldValuePair',
       '10': 'fields'
     },
+    {
+      '1': 'metadata',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Struct',
+      '10': 'metadata'
+    },
   ],
 };
 
 /// Descriptor for `MessageCreation`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List messageCreationDescriptor = $convert.base64Decode(
     'Cg9NZXNzYWdlQ3JlYXRpb24SGwoJdHlwZV9uYW1lGAEgASgJUgh0eXBlTmFtZRIvCgZmaWVsZH'
-    'MYAiADKAsyFy5iYWxsLnYxLkZpZWxkVmFsdWVQYWlyUgZmaWVsZHM=');
+    'MYAiADKAsyFy5iYWxsLnYxLkZpZWxkVmFsdWVQYWlyUgZmaWVsZHMSMwoIbWV0YWRhdGEYAyAB'
+    'KAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0UghtZXRhZGF0YQ==');
 
 @$core.Deprecated('Use fieldValuePairDescriptor instead')
 const FieldValuePair$json = {

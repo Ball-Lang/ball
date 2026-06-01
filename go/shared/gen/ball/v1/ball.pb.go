@@ -1721,10 +1721,7 @@ type FunctionCall struct {
 	// Input expression (evaluates to the function's input type)
 	Input *Expression `protobuf:"bytes,3,opt,name=input,proto3" json:"input,omitempty"`
 	// Generic type arguments for this call (e.g., identity<int>(42)).
-	// Replaces the unstructured "__type_args__" string convention in
-	// MessageCreation fields. Compilers should prefer this field when
-	// present; fall back to the "__type_args__" metadata string for
-	// backward compatibility with older Ball programs.
+	// Replaces the former "__type_args__" string convention.
 	TypeArgs      []*TypeRef `protobuf:"bytes,4,rep,name=type_args,json=typeArgs,proto3" json:"type_args,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2095,7 +2092,11 @@ type MessageCreation struct {
 	// The TypeDefinition name to instantiate (empty for anonymous/inline)
 	TypeName string `protobuf:"bytes,1,opt,name=type_name,json=typeName,proto3" json:"type_name,omitempty"`
 	// Field values for the new message
-	Fields        []*FieldValuePair `protobuf:"bytes,2,rep,name=fields,proto3" json:"fields,omitempty"`
+	Fields []*FieldValuePair `protobuf:"bytes,2,rep,name=fields,proto3" json:"fields,omitempty"`
+	// Cosmetic hints for target compilers (is_const, dart_prefix, etc.).
+	// Follows the same metadata pattern as Module, FunctionDefinition, etc.
+	// Stripping metadata must never change what the program computes.
+	Metadata      *structpb.Struct `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2140,6 +2141,13 @@ func (x *MessageCreation) GetTypeName() string {
 func (x *MessageCreation) GetFields() []*FieldValuePair {
 	if x != nil {
 		return x.Fields
+	}
+	return nil
+}
+
+func (x *MessageCreation) GetMetadata() *structpb.Struct {
+	if x != nil {
+		return x.Metadata
 	}
 	return nil
 }
@@ -3310,10 +3318,11 @@ const file_ball_v1_ball_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"P\n" +
 	"\vFieldAccess\x12+\n" +
 	"\x06object\x18\x01 \x01(\v2\x13.ball.v1.ExpressionR\x06object\x12\x14\n" +
-	"\x05field\x18\x02 \x01(\tR\x05field\"_\n" +
+	"\x05field\x18\x02 \x01(\tR\x05field\"\x94\x01\n" +
 	"\x0fMessageCreation\x12\x1b\n" +
 	"\ttype_name\x18\x01 \x01(\tR\btypeName\x12/\n" +
-	"\x06fields\x18\x02 \x03(\v2\x17.ball.v1.FieldValuePairR\x06fields\"O\n" +
+	"\x06fields\x18\x02 \x03(\v2\x17.ball.v1.FieldValuePairR\x06fields\x123\n" +
+	"\bmetadata\x18\x03 \x01(\v2\x17.google.protobuf.StructR\bmetadata\"O\n" +
 	"\x0eFieldValuePair\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
 	"\x05value\x18\x02 \x01(\v2\x13.ball.v1.ExpressionR\x05value\"h\n" +
@@ -3517,30 +3526,31 @@ var file_ball_v1_ball_proto_depIdxs = []int32{
 	17, // 44: ball.v1.ListLiteral.elements:type_name -> ball.v1.Expression
 	17, // 45: ball.v1.FieldAccess.object:type_name -> ball.v1.Expression
 	24, // 46: ball.v1.MessageCreation.fields:type_name -> ball.v1.FieldValuePair
-	17, // 47: ball.v1.FieldValuePair.value:type_name -> ball.v1.Expression
-	26, // 48: ball.v1.Block.statements:type_name -> ball.v1.Statement
-	17, // 49: ball.v1.Block.result:type_name -> ball.v1.Expression
-	27, // 50: ball.v1.Statement.let:type_name -> ball.v1.LetBinding
-	17, // 51: ball.v1.Statement.expression:type_name -> ball.v1.Expression
-	17, // 52: ball.v1.LetBinding.value:type_name -> ball.v1.Expression
-	37, // 53: ball.v1.LetBinding.metadata:type_name -> google.protobuf.Struct
-	5,  // 54: ball.v1.BallManifest.dependencies:type_name -> ball.v1.ModuleImport
-	5,  // 55: ball.v1.BallManifest.dev_dependencies:type_name -> ball.v1.ModuleImport
-	37, // 56: ball.v1.BallManifest.metadata:type_name -> google.protobuf.Struct
-	30, // 57: ball.v1.BallLockfile.packages:type_name -> ball.v1.ResolvedDependency
-	6,  // 58: ball.v1.ResolvedDependency.http:type_name -> ball.v1.HttpSource
-	9,  // 59: ball.v1.ResolvedDependency.git:type_name -> ball.v1.GitSource
-	7,  // 60: ball.v1.ResolvedDependency.file:type_name -> ball.v1.FileSource
-	10, // 61: ball.v1.ResolvedDependency.registry:type_name -> ball.v1.RegistrySource
-	32, // 62: ball.v1.BallCapabilityReport.capabilities:type_name -> ball.v1.CapabilityEntry
-	34, // 63: ball.v1.BallCapabilityReport.functions:type_name -> ball.v1.FunctionCapability
-	35, // 64: ball.v1.BallCapabilityReport.summary:type_name -> ball.v1.CapabilitySummary
-	33, // 65: ball.v1.CapabilityEntry.call_sites:type_name -> ball.v1.CallSite
-	66, // [66:66] is the sub-list for method output_type
-	66, // [66:66] is the sub-list for method input_type
-	66, // [66:66] is the sub-list for extension type_name
-	66, // [66:66] is the sub-list for extension extendee
-	0,  // [0:66] is the sub-list for field type_name
+	37, // 47: ball.v1.MessageCreation.metadata:type_name -> google.protobuf.Struct
+	17, // 48: ball.v1.FieldValuePair.value:type_name -> ball.v1.Expression
+	26, // 49: ball.v1.Block.statements:type_name -> ball.v1.Statement
+	17, // 50: ball.v1.Block.result:type_name -> ball.v1.Expression
+	27, // 51: ball.v1.Statement.let:type_name -> ball.v1.LetBinding
+	17, // 52: ball.v1.Statement.expression:type_name -> ball.v1.Expression
+	17, // 53: ball.v1.LetBinding.value:type_name -> ball.v1.Expression
+	37, // 54: ball.v1.LetBinding.metadata:type_name -> google.protobuf.Struct
+	5,  // 55: ball.v1.BallManifest.dependencies:type_name -> ball.v1.ModuleImport
+	5,  // 56: ball.v1.BallManifest.dev_dependencies:type_name -> ball.v1.ModuleImport
+	37, // 57: ball.v1.BallManifest.metadata:type_name -> google.protobuf.Struct
+	30, // 58: ball.v1.BallLockfile.packages:type_name -> ball.v1.ResolvedDependency
+	6,  // 59: ball.v1.ResolvedDependency.http:type_name -> ball.v1.HttpSource
+	9,  // 60: ball.v1.ResolvedDependency.git:type_name -> ball.v1.GitSource
+	7,  // 61: ball.v1.ResolvedDependency.file:type_name -> ball.v1.FileSource
+	10, // 62: ball.v1.ResolvedDependency.registry:type_name -> ball.v1.RegistrySource
+	32, // 63: ball.v1.BallCapabilityReport.capabilities:type_name -> ball.v1.CapabilityEntry
+	34, // 64: ball.v1.BallCapabilityReport.functions:type_name -> ball.v1.FunctionCapability
+	35, // 65: ball.v1.BallCapabilityReport.summary:type_name -> ball.v1.CapabilitySummary
+	33, // 66: ball.v1.CapabilityEntry.call_sites:type_name -> ball.v1.CallSite
+	67, // [67:67] is the sub-list for method output_type
+	67, // [67:67] is the sub-list for method input_type
+	67, // [67:67] is the sub-list for extension type_name
+	67, // [67:67] is the sub-list for extension extendee
+	0,  // [0:67] is the sub-list for field type_name
 }
 
 func init() { file_ball_v1_ball_proto_init() }

@@ -2864,6 +2864,9 @@ class DartCompiler {
   }
 
   String _compileCall(FunctionCall call) {
+    final savedTypeArgs = _currentCallTypeArgs;
+    _currentCallTypeArgs = call.typeArgs;
+    try {
     if (_isBaseModule(call.module)) return _compileBaseCall(call);
 
     if (call.hasInput() &&
@@ -2871,15 +2874,9 @@ class DartCompiler {
       final fields = call.input.messageCreation.fields;
       final selfField = fields.where((f) => f.name == 'self').firstOrNull;
       if (selfField != null) {
-        // Extract __type_args__ if present (e.g. results.whereType<Future>()).
-        final typeArgsField = fields
-            .where((f) => f.name == '__type_args__')
-            .firstOrNull;
-        final typeArgs = typeArgsField != null
-            ? typeArgsField.value.literal.stringValue
-            : '';
+        final typeArgs = _callTypeArgsStr(call);
         final remaining = fields
-            .where((f) => f.name != 'self' && f.name != '__type_args__')
+            .where((f) => f.name != 'self')
             .toList();
         final selfStr = _e(selfField.value);
         // __cascade_self__ is a sentinel for "no explicit receiver" inside
@@ -2923,15 +2920,9 @@ class DartCompiler {
       if (inp.whichExpr() == Expression_Expr.messageCreation &&
           inp.messageCreation.typeName.isEmpty) {
         // Argument-list message: emit named / positional args properly.
-        // Extract __type_args__ if present (e.g. registerCallback<OnBeforeCaptureLog>(...)).
         final allFields = inp.messageCreation.fields;
-        final typeArgsField = allFields
-            .where((f) => f.name == '__type_args__')
-            .firstOrNull;
-        final typeArgs = typeArgsField != null
-            ? typeArgsField.value.literal.stringValue
-            : '';
-        final args = allFields.where((f) => f.name != '__type_args__').toList();
+        final typeArgs = _callTypeArgsStr(call);
+        final args = allFields.toList();
         result = args.isEmpty
             ? '$modulePrefix$fnName$typeArgs()'
             : '$modulePrefix$fnName$typeArgs(${_compileArgs(args)})';
@@ -2952,6 +2943,9 @@ class DartCompiler {
       return 'await $result';
     }
     return result;
+    } finally {
+      _currentCallTypeArgs = savedTypeArgs;
+    }
   }
 
   /// Flag set by [_compileCall] when an auto-await is inserted.
@@ -2967,6 +2961,7 @@ class DartCompiler {
   /// True when we're inside a `std.await(value: ...)` expression. Suppresses
   /// auto-await to avoid emitting `await await fn()`.
   bool _insideExplicitAwait = false;
+  List<TypeRef> _currentCallTypeArgs = const [];
 
   String _compileBaseCall(FunctionCall call) {
     if (call.module == 'std_memory') return _compileMemoryCall(call);
@@ -3908,13 +3903,10 @@ class DartCompiler {
     final all = _extractFields(call);
     final t = all['target'], method = _stringFieldValue(all, 'method');
     if (t == null || method == null) return '/* invalid ?. call */';
-    final typeArgs = _stringFieldValue(all, '__type_args__') ?? '';
+    final typeArgs = _callTypeArgsStr(call);
     final args = call.input.messageCreation.fields
         .where(
-          (f) =>
-              f.name != 'target' &&
-              f.name != 'method' &&
-              f.name != '__type_args__',
+          (f) => f.name != 'target' && f.name != 'method',
         )
         .toList();
     return '${_e(t)}?.$method$typeArgs(${_compileArgs(args)})';
@@ -4499,14 +4491,9 @@ class DartCompiler {
         ? 'const $moduleOrClass.$afterColon'
         : _dartType(rawTypeName);
 
-    // Check for instance type arguments stored as `__type_args__` field.
-    // e.g. `Map<String,String>.from(...)` → typeName='module:Map.from',
-    //       fields: [{name:'__type_args__', value:'<String,String>'}, ...]
-    final typeArgsField = msg.fields
-        .where((f) => f.name == '__type_args__')
-        .firstOrNull;
-    final typeArgs = typeArgsField != null
-        ? typeArgsField.value.literal.stringValue
+    // Type arguments from the enclosing FunctionCall (via _currentCallTypeArgs).
+    final typeArgs = _currentCallTypeArgs.isNotEmpty
+        ? '<${_currentCallTypeArgs.map(_typeRefToStr).join(', ')}>'
         : '';
     // Check for __const__ flag stored by the encoder.
     final constField = msg.fields
@@ -4517,7 +4504,7 @@ class DartCompiler {
         constField.value.whichExpr() == Expression_Expr.literal &&
         constField.value.literal.boolValue == true;
     final actualFields = msg.fields
-        .where((f) => f.name != '__type_args__' && f.name != '__const__')
+        .where((f) => f.name != '__const__')
         .toList();
 
     // Reconstruct the correct Dart constructor form:
@@ -4761,6 +4748,22 @@ class DartCompiler {
     if (optional.isNotEmpty) out.add('[${optional.join(', ')}]');
     if (named.isNotEmpty) out.add('{${named.join(', ')}}');
     return out.join(', ');
+  }
+
+  String _typeRefToStr(TypeRef ref) {
+    final buf = StringBuffer(ref.name);
+    if (ref.typeArgs.isNotEmpty) {
+      buf.write('<');
+      buf.write(ref.typeArgs.map(_typeRefToStr).join(', '));
+      buf.write('>');
+    }
+    if (ref.nullable) buf.write('?');
+    return buf.toString();
+  }
+
+  String _callTypeArgsStr(FunctionCall call) {
+    if (call.typeArgs.isEmpty) return '';
+    return '<${call.typeArgs.map(_typeRefToStr).join(', ')}>';
   }
 
   String _typeParamsStr(Map<String, Object?> meta) {

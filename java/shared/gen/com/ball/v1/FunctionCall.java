@@ -195,10 +195,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-   * Replaces the unstructured "__type_args__" string convention in
-   * MessageCreation fields. Compilers should prefer this field when
-   * present; fall back to the "__type_args__" metadata string for
-   * backward compatibility with older Ball programs.
+   * Replaces the former "__type_args__" string convention.
    * </pre>
    *
    * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -210,10 +207,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-   * Replaces the unstructured "__type_args__" string convention in
-   * MessageCreation fields. Compilers should prefer this field when
-   * present; fall back to the "__type_args__" metadata string for
-   * backward compatibility with older Ball programs.
+   * Replaces the former "__type_args__" string convention.
    * </pre>
    *
    * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -226,10 +220,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-   * Replaces the unstructured "__type_args__" string convention in
-   * MessageCreation fields. Compilers should prefer this field when
-   * present; fall back to the "__type_args__" metadata string for
-   * backward compatibility with older Ball programs.
+   * Replaces the former "__type_args__" string convention.
    * </pre>
    *
    * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -241,10 +232,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-   * Replaces the unstructured "__type_args__" string convention in
-   * MessageCreation fields. Compilers should prefer this field when
-   * present; fall back to the "__type_args__" metadata string for
-   * backward compatibility with older Ball programs.
+   * Replaces the former "__type_args__" string convention.
    * </pre>
    *
    * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -256,10 +244,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-   * Replaces the unstructured "__type_args__" string convention in
-   * MessageCreation fields. Compilers should prefer this field when
-   * present; fall back to the "__type_args__" metadata string for
-   * backward compatibility with older Ball programs.
+   * Replaces the former "__type_args__" string convention.
    * </pre>
    *
    * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1076,10 +1061,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1094,10 +1076,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1112,10 +1091,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1130,10 +1106,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1155,10 +1128,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1177,10 +1147,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1201,10 +1168,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1226,10 +1190,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1248,10 +1209,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1270,10 +1228,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1293,10 +1248,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1314,10 +1266,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1335,10 +1284,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1350,10 +1296,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1368,10 +1311,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1387,10 +1327,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1402,10 +1339,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
@@ -1418,10 +1352,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
-     * Replaces the unstructured "__type_args__" string convention in
-     * MessageCreation fields. Compilers should prefer this field when
-     * present; fall back to the "__type_args__" metadata string for
-     * backward compatibility with older Ball programs.
+     * Replaces the former "__type_args__" string convention.
      * </pre>
      *
      * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>

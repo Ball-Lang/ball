@@ -6331,6 +6331,7 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED MessageCreation final : public ::go
   enum : int {
     kFieldsFieldNumber = 2,
     kTypeNameFieldNumber = 1,
+    kMetadataFieldNumber = 3,
   };
   // repeated .ball.v1.FieldValuePair fields = 2 [json_name = "fields"];
   [[nodiscard]] int fields_size()
@@ -6368,12 +6369,28 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED MessageCreation final : public ::go
   ::std::string* PROTOBUF_NONNULL _internal_mutable_type_name();
 
   public:
+  // .google.protobuf.Struct metadata = 3 [json_name = "metadata"];
+  [[nodiscard]] bool has_metadata()
+      const;
+  void clear_metadata() ;
+  [[nodiscard]] const ::google::protobuf::Struct& metadata() const;
+  [[nodiscard]] ::google::protobuf::Struct* PROTOBUF_NULLABLE release_metadata();
+  ::google::protobuf::Struct* PROTOBUF_NONNULL mutable_metadata();
+  void set_allocated_metadata(::google::protobuf::Struct* PROTOBUF_NULLABLE value);
+  void unsafe_arena_set_allocated_metadata(::google::protobuf::Struct* PROTOBUF_NULLABLE value);
+  ::google::protobuf::Struct* PROTOBUF_NULLABLE unsafe_arena_release_metadata();
+
+  private:
+  const ::google::protobuf::Struct& _internal_metadata() const;
+  ::google::protobuf::Struct* PROTOBUF_NONNULL _internal_mutable_metadata();
+
+  public:
   // @@protoc_insertion_point(class_scope:ball.v1.MessageCreation)
  private:
   class _Internal;
   using ParseTableT_ =
-      ::google::protobuf::internal::TcParseTable<1, 2,
-                          1, 41,
+      ::google::protobuf::internal::TcParseTable<2, 3,
+                          2, 41,
                           2>;
   static constexpr ParseTableT_ InternalGenerateParseTable_(
       const ::google::protobuf::internal::ClassData* PROTOBUF_NONNULL class_data);
@@ -6403,6 +6420,7 @@ class  PROTOBUF_FUTURE_ADD_EARLY_WARN_UNUSED MessageCreation final : public ::go
     ::google::protobuf::internal::CachedSize _cached_size_;
     ::google::protobuf::RepeatedPtrField< ::ball::v1::FieldValuePair > fields_;
     ::google::protobuf::internal::ArenaStringPtr type_name_;
+    ::google::protobuf::Struct* PROTOBUF_NULLABLE metadata_;
     PROTOBUF_TSAN_DECLARE_MEMBER
   };
   union { Impl_ _impl_; };
@@ -16052,6 +16070,99 @@ inline ::google::protobuf::RepeatedPtrField<::ball::v1::FieldValuePair>* PROTOBU
 MessageCreation::_internal_mutable_fields() {
   ::google::protobuf::internal::TSanRead(&_impl_);
   return &_impl_.fields_;
+}
+
+// .google.protobuf.Struct metadata = 3 [json_name = "metadata"];
+inline bool MessageCreation::has_metadata() const {
+  bool value = CheckHasBit(_impl_._has_bits_[0], 0x00000004U);
+  PROTOBUF_ASSUME(!value || _impl_.metadata_ != nullptr);
+  return value;
+}
+inline const ::google::protobuf::Struct& MessageCreation::_internal_metadata() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  const ::google::protobuf::Struct* p = _impl_.metadata_;
+  return p != nullptr ? *p : *::google::protobuf::internal::MessageGlobalsBase::ToDefaultInstance<::google::protobuf::Struct>(&::google::protobuf::Struct_globals_);
+}
+inline const ::google::protobuf::Struct& MessageCreation::metadata() const ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:ball.v1.MessageCreation.metadata)
+  return _internal_metadata();
+}
+inline void MessageCreation::unsafe_arena_set_allocated_metadata(
+    ::google::protobuf::Struct* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (GetArena() == nullptr) {
+    delete reinterpret_cast<::google::protobuf::MessageLite*>(_impl_.metadata_);
+  }
+  _impl_.metadata_ = reinterpret_cast<::google::protobuf::Struct*>(value);
+  if (value != nullptr) {
+    SetHasBit(_impl_._has_bits_[0], 0x00000004U);
+  } else {
+    ClearHasBit(_impl_._has_bits_[0], 0x00000004U);
+  }
+  // @@protoc_insertion_point(field_unsafe_arena_set_allocated:ball.v1.MessageCreation.metadata)
+}
+inline ::google::protobuf::Struct* PROTOBUF_NULLABLE MessageCreation::release_metadata() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+
+  ClearHasBit(_impl_._has_bits_[0], 0x00000004U);
+  ::google::protobuf::Struct* released = _impl_.metadata_;
+  _impl_.metadata_ = nullptr;
+  if (::google::protobuf::internal::DebugHardenForceCopyInRelease()) {
+    auto* old = reinterpret_cast<::google::protobuf::MessageLite*>(released);
+    released = ::google::protobuf::internal::DuplicateIfNonNull(released);
+    if (GetArena() == nullptr) {
+      delete old;
+    }
+  } else {
+    if (GetArena() != nullptr) {
+      released = ::google::protobuf::internal::DuplicateIfNonNull(released);
+    }
+  }
+  return released;
+}
+inline ::google::protobuf::Struct* PROTOBUF_NULLABLE MessageCreation::unsafe_arena_release_metadata() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:ball.v1.MessageCreation.metadata)
+
+  ClearHasBit(_impl_._has_bits_[0], 0x00000004U);
+  ::google::protobuf::Struct* temp = _impl_.metadata_;
+  _impl_.metadata_ = nullptr;
+  return temp;
+}
+inline ::google::protobuf::Struct* PROTOBUF_NONNULL MessageCreation::_internal_mutable_metadata() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (_impl_.metadata_ == nullptr) {
+    auto* p = ::google::protobuf::Message::DefaultConstruct<::google::protobuf::Struct>(GetArena());
+    _impl_.metadata_ = reinterpret_cast<::google::protobuf::Struct*>(p);
+  }
+  return _impl_.metadata_;
+}
+inline ::google::protobuf::Struct* PROTOBUF_NONNULL MessageCreation::mutable_metadata()
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  SetHasBit(_impl_._has_bits_[0], 0x00000004U);
+  ::google::protobuf::Struct* _msg = _internal_mutable_metadata();
+  // @@protoc_insertion_point(field_mutable:ball.v1.MessageCreation.metadata)
+  return _msg;
+}
+inline void MessageCreation::set_allocated_metadata(::google::protobuf::Struct* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::Arena* message_arena = GetArena();
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (message_arena == nullptr) {
+    delete reinterpret_cast<::google::protobuf::MessageLite*>(_impl_.metadata_);
+  }
+
+  if (value != nullptr) {
+    ::google::protobuf::Arena* submessage_arena = reinterpret_cast<::google::protobuf::Message*>(value)->GetArena();
+    if (message_arena != submessage_arena) {
+      value = ::google::protobuf::internal::GetOwnedMessage(message_arena, value, submessage_arena);
+    }
+    SetHasBit(_impl_._has_bits_[0], 0x00000004U);
+  } else {
+    ClearHasBit(_impl_._has_bits_[0], 0x00000004U);
+  }
+
+  _impl_.metadata_ = reinterpret_cast<::google::protobuf::Struct*>(value);
+  // @@protoc_insertion_point(field_set_allocated:ball.v1.MessageCreation.metadata)
 }
 
 // -------------------------------------------------------------------

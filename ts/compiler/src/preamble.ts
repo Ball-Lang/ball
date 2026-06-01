@@ -355,6 +355,10 @@ const _nativeSet = Set;
 if (!(Set.prototype as any).contains) (Set.prototype as any).contains = Set.prototype.has;
 if (!(Set.prototype as any).includes) (Set.prototype as any).includes = Set.prototype.has;
 if (!(Set.prototype as any).remove) (Set.prototype as any).remove = Set.prototype.delete;
+// Ball encoder sometimes uses set_create for lists, then list_push on them.
+// Bridge the gap with push/indexOf/length on Set.
+if (!(Set.prototype as any).push) (Set.prototype as any).push = function(v: any) { this.add(v); return this.size; };
+Object.defineProperty(Set.prototype, 'length', { configurable: true, get() { return this.size; } });
 Object.defineProperty(Set.prototype, 'isEmpty', { configurable: true, get() { return this.size === 0; } });
 Object.defineProperty(Set.prototype, 'isNotEmpty', { configurable: true, get() { return this.size !== 0; } });
 

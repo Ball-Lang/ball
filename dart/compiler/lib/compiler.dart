@@ -203,7 +203,12 @@ class DartCompiler {
     );
 
     final lib = _buildLibrary(mainModule, entryFunc);
-    return noFormat ? _emitRaw(lib) : _format(lib);
+    if (noFormat) return _emitRaw(lib);
+    try {
+      return _format(lib);
+    } catch (_) {
+      return _emitRaw(lib);
+    }
   }
 
   /// Compile a single non-entry [moduleName] to formatted Dart source.
@@ -1442,7 +1447,7 @@ class DartCompiler {
           params.length == 1 &&
           params[0] is Map &&
           (params[0] as Map)['name'] == 'input';
-      if (isSingleInput && classFields != null && classFields.isNotEmpty) {
+      if (isSingleInput && classFields != null && classFields.isNotEmpty && meta['is_factory'] != true) {
         b.requiredParameters.clear();
         b.optionalParameters.clear();
         for (final f in classFields) {
@@ -1590,8 +1595,9 @@ class DartCompiler {
 
       final param = cb.Parameter((pb) {
         pb.name = paramName;
-        if (paramType != null) pb.type = cb.refer(paramType);
-        if (p['is_this'] == true) pb.toThis = true;
+        final isThis = p['is_this'] == true;
+        if (paramType != null && !isThis) pb.type = cb.refer(paramType);
+        if (isThis) pb.toThis = true;
         if (p['is_super'] == true) pb.toSuper = true;
         if (isNamed) pb.named = true;
         if (isRequiredNamed) pb.required = true;
@@ -4216,6 +4222,11 @@ class DartCompiler {
         } else if (pattern != null && body != null) {
           if (pattern == '_') hasDefault = true;
           buf.write('$pattern => ${_e(body)},\n');
+        } else if (cf['pattern_expr'] != null && body != null) {
+          final patternStr = _compilePatternExpr(cf['pattern_expr']!);
+          if (patternStr != null) {
+            buf.write('$patternStr => ${_e(body)},\n');
+          }
         } else if (cf['value'] != null && body != null) {
           buf.write('${_e(cf['value']!)} => ${_e(body)},\n');
         }
@@ -4225,6 +4236,62 @@ class DartCompiler {
     if (!hasDefault && buf.length > 20) buf.write("_ => throw StateError('non-exhaustive'),\n");
     buf.write('}');
     return buf.toString();
+  }
+
+  String? _compilePatternExpr(Expression expr) {
+    if (expr.whichExpr() != Expression_Expr.messageCreation) return null;
+    final fields = _fieldsToMap(expr.messageCreation.fields);
+    final kind = _stringFieldValue(fields, '__pattern_kind__');
+    switch (kind) {
+      case 'var':
+        final name = _stringFieldValue(fields, 'name') ?? '_';
+        return 'var $name';
+      case 'record':
+        final fieldsList = fields['fields'];
+        if (fieldsList == null) return '()';
+        final parts = <String>[];
+        if (fieldsList.whichExpr() == Expression_Expr.literal &&
+            fieldsList.literal.whichValue() == Literal_Value.listValue) {
+          for (final elem in fieldsList.literal.listValue.elements) {
+            if (elem.whichExpr() != Expression_Expr.messageCreation) continue;
+            final ef = _fieldsToMap(elem.messageCreation.fields);
+            final name = _stringFieldValue(ef, 'name');
+            final patternExpr = ef['pattern'];
+            final subPattern =
+                patternExpr != null ? _compilePatternExpr(patternExpr) : null;
+            if (name != null && subPattern != null) {
+              parts.add('$name: $subPattern');
+            } else if (subPattern != null) {
+              parts.add(subPattern);
+            }
+          }
+        }
+        return '(${parts.join(', ')})';
+      case 'type':
+        final type = _stringFieldValue(fields, 'type') ?? 'dynamic';
+        final subPattern = fields['pattern'];
+        final sub = subPattern != null ? _compilePatternExpr(subPattern) : null;
+        return sub != null ? '$type $sub' : '$type _';
+      case 'wildcard':
+        return '_';
+      case 'constant':
+        final value = fields['value'];
+        return value != null ? _e(value) : 'null';
+      case 'list':
+        final elements = fields['elements'];
+        if (elements == null) return '[]';
+        final parts = <String>[];
+        if (elements.whichExpr() == Expression_Expr.literal &&
+            elements.literal.whichValue() == Literal_Value.listValue) {
+          for (final elem in elements.literal.listValue.elements) {
+            final sub = _compilePatternExpr(elem);
+            if (sub != null) parts.add(sub);
+          }
+        }
+        return '[${parts.join(', ')}]';
+      default:
+        return null;
+    }
   }
 
   String _compileSubstring(Map<String, Expression> f) {

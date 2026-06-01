@@ -88,12 +88,27 @@ Future<String> runBallEngine(Program program) async {
 
 /// Compiles [program] to Dart via [DartCompiler], writes it under [scratch]
 /// as `<name>.regen.dart`, runs it with `dart run`, and returns the output.
+///
+/// Multi-module programs use [DartCompiler.compileAllModules] so each module
+/// gets its own `.dart` file with correct cross-module imports.
 Future<String> runRecompiledDart(
   Program program,
   Directory scratch,
   String name,
 ) async {
-  final dartSource = DartCompiler(program).compile();
+  final compiler = DartCompiler(program);
+  final allModules = compiler.compileAllModules();
+  if (allModules.length > 1) {
+    for (final entry in allModules.entries) {
+      File('${scratch.path}/${entry.key}.dart')
+          .writeAsStringSync(entry.value);
+    }
+    final entryFile = File(
+      '${scratch.path}/${program.entryModule}.dart',
+    );
+    return runDartNative(entryFile);
+  }
+  final dartSource = compiler.compile();
   final out = File('${scratch.path}/$name.regen.dart');
   out.writeAsStringSync(dartSource);
   return runDartNative(out);

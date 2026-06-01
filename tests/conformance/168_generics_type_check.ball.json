@@ -58,15 +58,16 @@
           "outputType": "main:Container",
           "body": {
             "reference": {
-              "name": "v"
+              "name": "value"
             }
           },
           "metadata": {
             "kind": "constructor",
             "params": [
               {
-                "name": "v",
-                "type": "T"
+                "name": "value",
+                "type": "T",
+                "is_this": true
               }
             ]
           }
@@ -105,22 +106,13 @@
                     {
                       "name": "value",
                       "value": {
-                        "call": {
-                          "function": "getValue",
-                          "input": {
-                            "messageCreation": {
-                              "fields": [
-                                {
-                                  "name": "self",
-                                  "value": {
-                                    "reference": {
-                                      "name": "c"
-                                    }
-                                  }
-                                }
-                              ]
+                        "fieldAccess": {
+                          "object": {
+                            "reference": {
+                              "name": "c"
                             }
-                          }
+                          },
+                          "field": "getValue"
                         }
                       }
                     }
@@ -136,6 +128,9 @@
                 "name": "c",
                 "type": "Container<T>"
               }
+            ],
+            "type_params": [
+              "T"
             ]
           }
         },

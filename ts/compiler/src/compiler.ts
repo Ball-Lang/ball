@@ -121,41 +121,60 @@ export class BallCompiler {
       );
     }
 
-    // Seed the function-name + typeDef lookup tables.
-    this.allFunctionNames = new Set(entryMod.functions.map((f) => f.name));
+    // Collect ALL non-base modules (entry + user library modules).
+    const userModules: Module[] = [];
+    for (const mod of this.program.modules ?? []) {
+      const fns = mod.functions ?? [];
+      const allBase = fns.length > 0 && fns.every((f: FunctionDef) => f.isBase);
+      if (allBase) continue;
+      userModules.push(mod);
+    }
+
+    // Seed the function-name + typeDef lookup tables from ALL user modules.
+    this.allFunctionNames = new Set(
+      userModules.flatMap((m) => (m.functions ?? []).map((f: FunctionDef) => f.name)),
+    );
     this.asyncFnNames = new Set(
-      entryMod.functions
-        .filter((f) => f.metadata?.["is_async"] === true)
-        .map((f) => f.name),
+      userModules.flatMap((m) =>
+        (m.functions ?? [])
+          .filter((f: FunctionDef) => f.metadata?.["is_async"] === true)
+          .map((f: FunctionDef) => f.name),
+      ),
     );
     this.typeDefByName = new Map(
-      (entryMod.typeDefs ?? []).map((td) => [td.name, td]),
+      userModules.flatMap((m) =>
+        (m.typeDefs ?? []).map((td) => [td.name, td] as [string, TypeDefinition]),
+      ),
     );
 
     // Group functions by their enclosing class (if any) — matches the
     // `<typeDef.name>.<member>` naming convention from the encoder.
     const classMembers = new Map<string, FunctionDef[]>();
     const freeFunctions: FunctionDef[] = [];
-    for (const fn of entryMod.functions) {
-      if (fn.isBase) continue;
-      if (fn.name === this.program.entryFunction) continue;
-      const enclosing = this.enclosingTypeName(fn.name);
-      if (enclosing) {
-        const list = classMembers.get(enclosing) ?? [];
-        list.push(fn);
-        classMembers.set(enclosing, list);
-      } else {
-        freeFunctions.push(fn);
+    for (const mod of userModules) {
+      for (const fn of mod.functions ?? []) {
+        if (fn.isBase) continue;
+        if (fn.name === this.program.entryFunction) continue;
+        const enclosing = this.enclosingTypeName(fn.name);
+        if (enclosing) {
+          const list = classMembers.get(enclosing) ?? [];
+          list.push(fn);
+          classMembers.set(enclosing, list);
+        } else {
+          freeFunctions.push(fn);
+        }
       }
     }
 
-    // Typedefs → TsTypeAlias.
-    for (const ta of entryMod.typeAliases ?? []) {
-      sf.addTypeAlias({
-        name: ta.name,
-        type: this.dartTypeToTs(ta.targetType),
-        isExported: true,
-      });
+    // Typedefs → TsTypeAlias (from all user modules).
+    for (const mod of userModules) {
+      for (const ta of mod.typeAliases ?? []) {
+        sf.addTypeAlias({
+          name: ta.name,
+          type: this.dartTypeToTs(ta.targetType),
+          isExported: true,
+        });
+      }
     }
 
     // Classes.
@@ -166,7 +185,8 @@ export class BallCompiler {
     // identifiers and take named ctor args the emitter can't reproduce; the
     // hand-written preamble versions are the source of truth.
     const _runtimeContainerTypes = new Set(["BallObject", "BallMap", "BallList"]);
-    for (const td of entryMod.typeDefs ?? []) {
+    const allTypeDefs = userModules.flatMap((m) => m.typeDefs ?? []);
+    for (const td of allTypeDefs) {
       if (_runtimeContainerTypes.has(classTsName(td.name))) continue;
       // Collect members for this class, including mixin members.
       let members = [...(classMembers.get(td.name) ?? [])];
@@ -224,13 +244,8 @@ export class BallCompiler {
     );
     if (entryFn) {
       // Check if main calls any async function → make main async + await.
-      const asyncFnNames = new Set(
-        entryMod.functions
-          .filter((f) => f.metadata?.["is_async"] === true)
-          .map((f) => f.name),
-      );
-      const mainCallsAsync = asyncFnNames.size > 0 && entryFn.body &&
-        this.bodyReferencesAny(entryFn.body, asyncFnNames);
+      const mainCallsAsync = this.asyncFnNames.size > 0 && entryFn.body &&
+        this.bodyReferencesAny(entryFn.body, this.asyncFnNames);
       this.emitFreeFunction(sf, entryFn, "main", mainCallsAsync);
       sf.addStatements(mainCallsAsync ? "await main();" : "main();");
     }
@@ -3549,7 +3564,14 @@ function __isUnknownFnError(e: any): boolean {
   }
 
   private compileLiteral(lit: Literal): string {
-    if (lit.intValue !== undefined) return String(lit.intValue);
+    if (lit.intValue !== undefined) {
+      const s = String(lit.intValue);
+      try {
+        const b = BigInt(s);
+        if (b > 9007199254740991n || b < -9007199254740991n) return `${s}n`;
+      } catch {}
+      return s;
+    }
     if (lit.doubleValue !== undefined) return `new BallDouble(${lit.doubleValue})`;
     if (lit.stringValue !== undefined) return jsStringLiteral(lit.stringValue);
     if (lit.boolValue !== undefined) return lit.boolValue ? "true" : "false";
@@ -3864,7 +3886,7 @@ function __isUnknownFnError(e: any): boolean {
           ? `${selfStr}.${fn}()`
           : `${selfStr}.${fn}(${otherArgs})`;
       }
-      const args = fields.map((f) => this.expr(f.value)).join(", ");
+      const args = fields.filter((f) => f.name !== "__type_args__" && f.name !== "__const__").map((f) => this.expr(f.value)).join(", ");
       return `${awaitPfx}${thisPrefix}${fn}(${args})`;
     }
     return `${awaitPfx}${thisPrefix}${fn}(${this.expr(input)})`;
@@ -3889,10 +3911,10 @@ function __isUnknownFnError(e: any): boolean {
       case "add":          return `__ball_add(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1", "pattern", "separator")!)})`;
       case "subtract":     return `__ball_sub(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1", "pattern", "separator")!)})`;
       case "multiply":     return `__ball_mul(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1", "pattern", "separator")!)})`;
-      case "divide":       return `Math.trunc(${this.expr(f.get("left")!)} / ${this.expr(f.get("right")!)})`;
-      case "divide_double":return `new BallDouble(${this.expr(f.get("left")!)} / ${this.expr(f.get("right")!)})`;
+      case "divide":       return `__ball_divide(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
+      case "divide_double":return `new BallDouble(Number(${this.expr(f.get("left")!)}) / Number(${this.expr(f.get("right")!)}))`;
       case "modulo":       return `__dart_mod(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
-      case "negate":       return un("-");
+      case "negate":       return `__ball_negate(${this.expr(fg("value", "arg0")!)})`;
       // Comparison
       case "equals": {
         const l = f.get("left"), r = f.get("right");
@@ -3913,15 +3935,15 @@ function __isUnknownFnError(e: any): boolean {
       case "or":           return bin("||");
       case "not":          return un("!");
       // Bitwise
-      case "bitwise_and":  return bin("&");
-      case "bitwise_or":   return bin("|");
-      case "bitwise_xor":  return bin("^");
-      case "bitwise_not":  return un("~");
-      case "left_shift":   return bin("<<");
-      case "right_shift":  return bin(">>");
+      case "bitwise_and":  return `__ball_bitand(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "bitwise_or":   return `__ball_bitor(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "bitwise_xor":  return `__ball_bitxor(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "bitwise_not":  return `__ball_bitnot(${this.expr(fg("value", "arg0")!)})`;
+      case "left_shift":   return `__ball_shl(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "right_shift":  return `__ball_shr(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
       case "unsigned_right_shift": return bin(">>>");
       case "integer_divide":
-        return `Math.trunc(${this.expr(f.get("left")!)} / ${this.expr(f.get("right")!)})`;
+        return `__ball_divide(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
       case "concat":       return bin("+");
       case "to_string":    return `__ball_to_string(${this.expr(f.get("value")!)})`;
       case "int_to_string":return `String(${this.expr(f.get("value")!)})`;
@@ -3956,7 +3978,7 @@ function __isUnknownFnError(e: any): boolean {
         return `''`;
       }
       // Math
-      case "math_abs":   return `Math.abs(${this.expr(f.get("value")!)})`;
+      case "math_abs":   return `__ball_math_abs(${this.expr(f.get("value")!)})`;
       case "math_round": return `Math.round(${this.expr(f.get("value")!)})`;
       case "math_floor": return `Math.floor(${this.expr(f.get("value")!)})`;
       case "math_ceil":  return `Math.ceil(${this.expr(f.get("value")!)})`;
@@ -4250,7 +4272,7 @@ function __isUnknownFnError(e: any): boolean {
       }
       case "to_double": {
         const v = f.get("value");
-        return v ? `new BallDouble(+(${this.expr(v)}))` : "new BallDouble(0)";
+        return v ? `new BallDouble(Number(${this.expr(v)}))` : "new BallDouble(0)";
       }
       case "to_int": {
         const v = f.get("value");
@@ -4521,7 +4543,7 @@ function __isUnknownFnError(e: any): boolean {
       case "random_double": return `Math.random()`;
       case "int_to_double": {
         const v = f.get("value");
-        return v ? `new BallDouble(+(${this.expr(v)}))` : "new BallDouble(0)";
+        return v ? `new BallDouble(Number(${this.expr(v)}))` : "new BallDouble(0)";
       }
       // JSON
       case "json_encode": {

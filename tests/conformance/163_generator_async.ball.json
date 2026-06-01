@@ -287,25 +287,6 @@
             "block": {
               "statements": [
                 {
-                  "let": {
-                    "name": "gen",
-                    "value": {
-                      "call": {
-                        "function": "asyncRange",
-                        "input": {
-                          "literal": {
-                            "intValue": "5"
-                          }
-                        }
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "Stream<int>"
-                    }
-                  }
-                },
-                {
                   "expression": {
                     "call": {
                       "module": "std",
@@ -317,13 +298,33 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "gen"
+                                "call": {
+                                  "module": "std",
+                                  "function": "await",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "fieldAccess": {
+                                              "object": {
+                                                "call": {
+                                                  "function": "asyncRange",
+                                                  "input": {
+                                                    "literal": {
+                                                      "intValue": "5"
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "field": "length"
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "length"
+                                  }
                                 }
                               }
                             }
@@ -345,13 +346,33 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "gen"
+                                "call": {
+                                  "module": "std",
+                                  "function": "await",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "fieldAccess": {
+                                              "object": {
+                                                "call": {
+                                                  "function": "asyncRange",
+                                                  "input": {
+                                                    "literal": {
+                                                      "intValue": "5"
+                                                    }
+                                                  }
+                                                }
+                                              },
+                                              "field": "first"
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "first"
+                                  }
                                 }
                               }
                             }
@@ -365,7 +386,8 @@
             }
           },
           "metadata": {
-            "kind": "function"
+            "kind": "function",
+            "is_async": true
           }
         }
       ],

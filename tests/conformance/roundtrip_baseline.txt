@@ -3,25 +3,6 @@
 # current toolchain cannot yet reproduce. Mirrors the upstream
 # protobuf failure_list discipline. Regenerate after deliberate
 # compiler/encoder changes.
-106_factory_constructor:dart-roundtrip
-163_generator_async:dart-compiled
-163_generator_async:dart-roundtrip
 167_generics_reified:ts-compiled
-168_generics_type_check:dart-compiled
-168_generics_type_check:dart-roundtrip
-168_generics_type_check:ts-compiled
 180_generic_list_ops:ts-compiled
 181_generic_map_ops:ts-compiled
-192_overflow_and_large_numbers:ts-compiled
-207_record_pattern_destructure:dart-compiled
-207_record_pattern_destructure:dart-roundtrip
-216_int_double_truncation:ts-compiled
-227_generic_type_ops:ts-compiled
-230_signed_int_boundaries:ts-compiled
-233_int_arithmetic_edges:ts-compiled
-241_generic_list_covariance:ts-compiled
-242_generic_fn_chains:ts-compiled
-251_bitwise_signed_edges:ts-compiled
-256_editions_resolver:dart-compiled
-256_editions_resolver:dart-roundtrip
-256_editions_resolver:ts-compiled

@@ -320,7 +320,8 @@
           },
           "metadata": {
             "kind": "function"
-          }
+          },
+          "outputType": "String"
         },
         {
           "name": "main",

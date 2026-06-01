@@ -110,6 +110,7 @@ class BallDouble {
   toString(): string {
     const v = this.value;
     if (!isFinite(v)) return v.toString();
+    if (v === 0 && 1/v === -Infinity) return '-0.0';
     if (Number.isInteger(v)) return v.toFixed(1);
     return v.toString();
   }
@@ -124,24 +125,24 @@ class BallDouble {
 // Arithmetic helpers that propagate BallDouble through operations.
 // If either operand is BallDouble, the result is BallDouble (preserving .0).
 function __ball_mul(a: any, b: any): any {
-  // Operator overloading: check for __op_mul method on object
   if (a != null && typeof a === 'object' && typeof a.__op_mul === 'function') return a.__op_mul(b);
+  if (typeof a === 'bigint' || typeof b === 'bigint') return __i64_wrap(__to_bigint(a) * __to_bigint(b));
   const av = a instanceof BallDouble ? a.value : a;
   const bv = b instanceof BallDouble ? b.value : b;
   const r = av * bv;
   return (a instanceof BallDouble || b instanceof BallDouble) ? new BallDouble(r) : r;
 }
 function __ball_add(a: any, b: any): any {
-  // Operator overloading: check for __op_add method on object
   if (a != null && typeof a === 'object' && typeof a.__op_add === 'function') return a.__op_add(b);
+  if (typeof a === 'bigint' || typeof b === 'bigint') return __i64_wrap(__to_bigint(a) + __to_bigint(b));
   const av = a instanceof BallDouble ? a.value : a;
   const bv = b instanceof BallDouble ? b.value : b;
   const r = av + bv;
   return (a instanceof BallDouble || b instanceof BallDouble) ? new BallDouble(r) : r;
 }
 function __ball_sub(a: any, b: any): any {
-  // Operator overloading: check for __op_sub method on object
   if (a != null && typeof a === 'object' && typeof a.__op_sub === 'function') return a.__op_sub(b);
+  if (typeof a === 'bigint' || typeof b === 'bigint') return __i64_wrap(__to_bigint(a) - __to_bigint(b));
   const av = a instanceof BallDouble ? a.value : a;
   const bv = b instanceof BallDouble ? b.value : b;
   const r = av - bv;
@@ -150,8 +151,13 @@ function __ball_sub(a: any, b: any): any {
 
 // Dart equality: NaN != NaN, BallDouble value comparison, null == undefined.
 function __ball_eq(a: any, b: any): boolean {
-  // Operator overloading: check for __op_eq method on object
   if (a != null && typeof a === 'object' && typeof a.__op_eq === 'function') return a.__op_eq(b);
+  if (typeof a === 'bigint' || typeof b === 'bigint') {
+    if (typeof a === 'bigint' && typeof b === 'bigint') return a === b;
+    if (typeof a === 'bigint' && typeof b === 'number') return a === BigInt(b);
+    if (typeof a === 'number' && typeof b === 'bigint') return BigInt(a) === b;
+    return false;
+  }
   if (a instanceof BallDouble || b instanceof BallDouble) {
     const av = a instanceof BallDouble ? a.value : a;
     const bv = b instanceof BallDouble ? b.value : b;
@@ -165,6 +171,7 @@ function __ball_eq(a: any, b: any): boolean {
 
 function __ball_to_string(v: any): string {
   if (v === null || v === undefined) return 'null';
+  if (typeof v === 'bigint') return v.toString();
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (v instanceof BallDouble) return v.toString();
   if (typeof v === 'number') {
@@ -227,8 +234,14 @@ function __ball_to_int(v: any): any {
     }
     return Math.trunc(Number(v)) || 0;
   }
-  // (|| 0) converts JS -0 to 0 (Dart truncate() never returns -0).
-  return Math.trunc(v) || 0;
+  const n = (v instanceof BallDouble) ? v.value : v;
+  const t = Math.trunc(n) || 0;
+  if (t >= 9223372036854775808) return __I64_MAX;
+  if (t <= -9223372036854775808) return __I64_MIN;
+  if (t > 9007199254740991 || t < -9007199254740991) {
+    try { return __i64_wrap(BigInt(Math.round(t))); } catch {}
+  }
+  return t;
 }
 
 function __ball_parse_double(s: string): number {
@@ -261,9 +274,59 @@ function __ball_concat(a: any, b: any): any {
   return [a, b];
 }
 
+// ── BigInt / signed-64-bit integer support ──────────────────────
+// Dart int is signed 64-bit; JS Number loses precision above 2^53.
+// Arithmetic on BigInt values wraps to the signed 64-bit range and
+// demotes back to Number when the result fits in MAX_SAFE_INTEGER.
+const __I64_MAX = 9223372036854775807n;
+const __I64_MIN = -9223372036854775808n;
+const __I64_MOD = 18446744073709551616n;
+function __i64_wrap(v: bigint): any {
+  v = ((v % __I64_MOD) + __I64_MOD) % __I64_MOD;
+  if (v > __I64_MAX) v = v - __I64_MOD;
+  if (v >= -9007199254740991n && v <= 9007199254740991n) return Number(v);
+  return v;
+}
+function __to_bigint(v: any): bigint {
+  if (typeof v === 'bigint') return v;
+  if (v instanceof BallDouble) return BigInt(Math.trunc(v.value));
+  return BigInt(v);
+}
+function __ball_bitand(a: any, b: any): any { return __i64_wrap(__to_bigint(a) & __to_bigint(b)); }
+function __ball_bitor(a: any, b: any): any { return __i64_wrap(__to_bigint(a) | __to_bigint(b)); }
+function __ball_bitxor(a: any, b: any): any { return __i64_wrap(__to_bigint(a) ^ __to_bigint(b)); }
+function __ball_bitnot(a: any): any { return __i64_wrap(~__to_bigint(a)); }
+function __ball_shl(a: any, b: any): any { return __i64_wrap(__to_bigint(a) << __to_bigint(b)); }
+function __ball_shr(a: any, b: any): any { return __i64_wrap(__to_bigint(a) >> __to_bigint(b)); }
+function __ball_negate(a: any): any {
+  if (typeof a === 'bigint') return __i64_wrap(-a);
+  if (a instanceof BallDouble) return new BallDouble(-a.value);
+  return -a;
+}
+function __ball_divide(a: any, b: any): any {
+  if (typeof a === 'bigint' || typeof b === 'bigint') {
+    const ba = __to_bigint(a), bb = __to_bigint(b);
+    const r = ba / bb;
+    return __i64_wrap(r);
+  }
+  return Math.trunc(a / b);
+}
+function __ball_math_abs(a: any): any {
+  if (typeof a === 'bigint') {
+    const neg = -a;
+    return __i64_wrap(neg < 0n ? a : neg);
+  }
+  return Math.abs(a);
+}
+
 // Dart-style Euclidean modulo: result is always non-negative.
 // JS % is remainder (can be negative), Dart % is Euclidean modulo.
-function __dart_mod(a: number, b: number): number {
+function __dart_mod(a: any, b: any): any {
+  if (typeof a === 'bigint' || typeof b === 'bigint') {
+    const ba = __to_bigint(a), bb = __to_bigint(b);
+    const r = ba % bb;
+    return __i64_wrap(r < 0n ? r + (bb < 0n ? -bb : bb) : r);
+  }
   const r = a % b;
   return r < 0 ? r + (b < 0 ? -b : b) : r;
 }

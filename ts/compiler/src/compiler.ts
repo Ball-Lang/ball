@@ -3958,7 +3958,7 @@ function __isUnknownFnError(e: any): boolean {
       }
       case "to_double": {
         const v = f.get("value");
-        return v ? `(+(${this.expr(v)}))` : "0.0";
+        return v ? `new BallDouble(+(${this.expr(v)}))` : "new BallDouble(0)";
       }
       case "to_int": {
         const v = f.get("value");
@@ -4223,7 +4223,7 @@ function __isUnknownFnError(e: any): boolean {
       case "random_double": return `Math.random()`;
       case "int_to_double": {
         const v = f.get("value");
-        return v ? `(+(${this.expr(v)}))` : "0.0";
+        return v ? `new BallDouble(+(${this.expr(v)}))` : "new BallDouble(0)";
       }
       // JSON
       case "json_encode": {

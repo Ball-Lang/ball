@@ -3256,7 +3256,7 @@ function __isUnknownFnError(e: any): boolean {
 
   private compileLiteral(lit: Literal): string {
     if (lit.intValue !== undefined) return String(lit.intValue);
-    if (lit.doubleValue !== undefined) return String(lit.doubleValue);
+    if (lit.doubleValue !== undefined) return `new BallDouble(${lit.doubleValue})`;
     if (lit.stringValue !== undefined) return jsStringLiteral(lit.stringValue);
     if (lit.boolValue !== undefined) return lit.boolValue ? "true" : "false";
     if (lit.listValue) {
@@ -3583,9 +3583,9 @@ function __isUnknownFnError(e: any): boolean {
 
     switch (fn) {
       // Arithmetic
-      case "add":          return bin("+");
-      case "subtract":     return bin("-");
-      case "multiply":     return bin("*");
+      case "add":          return `__ball_add(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1", "pattern", "separator")!)})`;
+      case "subtract":     return `__ball_sub(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1", "pattern", "separator")!)})`;
+      case "multiply":     return `__ball_mul(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1", "pattern", "separator")!)})`;
       case "divide":       return `Math.trunc(${this.expr(f.get("left")!)} / ${this.expr(f.get("right")!)})`;
       case "divide_double":return `new BallDouble(${this.expr(f.get("left")!)} / ${this.expr(f.get("right")!)})`;
       case "modulo":       return `__dart_mod(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;

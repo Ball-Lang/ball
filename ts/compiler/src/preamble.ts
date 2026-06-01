@@ -117,6 +117,27 @@ class BallDouble {
 }
 (globalThis as any).BallDouble = BallDouble;
 
+// Arithmetic helpers that propagate BallDouble through operations.
+// If either operand is BallDouble, the result is BallDouble (preserving .0).
+function __ball_mul(a: any, b: any): any {
+  const av = a instanceof BallDouble ? a.value : a;
+  const bv = b instanceof BallDouble ? b.value : b;
+  const r = av * bv;
+  return (a instanceof BallDouble || b instanceof BallDouble) ? new BallDouble(r) : r;
+}
+function __ball_add(a: any, b: any): any {
+  const av = a instanceof BallDouble ? a.value : a;
+  const bv = b instanceof BallDouble ? b.value : b;
+  const r = av + bv;
+  return (a instanceof BallDouble || b instanceof BallDouble) ? new BallDouble(r) : r;
+}
+function __ball_sub(a: any, b: any): any {
+  const av = a instanceof BallDouble ? a.value : a;
+  const bv = b instanceof BallDouble ? b.value : b;
+  const r = av - bv;
+  return (a instanceof BallDouble || b instanceof BallDouble) ? new BallDouble(r) : r;
+}
+
 function __ball_to_string(v: any): string {
   if (v === null || v === undefined) return 'null';
   if (typeof v === 'boolean') return v ? 'true' : 'false';

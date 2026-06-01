@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "241_generic_list_covariance",
   "version": "1.0.0",
   "modules": [
     {
@@ -53,6 +53,20 @@
           "body": {
             "block": {
               "statements": [
+                {
+                  "let": {
+                    "name": "items",
+                    "value": {
+                      "reference": {
+                        "name": "input"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "List<Object>"
+                    }
+                  }
+                },
                 {
                   "expression": {
                     "call": {
@@ -116,7 +130,7 @@
             "kind": "function",
             "params": [
               {
-                "name": "items",
+                "name": "input",
                 "type": "List<Object>"
               }
             ]
@@ -127,24 +141,43 @@
           "inputType": "T",
           "outputType": "List<T>",
           "body": {
-            "literal": {
-              "listValue": {
-                "elements": [
-                  {
-                    "reference": {
-                      "name": "value"
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "value",
+                    "value": {
+                      "reference": {
+                        "name": "input"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "T"
                     }
                   }
-                ]
+                }
+              ],
+              "result": {
+                "literal": {
+                  "listValue": {
+                    "elements": [
+                      {
+                        "reference": {
+                          "name": "value"
+                        }
+                      }
+                    ]
+                  }
+                }
               }
             }
           },
           "metadata": {
             "kind": "function",
-            "expression_body": true,
             "params": [
               {
-                "name": "value",
+                "name": "input",
                 "type": "T"
               }
             ],
@@ -243,27 +276,16 @@
                                     "call": {
                                       "function": "wrap",
                                       "input": {
-                                        "messageCreation": {
-                                          "fields": [
-                                            {
-                                              "name": "__type_args__",
-                                              "value": {
-                                                "literal": {
-                                                  "stringValue": "<Object>"
-                                                }
-                                              }
-                                            },
-                                            {
-                                              "name": "arg0",
-                                              "value": {
-                                                "literal": {
-                                                  "intValue": "42"
-                                                }
-                                              }
-                                            }
-                                          ]
+                                        "literal": {
+                                          "intValue": "42"
                                         }
-                                      }
+                                      },
+                                      "typeArgs": [
+                                        {
+                                          "name": "Object",
+                                          "nullable": false
+                                        }
+                                      ]
                                     }
                                   },
                                   "field": "first"
@@ -293,27 +315,16 @@
                                     "call": {
                                       "function": "wrap",
                                       "input": {
-                                        "messageCreation": {
-                                          "fields": [
-                                            {
-                                              "name": "__type_args__",
-                                              "value": {
-                                                "literal": {
-                                                  "stringValue": "<String>"
-                                                }
-                                              }
-                                            },
-                                            {
-                                              "name": "arg0",
-                                              "value": {
-                                                "literal": {
-                                                  "stringValue": "x"
-                                                }
-                                              }
-                                            }
-                                          ]
+                                        "literal": {
+                                          "stringValue": "x"
                                         }
-                                      }
+                                      },
+                                      "typeArgs": [
+                                        {
+                                          "name": "String",
+                                          "nullable": false
+                                        }
+                                      ]
                                     }
                                   },
                                   "field": "first"
@@ -353,27 +364,16 @@
                                                 "call": {
                                                   "function": "wrap",
                                                   "input": {
-                                                    "messageCreation": {
-                                                      "fields": [
-                                                        {
-                                                          "name": "__type_args__",
-                                                          "value": {
-                                                            "literal": {
-                                                              "stringValue": "<num>"
-                                                            }
-                                                          }
-                                                        },
-                                                        {
-                                                          "name": "arg0",
-                                                          "value": {
-                                                            "literal": {
-                                                              "doubleValue": 3.5
-                                                            }
-                                                          }
-                                                        }
-                                                      ]
+                                                    "literal": {
+                                                      "doubleValue": 3.5
                                                     }
-                                                  }
+                                                  },
+                                                  "typeArgs": [
+                                                    {
+                                                      "name": "num",
+                                                      "nullable": false
+                                                    }
+                                                  ]
                                                 }
                                               },
                                               "field": "first"

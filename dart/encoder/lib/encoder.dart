@@ -4633,6 +4633,7 @@ class DartEncoder {
     if (typeArgsSrc == null || typeArgsSrc.isEmpty) return;
     final refs = _parseTypeArgs(typeArgsSrc);
     if (refs.isEmpty) return;
+    if (!msg.hasMetadata()) msg.metadata = structpb.Struct();
     msg.metadata.fields['type_args'] = structpb.Value()
       ..listValue = (structpb.ListValue()
         ..values.addAll(refs.map(_typeRefToStructValue)));

@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "227_generic_type_ops",
   "version": "1.0.0",
   "modules": [
     {
@@ -37,16 +37,35 @@
           "inputType": "T",
           "outputType": "T",
           "body": {
-            "reference": {
-              "name": "value"
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "value",
+                    "value": {
+                      "reference": {
+                        "name": "input"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "T"
+                    }
+                  }
+                }
+              ],
+              "result": {
+                "reference": {
+                  "name": "value"
+                }
+              }
             }
           },
           "metadata": {
             "kind": "function",
-            "expression_body": true,
             "params": [
               {
-                "name": "value",
+                "name": "input",
                 "type": "T"
               }
             ],
@@ -60,24 +79,43 @@
           "inputType": "T",
           "outputType": "List<T>",
           "body": {
-            "literal": {
-              "listValue": {
-                "elements": [
-                  {
-                    "reference": {
-                      "name": "value"
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "value",
+                    "value": {
+                      "reference": {
+                        "name": "input"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "T"
                     }
                   }
-                ]
+                }
+              ],
+              "result": {
+                "literal": {
+                  "listValue": {
+                    "elements": [
+                      {
+                        "reference": {
+                          "name": "value"
+                        }
+                      }
+                    ]
+                  }
+                }
               }
             }
           },
           "metadata": {
             "kind": "function",
-            "expression_body": true,
             "params": [
               {
-                "name": "value",
+                "name": "input",
                 "type": "T"
               }
             ],
@@ -107,27 +145,16 @@
                                 "call": {
                                   "function": "identity",
                                   "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "__type_args__",
-                                          "value": {
-                                            "literal": {
-                                              "stringValue": "<int>"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "arg0",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "42"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                    "literal": {
+                                      "intValue": "42"
                                     }
-                                  }
+                                  },
+                                  "typeArgs": [
+                                    {
+                                      "name": "int",
+                                      "nullable": false
+                                    }
+                                  ]
                                 }
                               }
                             }
@@ -152,27 +179,16 @@
                                 "call": {
                                   "function": "identity",
                                   "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "__type_args__",
-                                          "value": {
-                                            "literal": {
-                                              "stringValue": "<String>"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "arg0",
-                                          "value": {
-                                            "literal": {
-                                              "stringValue": "hi"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                    "literal": {
+                                      "stringValue": "hi"
                                     }
-                                  }
+                                  },
+                                  "typeArgs": [
+                                    {
+                                      "name": "String",
+                                      "nullable": false
+                                    }
+                                  ]
                                 }
                               }
                             }
@@ -199,27 +215,16 @@
                                     "call": {
                                       "function": "singleton",
                                       "input": {
-                                        "messageCreation": {
-                                          "fields": [
-                                            {
-                                              "name": "__type_args__",
-                                              "value": {
-                                                "literal": {
-                                                  "stringValue": "<double>"
-                                                }
-                                              }
-                                            },
-                                            {
-                                              "name": "arg0",
-                                              "value": {
-                                                "literal": {
-                                                  "doubleValue": 3.5
-                                                }
-                                              }
-                                            }
-                                          ]
+                                        "literal": {
+                                          "doubleValue": 3.5
                                         }
-                                      }
+                                      },
+                                      "typeArgs": [
+                                        {
+                                          "name": "double",
+                                          "nullable": false
+                                        }
+                                      ]
                                     }
                                   },
                                   "field": "first"
@@ -249,27 +254,16 @@
                                     "call": {
                                       "function": "singleton",
                                       "input": {
-                                        "messageCreation": {
-                                          "fields": [
-                                            {
-                                              "name": "__type_args__",
-                                              "value": {
-                                                "literal": {
-                                                  "stringValue": "<bool>"
-                                                }
-                                              }
-                                            },
-                                            {
-                                              "name": "arg0",
-                                              "value": {
-                                                "literal": {
-                                                  "boolValue": true
-                                                }
-                                              }
-                                            }
-                                          ]
+                                        "literal": {
+                                          "boolValue": true
                                         }
-                                      }
+                                      },
+                                      "typeArgs": [
+                                        {
+                                          "name": "bool",
+                                          "nullable": false
+                                        }
+                                      ]
                                     }
                                   },
                                   "field": "first"
@@ -301,40 +295,35 @@
                                         "call": {
                                           "function": "singleton",
                                           "input": {
-                                            "messageCreation": {
-                                              "fields": [
-                                                {
-                                                  "name": "__type_args__",
-                                                  "value": {
+                                            "literal": {
+                                              "listValue": {
+                                                "elements": [
+                                                  {
                                                     "literal": {
-                                                      "stringValue": "<List<int>>"
+                                                      "intValue": "1"
+                                                    }
+                                                  },
+                                                  {
+                                                    "literal": {
+                                                      "intValue": "2"
                                                     }
                                                   }
-                                                },
-                                                {
-                                                  "name": "arg0",
-                                                  "value": {
-                                                    "literal": {
-                                                      "listValue": {
-                                                        "elements": [
-                                                          {
-                                                            "literal": {
-                                                              "intValue": "1"
-                                                            }
-                                                          },
-                                                          {
-                                                            "literal": {
-                                                              "intValue": "2"
-                                                            }
-                                                          }
-                                                        ]
-                                                      }
-                                                    }
-                                                  }
-                                                }
-                                              ]
+                                                ]
+                                              }
                                             }
-                                          }
+                                          },
+                                          "typeArgs": [
+                                            {
+                                              "name": "List",
+                                              "typeArgs": [
+                                                {
+                                                  "name": "int",
+                                                  "nullable": false
+                                                }
+                                              ],
+                                              "nullable": false
+                                            }
+                                          ]
                                         }
                                       },
                                       "field": "first"

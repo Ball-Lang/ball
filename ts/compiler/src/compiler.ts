@@ -3587,7 +3587,7 @@ function __isUnknownFnError(e: any): boolean {
       case "subtract":     return bin("-");
       case "multiply":     return bin("*");
       case "divide":       return `Math.trunc(${this.expr(f.get("left")!)} / ${this.expr(f.get("right")!)})`;
-      case "divide_double":return bin("/");
+      case "divide_double":return `new BallDouble(${this.expr(f.get("left")!)} / ${this.expr(f.get("right")!)})`;
       case "modulo":       return `__dart_mod(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
       case "negate":       return un("-");
       // Comparison

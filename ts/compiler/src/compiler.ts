@@ -4671,7 +4671,8 @@ function __isUnknownFnError(e: any): boolean {
     const t = baseType.endsWith("?") ? baseType.slice(0, -1) : baseType;
     switch (t) {
       case "int": return `(typeof ${value} === 'number' && Number.isInteger(${value}))`;
-      case "double": case "num": case "number": return `(typeof ${value} === 'number')`;
+      case "double": return `(${value} instanceof BallDouble || (typeof ${value} === 'number' && !Number.isInteger(${value})))`;
+      case "num": case "number": return `(typeof ${value} === 'number' || ${value} instanceof BallDouble)`;
       case "String": case "string": return `(typeof ${value} === 'string')`;
       case "bool": case "boolean": return `(typeof ${value} === 'boolean')`;
       case "List": case "Iterable": return `Array.isArray(${value})`;
@@ -4743,10 +4744,6 @@ function __isUnknownFnError(e: any): boolean {
       if (patternExprField) {
         const result = compileStructuredPattern(patternExprField, subjectStr, (e) => this.expr(e));
         if (result) {
-          if (result.condition === "true") {
-            defaultBody = body;
-            break;
-          }
           let bodyStr: string;
           if (result.bindings.length > 0) {
             const params = result.bindings.map(b => b.varName).join(", ");
@@ -4755,7 +4752,13 @@ function __isUnknownFnError(e: any): boolean {
           } else {
             bodyStr = this.expr(body);
           }
+          if (result.condition === "true" && result.bindings.length === 0) {
+            defaultBody = body;
+            break;
+          }
+          // Use "true" condition as a catch-all branch when there are bindings
           branches.push({ cond: result.condition, body: bodyStr });
+          if (result.condition === "true") break; // No further cases needed
           continue;
         }
         // Unknown pattern kind -- fall through to text-based pattern handling

@@ -5253,8 +5253,24 @@ function compileStructuredPattern(
     case "VarPattern":
     case "var": {
       const name = fields.get("name")?.literal?.stringValue;
-      if (name) return { condition: "true", bindings: [{ varName: name, expr: subject }] };
-      return { condition: "true", bindings: [] };
+      const typeName = fields.get("type")?.literal?.stringValue;
+      // When a VarPattern has a type annotation (e.g. "double d"),
+      // generate a type-check condition instead of a catch-all.
+      let cond = "true";
+      if (typeName) {
+        switch (typeName) {
+          case "int": cond = `(typeof ${subject} === 'number' && Number.isInteger(${subject}))`; break;
+          case "double": cond = `(${subject} instanceof BallDouble || (typeof ${subject} === 'number' && !Number.isInteger(${subject})))`; break;
+          case "num": case "number": cond = `(typeof ${subject} === 'number' || ${subject} instanceof BallDouble)`; break;
+          case "String": case "string": cond = `(typeof ${subject} === 'string')`; break;
+          case "bool": case "boolean": cond = `(typeof ${subject} === 'boolean')`; break;
+          case "List": cond = `Array.isArray(${subject})`; break;
+          case "Map": cond = `(typeof ${subject} === 'object' && ${subject} !== null && !Array.isArray(${subject}))`; break;
+          default: cond = `(${subject} instanceof ${typeName} || (typeof ${subject} === 'object' && ${subject}?.['__type__'] === '${typeName}'))`; break;
+        }
+      }
+      if (name) return { condition: cond, bindings: [{ varName: name, expr: subject }] };
+      return { condition: cond, bindings: [] };
     }
     case "WildcardPattern":
     case "wildcard":

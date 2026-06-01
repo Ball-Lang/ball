@@ -56,14 +56,11 @@
 208_async_chain_rethrow:dart-compiled
 208_async_chain_rethrow:dart-roundtrip
 209_generator_filtered_state:ts-compiled
-214_nan_propagation:ts-compiled
-215_infinity_arithmetic:ts-compiled
 216_int_double_truncation:ts-compiled
 226_list_pattern_destructure:ts-compiled
 227_generic_type_ops:ts-compiled
 229_closure_loop_var_semantics:ts-compiled
 230_signed_int_boundaries:ts-compiled
-232_double_extreme_values:ts-compiled
 233_int_arithmetic_edges:ts-compiled
 239_switch_expr_relational:ts-compiled
 241_generic_list_covariance:ts-compiled

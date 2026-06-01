@@ -38,7 +38,6 @@
 192_overflow_and_large_numbers:ts-compiled
 207_record_pattern_destructure:dart-compiled
 207_record_pattern_destructure:dart-roundtrip
-207_record_pattern_destructure:ts-compiled
 208_async_chain_rethrow:dart-compiled
 208_async_chain_rethrow:dart-roundtrip
 216_int_double_truncation:ts-compiled
@@ -46,8 +45,6 @@
 229_closure_loop_var_semantics:ts-compiled
 230_signed_int_boundaries:ts-compiled
 233_int_arithmetic_edges:ts-compiled
-239_switch_expr_relational:ts-compiled
-240_switch_type_guard_patterns:ts-compiled
 241_generic_list_covariance:ts-compiled
 242_generic_fn_chains:ts-compiled
 251_bitwise_signed_edges:ts-compiled

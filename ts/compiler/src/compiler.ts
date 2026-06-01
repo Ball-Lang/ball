@@ -62,6 +62,10 @@ export class BallCompiler {
   /** Short method names of the current class (for `this.foo()` routing). */
   private currentClassMethodNames: Set<string> = new Set();
 
+  /** Short names of GETTER accessors. Getters are properties, not methods,
+   *  so bare references emit `this.name` not `this.name.bind(this)`. */
+  private currentClassGetterNames: Set<string> = new Set();
+
   /**
    * Short names of STATIC methods of the current class. Static members are
    * not on `this` in JS, so unqualified same-class calls/tear-offs to these
@@ -71,6 +75,9 @@ export class BallCompiler {
 
   /** TS name of the class currently being emitted (for static-call routing). */
   private currentClassName: string | undefined;
+
+  /** Type parameters of the class currently being emitted (erased to `any`). */
+  private currentClassTypeParams: Set<string> = new Set();
 
   /** All function names in the entry module (function vs ctor routing). */
   private allFunctionNames: Set<string> = new Set();
@@ -118,7 +125,7 @@ export class BallCompiler {
     this.allFunctionNames = new Set(entryMod.functions.map((f) => f.name));
     this.asyncFnNames = new Set(
       entryMod.functions
-        .filter((f) => f.metadata?.["is_async"] === true || f.metadata?.["is_async_star"] === true)
+        .filter((f) => f.metadata?.["is_async"] === true)
         .map((f) => f.name),
     );
     this.typeDefByName = new Map(
@@ -161,7 +168,35 @@ export class BallCompiler {
     const _runtimeContainerTypes = new Set(["BallObject", "BallMap", "BallList"]);
     for (const td of entryMod.typeDefs ?? []) {
       if (_runtimeContainerTypes.has(classTsName(td.name))) continue;
-      this.emitClass(sf, td, classMembers.get(td.name) ?? []);
+      // Collect members for this class, including mixin members.
+      let members = [...(classMembers.get(td.name) ?? [])];
+      const tdMeta: Struct = td.metadata ?? {};
+      const mixins = Array.isArray(tdMeta["mixins"]) ? tdMeta["mixins"] as string[] : [];
+      if (mixins.length > 0) {
+        // Collect the set of method short names already defined on this class
+        const ownShortNames = new Set(members.map((m) => memberShortName(m.name)));
+        for (const mixinName of mixins) {
+          // Find the mixin typeDef name — try both plain and module-qualified
+          let mixinTdName: string | undefined;
+          for (const [tdName] of this.typeDefByName) {
+            if (classTsName(tdName) === mixinName || tdName === mixinName || tdName.endsWith(":" + mixinName)) {
+              mixinTdName = tdName;
+              break;
+            }
+          }
+          if (!mixinTdName) continue;
+          const mixinMembers = classMembers.get(mixinTdName) ?? [];
+          for (const mm of mixinMembers) {
+            const shortName = memberShortName(mm.name);
+            // Only include mixin methods not already defined on this class
+            if (!ownShortNames.has(shortName)) {
+              members.push(mm);
+              ownShortNames.add(shortName);
+            }
+          }
+        }
+      }
+      this.emitClass(sf, td, members);
     }
 
     // Top-level variables (kind == 'top_level_variable') emit as
@@ -2237,15 +2272,32 @@ function __isUnknownFnError(e: any): boolean {
     const isAsyncStar = fn.metadata?.["is_async_star"] === true;
     const isGenerator = isSyncStar || isAsyncStar;
     const isAsync = forceAsync || functionIsAsync(fn) || isAsyncStar;
-    sf.addFunction({
-      kind: StructureKind.Function,
-      name,
-      isAsync: isAsync && !isGenerator, // ts-morph: async generators use isGenerator + isAsync separately
-      isGenerator,
-      parameters: params.map((p) => ({ name: sanitize(p), type: "any" })),
-      returnType: isAsync ? "Promise<any>" : "any",
-      statements: body,
-    });
+    if (isGenerator) {
+      // Dart sync*/async* generators produce re-iterable Iterables with
+      // .length, .first, .join(), etc.  JS function* produces single-use
+      // iterators.  Emit a regular function that internally uses a generator
+      // and materialises the result into an array.
+      const wrappedBody = `return [...(function* () { ${body} })()];`;
+      sf.addFunction({
+        kind: StructureKind.Function,
+        name,
+        isAsync: false,
+        isGenerator: false,
+        parameters: params.map((p) => ({ name: sanitize(p), type: "any" })),
+        returnType: "any",
+        statements: wrappedBody,
+      });
+    } else {
+      sf.addFunction({
+        kind: StructureKind.Function,
+        name,
+        isAsync: isAsync && !isGenerator,
+        isGenerator,
+        parameters: params.map((p) => ({ name: sanitize(p), type: "any" })),
+        returnType: isAsync ? "Promise<any>" : "any",
+        statements: body,
+      });
+    }
   }
 
   /** Wrap captured statements in an IIFE, choosing the right kind:
@@ -2291,6 +2343,24 @@ function __isUnknownFnError(e: any): boolean {
   ): void {
     const meta: Struct = td.metadata ?? {};
     const tsName = classTsName(td.name);
+
+    // Enum handling: emit a class with static instances, index, name, values.
+    if (meta["kind"] === "enum") {
+      const enumValues = Array.isArray(meta["values"]) ? meta["values"] as any[] : [];
+      const valueNames = enumValues.map((v: any) => typeof v === "string" ? v : (v?.name ?? ""));
+      // Build the enum class with index, name, static instances, and values.
+      const staticProps = valueNames.map((name, i) => `static readonly ${sanitize(name)} = new ${tsName}(${i}, '${name}');`);
+      const valuesArray = valueNames.map((name) => `${tsName}.${sanitize(name)}`).join(", ");
+      sf.addStatements(`export class ${tsName} {
+  readonly index: number;
+  readonly name: string;
+  private constructor(index: number, name: string) { this.index = index; this.name = name; }
+  ${staticProps.join("\n  ")}
+  static readonly values: ${tsName}[] = [${valuesArray}];
+  toString(): string { return '${tsName}.' + this.name; }
+}`);
+      return;
+    }
 
     // Fields: prefer metadata.fields (richer) with descriptor fallback.
     const fieldSpecs = Array.isArray(meta["fields"])
@@ -2354,6 +2424,7 @@ function __isUnknownFnError(e: any): boolean {
     const methodNames = new Set<string>();
     const staticMethodNames = new Set<string>();
     const staticFieldNames = new Set<string>();
+    const getterNames = new Set<string>();
     for (const fn of members) {
       const mMeta: Struct = fn.metadata ?? {};
       if ((mMeta as any).kind === "static_field") {
@@ -2361,6 +2432,9 @@ function __isUnknownFnError(e: any): boolean {
       } else {
         const shortName = memberShortName(fn.name);
         methodNames.add(shortName);
+        if (mMeta["is_getter"] === true) {
+          getterNames.add(shortName);
+        }
         // Static methods (incl. named constructors, which become static
         // factory methods) live on the class, not on instances. Track them
         // so same-class calls emit `<Class>.m()` not `this.m()`.
@@ -2375,11 +2449,17 @@ function __isUnknownFnError(e: any): boolean {
     }
     const savedClassMethods = this.currentClassMethodNames;
     const savedClassStatics = this.currentClassStaticNames;
+    const savedClassGetters = this.currentClassGetterNames;
     const savedClassName = this.currentClassName;
+    const savedTypeParams = this.currentClassTypeParams;
     const deferredStaticFields: string[] = [];
     this.currentClassMethodNames = methodNames;
     this.currentClassStaticNames = staticMethodNames;
+    this.currentClassGetterNames = getterNames;
     this.currentClassName = tsName;
+    this.currentClassTypeParams = new Set(
+      Array.isArray(meta["type_params"]) ? (meta["type_params"] as string[]) : [],
+    );
 
     const hasExtends = typeof meta["superclass"] === "string";
 
@@ -2411,8 +2491,10 @@ function __isUnknownFnError(e: any): boolean {
         if (rawShort === "new") {
           ctors.push(this.buildCtor(fn, mMeta, fieldNames, hasExtends));
         } else {
+          // Named constructors are static factory methods that return a new
+          // instance. Build them by creating an instance from initializers.
           methods.push(
-            this.buildMethod(fn, { ...mMeta, is_static: true }, fieldNames),
+            this.buildNamedCtor(fn, mMeta, fieldNames, tsName),
           );
         }
       } else if (mMeta["is_getter"] === true) {
@@ -2426,7 +2508,14 @@ function __isUnknownFnError(e: any): boolean {
         // without qualification). We capture the initializer body
         // and emit it above the class via a deferred statement.
         const sfName = memberShortName(fn.name);
-        const initBody = fn.body ? this.expr(fn.body) : "undefined";
+        let initBody = fn.body ? this.expr(fn.body) : "undefined";
+        // When the outputType is a Map but the expr compiled to a Set
+        // (encoder quirk: empty `{}` literal is encoded as set_create),
+        // override to an empty object.
+        if (initBody === "new Set()" && typeof (fn as any).outputType === "string" &&
+            (fn as any).outputType.startsWith("Map<")) {
+          initBody = "{}";
+        }
         deferredStaticFields.push(`const ${sfName} = ${initBody};`);
       } else {
         methods.push(this.buildMethod(fn, mMeta, fieldNames));
@@ -2435,7 +2524,9 @@ function __isUnknownFnError(e: any): boolean {
 
     this.currentClassMethodNames = savedClassMethods;
     this.currentClassStaticNames = savedClassStatics;
+    this.currentClassGetterNames = savedClassGetters;
     this.currentClassName = savedClassName;
+    this.currentClassTypeParams = savedTypeParams;
 
     // Inheritance.
     const superName =
@@ -2494,7 +2585,34 @@ function __isUnknownFnError(e: any): boolean {
     const namedParams = rawParams.filter((p) => p.isNamed);
     const parameters = rawParams.map((p) => ({ name: sanitize(p.name), type: "any" }));
     const prologueParts: string[] = [];
-    if (hasExtends) prologueParts.push("super();");
+    // Parse super constructor initializer args from metadata.
+    // The encoder stores initializers as [{kind:"super", args:"(name)"}].
+    const initializers = Array.isArray(meta["initializers"]) ? meta["initializers"] as any[] : [];
+    const superInit = initializers.find((i: any) => i?.kind === "super");
+    if (hasExtends) {
+      if (superInit && typeof superInit.args === "string") {
+        // Parse args string like "(name)" or "('Car', horsepower)"
+        const argsStr = superInit.args.replace(/^\(/, "").replace(/\)$/, "").trim();
+        if (argsStr) {
+          const argParts = argsStr.split(",").map((a: string) => a.trim()).filter((a: string) => a);
+          const resolvedArgs = argParts.map((a: string) => {
+            // String literal
+            if ((a.startsWith("'") && a.endsWith("'")) || (a.startsWith('"') && a.endsWith('"'))) {
+              return a;
+            }
+            // Numeric literal
+            if (/^-?\d+(\.\d+)?$/.test(a)) return a;
+            // Variable reference — use the sanitized param name
+            return sanitize(a);
+          });
+          prologueParts.push(`super(${resolvedArgs.join(", ")});`);
+        } else {
+          prologueParts.push("super();");
+        }
+      } else {
+        prologueParts.push("super();");
+      }
+    }
     // If there are named params AND the last positional+1 arg is an
     // object, destructure named params from it (handles the encoder's
     // MessageCreation calling convention where named args are packed).
@@ -2530,16 +2648,151 @@ function __isUnknownFnError(e: any): boolean {
       }
     }
     const prologue = prologueParts.join("\n");
+    // Filter out self-recursive patterns from the constructor body.
+    // The encoder emits `let self = messageCreation{typeName:"mod:ClassName"}`
+    // and `return self` in constructor bodies. These translate to
+    // `let self = new ClassName()` which causes infinite recursion. We
+    // must suppress these statements and only emit the meaningful body.
+    const filteredBody = fn.body ? this.filterCtorBody(fn.body, classTsName(fn.name.substring(0, fn.name.lastIndexOf(".")))) : undefined;
     const captured = this.withMethodContext(
       new Set(rawParams.map((p) => p.name)),
       classFields,
       () =>
         this.captureInto(() => {
-          if (fn.body) this.emitStatementOrExpression(fn.body, false);
+          if (filteredBody) this.emitStatementOrExpression(filteredBody, false);
         }),
     );
     const body = prologue === "" ? captured : captured === "" ? prologue : `${prologue}\n${captured}`;
     return { parameters, statements: body };
+  }
+
+  /**
+   * Filters a constructor body to remove encoder-generated boilerplate:
+   * - `let self = new ClassName()` (self-recursive construction)
+   * - `return self` (returning the self variable)
+   * - Bare `input;` or `paramName;` statements (no-op expressions)
+   */
+  private filterCtorBody(body: Expression, className: string): Expression | undefined {
+    if (!body.block) return body;
+    const stmts = body.block.statements ?? [];
+    const filtered = stmts.filter((s) => {
+      // Filter `let self = messageCreation{typeName: "mod:ClassName"}`
+      if (s.let?.name === "self" && s.let.value?.messageCreation) {
+        const tn = s.let.value.messageCreation.typeName ?? "";
+        const tnShort = classTsName(tn);
+        if (tnShort === className) return false;
+      }
+      // Filter `return(value: self)` — the self-return at the end
+      if (s.expression?.call?.function === "return" && s.expression.call.module === "std") {
+        const retFields = s.expression.call.input?.messageCreation?.fields ?? [];
+        const retVal = retFields.find((f: any) => f.name === "value");
+        if (retVal?.value?.reference?.name === "self") return false;
+      }
+      // Filter bare reference statements like `input;` or `paramName;`
+      if (s.expression?.reference && !s.expression.call && !s.expression.fieldAccess) {
+        return false;
+      }
+      return true;
+    });
+    if (filtered.length === 0) return undefined;
+    return { ...body, block: { ...body.block, statements: filtered } };
+  }
+
+  /**
+   * Builds a named constructor as a static factory method.
+   * Named constructors (e.g., Point.origin, Point.fromList) create instances
+   * from field initializers in metadata.
+   */
+  private buildNamedCtor(
+    fn: FunctionDef,
+    meta: Struct,
+    classFields: Set<string>,
+    className: string,
+  ) {
+    const params = extractParams(fn);
+    const ctorParams = extractCtorParams(meta);
+    const initializers = Array.isArray(meta["initializers"]) ? meta["initializers"] as any[] : [];
+    // Build the body: resolve field initializers and create a new instance.
+    const bodyParts: string[] = [];
+    const ctorArgs: string[] = [];
+    // Extract field initializers to build constructor arguments
+    for (const init of initializers) {
+      if (init?.kind === "field" && typeof init.name === "string") {
+        const valueStr = typeof init.value === "string" ? init.value : "null";
+        // Resolve the value: could be a param reference, literal, or expression
+        let resolvedValue: string;
+        if (params.includes(valueStr)) {
+          resolvedValue = sanitize(valueStr);
+        } else if (/^-?\d+(\.\d+)?$/.test(valueStr)) {
+          // Numeric literal — wrap in BallDouble if it has a decimal point
+          resolvedValue = valueStr.includes(".") ? `new BallDouble(${valueStr})` : valueStr;
+        } else if (valueStr.startsWith("'") || valueStr.startsWith('"')) {
+          resolvedValue = valueStr;
+        } else {
+          // Try to parse indexed access like "coords[0]"
+          const idxMatch = /^(\w+)\[(\d+)\]$/.exec(valueStr);
+          if (idxMatch && params.includes(idxMatch[1])) {
+            resolvedValue = `${sanitize(idxMatch[1])}[${idxMatch[2]}]`;
+          } else {
+            resolvedValue = valueStr;
+          }
+        }
+        ctorArgs.push(resolvedValue);
+      }
+    }
+    // Also check for is_this params — they pass directly to the constructor
+    const thisParams = ctorParams.filter(p => p.isThis);
+    if (ctorArgs.length === 0 && initializers.length === 0 && thisParams.length > 0) {
+      for (const p of thisParams) {
+        ctorArgs.push(sanitize(p.name));
+      }
+    }
+    if (ctorArgs.length > 0 || (initializers.length > 0 && ctorArgs.length > 0)) {
+      // Use Object.create to avoid calling the constructor (which might be a factory).
+      // This directly instantiates with fields set.
+      const assignments = initializers
+        .filter((i: any) => i?.kind === "field")
+        .map((init: any) => {
+          const valueStr = typeof init.value === "string" ? init.value : "null";
+          let resolvedValue: string;
+          if (params.includes(valueStr)) resolvedValue = sanitize(valueStr);
+          else if (/^-?\d+(\.\d+)?$/.test(valueStr)) resolvedValue = valueStr.includes(".") ? `new BallDouble(${valueStr})` : valueStr;
+          else if (valueStr.startsWith("'") || valueStr.startsWith('"')) resolvedValue = valueStr;
+          else {
+            const idxMatch = /^(\w+)\[(\d+)\]$/.exec(valueStr);
+            if (idxMatch && params.includes(idxMatch[1])) resolvedValue = `${sanitize(idxMatch[1])}[${idxMatch[2]}]`;
+            else resolvedValue = valueStr;
+          }
+          return `__inst.${init.name} = ${resolvedValue};`;
+        });
+      // For is_this params, assign them as fields
+      const thisAssignments = thisParams.map(p => `__inst.${p.name} = ${sanitize(p.name)};`);
+      const allAssignments = [...assignments, ...thisAssignments];
+      bodyParts.push(`const __inst = Object.create(${className}.prototype);`);
+      for (const a of allAssignments) bodyParts.push(a);
+      bodyParts.push(`return __inst;`);
+    } else if (fn.body) {
+      // Has an actual body — use it
+      const captured = this.withMethodContext(
+        new Set(params),
+        classFields,
+        () =>
+          this.captureInto(() => {
+            this.emitStatementOrExpression(fn.body!, true);
+          }),
+      );
+      bodyParts.push(captured);
+    } else {
+      bodyParts.push(`return new ${className}();`);
+    }
+    return {
+      name: memberShortName(fn.name),
+      isAsync: false,
+      isStatic: true,
+      parameters: params.map((p) => ({ name: sanitize(p), type: "any" })),
+      returnType: "any",
+      statements: bodyParts.join("\n"),
+    };
   }
 
   private buildMethod(fn: FunctionDef, meta: Struct, classFields: Set<string>) {
@@ -2870,16 +3123,42 @@ function __isUnknownFnError(e: any): boolean {
         let first = true;
         // Parse all cases, detecting fall-through (empty body = merge
         // with next case via ||).
-        const parsedCases: Array<{ conds: string[]; body?: Expression; patText?: string }> = [];
+        const parsedCases: Array<{ conds: string[]; body?: Expression; patText?: string; structuredBindings?: Array<{ varName: string; expr: string }> }> = [];
         const pendingConds: string[] = [];
         let lastPatText: string | undefined;
         for (const ce of caseExprs) {
           if (!ce.messageCreation) continue;
           let pattern: Expression | undefined;
           let body: Expression | undefined;
+          let isDefaultFlag = false;
+          let patternExprField: Expression | undefined;
           for (const fd of ce.messageCreation.fields ?? []) {
             if (fd.name === "pattern") pattern = fd.value;
             if (fd.name === "body") body = fd.value;
+            if (fd.name === "is_default" && fd.value?.literal?.boolValue === true) isDefaultFlag = true;
+            if (fd.name === "pattern_expr") patternExprField = fd.value;
+          }
+          // Check for is_default flag
+          if (isDefaultFlag) { defaultBody = body; continue; }
+          // Handle structured pattern_expr (only for known pattern kinds)
+          if (patternExprField) {
+            const result = compileStructuredPattern(patternExprField, "__sw", (e) => this.expr(e));
+            if (result) {
+              const cond = result.condition;
+              if (cond === "true") { defaultBody = body; break; }
+              const isEmpty = body && body.block &&
+                (body.block.statements ?? []).length === 0 &&
+                body.block.result === undefined;
+              if (!body || isEmpty) {
+                pendingConds.push(cond);
+                continue;
+              }
+              pendingConds.push(cond);
+              parsedCases.push({ conds: [...pendingConds], body, structuredBindings: result.bindings });
+              pendingConds.length = 0;
+              continue;
+            }
+            // Unknown pattern kind -- fall through to text-based pattern handling
           }
           if (!pattern) { defaultBody = body; continue; }
           const patText = patternLiteralText(pattern);
@@ -2906,6 +3185,12 @@ function __isUnknownFnError(e: any): boolean {
           const kw = first ? "if" : "else if";
           this.writeln(`${kw} (${combinedCond}) {`);
           this.depth++;
+          // Inject variable bindings for structured patterns.
+          if (pc.structuredBindings) {
+            for (const b of pc.structuredBindings) {
+              this.writeln(`const ${b.varName} = ${b.expr};`);
+            }
+          }
           // Inject variable bindings for type-test / map patterns.
           if (pc.patText) {
             for (const b of patternBindings(pc.patText, "__sw")) {
@@ -3241,6 +3526,10 @@ function __isUnknownFnError(e: any): boolean {
           if (this.currentClassStaticNames.has(short) && this.currentClassName) {
             return `${this.currentClassName}.${short}`;
           }
+          // Getters are properties, not methods — bare `this.name`.
+          if (this.currentClassGetterNames.has(short)) {
+            return `this.${short}`;
+          }
           return `this.${short}.bind(this)`;
         }
       }
@@ -3274,7 +3563,16 @@ function __isUnknownFnError(e: any): boolean {
     const isSelfRef = fa.object.reference?.name === "self" &&
       this.currentClassFields.size > 0 &&
       !this.currentMethodParams.has("self");
-    const obj = isSelfRef ? "this" : this.expr(fa.object);
+    // Ball's `super.field` for instance fields → `this.field` in JS.
+    // In Dart, `super.name` accesses the instance field through the
+    // superclass chain. In JS, `super.name` accesses the prototype
+    // property (undefined for instance fields). Only method calls
+    // (super.method()) should use actual JS `super`.
+    const isSuperFieldRef = fa.object.reference?.name === "super" &&
+      this.currentClassName !== undefined &&
+      this.currentClassFields.has(fa.field) &&
+      !this.currentClassMethodNames.has(fa.field);
+    const obj = isSelfRef || isSuperFieldRef ? "this" : this.expr(fa.object);
     const f = fa.field;
     if (f === "length") return `${obj}.length`;
     // Positional record field: `.$1` / `.$2` → [0] / [1].
@@ -4036,7 +4334,7 @@ function __isUnknownFnError(e: any): boolean {
       }
       case "list_pop": {
         const list = f.get("list");
-        return list ? `${this.expr(list)}.slice(0, -1)` : "[]";
+        return list ? `${this.expr(list)}.pop()` : "undefined";
       }
       case "list_length": {
         const list = f.get("list") ?? f.get("value");
@@ -4311,7 +4609,20 @@ function __isUnknownFnError(e: any): boolean {
             return `(+(${v})).toFixed(${d})`;
           }
           case "math_clamp": {
-            const v = this.expr(fg("value", "arg0")!);
+            // When encoded from a static method call like MathUtils.clamp(5, 0, 10),
+            // the encoder maps it as math_clamp(value: MathUtils, min: 5, max: 0, arg2: 10).
+            // Detect when 'value' is a class reference and shift the args.
+            const clampValue = fg("value", "arg0")!;
+            const isClassRef = clampValue.reference !== undefined &&
+              [...this.typeDefByName.keys()].some(k => classTsName(k) === clampValue.reference!.name);
+            if (isClassRef && f.get("arg2")) {
+              // Shifted args: min=actual value, max=actual low, arg2=actual high
+              const v = this.expr(f.get("min")!);
+              const lo = this.expr(f.get("max")!);
+              const hi = this.expr(f.get("arg2")!);
+              return `Math.min(Math.max(${v}, ${lo}), ${hi})`;
+            }
+            const v = this.expr(clampValue);
             const lo = this.expr(fg("min", "arg1")!);
             const hi = this.expr(fg("max", "arg2")!);
             return `Math.min(Math.max(${v}, ${lo}), ${hi})`;
@@ -4412,19 +4723,53 @@ function __isUnknownFnError(e: any): boolean {
       if (!ce.messageCreation) continue;
       let pattern: Expression | undefined;
       let body: Expression | undefined;
+      let isDefaultFlag = false;
+      let patternExprField: Expression | undefined;
+      let valueField: Expression | undefined;
       for (const fd of ce.messageCreation.fields ?? []) {
         if (fd.name === "pattern") pattern = fd.value;
+        if (fd.name === "value") valueField = fd.value;
         if (fd.name === "body") body = fd.value;
+        if (fd.name === "is_default" && fd.value?.literal?.boolValue === true) isDefaultFlag = true;
+        if (fd.name === "pattern_expr") patternExprField = fd.value;
       }
-      if (!body) continue;
-      if (!pattern) {
+      // Check for is_default flag
+      if (isDefaultFlag) {
         defaultBody = body;
         continue;
       }
-      const patText = patternLiteralText(pattern);
+      if (!body) continue;
+      // Handle structured pattern_expr (only for known pattern kinds)
+      if (patternExprField) {
+        const result = compileStructuredPattern(patternExprField, subjectStr, (e) => this.expr(e));
+        if (result) {
+          if (result.condition === "true") {
+            defaultBody = body;
+            break;
+          }
+          let bodyStr: string;
+          if (result.bindings.length > 0) {
+            const params = result.bindings.map(b => b.varName).join(", ");
+            const args = result.bindings.map(b => b.expr).join(", ");
+            bodyStr = `((${params}) => ${this.expr(body)})(${args})`;
+          } else {
+            bodyStr = this.expr(body);
+          }
+          branches.push({ cond: result.condition, body: bodyStr });
+          continue;
+        }
+        // Unknown pattern kind -- fall through to text-based pattern handling
+      }
+      // Use pattern or value field as the case matcher
+      const caseMatch = pattern ?? valueField;
+      if (!caseMatch) {
+        defaultBody = body;
+        continue;
+      }
+      const patText = patternLiteralText(caseMatch);
       if (patText === undefined) {
         branches.push({
-          cond: `((${subjectStr}) === ${this.expr(pattern)})`,
+          cond: `((${subjectStr}) === ${this.expr(caseMatch)})`,
           body: this.expr(body),
         });
         continue;
@@ -4543,6 +4888,8 @@ function __isUnknownFnError(e: any): boolean {
         return "any";
     }
     if (nonNull.startsWith("main:")) return nonNull.slice(5);
+    // Erase generic type parameters (e.g., A, B, T) to `any`.
+    if (this.currentClassTypeParams.has(nonNull)) return "any";
     return nonNull;
   }
 }
@@ -4831,7 +5178,183 @@ function patternToTsCondition(pat: string, subject: string): string {
     const checks = mapPat.map(e => `'${e.key}' in ${subject}`);
     return `(typeof ${subject} === 'object' && ${subject} !== null && ${checks.join(" && ")})`;
   }
+  // Relational patterns: "== 0", "> 5", etc.
+  const relMatch = /^(==|!=|>=|<=|>|<)\s*(.+)$/.exec(trimmed);
+  if (relMatch) {
+    const op = relMatch[1] === "==" ? "===" : relMatch[1] === "!=" ? "!==" : relMatch[1];
+    return `(${subject} ${op} ${relMatch[2].trim()})`;
+  }
   return `(${subject} === (${trimmed}))`;
+}
+
+/**
+ * Extract fields from a messageCreation expression into a name→value map.
+ */
+function mcFields(expr: Expression): Map<string, Expression> {
+  const m = new Map<string, Expression>();
+  if (expr.messageCreation) {
+    for (const f of expr.messageCreation.fields ?? []) {
+      m.set(f.name, f.value);
+    }
+  }
+  return m;
+}
+
+/**
+ * Determine the kind of a structured pattern_expr.
+ * Returns the typeName or __pattern_kind__ value.
+ */
+function patternExprKind(expr: Expression): string {
+  if (!expr.messageCreation) return "";
+  const tn = expr.messageCreation.typeName ?? "";
+  if (tn) return tn;
+  const fields = mcFields(expr);
+  const pk = fields.get("__pattern_kind__");
+  if (pk?.literal?.stringValue) return pk.literal.stringValue;
+  return "";
+}
+
+interface StructuredPatternResult {
+  condition: string;
+  bindings: Array<{ varName: string; expr: string }>;
+}
+
+/** Known pattern kinds that compileStructuredPattern can handle.
+ *  Unknown kinds (e.g. LogicalOrPattern) should fall through to the
+ *  text-based pattern handling instead. */
+const KNOWN_PATTERN_KINDS = new Set([
+  "ConstPattern", "VarPattern", "var", "WildcardPattern", "wildcard", "_",
+  "ListPattern", "RestPattern", "rest", "record",
+]);
+
+/**
+ * Compile a structured pattern_expr into a condition string and variable bindings.
+ * Handles ConstPattern, ListPattern, VarPattern, RestPattern, and record patterns.
+ * Returns undefined for unknown pattern kinds.
+ */
+function compileStructuredPattern(
+  patternExpr: Expression,
+  subject: string,
+  exprFn: (e: Expression) => string,
+): StructuredPatternResult | undefined {
+  const kind = patternExprKind(patternExpr);
+  if (!KNOWN_PATTERN_KINDS.has(kind)) return undefined;
+  const fields = mcFields(patternExpr);
+
+  switch (kind) {
+    case "ConstPattern": {
+      const val = fields.get("value");
+      if (val) return { condition: `(${subject} === ${exprFn(val)})`, bindings: [] };
+      return { condition: "true", bindings: [] };
+    }
+    case "VarPattern":
+    case "var": {
+      const name = fields.get("name")?.literal?.stringValue;
+      if (name) return { condition: "true", bindings: [{ varName: name, expr: subject }] };
+      return { condition: "true", bindings: [] };
+    }
+    case "WildcardPattern":
+    case "wildcard":
+    case "_":
+      return { condition: "true", bindings: [] };
+    case "ListPattern": {
+      const elementsExpr = fields.get("elements");
+      const elements = elementsExpr?.literal?.listValue?.elements ?? [];
+      // Check for rest patterns
+      let hasRest = false;
+      let restIndex = -1;
+      for (let i = 0; i < elements.length; i++) {
+        const ek = patternExprKind(elements[i]);
+        if (ek === "RestPattern" || ek === "rest") {
+          hasRest = true;
+          restIndex = i;
+          break;
+        }
+      }
+      if (hasRest) {
+        // With rest pattern: [fixed..., ...rest, fixed...]
+        const beforeRest = elements.slice(0, restIndex);
+        const afterRest = elements.slice(restIndex + 1);
+        const minLen = beforeRest.length + afterRest.length;
+        const conds: string[] = [`Array.isArray(${subject})`, `${subject}.length >= ${minLen}`];
+        const binds: Array<{ varName: string; expr: string }> = [];
+        // Bind elements before rest
+        for (let i = 0; i < beforeRest.length; i++) {
+          const sub = compileStructuredPattern(beforeRest[i], `${subject}[${i}]`, exprFn);
+          if (sub) {
+            if (sub.condition !== "true") conds.push(sub.condition);
+            binds.push(...sub.bindings);
+          }
+        }
+        // Bind rest pattern
+        const restExpr = elements[restIndex];
+        const restFields = mcFields(restExpr);
+        const subpattern = restFields.get("subpattern");
+        if (subpattern) {
+          const restSlice = afterRest.length === 0
+            ? `${subject}.slice(${beforeRest.length})`
+            : `${subject}.slice(${beforeRest.length}, ${subject}.length - ${afterRest.length})`;
+          const sub = compileStructuredPattern(subpattern, restSlice, exprFn);
+          if (sub) {
+            if (sub.condition !== "true") conds.push(sub.condition);
+            binds.push(...sub.bindings);
+          }
+        }
+        // Bind elements after rest
+        for (let i = 0; i < afterRest.length; i++) {
+          const idx = `${subject}.length - ${afterRest.length - i}`;
+          const sub = compileStructuredPattern(afterRest[i], `${subject}[${idx}]`, exprFn);
+          if (sub) {
+            if (sub.condition !== "true") conds.push(sub.condition);
+            binds.push(...sub.bindings);
+          }
+        }
+        return { condition: conds.join(" && "), bindings: binds };
+      } else {
+        // Exact-length list pattern
+        const conds: string[] = [`Array.isArray(${subject})`, `${subject}.length === ${elements.length}`];
+        const binds: Array<{ varName: string; expr: string }> = [];
+        for (let i = 0; i < elements.length; i++) {
+          const sub = compileStructuredPattern(elements[i], `${subject}[${i}]`, exprFn);
+          if (sub) {
+            if (sub.condition !== "true") conds.push(sub.condition);
+            binds.push(...sub.bindings);
+          }
+        }
+        return { condition: conds.join(" && "), bindings: binds };
+      }
+    }
+    case "record": {
+      const recordFields = fields.get("fields")?.literal?.listValue?.elements ?? [];
+      const conds: string[] = [];
+      const binds: Array<{ varName: string; expr: string }> = [];
+      for (const rf of recordFields) {
+        const rfm = mcFields(rf);
+        const name = rfm.get("name")?.literal?.stringValue;
+        const pattern = rfm.get("pattern");
+        if (name && pattern) {
+          const sub = compileStructuredPattern(pattern, `${subject}['${name}']`, exprFn);
+          if (sub) {
+            if (sub.condition !== "true") conds.push(sub.condition);
+            binds.push(...sub.bindings);
+          }
+        }
+      }
+      return {
+        condition: conds.length > 0 ? conds.join(" && ") : "true",
+        bindings: binds,
+      };
+    }
+    case "RestPattern":
+    case "rest": {
+      // Rest pattern standalone (shouldn't happen outside ListPattern, but handle gracefully)
+      const subpattern = fields.get("subpattern");
+      if (subpattern) return compileStructuredPattern(subpattern, subject, exprFn) ?? { condition: "true", bindings: [] };
+      return { condition: "true", bindings: [] };
+    }
+    default:
+      return undefined;
+  }
 }
 
 function jsStringLiteral(s: string): string {

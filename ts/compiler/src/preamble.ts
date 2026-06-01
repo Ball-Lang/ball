@@ -124,18 +124,24 @@ class BallDouble {
 // Arithmetic helpers that propagate BallDouble through operations.
 // If either operand is BallDouble, the result is BallDouble (preserving .0).
 function __ball_mul(a: any, b: any): any {
+  // Operator overloading: check for __op_mul method on object
+  if (a != null && typeof a === 'object' && typeof a.__op_mul === 'function') return a.__op_mul(b);
   const av = a instanceof BallDouble ? a.value : a;
   const bv = b instanceof BallDouble ? b.value : b;
   const r = av * bv;
   return (a instanceof BallDouble || b instanceof BallDouble) ? new BallDouble(r) : r;
 }
 function __ball_add(a: any, b: any): any {
+  // Operator overloading: check for __op_add method on object
+  if (a != null && typeof a === 'object' && typeof a.__op_add === 'function') return a.__op_add(b);
   const av = a instanceof BallDouble ? a.value : a;
   const bv = b instanceof BallDouble ? b.value : b;
   const r = av + bv;
   return (a instanceof BallDouble || b instanceof BallDouble) ? new BallDouble(r) : r;
 }
 function __ball_sub(a: any, b: any): any {
+  // Operator overloading: check for __op_sub method on object
+  if (a != null && typeof a === 'object' && typeof a.__op_sub === 'function') return a.__op_sub(b);
   const av = a instanceof BallDouble ? a.value : a;
   const bv = b instanceof BallDouble ? b.value : b;
   const r = av - bv;
@@ -144,6 +150,8 @@ function __ball_sub(a: any, b: any): any {
 
 // Dart equality: NaN != NaN, BallDouble value comparison, null == undefined.
 function __ball_eq(a: any, b: any): boolean {
+  // Operator overloading: check for __op_eq method on object
+  if (a != null && typeof a === 'object' && typeof a.__op_eq === 'function') return a.__op_eq(b);
   if (a instanceof BallDouble || b instanceof BallDouble) {
     const av = a instanceof BallDouble ? a.value : a;
     const bv = b instanceof BallDouble ? b.value : b;

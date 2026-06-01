@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "129_unique_elements",
   "version": "1.0.0",
   "modules": [
     {
@@ -99,6 +99,20 @@
           "body": {
             "block": {
               "statements": [
+                {
+                  "let": {
+                    "name": "items",
+                    "value": {
+                      "reference": {
+                        "name": "input"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "List<int>"
+                    }
+                  }
+                },
                 {
                   "let": {
                     "name": "seen",
@@ -372,7 +386,7 @@
             "kind": "function",
             "params": [
               {
-                "name": "items",
+                "name": "input",
                 "type": "List<int>"
               }
             ]

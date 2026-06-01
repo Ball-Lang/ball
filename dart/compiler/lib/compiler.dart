@@ -3971,7 +3971,9 @@ class DartCompiler {
     final typeArgs = typeArgsField != null
         ? '<${typeArgsField.value.literal.stringValue}>'
         : '';
-    final entries = allFields.where((f) => f.name != 'type_args').toList();
+    final entries = allFields
+        .where((f) => f.name != 'type_args' && f.name != 'elements')
+        .toList();
     if (entries.isEmpty) return '$typeArgs{}';
     final buf = StringBuffer('$typeArgs{');
     var first = true;

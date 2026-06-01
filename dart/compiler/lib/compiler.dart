@@ -3475,7 +3475,7 @@ class DartCompiler {
       'now' => 'DateTime.now().millisecondsSinceEpoch',
       'now_micros' => 'DateTime.now().microsecondsSinceEpoch',
       'format_timestamp' =>
-        'DateTime.fromMillisecondsSinceEpoch(${_e(f['timestamp'] ?? f['timestamp_ms'] ?? f['value']!)}).toIso8601String()',
+        'DateTime.fromMillisecondsSinceEpoch(${_e(f['timestamp'] ?? f['timestamp_ms'] ?? f['value']!)}, isUtc: true).toIso8601String()',
       'parse_timestamp' =>
         'DateTime.parse(${_e(f['source'] ?? f['value']!)}).millisecondsSinceEpoch',
       'duration_add' => '(${_e(f['left']!)} + ${_e(f['right']!)})',

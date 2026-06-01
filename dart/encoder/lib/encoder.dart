@@ -102,15 +102,13 @@ class DartEncoder {
   String _moduleName = 'main';
 
   /// True while encoding the sections of a [ast.CascadeExpression].
-  /// Used to emit a cascade-target reference for null-target nodes
+  /// Used to emit a `__cascade_self__` placeholder for null-target nodes
   /// (PropertyAccess, IndexExpression, MethodInvocation) that implicitly
   /// refer to the cascade receiver.
   bool _inCascadeSection = false;
 
-  static Expression get _cascadeSelfExpr => Expression()
-    ..reference = (Reference()
-      ..name = 'self'
-      ..isCascadeTarget = true);
+  static Expression get _cascadeSelfExpr =>
+      Expression()..reference = (Reference()..name = '__cascade_self__');
 
   /// Collected import directives for metadata round-tripping.
   final List<Map<String, Object>> _importDetails = [];
@@ -1916,10 +1914,13 @@ class DartEncoder {
     final name = variable.name.lexeme;
     final init = variable.initializer;
 
-    final let = LetBinding()..name = name;
-    if (init != null) {
-      let.value = _encodeExpr(init);
-    }
+    final let = LetBinding()
+      ..name = name
+      ..value = (init != null
+          ? _encodeExpr(init)
+          // No initializer: emit a sentinel so the compiler knows not to
+          // produce ` = /* unknown expression */`.
+          : (Expression()..reference = (Reference()..name = '__no_init__')));
 
     // Store var/final/const/late and explicit type in metadata.
     final meta = <String, Object>{};
@@ -1930,10 +1931,7 @@ class DartEncoder {
     } else {
       meta['keyword'] = 'var';
     }
-    if (stmt.variables.isLate) {
-      meta['keyword'] = 'late';
-      meta['is_late'] = true;
-    }
+    if (stmt.variables.isLate) meta['is_late'] = true;
     final typeNode = stmt.variables.type;
     if (typeNode != null) meta['type'] = typeNode.toSource();
     if (meta.isNotEmpty) let.metadata = _toStruct(meta);
@@ -1952,10 +1950,11 @@ class DartEncoder {
       final name = variable.name.lexeme;
       final init = variable.initializer;
 
-      final let = LetBinding()..name = name;
-      if (init != null) {
-        let.value = _encodeExpr(init);
-      }
+      final let = LetBinding()
+        ..name = name
+        ..value = (init != null
+            ? _encodeExpr(init)
+            : (Expression()..reference = (Reference()..name = '__no_init__')));
 
       // Store var/final/const and explicit type in metadata (mirrors
       // _encodeVarDeclEntry for regular variable declarations).
@@ -1966,10 +1965,6 @@ class DartEncoder {
         meta['keyword'] = 'const';
       } else {
         meta['keyword'] = 'var';
-      }
-      if (declList.isLate) {
-        meta['keyword'] = 'late';
-        meta['is_late'] = true;
       }
       final typeNode = declList.type;
       if (typeNode != null) meta['type'] = typeNode.toSource();
@@ -3719,7 +3714,12 @@ class DartEncoder {
     }
     // Preserve const keyword for const constructor calls.
     if (expr.keyword?.lexeme == 'const') {
-      msg.metadata = _toStruct({'is_const': true});
+      msg.fields.insert(
+        0,
+        FieldValuePair()
+          ..name = '__const__'
+          ..value = (Expression()..literal = (Literal()..boolValue = true)),
+      );
     }
 
     return Expression()..messageCreation = msg;

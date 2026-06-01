@@ -192,23 +192,18 @@
                                     "name": "scores"
                                   }
                                 }
-                              }
-                            ]
-                          }
-                        },
-                        "typeArgs": [
-                          {
-                            "name": "Map",
-                            "typeArgs": [
-                              {
-                                "name": "String"
                               },
                               {
-                                "name": "int"
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "Map<String, int>"
+                                  }
+                                }
                               }
                             ]
                           }
-                        ]
+                        }
                       }
                     },
                     "metadata": {
@@ -257,23 +252,18 @@
                                     "name": "scores"
                                   }
                                 }
-                              }
-                            ]
-                          }
-                        },
-                        "typeArgs": [
-                          {
-                            "name": "Map",
-                            "typeArgs": [
-                              {
-                                "name": "String"
                               },
                               {
-                                "name": "String"
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "Map<String, String>"
+                                  }
+                                }
                               }
                             ]
                           }
-                        ]
+                        }
                       }
                     },
                     "metadata": {
@@ -322,15 +312,18 @@
                                     "name": "scores"
                                   }
                                 }
+                              },
+                              {
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "Map"
+                                  }
+                                }
                               }
                             ]
                           }
-                        },
-                        "typeArgs": [
-                          {
-                            "name": "Map"
-                          }
-                        ]
+                        }
                       }
                     },
                     "metadata": {

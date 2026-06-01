@@ -148,6 +148,14 @@
                         "typeName": "main:Container",
                         "fields": [
                           {
+                            "name": "__type_args__",
+                            "value": {
+                              "literal": {
+                                "stringValue": "<int>"
+                              }
+                            }
+                          },
+                          {
                             "name": "arg0",
                             "value": {
                               "literal": {
@@ -208,6 +216,14 @@
                       "messageCreation": {
                         "typeName": "main:Container",
                         "fields": [
+                          {
+                            "name": "__type_args__",
+                            "value": {
+                              "literal": {
+                                "stringValue": "<String>"
+                              }
+                            }
+                          },
                           {
                             "name": "arg0",
                             "value": {

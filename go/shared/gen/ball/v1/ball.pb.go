@@ -1986,13 +1986,10 @@ func (x *ListLiteral) GetElements() []*Expression {
 // A reference to a named variable.
 // The special name "input" refers to the current function's input parameter.
 type Reference struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// When true, this reference targets the cascade expression's receiver
-	// (Dart's `..` chains). Replaces the former "__cascade_self__" sentinel.
-	IsCascadeTarget bool `protobuf:"varint,2,opt,name=is_cascade_target,json=isCascadeTarget,proto3" json:"is_cascade_target,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Reference) Reset() {
@@ -2030,13 +2027,6 @@ func (x *Reference) GetName() string {
 		return x.Name
 	}
 	return ""
-}
-
-func (x *Reference) GetIsCascadeTarget() bool {
-	if x != nil {
-		return x.IsCascadeTarget
-	}
-	return false
 }
 
 // Accesses a field of a message-typed expression.
@@ -2423,987 +2413,6 @@ func (x *LetBinding) GetMetadata() *structpb.Struct {
 	return nil
 }
 
-// A pattern used in match/switch expressions and destructuring declarations.
-// Covers all pattern matching across all target languages (Dart, Rust, Python,
-// Scala, Swift, C#, Java, Kotlin, Haskell, Go, C++).
-// See docs/PATTERN_DESIGN.md for the full cross-language mapping.
-type Pattern struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Types that are valid to be assigned to Kind:
-	//
-	//	*Pattern_Wildcard
-	//	*Pattern_Variable
-	//	*Pattern_Constant
-	//	*Pattern_TypeTest
-	//	*Pattern_Destructure
-	//	*Pattern_List
-	//	*Pattern_Map
-	//	*Pattern_Or
-	//	*Pattern_And
-	//	*Pattern_Relational
-	//	*Pattern_Binding
-	//	*Pattern_Rest
-	Kind isPattern_Kind `protobuf_oneof:"kind"`
-	// Guard expression evaluated after structural match succeeds.
-	// Universal: Dart 'when', Rust 'if', Python 'if', C# 'when', Scala 'if'.
-	Guard *Expression `protobuf:"bytes,15,opt,name=guard,proto3" json:"guard,omitempty"`
-	// Cosmetic metadata (source location, original syntax form).
-	Metadata      *structpb.Struct `protobuf:"bytes,16,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Pattern) Reset() {
-	*x = Pattern{}
-	mi := &file_ball_v1_ball_proto_msgTypes[26]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Pattern) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Pattern) ProtoMessage() {}
-
-func (x *Pattern) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[26]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Pattern.ProtoReflect.Descriptor instead.
-func (*Pattern) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{26}
-}
-
-func (x *Pattern) GetKind() isPattern_Kind {
-	if x != nil {
-		return x.Kind
-	}
-	return nil
-}
-
-func (x *Pattern) GetWildcard() *WildcardPattern {
-	if x != nil {
-		if x, ok := x.Kind.(*Pattern_Wildcard); ok {
-			return x.Wildcard
-		}
-	}
-	return nil
-}
-
-func (x *Pattern) GetVariable() *VariablePattern {
-	if x != nil {
-		if x, ok := x.Kind.(*Pattern_Variable); ok {
-			return x.Variable
-		}
-	}
-	return nil
-}
-
-func (x *Pattern) GetConstant() *ConstantPattern {
-	if x != nil {
-		if x, ok := x.Kind.(*Pattern_Constant); ok {
-			return x.Constant
-		}
-	}
-	return nil
-}
-
-func (x *Pattern) GetTypeTest() *TypeTestPattern {
-	if x != nil {
-		if x, ok := x.Kind.(*Pattern_TypeTest); ok {
-			return x.TypeTest
-		}
-	}
-	return nil
-}
-
-func (x *Pattern) GetDestructure() *DestructurePattern {
-	if x != nil {
-		if x, ok := x.Kind.(*Pattern_Destructure); ok {
-			return x.Destructure
-		}
-	}
-	return nil
-}
-
-func (x *Pattern) GetList() *ListPattern {
-	if x != nil {
-		if x, ok := x.Kind.(*Pattern_List); ok {
-			return x.List
-		}
-	}
-	return nil
-}
-
-func (x *Pattern) GetMap() *MapPattern {
-	if x != nil {
-		if x, ok := x.Kind.(*Pattern_Map); ok {
-			return x.Map
-		}
-	}
-	return nil
-}
-
-func (x *Pattern) GetOr() *OrPattern {
-	if x != nil {
-		if x, ok := x.Kind.(*Pattern_Or); ok {
-			return x.Or
-		}
-	}
-	return nil
-}
-
-func (x *Pattern) GetAnd() *AndPattern {
-	if x != nil {
-		if x, ok := x.Kind.(*Pattern_And); ok {
-			return x.And
-		}
-	}
-	return nil
-}
-
-func (x *Pattern) GetRelational() *RelationalPattern {
-	if x != nil {
-		if x, ok := x.Kind.(*Pattern_Relational); ok {
-			return x.Relational
-		}
-	}
-	return nil
-}
-
-func (x *Pattern) GetBinding() *BindingPattern {
-	if x != nil {
-		if x, ok := x.Kind.(*Pattern_Binding); ok {
-			return x.Binding
-		}
-	}
-	return nil
-}
-
-func (x *Pattern) GetRest() *RestPattern {
-	if x != nil {
-		if x, ok := x.Kind.(*Pattern_Rest); ok {
-			return x.Rest
-		}
-	}
-	return nil
-}
-
-func (x *Pattern) GetGuard() *Expression {
-	if x != nil {
-		return x.Guard
-	}
-	return nil
-}
-
-func (x *Pattern) GetMetadata() *structpb.Struct {
-	if x != nil {
-		return x.Metadata
-	}
-	return nil
-}
-
-type isPattern_Kind interface {
-	isPattern_Kind()
-}
-
-type Pattern_Wildcard struct {
-	Wildcard *WildcardPattern `protobuf:"bytes,1,opt,name=wildcard,proto3,oneof"`
-}
-
-type Pattern_Variable struct {
-	Variable *VariablePattern `protobuf:"bytes,2,opt,name=variable,proto3,oneof"`
-}
-
-type Pattern_Constant struct {
-	Constant *ConstantPattern `protobuf:"bytes,3,opt,name=constant,proto3,oneof"`
-}
-
-type Pattern_TypeTest struct {
-	TypeTest *TypeTestPattern `protobuf:"bytes,4,opt,name=type_test,json=typeTest,proto3,oneof"`
-}
-
-type Pattern_Destructure struct {
-	Destructure *DestructurePattern `protobuf:"bytes,5,opt,name=destructure,proto3,oneof"`
-}
-
-type Pattern_List struct {
-	List *ListPattern `protobuf:"bytes,6,opt,name=list,proto3,oneof"`
-}
-
-type Pattern_Map struct {
-	Map *MapPattern `protobuf:"bytes,7,opt,name=map,proto3,oneof"`
-}
-
-type Pattern_Or struct {
-	Or *OrPattern `protobuf:"bytes,8,opt,name=or,proto3,oneof"`
-}
-
-type Pattern_And struct {
-	And *AndPattern `protobuf:"bytes,9,opt,name=and,proto3,oneof"`
-}
-
-type Pattern_Relational struct {
-	Relational *RelationalPattern `protobuf:"bytes,10,opt,name=relational,proto3,oneof"`
-}
-
-type Pattern_Binding struct {
-	Binding *BindingPattern `protobuf:"bytes,11,opt,name=binding,proto3,oneof"`
-}
-
-type Pattern_Rest struct {
-	Rest *RestPattern `protobuf:"bytes,12,opt,name=rest,proto3,oneof"`
-}
-
-func (*Pattern_Wildcard) isPattern_Kind() {}
-
-func (*Pattern_Variable) isPattern_Kind() {}
-
-func (*Pattern_Constant) isPattern_Kind() {}
-
-func (*Pattern_TypeTest) isPattern_Kind() {}
-
-func (*Pattern_Destructure) isPattern_Kind() {}
-
-func (*Pattern_List) isPattern_Kind() {}
-
-func (*Pattern_Map) isPattern_Kind() {}
-
-func (*Pattern_Or) isPattern_Kind() {}
-
-func (*Pattern_And) isPattern_Kind() {}
-
-func (*Pattern_Relational) isPattern_Kind() {}
-
-func (*Pattern_Binding) isPattern_Kind() {}
-
-func (*Pattern_Rest) isPattern_Kind() {}
-
-// Matches any value, binds nothing. The universal wildcard.
-type WildcardPattern struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *WildcardPattern) Reset() {
-	*x = WildcardPattern{}
-	mi := &file_ball_v1_ball_proto_msgTypes[27]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *WildcardPattern) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*WildcardPattern) ProtoMessage() {}
-
-func (x *WildcardPattern) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[27]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use WildcardPattern.ProtoReflect.Descriptor instead.
-func (*WildcardPattern) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{27}
-}
-
-// Binds the matched value to a named variable, optionally with a type constraint.
-type VariablePattern struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Type          *TypeRef               `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
-	IsFinal       bool                   `protobuf:"varint,3,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *VariablePattern) Reset() {
-	*x = VariablePattern{}
-	mi := &file_ball_v1_ball_proto_msgTypes[28]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *VariablePattern) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*VariablePattern) ProtoMessage() {}
-
-func (x *VariablePattern) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[28]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use VariablePattern.ProtoReflect.Descriptor instead.
-func (*VariablePattern) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{28}
-}
-
-func (x *VariablePattern) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *VariablePattern) GetType() *TypeRef {
-	if x != nil {
-		return x.Type
-	}
-	return nil
-}
-
-func (x *VariablePattern) GetIsFinal() bool {
-	if x != nil {
-		return x.IsFinal
-	}
-	return false
-}
-
-// Matches a value equal to a constant expression.
-type ConstantPattern struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Value         *Expression            `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ConstantPattern) Reset() {
-	*x = ConstantPattern{}
-	mi := &file_ball_v1_ball_proto_msgTypes[29]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ConstantPattern) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ConstantPattern) ProtoMessage() {}
-
-func (x *ConstantPattern) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[29]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ConstantPattern.ProtoReflect.Descriptor instead.
-func (*ConstantPattern) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{29}
-}
-
-func (x *ConstantPattern) GetValue() *Expression {
-	if x != nil {
-		return x.Value
-	}
-	return nil
-}
-
-// Tests the runtime type of the matched value.
-type TypeTestPattern struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          *TypeRef               `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
-	Inner         *Pattern               `protobuf:"bytes,2,opt,name=inner,proto3" json:"inner,omitempty"`
-	IsCast        bool                   `protobuf:"varint,3,opt,name=is_cast,json=isCast,proto3" json:"is_cast,omitempty"`
-	IsNullCheck   bool                   `protobuf:"varint,4,opt,name=is_null_check,json=isNullCheck,proto3" json:"is_null_check,omitempty"`
-	IsNullAssert  bool                   `protobuf:"varint,5,opt,name=is_null_assert,json=isNullAssert,proto3" json:"is_null_assert,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TypeTestPattern) Reset() {
-	*x = TypeTestPattern{}
-	mi := &file_ball_v1_ball_proto_msgTypes[30]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TypeTestPattern) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TypeTestPattern) ProtoMessage() {}
-
-func (x *TypeTestPattern) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[30]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TypeTestPattern.ProtoReflect.Descriptor instead.
-func (*TypeTestPattern) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{30}
-}
-
-func (x *TypeTestPattern) GetType() *TypeRef {
-	if x != nil {
-		return x.Type
-	}
-	return nil
-}
-
-func (x *TypeTestPattern) GetInner() *Pattern {
-	if x != nil {
-		return x.Inner
-	}
-	return nil
-}
-
-func (x *TypeTestPattern) GetIsCast() bool {
-	if x != nil {
-		return x.IsCast
-	}
-	return false
-}
-
-func (x *TypeTestPattern) GetIsNullCheck() bool {
-	if x != nil {
-		return x.IsNullCheck
-	}
-	return false
-}
-
-func (x *TypeTestPattern) GetIsNullAssert() bool {
-	if x != nil {
-		return x.IsNullAssert
-	}
-	return false
-}
-
-// Destructures by position and/or name (tuples, records, constructors).
-type DestructurePattern struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          *TypeRef               `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
-	Fields        []*DestructureField    `protobuf:"bytes,2,rep,name=fields,proto3" json:"fields,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DestructurePattern) Reset() {
-	*x = DestructurePattern{}
-	mi := &file_ball_v1_ball_proto_msgTypes[31]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DestructurePattern) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DestructurePattern) ProtoMessage() {}
-
-func (x *DestructurePattern) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[31]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DestructurePattern.ProtoReflect.Descriptor instead.
-func (*DestructurePattern) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{31}
-}
-
-func (x *DestructurePattern) GetType() *TypeRef {
-	if x != nil {
-		return x.Type
-	}
-	return nil
-}
-
-func (x *DestructurePattern) GetFields() []*DestructureField {
-	if x != nil {
-		return x.Fields
-	}
-	return nil
-}
-
-type DestructureField struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Pattern       *Pattern               `protobuf:"bytes,2,opt,name=pattern,proto3" json:"pattern,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DestructureField) Reset() {
-	*x = DestructureField{}
-	mi := &file_ball_v1_ball_proto_msgTypes[32]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DestructureField) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DestructureField) ProtoMessage() {}
-
-func (x *DestructureField) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[32]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DestructureField.ProtoReflect.Descriptor instead.
-func (*DestructureField) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{32}
-}
-
-func (x *DestructureField) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *DestructureField) GetPattern() *Pattern {
-	if x != nil {
-		return x.Pattern
-	}
-	return nil
-}
-
-// Matches a sequence (list/array/slice) element by element.
-type ListPattern struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Elements      []*Pattern             `protobuf:"bytes,1,rep,name=elements,proto3" json:"elements,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListPattern) Reset() {
-	*x = ListPattern{}
-	mi := &file_ball_v1_ball_proto_msgTypes[33]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListPattern) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListPattern) ProtoMessage() {}
-
-func (x *ListPattern) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[33]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListPattern.ProtoReflect.Descriptor instead.
-func (*ListPattern) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{33}
-}
-
-func (x *ListPattern) GetElements() []*Pattern {
-	if x != nil {
-		return x.Elements
-	}
-	return nil
-}
-
-// Matches a mapping (dictionary/map) by key-value pairs.
-type MapPattern struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Entries       []*MapPatternEntry     `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
-	Rest          *Pattern               `protobuf:"bytes,2,opt,name=rest,proto3" json:"rest,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *MapPattern) Reset() {
-	*x = MapPattern{}
-	mi := &file_ball_v1_ball_proto_msgTypes[34]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *MapPattern) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*MapPattern) ProtoMessage() {}
-
-func (x *MapPattern) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[34]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use MapPattern.ProtoReflect.Descriptor instead.
-func (*MapPattern) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{34}
-}
-
-func (x *MapPattern) GetEntries() []*MapPatternEntry {
-	if x != nil {
-		return x.Entries
-	}
-	return nil
-}
-
-func (x *MapPattern) GetRest() *Pattern {
-	if x != nil {
-		return x.Rest
-	}
-	return nil
-}
-
-type MapPatternEntry struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Key           *Expression            `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
-	ValuePattern  *Pattern               `protobuf:"bytes,2,opt,name=value_pattern,json=valuePattern,proto3" json:"value_pattern,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *MapPatternEntry) Reset() {
-	*x = MapPatternEntry{}
-	mi := &file_ball_v1_ball_proto_msgTypes[35]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *MapPatternEntry) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*MapPatternEntry) ProtoMessage() {}
-
-func (x *MapPatternEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[35]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use MapPatternEntry.ProtoReflect.Descriptor instead.
-func (*MapPatternEntry) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{35}
-}
-
-func (x *MapPatternEntry) GetKey() *Expression {
-	if x != nil {
-		return x.Key
-	}
-	return nil
-}
-
-func (x *MapPatternEntry) GetValuePattern() *Pattern {
-	if x != nil {
-		return x.ValuePattern
-	}
-	return nil
-}
-
-// Matches if any sub-pattern matches (disjunction).
-type OrPattern struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Patterns      []*Pattern             `protobuf:"bytes,1,rep,name=patterns,proto3" json:"patterns,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *OrPattern) Reset() {
-	*x = OrPattern{}
-	mi := &file_ball_v1_ball_proto_msgTypes[36]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *OrPattern) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*OrPattern) ProtoMessage() {}
-
-func (x *OrPattern) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[36]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use OrPattern.ProtoReflect.Descriptor instead.
-func (*OrPattern) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{36}
-}
-
-func (x *OrPattern) GetPatterns() []*Pattern {
-	if x != nil {
-		return x.Patterns
-	}
-	return nil
-}
-
-// Matches only if all sub-patterns match (conjunction).
-type AndPattern struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Patterns      []*Pattern             `protobuf:"bytes,1,rep,name=patterns,proto3" json:"patterns,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *AndPattern) Reset() {
-	*x = AndPattern{}
-	mi := &file_ball_v1_ball_proto_msgTypes[37]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AndPattern) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AndPattern) ProtoMessage() {}
-
-func (x *AndPattern) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[37]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AndPattern.ProtoReflect.Descriptor instead.
-func (*AndPattern) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{37}
-}
-
-func (x *AndPattern) GetPatterns() []*Pattern {
-	if x != nil {
-		return x.Patterns
-	}
-	return nil
-}
-
-// Compares the matched value against a constant using a relational operator.
-type RelationalPattern struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Operator      string                 `protobuf:"bytes,1,opt,name=operator,proto3" json:"operator,omitempty"`
-	Operand       *Expression            `protobuf:"bytes,2,opt,name=operand,proto3" json:"operand,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RelationalPattern) Reset() {
-	*x = RelationalPattern{}
-	mi := &file_ball_v1_ball_proto_msgTypes[38]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RelationalPattern) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RelationalPattern) ProtoMessage() {}
-
-func (x *RelationalPattern) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[38]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RelationalPattern.ProtoReflect.Descriptor instead.
-func (*RelationalPattern) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{38}
-}
-
-func (x *RelationalPattern) GetOperator() string {
-	if x != nil {
-		return x.Operator
-	}
-	return ""
-}
-
-func (x *RelationalPattern) GetOperand() *Expression {
-	if x != nil {
-		return x.Operand
-	}
-	return nil
-}
-
-// Matches the inner pattern and binds the entire value to a name.
-type BindingPattern struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Pattern       *Pattern               `protobuf:"bytes,2,opt,name=pattern,proto3" json:"pattern,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *BindingPattern) Reset() {
-	*x = BindingPattern{}
-	mi := &file_ball_v1_ball_proto_msgTypes[39]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *BindingPattern) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*BindingPattern) ProtoMessage() {}
-
-func (x *BindingPattern) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[39]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use BindingPattern.ProtoReflect.Descriptor instead.
-func (*BindingPattern) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{39}
-}
-
-func (x *BindingPattern) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *BindingPattern) GetPattern() *Pattern {
-	if x != nil {
-		return x.Pattern
-	}
-	return nil
-}
-
-// Matches zero or more remaining elements in a sequence or structure.
-type RestPattern struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Pattern       *Pattern               `protobuf:"bytes,1,opt,name=pattern,proto3" json:"pattern,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RestPattern) Reset() {
-	*x = RestPattern{}
-	mi := &file_ball_v1_ball_proto_msgTypes[40]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RestPattern) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RestPattern) ProtoMessage() {}
-
-func (x *RestPattern) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[40]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RestPattern.ProtoReflect.Descriptor instead.
-func (*RestPattern) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{40}
-}
-
-func (x *RestPattern) GetPattern() *Pattern {
-	if x != nil {
-		return x.Pattern
-	}
-	return nil
-}
-
 // A manifest declares a Ball package's identity, entry point, and dependencies.
 // Analogous to pubspec.yaml, package.json, Cargo.toml.
 // Serialized as `ball.yaml` (human-friendly) or `ball.manifest.json` (proto JSON).
@@ -3426,7 +2435,7 @@ type BallManifest struct {
 
 func (x *BallManifest) Reset() {
 	*x = BallManifest{}
-	mi := &file_ball_v1_ball_proto_msgTypes[41]
+	mi := &file_ball_v1_ball_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3438,7 +2447,7 @@ func (x *BallManifest) String() string {
 func (*BallManifest) ProtoMessage() {}
 
 func (x *BallManifest) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[41]
+	mi := &file_ball_v1_ball_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3451,7 +2460,7 @@ func (x *BallManifest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BallManifest.ProtoReflect.Descriptor instead.
 func (*BallManifest) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{41}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *BallManifest) GetName() string {
@@ -3524,7 +2533,7 @@ type BallLockfile struct {
 
 func (x *BallLockfile) Reset() {
 	*x = BallLockfile{}
-	mi := &file_ball_v1_ball_proto_msgTypes[42]
+	mi := &file_ball_v1_ball_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3536,7 +2545,7 @@ func (x *BallLockfile) String() string {
 func (*BallLockfile) ProtoMessage() {}
 
 func (x *BallLockfile) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[42]
+	mi := &file_ball_v1_ball_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3549,7 +2558,7 @@ func (x *BallLockfile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BallLockfile.ProtoReflect.Descriptor instead.
 func (*BallLockfile) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{42}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *BallLockfile) GetPackages() []*ResolvedDependency {
@@ -3592,7 +2601,7 @@ type ResolvedDependency struct {
 
 func (x *ResolvedDependency) Reset() {
 	*x = ResolvedDependency{}
-	mi := &file_ball_v1_ball_proto_msgTypes[43]
+	mi := &file_ball_v1_ball_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3604,7 +2613,7 @@ func (x *ResolvedDependency) String() string {
 func (*ResolvedDependency) ProtoMessage() {}
 
 func (x *ResolvedDependency) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[43]
+	mi := &file_ball_v1_ball_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3617,7 +2626,7 @@ func (x *ResolvedDependency) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolvedDependency.ProtoReflect.Descriptor instead.
 func (*ResolvedDependency) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{43}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ResolvedDependency) GetName() string {
@@ -3739,7 +2748,7 @@ type BallCapabilityReport struct {
 
 func (x *BallCapabilityReport) Reset() {
 	*x = BallCapabilityReport{}
-	mi := &file_ball_v1_ball_proto_msgTypes[44]
+	mi := &file_ball_v1_ball_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3751,7 +2760,7 @@ func (x *BallCapabilityReport) String() string {
 func (*BallCapabilityReport) ProtoMessage() {}
 
 func (x *BallCapabilityReport) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[44]
+	mi := &file_ball_v1_ball_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3764,7 +2773,7 @@ func (x *BallCapabilityReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BallCapabilityReport.ProtoReflect.Descriptor instead.
 func (*BallCapabilityReport) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{44}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *BallCapabilityReport) GetProgramName() string {
@@ -3820,7 +2829,7 @@ type CapabilityEntry struct {
 
 func (x *CapabilityEntry) Reset() {
 	*x = CapabilityEntry{}
-	mi := &file_ball_v1_ball_proto_msgTypes[45]
+	mi := &file_ball_v1_ball_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3832,7 +2841,7 @@ func (x *CapabilityEntry) String() string {
 func (*CapabilityEntry) ProtoMessage() {}
 
 func (x *CapabilityEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[45]
+	mi := &file_ball_v1_ball_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3845,7 +2854,7 @@ func (x *CapabilityEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapabilityEntry.ProtoReflect.Descriptor instead.
 func (*CapabilityEntry) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{45}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *CapabilityEntry) GetCapability() string {
@@ -3887,7 +2896,7 @@ type CallSite struct {
 
 func (x *CallSite) Reset() {
 	*x = CallSite{}
-	mi := &file_ball_v1_ball_proto_msgTypes[46]
+	mi := &file_ball_v1_ball_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3899,7 +2908,7 @@ func (x *CallSite) String() string {
 func (*CallSite) ProtoMessage() {}
 
 func (x *CallSite) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[46]
+	mi := &file_ball_v1_ball_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3912,7 +2921,7 @@ func (x *CallSite) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CallSite.ProtoReflect.Descriptor instead.
 func (*CallSite) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{46}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *CallSite) GetModule() string {
@@ -3956,7 +2965,7 @@ type FunctionCapability struct {
 
 func (x *FunctionCapability) Reset() {
 	*x = FunctionCapability{}
-	mi := &file_ball_v1_ball_proto_msgTypes[47]
+	mi := &file_ball_v1_ball_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3968,7 +2977,7 @@ func (x *FunctionCapability) String() string {
 func (*FunctionCapability) ProtoMessage() {}
 
 func (x *FunctionCapability) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[47]
+	mi := &file_ball_v1_ball_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3981,7 +2990,7 @@ func (x *FunctionCapability) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FunctionCapability.ProtoReflect.Descriptor instead.
 func (*FunctionCapability) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{47}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *FunctionCapability) GetModule() string {
@@ -4030,7 +3039,7 @@ type CapabilitySummary struct {
 
 func (x *CapabilitySummary) Reset() {
 	*x = CapabilitySummary{}
-	mi := &file_ball_v1_ball_proto_msgTypes[48]
+	mi := &file_ball_v1_ball_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4042,7 +3051,7 @@ func (x *CapabilitySummary) String() string {
 func (*CapabilitySummary) ProtoMessage() {}
 
 func (x *CapabilitySummary) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[48]
+	mi := &file_ball_v1_ball_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4055,7 +3064,7 @@ func (x *CapabilitySummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapabilitySummary.ProtoReflect.Descriptor instead.
 func (*CapabilitySummary) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{48}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *CapabilitySummary) GetIsPure() bool {
@@ -4304,10 +3313,9 @@ const file_ball_v1_ball_proto_rawDesc = "" +
 	"list_value\x18\x06 \x01(\v2\x14.ball.v1.ListLiteralH\x00R\tlistValueB\a\n" +
 	"\x05value\">\n" +
 	"\vListLiteral\x12/\n" +
-	"\belements\x18\x01 \x03(\v2\x13.ball.v1.ExpressionR\belements\"K\n" +
+	"\belements\x18\x01 \x03(\v2\x13.ball.v1.ExpressionR\belements\"\x1f\n" +
 	"\tReference\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12*\n" +
-	"\x11is_cascade_target\x18\x02 \x01(\bR\x0fisCascadeTarget\"P\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"P\n" +
 	"\vFieldAccess\x12+\n" +
 	"\x06object\x18\x01 \x01(\v2\x13.ball.v1.ExpressionR\x06object\x12\x14\n" +
 	"\x05field\x18\x02 \x01(\tR\x05field\"\x94\x01\n" +
@@ -4333,67 +3341,7 @@ const file_ball_v1_ball_proto_rawDesc = "" +
 	"LetBinding\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
 	"\x05value\x18\x02 \x01(\v2\x13.ball.v1.ExpressionR\x05value\x123\n" +
-	"\bmetadata\x18\x03 \x01(\v2\x17.google.protobuf.StructR\bmetadata\"\xd6\x05\n" +
-	"\aPattern\x126\n" +
-	"\bwildcard\x18\x01 \x01(\v2\x18.ball.v1.WildcardPatternH\x00R\bwildcard\x126\n" +
-	"\bvariable\x18\x02 \x01(\v2\x18.ball.v1.VariablePatternH\x00R\bvariable\x126\n" +
-	"\bconstant\x18\x03 \x01(\v2\x18.ball.v1.ConstantPatternH\x00R\bconstant\x127\n" +
-	"\ttype_test\x18\x04 \x01(\v2\x18.ball.v1.TypeTestPatternH\x00R\btypeTest\x12?\n" +
-	"\vdestructure\x18\x05 \x01(\v2\x1b.ball.v1.DestructurePatternH\x00R\vdestructure\x12*\n" +
-	"\x04list\x18\x06 \x01(\v2\x14.ball.v1.ListPatternH\x00R\x04list\x12'\n" +
-	"\x03map\x18\a \x01(\v2\x13.ball.v1.MapPatternH\x00R\x03map\x12$\n" +
-	"\x02or\x18\b \x01(\v2\x12.ball.v1.OrPatternH\x00R\x02or\x12'\n" +
-	"\x03and\x18\t \x01(\v2\x13.ball.v1.AndPatternH\x00R\x03and\x12<\n" +
-	"\n" +
-	"relational\x18\n" +
-	" \x01(\v2\x1a.ball.v1.RelationalPatternH\x00R\n" +
-	"relational\x123\n" +
-	"\abinding\x18\v \x01(\v2\x17.ball.v1.BindingPatternH\x00R\abinding\x12*\n" +
-	"\x04rest\x18\f \x01(\v2\x14.ball.v1.RestPatternH\x00R\x04rest\x12)\n" +
-	"\x05guard\x18\x0f \x01(\v2\x13.ball.v1.ExpressionR\x05guard\x123\n" +
-	"\bmetadata\x18\x10 \x01(\v2\x17.google.protobuf.StructR\bmetadataB\x06\n" +
-	"\x04kind\"\x11\n" +
-	"\x0fWildcardPattern\"f\n" +
-	"\x0fVariablePattern\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12$\n" +
-	"\x04type\x18\x02 \x01(\v2\x10.ball.v1.TypeRefR\x04type\x12\x19\n" +
-	"\bis_final\x18\x03 \x01(\bR\aisFinal\"<\n" +
-	"\x0fConstantPattern\x12)\n" +
-	"\x05value\x18\x01 \x01(\v2\x13.ball.v1.ExpressionR\x05value\"\xc2\x01\n" +
-	"\x0fTypeTestPattern\x12$\n" +
-	"\x04type\x18\x01 \x01(\v2\x10.ball.v1.TypeRefR\x04type\x12&\n" +
-	"\x05inner\x18\x02 \x01(\v2\x10.ball.v1.PatternR\x05inner\x12\x17\n" +
-	"\ais_cast\x18\x03 \x01(\bR\x06isCast\x12\"\n" +
-	"\ris_null_check\x18\x04 \x01(\bR\visNullCheck\x12$\n" +
-	"\x0eis_null_assert\x18\x05 \x01(\bR\fisNullAssert\"m\n" +
-	"\x12DestructurePattern\x12$\n" +
-	"\x04type\x18\x01 \x01(\v2\x10.ball.v1.TypeRefR\x04type\x121\n" +
-	"\x06fields\x18\x02 \x03(\v2\x19.ball.v1.DestructureFieldR\x06fields\"R\n" +
-	"\x10DestructureField\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12*\n" +
-	"\apattern\x18\x02 \x01(\v2\x10.ball.v1.PatternR\apattern\";\n" +
-	"\vListPattern\x12,\n" +
-	"\belements\x18\x01 \x03(\v2\x10.ball.v1.PatternR\belements\"f\n" +
-	"\n" +
-	"MapPattern\x122\n" +
-	"\aentries\x18\x01 \x03(\v2\x18.ball.v1.MapPatternEntryR\aentries\x12$\n" +
-	"\x04rest\x18\x02 \x01(\v2\x10.ball.v1.PatternR\x04rest\"o\n" +
-	"\x0fMapPatternEntry\x12%\n" +
-	"\x03key\x18\x01 \x01(\v2\x13.ball.v1.ExpressionR\x03key\x125\n" +
-	"\rvalue_pattern\x18\x02 \x01(\v2\x10.ball.v1.PatternR\fvaluePattern\"9\n" +
-	"\tOrPattern\x12,\n" +
-	"\bpatterns\x18\x01 \x03(\v2\x10.ball.v1.PatternR\bpatterns\":\n" +
-	"\n" +
-	"AndPattern\x12,\n" +
-	"\bpatterns\x18\x01 \x03(\v2\x10.ball.v1.PatternR\bpatterns\"^\n" +
-	"\x11RelationalPattern\x12\x1a\n" +
-	"\boperator\x18\x01 \x01(\tR\boperator\x12-\n" +
-	"\aoperand\x18\x02 \x01(\v2\x13.ball.v1.ExpressionR\aoperand\"P\n" +
-	"\x0eBindingPattern\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12*\n" +
-	"\apattern\x18\x02 \x01(\v2\x10.ball.v1.PatternR\apattern\"9\n" +
-	"\vRestPattern\x12*\n" +
-	"\apattern\x18\x01 \x01(\v2\x10.ball.v1.PatternR\apattern\"\xda\x02\n" +
+	"\bmetadata\x18\x03 \x01(\v2\x17.google.protobuf.StructR\bmetadata\"\xda\x02\n" +
 	"\fBallManifest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12 \n" +
@@ -4487,7 +3435,7 @@ func file_ball_v1_ball_proto_rawDescGZIP() []byte {
 }
 
 var file_ball_v1_ball_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_ball_v1_ball_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
+var file_ball_v1_ball_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_ball_v1_ball_proto_goTypes = []any{
 	(Registry)(0),                            // 0: ball.v1.Registry
 	(ModuleEncoding)(0),                      // 1: ball.v1.ModuleEncoding
@@ -4517,69 +3465,54 @@ var file_ball_v1_ball_proto_goTypes = []any{
 	(*Block)(nil),                            // 25: ball.v1.Block
 	(*Statement)(nil),                        // 26: ball.v1.Statement
 	(*LetBinding)(nil),                       // 27: ball.v1.LetBinding
-	(*Pattern)(nil),                          // 28: ball.v1.Pattern
-	(*WildcardPattern)(nil),                  // 29: ball.v1.WildcardPattern
-	(*VariablePattern)(nil),                  // 30: ball.v1.VariablePattern
-	(*ConstantPattern)(nil),                  // 31: ball.v1.ConstantPattern
-	(*TypeTestPattern)(nil),                  // 32: ball.v1.TypeTestPattern
-	(*DestructurePattern)(nil),               // 33: ball.v1.DestructurePattern
-	(*DestructureField)(nil),                 // 34: ball.v1.DestructureField
-	(*ListPattern)(nil),                      // 35: ball.v1.ListPattern
-	(*MapPattern)(nil),                       // 36: ball.v1.MapPattern
-	(*MapPatternEntry)(nil),                  // 37: ball.v1.MapPatternEntry
-	(*OrPattern)(nil),                        // 38: ball.v1.OrPattern
-	(*AndPattern)(nil),                       // 39: ball.v1.AndPattern
-	(*RelationalPattern)(nil),                // 40: ball.v1.RelationalPattern
-	(*BindingPattern)(nil),                   // 41: ball.v1.BindingPattern
-	(*RestPattern)(nil),                      // 42: ball.v1.RestPattern
-	(*BallManifest)(nil),                     // 43: ball.v1.BallManifest
-	(*BallLockfile)(nil),                     // 44: ball.v1.BallLockfile
-	(*ResolvedDependency)(nil),               // 45: ball.v1.ResolvedDependency
-	(*BallCapabilityReport)(nil),             // 46: ball.v1.BallCapabilityReport
-	(*CapabilityEntry)(nil),                  // 47: ball.v1.CapabilityEntry
-	(*CallSite)(nil),                         // 48: ball.v1.CallSite
-	(*FunctionCapability)(nil),               // 49: ball.v1.FunctionCapability
-	(*CapabilitySummary)(nil),                // 50: ball.v1.CapabilitySummary
-	nil,                                      // 51: ball.v1.HttpSource.HeadersEntry
-	(*structpb.Struct)(nil),                  // 52: google.protobuf.Struct
-	(*descriptorpb.EnumDescriptorProto)(nil), // 53: google.protobuf.EnumDescriptorProto
-	(*descriptorpb.DescriptorProto)(nil),     // 54: google.protobuf.DescriptorProto
+	(*BallManifest)(nil),                     // 28: ball.v1.BallManifest
+	(*BallLockfile)(nil),                     // 29: ball.v1.BallLockfile
+	(*ResolvedDependency)(nil),               // 30: ball.v1.ResolvedDependency
+	(*BallCapabilityReport)(nil),             // 31: ball.v1.BallCapabilityReport
+	(*CapabilityEntry)(nil),                  // 32: ball.v1.CapabilityEntry
+	(*CallSite)(nil),                         // 33: ball.v1.CallSite
+	(*FunctionCapability)(nil),               // 34: ball.v1.FunctionCapability
+	(*CapabilitySummary)(nil),                // 35: ball.v1.CapabilitySummary
+	nil,                                      // 36: ball.v1.HttpSource.HeadersEntry
+	(*structpb.Struct)(nil),                  // 37: google.protobuf.Struct
+	(*descriptorpb.EnumDescriptorProto)(nil), // 38: google.protobuf.EnumDescriptorProto
+	(*descriptorpb.DescriptorProto)(nil),     // 39: google.protobuf.DescriptorProto
 }
 var file_ball_v1_ball_proto_depIdxs = []int32{
 	3,  // 0: ball.v1.Program.modules:type_name -> ball.v1.Module
-	52, // 1: ball.v1.Program.metadata:type_name -> google.protobuf.Struct
-	53, // 2: ball.v1.Module.enums:type_name -> google.protobuf.EnumDescriptorProto
+	37, // 1: ball.v1.Program.metadata:type_name -> google.protobuf.Struct
+	38, // 2: ball.v1.Module.enums:type_name -> google.protobuf.EnumDescriptorProto
 	16, // 3: ball.v1.Module.functions:type_name -> ball.v1.FunctionDefinition
-	52, // 4: ball.v1.Module.metadata:type_name -> google.protobuf.Struct
+	37, // 4: ball.v1.Module.metadata:type_name -> google.protobuf.Struct
 	5,  // 5: ball.v1.Module.module_imports:type_name -> ball.v1.ModuleImport
 	13, // 6: ball.v1.Module.type_defs:type_name -> ball.v1.TypeDefinition
 	14, // 7: ball.v1.Module.type_aliases:type_name -> ball.v1.TypeAlias
 	15, // 8: ball.v1.Module.module_constants:type_name -> ball.v1.Constant
 	4,  // 9: ball.v1.Module.assets:type_name -> ball.v1.ModuleAsset
-	52, // 10: ball.v1.ModuleAsset.metadata:type_name -> google.protobuf.Struct
-	52, // 11: ball.v1.ModuleImport.metadata:type_name -> google.protobuf.Struct
+	37, // 10: ball.v1.ModuleAsset.metadata:type_name -> google.protobuf.Struct
+	37, // 11: ball.v1.ModuleImport.metadata:type_name -> google.protobuf.Struct
 	6,  // 12: ball.v1.ModuleImport.http:type_name -> ball.v1.HttpSource
 	7,  // 13: ball.v1.ModuleImport.file:type_name -> ball.v1.FileSource
 	8,  // 14: ball.v1.ModuleImport.inline:type_name -> ball.v1.InlineSource
 	9,  // 15: ball.v1.ModuleImport.git:type_name -> ball.v1.GitSource
 	10, // 16: ball.v1.ModuleImport.registry:type_name -> ball.v1.RegistrySource
 	1,  // 17: ball.v1.HttpSource.encoding:type_name -> ball.v1.ModuleEncoding
-	51, // 18: ball.v1.HttpSource.headers:type_name -> ball.v1.HttpSource.HeadersEntry
+	36, // 18: ball.v1.HttpSource.headers:type_name -> ball.v1.HttpSource.HeadersEntry
 	1,  // 19: ball.v1.FileSource.encoding:type_name -> ball.v1.ModuleEncoding
 	1,  // 20: ball.v1.GitSource.encoding:type_name -> ball.v1.ModuleEncoding
 	0,  // 21: ball.v1.RegistrySource.registry:type_name -> ball.v1.Registry
 	1,  // 22: ball.v1.RegistrySource.encoding:type_name -> ball.v1.ModuleEncoding
 	11, // 23: ball.v1.TypeRef.type_args:type_name -> ball.v1.TypeRef
-	52, // 24: ball.v1.TypeParameter.metadata:type_name -> google.protobuf.Struct
-	54, // 25: ball.v1.TypeDefinition.descriptor:type_name -> google.protobuf.DescriptorProto
+	37, // 24: ball.v1.TypeParameter.metadata:type_name -> google.protobuf.Struct
+	39, // 25: ball.v1.TypeDefinition.descriptor:type_name -> google.protobuf.DescriptorProto
 	12, // 26: ball.v1.TypeDefinition.type_params:type_name -> ball.v1.TypeParameter
-	52, // 27: ball.v1.TypeDefinition.metadata:type_name -> google.protobuf.Struct
+	37, // 27: ball.v1.TypeDefinition.metadata:type_name -> google.protobuf.Struct
 	12, // 28: ball.v1.TypeAlias.type_params:type_name -> ball.v1.TypeParameter
-	52, // 29: ball.v1.TypeAlias.metadata:type_name -> google.protobuf.Struct
+	37, // 29: ball.v1.TypeAlias.metadata:type_name -> google.protobuf.Struct
 	17, // 30: ball.v1.Constant.value:type_name -> ball.v1.Expression
-	52, // 31: ball.v1.Constant.metadata:type_name -> google.protobuf.Struct
+	37, // 31: ball.v1.Constant.metadata:type_name -> google.protobuf.Struct
 	17, // 32: ball.v1.FunctionDefinition.body:type_name -> ball.v1.Expression
-	52, // 33: ball.v1.FunctionDefinition.metadata:type_name -> google.protobuf.Struct
+	37, // 33: ball.v1.FunctionDefinition.metadata:type_name -> google.protobuf.Struct
 	18, // 34: ball.v1.Expression.call:type_name -> ball.v1.FunctionCall
 	19, // 35: ball.v1.Expression.literal:type_name -> ball.v1.Literal
 	21, // 36: ball.v1.Expression.reference:type_name -> ball.v1.Reference
@@ -4593,62 +3526,31 @@ var file_ball_v1_ball_proto_depIdxs = []int32{
 	17, // 44: ball.v1.ListLiteral.elements:type_name -> ball.v1.Expression
 	17, // 45: ball.v1.FieldAccess.object:type_name -> ball.v1.Expression
 	24, // 46: ball.v1.MessageCreation.fields:type_name -> ball.v1.FieldValuePair
-	52, // 47: ball.v1.MessageCreation.metadata:type_name -> google.protobuf.Struct
+	37, // 47: ball.v1.MessageCreation.metadata:type_name -> google.protobuf.Struct
 	17, // 48: ball.v1.FieldValuePair.value:type_name -> ball.v1.Expression
 	26, // 49: ball.v1.Block.statements:type_name -> ball.v1.Statement
 	17, // 50: ball.v1.Block.result:type_name -> ball.v1.Expression
 	27, // 51: ball.v1.Statement.let:type_name -> ball.v1.LetBinding
 	17, // 52: ball.v1.Statement.expression:type_name -> ball.v1.Expression
 	17, // 53: ball.v1.LetBinding.value:type_name -> ball.v1.Expression
-	52, // 54: ball.v1.LetBinding.metadata:type_name -> google.protobuf.Struct
-	29, // 55: ball.v1.Pattern.wildcard:type_name -> ball.v1.WildcardPattern
-	30, // 56: ball.v1.Pattern.variable:type_name -> ball.v1.VariablePattern
-	31, // 57: ball.v1.Pattern.constant:type_name -> ball.v1.ConstantPattern
-	32, // 58: ball.v1.Pattern.type_test:type_name -> ball.v1.TypeTestPattern
-	33, // 59: ball.v1.Pattern.destructure:type_name -> ball.v1.DestructurePattern
-	35, // 60: ball.v1.Pattern.list:type_name -> ball.v1.ListPattern
-	36, // 61: ball.v1.Pattern.map:type_name -> ball.v1.MapPattern
-	38, // 62: ball.v1.Pattern.or:type_name -> ball.v1.OrPattern
-	39, // 63: ball.v1.Pattern.and:type_name -> ball.v1.AndPattern
-	40, // 64: ball.v1.Pattern.relational:type_name -> ball.v1.RelationalPattern
-	41, // 65: ball.v1.Pattern.binding:type_name -> ball.v1.BindingPattern
-	42, // 66: ball.v1.Pattern.rest:type_name -> ball.v1.RestPattern
-	17, // 67: ball.v1.Pattern.guard:type_name -> ball.v1.Expression
-	52, // 68: ball.v1.Pattern.metadata:type_name -> google.protobuf.Struct
-	11, // 69: ball.v1.VariablePattern.type:type_name -> ball.v1.TypeRef
-	17, // 70: ball.v1.ConstantPattern.value:type_name -> ball.v1.Expression
-	11, // 71: ball.v1.TypeTestPattern.type:type_name -> ball.v1.TypeRef
-	28, // 72: ball.v1.TypeTestPattern.inner:type_name -> ball.v1.Pattern
-	11, // 73: ball.v1.DestructurePattern.type:type_name -> ball.v1.TypeRef
-	34, // 74: ball.v1.DestructurePattern.fields:type_name -> ball.v1.DestructureField
-	28, // 75: ball.v1.DestructureField.pattern:type_name -> ball.v1.Pattern
-	28, // 76: ball.v1.ListPattern.elements:type_name -> ball.v1.Pattern
-	37, // 77: ball.v1.MapPattern.entries:type_name -> ball.v1.MapPatternEntry
-	28, // 78: ball.v1.MapPattern.rest:type_name -> ball.v1.Pattern
-	17, // 79: ball.v1.MapPatternEntry.key:type_name -> ball.v1.Expression
-	28, // 80: ball.v1.MapPatternEntry.value_pattern:type_name -> ball.v1.Pattern
-	28, // 81: ball.v1.OrPattern.patterns:type_name -> ball.v1.Pattern
-	28, // 82: ball.v1.AndPattern.patterns:type_name -> ball.v1.Pattern
-	17, // 83: ball.v1.RelationalPattern.operand:type_name -> ball.v1.Expression
-	28, // 84: ball.v1.BindingPattern.pattern:type_name -> ball.v1.Pattern
-	28, // 85: ball.v1.RestPattern.pattern:type_name -> ball.v1.Pattern
-	5,  // 86: ball.v1.BallManifest.dependencies:type_name -> ball.v1.ModuleImport
-	5,  // 87: ball.v1.BallManifest.dev_dependencies:type_name -> ball.v1.ModuleImport
-	52, // 88: ball.v1.BallManifest.metadata:type_name -> google.protobuf.Struct
-	45, // 89: ball.v1.BallLockfile.packages:type_name -> ball.v1.ResolvedDependency
-	6,  // 90: ball.v1.ResolvedDependency.http:type_name -> ball.v1.HttpSource
-	9,  // 91: ball.v1.ResolvedDependency.git:type_name -> ball.v1.GitSource
-	7,  // 92: ball.v1.ResolvedDependency.file:type_name -> ball.v1.FileSource
-	10, // 93: ball.v1.ResolvedDependency.registry:type_name -> ball.v1.RegistrySource
-	47, // 94: ball.v1.BallCapabilityReport.capabilities:type_name -> ball.v1.CapabilityEntry
-	49, // 95: ball.v1.BallCapabilityReport.functions:type_name -> ball.v1.FunctionCapability
-	50, // 96: ball.v1.BallCapabilityReport.summary:type_name -> ball.v1.CapabilitySummary
-	48, // 97: ball.v1.CapabilityEntry.call_sites:type_name -> ball.v1.CallSite
-	98, // [98:98] is the sub-list for method output_type
-	98, // [98:98] is the sub-list for method input_type
-	98, // [98:98] is the sub-list for extension type_name
-	98, // [98:98] is the sub-list for extension extendee
-	0,  // [0:98] is the sub-list for field type_name
+	37, // 54: ball.v1.LetBinding.metadata:type_name -> google.protobuf.Struct
+	5,  // 55: ball.v1.BallManifest.dependencies:type_name -> ball.v1.ModuleImport
+	5,  // 56: ball.v1.BallManifest.dev_dependencies:type_name -> ball.v1.ModuleImport
+	37, // 57: ball.v1.BallManifest.metadata:type_name -> google.protobuf.Struct
+	30, // 58: ball.v1.BallLockfile.packages:type_name -> ball.v1.ResolvedDependency
+	6,  // 59: ball.v1.ResolvedDependency.http:type_name -> ball.v1.HttpSource
+	9,  // 60: ball.v1.ResolvedDependency.git:type_name -> ball.v1.GitSource
+	7,  // 61: ball.v1.ResolvedDependency.file:type_name -> ball.v1.FileSource
+	10, // 62: ball.v1.ResolvedDependency.registry:type_name -> ball.v1.RegistrySource
+	32, // 63: ball.v1.BallCapabilityReport.capabilities:type_name -> ball.v1.CapabilityEntry
+	34, // 64: ball.v1.BallCapabilityReport.functions:type_name -> ball.v1.FunctionCapability
+	35, // 65: ball.v1.BallCapabilityReport.summary:type_name -> ball.v1.CapabilitySummary
+	33, // 66: ball.v1.CapabilityEntry.call_sites:type_name -> ball.v1.CallSite
+	67, // [67:67] is the sub-list for method output_type
+	67, // [67:67] is the sub-list for method input_type
+	67, // [67:67] is the sub-list for extension type_name
+	67, // [67:67] is the sub-list for extension extendee
+	0,  // [0:67] is the sub-list for field type_name
 }
 
 func init() { file_ball_v1_ball_proto_init() }
@@ -4688,21 +3590,7 @@ func file_ball_v1_ball_proto_init() {
 		(*Statement_Let)(nil),
 		(*Statement_Expression)(nil),
 	}
-	file_ball_v1_ball_proto_msgTypes[26].OneofWrappers = []any{
-		(*Pattern_Wildcard)(nil),
-		(*Pattern_Variable)(nil),
-		(*Pattern_Constant)(nil),
-		(*Pattern_TypeTest)(nil),
-		(*Pattern_Destructure)(nil),
-		(*Pattern_List)(nil),
-		(*Pattern_Map)(nil),
-		(*Pattern_Or)(nil),
-		(*Pattern_And)(nil),
-		(*Pattern_Relational)(nil),
-		(*Pattern_Binding)(nil),
-		(*Pattern_Rest)(nil),
-	}
-	file_ball_v1_ball_proto_msgTypes[43].OneofWrappers = []any{
+	file_ball_v1_ball_proto_msgTypes[28].OneofWrappers = []any{
 		(*ResolvedDependency_Http)(nil),
 		(*ResolvedDependency_Git)(nil),
 		(*ResolvedDependency_File)(nil),
@@ -4714,7 +3602,7 @@ func file_ball_v1_ball_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ball_v1_ball_proto_rawDesc), len(file_ball_v1_ball_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   50,
+			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

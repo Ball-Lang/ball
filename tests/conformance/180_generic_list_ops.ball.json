@@ -122,20 +122,18 @@
                                     "name": "intList"
                                   }
                                 }
-                              }
-                            ]
-                          }
-                        },
-                        "typeArgs": [
-                          {
-                            "name": "List",
-                            "typeArgs": [
+                              },
                               {
-                                "name": "int"
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "List<int>"
+                                  }
+                                }
                               }
                             ]
                           }
-                        ]
+                        }
                       }
                     },
                     "metadata": {
@@ -184,20 +182,18 @@
                                     "name": "strList"
                                   }
                                 }
-                              }
-                            ]
-                          }
-                        },
-                        "typeArgs": [
-                          {
-                            "name": "List",
-                            "typeArgs": [
+                              },
                               {
-                                "name": "String"
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "List<String>"
+                                  }
+                                }
                               }
                             ]
                           }
-                        ]
+                        }
                       }
                     },
                     "metadata": {
@@ -246,20 +242,18 @@
                                     "name": "intList"
                                   }
                                 }
-                              }
-                            ]
-                          }
-                        },
-                        "typeArgs": [
-                          {
-                            "name": "List",
-                            "typeArgs": [
+                              },
                               {
-                                "name": "String"
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "List<String>"
+                                  }
+                                }
                               }
                             ]
                           }
-                        ]
+                        }
                       }
                     },
                     "metadata": {

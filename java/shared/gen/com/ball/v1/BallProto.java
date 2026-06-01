@@ -162,81 +162,6 @@ public final class BallProto extends com.google.protobuf.GeneratedFile {
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_ball_v1_LetBinding_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_Pattern_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_Pattern_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_WildcardPattern_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_WildcardPattern_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_VariablePattern_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_VariablePattern_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_ConstantPattern_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_ConstantPattern_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_TypeTestPattern_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_TypeTestPattern_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_DestructurePattern_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_DestructurePattern_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_DestructureField_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_DestructureField_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_ListPattern_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_ListPattern_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_MapPattern_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_MapPattern_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_MapPatternEntry_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_MapPatternEntry_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_OrPattern_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_OrPattern_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_AndPattern_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_AndPattern_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_RelationalPattern_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_RelationalPattern_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_BindingPattern_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_BindingPattern_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_ball_v1_RestPattern_descriptor;
-  static final 
-    com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_ball_v1_RestPattern_fieldAccessorTable;
-  static final com.google.protobuf.Descriptors.Descriptor
     internal_static_ball_v1_BallManifest_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
@@ -384,137 +309,87 @@ public final class BallProto extends com.google.protobuf.GeneratedFile {
       "esValue\0225\n\nlist_value\030\006 \001(\0132\024.ball.v1.Li" +
       "stLiteralH\000R\tlistValueB\007\n\005value\">\n\013ListL" +
       "iteral\022/\n\010elements\030\001 \003(\0132\023.ball.v1.Expre" +
-      "ssionR\010elements\"K\n\tReference\022\022\n\004name\030\001 \001" +
-      "(\tR\004name\022*\n\021is_cascade_target\030\002 \001(\010R\017isC" +
-      "ascadeTarget\"P\n\013FieldAccess\022+\n\006object\030\001 " +
-      "\001(\0132\023.ball.v1.ExpressionR\006object\022\024\n\005fiel" +
-      "d\030\002 \001(\tR\005field\"\224\001\n\017MessageCreation\022\033\n\tty" +
-      "pe_name\030\001 \001(\tR\010typeName\022/\n\006fields\030\002 \003(\0132" +
-      "\027.ball.v1.FieldValuePairR\006fields\0223\n\010meta" +
-      "data\030\003 \001(\0132\027.google.protobuf.StructR\010met" +
-      "adata\"O\n\016FieldValuePair\022\022\n\004name\030\001 \001(\tR\004n" +
-      "ame\022)\n\005value\030\002 \001(\0132\023.ball.v1.ExpressionR" +
-      "\005value\"h\n\005Block\0222\n\nstatements\030\001 \003(\0132\022.ba" +
-      "ll.v1.StatementR\nstatements\022+\n\006result\030\002 " +
-      "\001(\0132\023.ball.v1.ExpressionR\006result\"s\n\tStat" +
-      "ement\022\'\n\003let\030\001 \001(\0132\023.ball.v1.LetBindingH" +
-      "\000R\003let\0225\n\nexpression\030\002 \001(\0132\023.ball.v1.Exp" +
-      "ressionH\000R\nexpressionB\006\n\004stmt\"\200\001\n\nLetBin" +
-      "ding\022\022\n\004name\030\001 \001(\tR\004name\022)\n\005value\030\002 \001(\0132" +
-      "\023.ball.v1.ExpressionR\005value\0223\n\010metadata\030" +
-      "\003 \001(\0132\027.google.protobuf.StructR\010metadata" +
-      "\"\326\005\n\007Pattern\0226\n\010wildcard\030\001 \001(\0132\030.ball.v1" +
-      ".WildcardPatternH\000R\010wildcard\0226\n\010variable" +
-      "\030\002 \001(\0132\030.ball.v1.VariablePatternH\000R\010vari" +
-      "able\0226\n\010constant\030\003 \001(\0132\030.ball.v1.Constan" +
-      "tPatternH\000R\010constant\0227\n\ttype_test\030\004 \001(\0132" +
-      "\030.ball.v1.TypeTestPatternH\000R\010typeTest\022?\n" +
-      "\013destructure\030\005 \001(\0132\033.ball.v1.Destructure" +
-      "PatternH\000R\013destructure\022*\n\004list\030\006 \001(\0132\024.b" +
-      "all.v1.ListPatternH\000R\004list\022\'\n\003map\030\007 \001(\0132" +
-      "\023.ball.v1.MapPatternH\000R\003map\022$\n\002or\030\010 \001(\0132" +
-      "\022.ball.v1.OrPatternH\000R\002or\022\'\n\003and\030\t \001(\0132\023" +
-      ".ball.v1.AndPatternH\000R\003and\022<\n\nrelational" +
-      "\030\n \001(\0132\032.ball.v1.RelationalPatternH\000R\nre" +
-      "lational\0223\n\007binding\030\013 \001(\0132\027.ball.v1.Bind" +
-      "ingPatternH\000R\007binding\022*\n\004rest\030\014 \001(\0132\024.ba" +
-      "ll.v1.RestPatternH\000R\004rest\022)\n\005guard\030\017 \001(\013" +
-      "2\023.ball.v1.ExpressionR\005guard\0223\n\010metadata" +
-      "\030\020 \001(\0132\027.google.protobuf.StructR\010metadat" +
-      "aB\006\n\004kind\"\021\n\017WildcardPattern\"f\n\017Variable" +
-      "Pattern\022\022\n\004name\030\001 \001(\tR\004name\022$\n\004type\030\002 \001(" +
-      "\0132\020.ball.v1.TypeRefR\004type\022\031\n\010is_final\030\003 " +
-      "\001(\010R\007isFinal\"<\n\017ConstantPattern\022)\n\005value" +
-      "\030\001 \001(\0132\023.ball.v1.ExpressionR\005value\"\302\001\n\017T" +
-      "ypeTestPattern\022$\n\004type\030\001 \001(\0132\020.ball.v1.T" +
-      "ypeRefR\004type\022&\n\005inner\030\002 \001(\0132\020.ball.v1.Pa" +
-      "tternR\005inner\022\027\n\007is_cast\030\003 \001(\010R\006isCast\022\"\n" +
-      "\ris_null_check\030\004 \001(\010R\013isNullCheck\022$\n\016is_" +
-      "null_assert\030\005 \001(\010R\014isNullAssert\"m\n\022Destr" +
-      "ucturePattern\022$\n\004type\030\001 \001(\0132\020.ball.v1.Ty" +
-      "peRefR\004type\0221\n\006fields\030\002 \003(\0132\031.ball.v1.De" +
-      "structureFieldR\006fields\"R\n\020DestructureFie" +
-      "ld\022\022\n\004name\030\001 \001(\tR\004name\022*\n\007pattern\030\002 \001(\0132" +
-      "\020.ball.v1.PatternR\007pattern\";\n\013ListPatter" +
-      "n\022,\n\010elements\030\001 \003(\0132\020.ball.v1.PatternR\010e" +
-      "lements\"f\n\nMapPattern\0222\n\007entries\030\001 \003(\0132\030" +
-      ".ball.v1.MapPatternEntryR\007entries\022$\n\004res" +
-      "t\030\002 \001(\0132\020.ball.v1.PatternR\004rest\"o\n\017MapPa" +
-      "tternEntry\022%\n\003key\030\001 \001(\0132\023.ball.v1.Expres" +
-      "sionR\003key\0225\n\rvalue_pattern\030\002 \001(\0132\020.ball." +
-      "v1.PatternR\014valuePattern\"9\n\tOrPattern\022,\n" +
-      "\010patterns\030\001 \003(\0132\020.ball.v1.PatternR\010patte" +
-      "rns\":\n\nAndPattern\022,\n\010patterns\030\001 \003(\0132\020.ba" +
-      "ll.v1.PatternR\010patterns\"^\n\021RelationalPat" +
-      "tern\022\032\n\010operator\030\001 \001(\tR\010operator\022-\n\007oper" +
-      "and\030\002 \001(\0132\023.ball.v1.ExpressionR\007operand\"" +
-      "P\n\016BindingPattern\022\022\n\004name\030\001 \001(\tR\004name\022*\n" +
-      "\007pattern\030\002 \001(\0132\020.ball.v1.PatternR\007patter" +
-      "n\"9\n\013RestPattern\022*\n\007pattern\030\001 \001(\0132\020.ball" +
-      ".v1.PatternR\007pattern\"\332\002\n\014BallManifest\022\022\n" +
-      "\004name\030\001 \001(\tR\004name\022\030\n\007version\030\002 \001(\tR\007vers" +
-      "ion\022 \n\013description\030\003 \001(\tR\013description\022!\n" +
-      "\014entry_module\030\004 \001(\tR\013entryModule\022%\n\016entr" +
-      "y_function\030\005 \001(\tR\rentryFunction\0229\n\014depen" +
-      "dencies\030\006 \003(\0132\025.ball.v1.ModuleImportR\014de" +
-      "pendencies\022@\n\020dev_dependencies\030\007 \003(\0132\025.b" +
-      "all.v1.ModuleImportR\017devDependencies\0223\n\010" +
-      "metadata\030\010 \001(\0132\027.google.protobuf.StructR" +
-      "\010metadata\"j\n\014BallLockfile\0227\n\010packages\030\001 " +
-      "\003(\0132\033.ball.v1.ResolvedDependencyR\010packag" +
-      "es\022!\n\014lock_version\030\002 \001(\tR\013lockVersion\"\344\002" +
-      "\n\022ResolvedDependency\022\022\n\004name\030\001 \001(\tR\004name" +
-      "\022)\n\020resolved_version\030\002 \001(\tR\017resolvedVers" +
-      "ion\022\034\n\tintegrity\030\003 \001(\tR\tintegrity\022)\n\004htt" +
-      "p\030\004 \001(\0132\023.ball.v1.HttpSourceH\000R\004http\022&\n\003" +
-      "git\030\005 \001(\0132\022.ball.v1.GitSourceH\000R\003git\022)\n\004" +
-      "file\030\006 \001(\0132\023.ball.v1.FileSourceH\000R\004file\022" +
-      "5\n\010registry\030\007 \001(\0132\027.ball.v1.RegistrySour" +
-      "ceH\000R\010registry\022)\n\020dependency_names\030\010 \003(\t" +
-      "R\017dependencyNamesB\021\n\017resolved_source\"\221\002\n" +
-      "\024BallCapabilityReport\022!\n\014program_name\030\001 " +
-      "\001(\tR\013programName\022\'\n\017program_version\030\002 \001(" +
-      "\tR\016programVersion\022<\n\014capabilities\030\003 \003(\0132" +
-      "\030.ball.v1.CapabilityEntryR\014capabilities\022" +
-      "9\n\tfunctions\030\004 \003(\0132\033.ball.v1.FunctionCap" +
-      "abilityR\tfunctions\0224\n\007summary\030\005 \001(\0132\032.ba" +
-      "ll.v1.CapabilitySummaryR\007summary\"\202\001\n\017Cap" +
-      "abilityEntry\022\036\n\ncapability\030\001 \001(\tR\ncapabi" +
-      "lity\022\035\n\nrisk_level\030\002 \001(\tR\triskLevel\0220\n\nc" +
-      "all_sites\030\003 \003(\0132\021.ball.v1.CallSiteR\tcall" +
-      "Sites\"\214\001\n\010CallSite\022\026\n\006module\030\001 \001(\tR\006modu" +
-      "le\022\032\n\010function\030\002 \001(\tR\010function\022#\n\rcallee" +
-      "_module\030\003 \001(\tR\014calleeModule\022\'\n\017callee_fu" +
-      "nction\030\004 \001(\tR\016calleeFunction\"l\n\022Function" +
-      "Capability\022\026\n\006module\030\001 \001(\tR\006module\022\032\n\010fu" +
-      "nction\030\002 \001(\tR\010function\022\"\n\014capabilities\030\003" +
-      " \003(\tR\014capabilities\"\365\004\n\021CapabilitySummary" +
-      "\022\027\n\007is_pure\030\001 \001(\010R\006isPure\022)\n\020reads_files" +
-      "ystem\030\002 \001(\010R\017readsFilesystem\022+\n\021writes_f" +
-      "ilesystem\030\003 \001(\010R\020writesFilesystem\022\037\n\013rea" +
-      "ds_stdin\030\004 \001(\010R\nreadsStdin\022#\n\rwrites_std" +
-      "out\030\005 \001(\010R\014writesStdout\022#\n\rwrites_stderr" +
-      "\030\006 \001(\010R\014writesStderr\022+\n\021reads_environmen" +
-      "t\030\007 \001(\010R\020readsEnvironment\022)\n\020controls_pr" +
-      "ocess\030\010 \001(\010R\017controlsProcess\022\037\n\013uses_mem" +
-      "ory\030\t \001(\010R\nusesMemory\022\033\n\tuses_time\030\n \001(\010" +
-      "R\010usesTime\022\037\n\013uses_random\030\013 \001(\010R\nusesRan" +
-      "dom\022)\n\020uses_concurrency\030\014 \001(\010R\017usesConcu" +
-      "rrency\022!\n\014uses_network\030\r \001(\010R\013usesNetwor" +
-      "k\022\'\n\017total_functions\030\016 \001(\005R\016totalFunctio" +
-      "ns\022%\n\016pure_functions\030\017 \001(\005R\rpureFunction" +
-      "s\022/\n\023effectful_functions\030\020 \001(\005R\022effectfu" +
-      "lFunctions*\227\001\n\010Registry\022\030\n\024REGISTRY_UNSP" +
-      "ECIFIED\020\000\022\020\n\014REGISTRY_PUB\020\001\022\020\n\014REGISTRY_" +
-      "NPM\020\002\022\022\n\016REGISTRY_NUGET\020\003\022\022\n\016REGISTRY_CA" +
-      "RGO\020\004\022\021\n\rREGISTRY_PYPI\020\005\022\022\n\016REGISTRY_MAV" +
-      "EN\020\006*f\n\016ModuleEncoding\022\037\n\033MODULE_ENCODIN" +
-      "G_UNSPECIFIED\020\000\022\031\n\025MODULE_ENCODING_PROTO" +
-      "\020\001\022\030\n\024MODULE_ENCODING_JSON\020\002B\215\001\n\013com.bal" +
-      "l.v1B\tBallProtoP\001Z6github.com/ball-lang/" +
-      "ball/go/shared/gen/ball/v1;ballv1\242\002\003BXX\252" +
-      "\002\007Ball.V1\312\002\007Ball\\V1\342\002\023Ball\\V1\\GPBMetadat" +
-      "a\352\002\010Ball::V1b\006proto3"
+      "ssionR\010elements\"\037\n\tReference\022\022\n\004name\030\001 \001" +
+      "(\tR\004name\"P\n\013FieldAccess\022+\n\006object\030\001 \001(\0132" +
+      "\023.ball.v1.ExpressionR\006object\022\024\n\005field\030\002 " +
+      "\001(\tR\005field\"\224\001\n\017MessageCreation\022\033\n\ttype_n" +
+      "ame\030\001 \001(\tR\010typeName\022/\n\006fields\030\002 \003(\0132\027.ba" +
+      "ll.v1.FieldValuePairR\006fields\0223\n\010metadata" +
+      "\030\003 \001(\0132\027.google.protobuf.StructR\010metadat" +
+      "a\"O\n\016FieldValuePair\022\022\n\004name\030\001 \001(\tR\004name\022" +
+      ")\n\005value\030\002 \001(\0132\023.ball.v1.ExpressionR\005val" +
+      "ue\"h\n\005Block\0222\n\nstatements\030\001 \003(\0132\022.ball.v" +
+      "1.StatementR\nstatements\022+\n\006result\030\002 \001(\0132" +
+      "\023.ball.v1.ExpressionR\006result\"s\n\tStatemen" +
+      "t\022\'\n\003let\030\001 \001(\0132\023.ball.v1.LetBindingH\000R\003l" +
+      "et\0225\n\nexpression\030\002 \001(\0132\023.ball.v1.Express" +
+      "ionH\000R\nexpressionB\006\n\004stmt\"\200\001\n\nLetBinding" +
+      "\022\022\n\004name\030\001 \001(\tR\004name\022)\n\005value\030\002 \001(\0132\023.ba" +
+      "ll.v1.ExpressionR\005value\0223\n\010metadata\030\003 \001(" +
+      "\0132\027.google.protobuf.StructR\010metadata\"\332\002\n" +
+      "\014BallManifest\022\022\n\004name\030\001 \001(\tR\004name\022\030\n\007ver" +
+      "sion\030\002 \001(\tR\007version\022 \n\013description\030\003 \001(\t" +
+      "R\013description\022!\n\014entry_module\030\004 \001(\tR\013ent" +
+      "ryModule\022%\n\016entry_function\030\005 \001(\tR\rentryF" +
+      "unction\0229\n\014dependencies\030\006 \003(\0132\025.ball.v1." +
+      "ModuleImportR\014dependencies\022@\n\020dev_depend" +
+      "encies\030\007 \003(\0132\025.ball.v1.ModuleImportR\017dev" +
+      "Dependencies\0223\n\010metadata\030\010 \001(\0132\027.google." +
+      "protobuf.StructR\010metadata\"j\n\014BallLockfil" +
+      "e\0227\n\010packages\030\001 \003(\0132\033.ball.v1.ResolvedDe" +
+      "pendencyR\010packages\022!\n\014lock_version\030\002 \001(\t" +
+      "R\013lockVersion\"\344\002\n\022ResolvedDependency\022\022\n\004" +
+      "name\030\001 \001(\tR\004name\022)\n\020resolved_version\030\002 \001" +
+      "(\tR\017resolvedVersion\022\034\n\tintegrity\030\003 \001(\tR\t" +
+      "integrity\022)\n\004http\030\004 \001(\0132\023.ball.v1.HttpSo" +
+      "urceH\000R\004http\022&\n\003git\030\005 \001(\0132\022.ball.v1.GitS" +
+      "ourceH\000R\003git\022)\n\004file\030\006 \001(\0132\023.ball.v1.Fil" +
+      "eSourceH\000R\004file\0225\n\010registry\030\007 \001(\0132\027.ball" +
+      ".v1.RegistrySourceH\000R\010registry\022)\n\020depend" +
+      "ency_names\030\010 \003(\tR\017dependencyNamesB\021\n\017res" +
+      "olved_source\"\221\002\n\024BallCapabilityReport\022!\n" +
+      "\014program_name\030\001 \001(\tR\013programName\022\'\n\017prog" +
+      "ram_version\030\002 \001(\tR\016programVersion\022<\n\014cap" +
+      "abilities\030\003 \003(\0132\030.ball.v1.CapabilityEntr" +
+      "yR\014capabilities\0229\n\tfunctions\030\004 \003(\0132\033.bal" +
+      "l.v1.FunctionCapabilityR\tfunctions\0224\n\007su" +
+      "mmary\030\005 \001(\0132\032.ball.v1.CapabilitySummaryR" +
+      "\007summary\"\202\001\n\017CapabilityEntry\022\036\n\ncapabili" +
+      "ty\030\001 \001(\tR\ncapability\022\035\n\nrisk_level\030\002 \001(\t" +
+      "R\triskLevel\0220\n\ncall_sites\030\003 \003(\0132\021.ball.v" +
+      "1.CallSiteR\tcallSites\"\214\001\n\010CallSite\022\026\n\006mo" +
+      "dule\030\001 \001(\tR\006module\022\032\n\010function\030\002 \001(\tR\010fu" +
+      "nction\022#\n\rcallee_module\030\003 \001(\tR\014calleeMod" +
+      "ule\022\'\n\017callee_function\030\004 \001(\tR\016calleeFunc" +
+      "tion\"l\n\022FunctionCapability\022\026\n\006module\030\001 \001" +
+      "(\tR\006module\022\032\n\010function\030\002 \001(\tR\010function\022\"" +
+      "\n\014capabilities\030\003 \003(\tR\014capabilities\"\365\004\n\021C" +
+      "apabilitySummary\022\027\n\007is_pure\030\001 \001(\010R\006isPur" +
+      "e\022)\n\020reads_filesystem\030\002 \001(\010R\017readsFilesy" +
+      "stem\022+\n\021writes_filesystem\030\003 \001(\010R\020writesF" +
+      "ilesystem\022\037\n\013reads_stdin\030\004 \001(\010R\nreadsStd" +
+      "in\022#\n\rwrites_stdout\030\005 \001(\010R\014writesStdout\022" +
+      "#\n\rwrites_stderr\030\006 \001(\010R\014writesStderr\022+\n\021" +
+      "reads_environment\030\007 \001(\010R\020readsEnvironmen" +
+      "t\022)\n\020controls_process\030\010 \001(\010R\017controlsPro" +
+      "cess\022\037\n\013uses_memory\030\t \001(\010R\nusesMemory\022\033\n" +
+      "\tuses_time\030\n \001(\010R\010usesTime\022\037\n\013uses_rando" +
+      "m\030\013 \001(\010R\nusesRandom\022)\n\020uses_concurrency\030" +
+      "\014 \001(\010R\017usesConcurrency\022!\n\014uses_network\030\r" +
+      " \001(\010R\013usesNetwork\022\'\n\017total_functions\030\016 \001" +
+      "(\005R\016totalFunctions\022%\n\016pure_functions\030\017 \001" +
+      "(\005R\rpureFunctions\022/\n\023effectful_functions" +
+      "\030\020 \001(\005R\022effectfulFunctions*\227\001\n\010Registry\022" +
+      "\030\n\024REGISTRY_UNSPECIFIED\020\000\022\020\n\014REGISTRY_PU" +
+      "B\020\001\022\020\n\014REGISTRY_NPM\020\002\022\022\n\016REGISTRY_NUGET\020" +
+      "\003\022\022\n\016REGISTRY_CARGO\020\004\022\021\n\rREGISTRY_PYPI\020\005" +
+      "\022\022\n\016REGISTRY_MAVEN\020\006*f\n\016ModuleEncoding\022\037" +
+      "\n\033MODULE_ENCODING_UNSPECIFIED\020\000\022\031\n\025MODUL" +
+      "E_ENCODING_PROTO\020\001\022\030\n\024MODULE_ENCODING_JS" +
+      "ON\020\002B\215\001\n\013com.ball.v1B\tBallProtoP\001Z6githu" +
+      "b.com/ball-lang/ball/go/shared/gen/ball/" +
+      "v1;ballv1\242\002\003BXX\252\002\007Ball.V1\312\002\007Ball\\V1\342\002\023Ba" +
+      "ll\\V1\\GPBMetadata\352\002\010Ball::V1b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -647,7 +522,7 @@ public final class BallProto extends com.google.protobuf.GeneratedFile {
     internal_static_ball_v1_Reference_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_Reference_descriptor,
-        new java.lang.String[] { "Name", "IsCascadeTarget", });
+        new java.lang.String[] { "Name", });
     internal_static_ball_v1_FieldAccess_descriptor =
       getDescriptor().getMessageType(20);
     internal_static_ball_v1_FieldAccess_fieldAccessorTable = new
@@ -684,140 +559,50 @@ public final class BallProto extends com.google.protobuf.GeneratedFile {
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_LetBinding_descriptor,
         new java.lang.String[] { "Name", "Value", "Metadata", });
-    internal_static_ball_v1_Pattern_descriptor =
-      getDescriptor().getMessageType(26);
-    internal_static_ball_v1_Pattern_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_Pattern_descriptor,
-        new java.lang.String[] { "Wildcard", "Variable", "Constant", "TypeTest", "Destructure", "List", "Map", "Or", "And", "Relational", "Binding", "Rest", "Guard", "Metadata", "Kind", });
-    internal_static_ball_v1_WildcardPattern_descriptor =
-      getDescriptor().getMessageType(27);
-    internal_static_ball_v1_WildcardPattern_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_WildcardPattern_descriptor,
-        new java.lang.String[] { });
-    internal_static_ball_v1_VariablePattern_descriptor =
-      getDescriptor().getMessageType(28);
-    internal_static_ball_v1_VariablePattern_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_VariablePattern_descriptor,
-        new java.lang.String[] { "Name", "Type", "IsFinal", });
-    internal_static_ball_v1_ConstantPattern_descriptor =
-      getDescriptor().getMessageType(29);
-    internal_static_ball_v1_ConstantPattern_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_ConstantPattern_descriptor,
-        new java.lang.String[] { "Value", });
-    internal_static_ball_v1_TypeTestPattern_descriptor =
-      getDescriptor().getMessageType(30);
-    internal_static_ball_v1_TypeTestPattern_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_TypeTestPattern_descriptor,
-        new java.lang.String[] { "Type", "Inner", "IsCast", "IsNullCheck", "IsNullAssert", });
-    internal_static_ball_v1_DestructurePattern_descriptor =
-      getDescriptor().getMessageType(31);
-    internal_static_ball_v1_DestructurePattern_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_DestructurePattern_descriptor,
-        new java.lang.String[] { "Type", "Fields", });
-    internal_static_ball_v1_DestructureField_descriptor =
-      getDescriptor().getMessageType(32);
-    internal_static_ball_v1_DestructureField_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_DestructureField_descriptor,
-        new java.lang.String[] { "Name", "Pattern", });
-    internal_static_ball_v1_ListPattern_descriptor =
-      getDescriptor().getMessageType(33);
-    internal_static_ball_v1_ListPattern_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_ListPattern_descriptor,
-        new java.lang.String[] { "Elements", });
-    internal_static_ball_v1_MapPattern_descriptor =
-      getDescriptor().getMessageType(34);
-    internal_static_ball_v1_MapPattern_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_MapPattern_descriptor,
-        new java.lang.String[] { "Entries", "Rest", });
-    internal_static_ball_v1_MapPatternEntry_descriptor =
-      getDescriptor().getMessageType(35);
-    internal_static_ball_v1_MapPatternEntry_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_MapPatternEntry_descriptor,
-        new java.lang.String[] { "Key", "ValuePattern", });
-    internal_static_ball_v1_OrPattern_descriptor =
-      getDescriptor().getMessageType(36);
-    internal_static_ball_v1_OrPattern_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_OrPattern_descriptor,
-        new java.lang.String[] { "Patterns", });
-    internal_static_ball_v1_AndPattern_descriptor =
-      getDescriptor().getMessageType(37);
-    internal_static_ball_v1_AndPattern_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_AndPattern_descriptor,
-        new java.lang.String[] { "Patterns", });
-    internal_static_ball_v1_RelationalPattern_descriptor =
-      getDescriptor().getMessageType(38);
-    internal_static_ball_v1_RelationalPattern_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_RelationalPattern_descriptor,
-        new java.lang.String[] { "Operator", "Operand", });
-    internal_static_ball_v1_BindingPattern_descriptor =
-      getDescriptor().getMessageType(39);
-    internal_static_ball_v1_BindingPattern_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_BindingPattern_descriptor,
-        new java.lang.String[] { "Name", "Pattern", });
-    internal_static_ball_v1_RestPattern_descriptor =
-      getDescriptor().getMessageType(40);
-    internal_static_ball_v1_RestPattern_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_ball_v1_RestPattern_descriptor,
-        new java.lang.String[] { "Pattern", });
     internal_static_ball_v1_BallManifest_descriptor =
-      getDescriptor().getMessageType(41);
+      getDescriptor().getMessageType(26);
     internal_static_ball_v1_BallManifest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_BallManifest_descriptor,
         new java.lang.String[] { "Name", "Version", "Description", "EntryModule", "EntryFunction", "Dependencies", "DevDependencies", "Metadata", });
     internal_static_ball_v1_BallLockfile_descriptor =
-      getDescriptor().getMessageType(42);
+      getDescriptor().getMessageType(27);
     internal_static_ball_v1_BallLockfile_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_BallLockfile_descriptor,
         new java.lang.String[] { "Packages", "LockVersion", });
     internal_static_ball_v1_ResolvedDependency_descriptor =
-      getDescriptor().getMessageType(43);
+      getDescriptor().getMessageType(28);
     internal_static_ball_v1_ResolvedDependency_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_ResolvedDependency_descriptor,
         new java.lang.String[] { "Name", "ResolvedVersion", "Integrity", "Http", "Git", "File", "Registry", "DependencyNames", "ResolvedSource", });
     internal_static_ball_v1_BallCapabilityReport_descriptor =
-      getDescriptor().getMessageType(44);
+      getDescriptor().getMessageType(29);
     internal_static_ball_v1_BallCapabilityReport_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_BallCapabilityReport_descriptor,
         new java.lang.String[] { "ProgramName", "ProgramVersion", "Capabilities", "Functions", "Summary", });
     internal_static_ball_v1_CapabilityEntry_descriptor =
-      getDescriptor().getMessageType(45);
+      getDescriptor().getMessageType(30);
     internal_static_ball_v1_CapabilityEntry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_CapabilityEntry_descriptor,
         new java.lang.String[] { "Capability", "RiskLevel", "CallSites", });
     internal_static_ball_v1_CallSite_descriptor =
-      getDescriptor().getMessageType(46);
+      getDescriptor().getMessageType(31);
     internal_static_ball_v1_CallSite_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_CallSite_descriptor,
         new java.lang.String[] { "Module", "Function", "CalleeModule", "CalleeFunction", });
     internal_static_ball_v1_FunctionCapability_descriptor =
-      getDescriptor().getMessageType(47);
+      getDescriptor().getMessageType(32);
     internal_static_ball_v1_FunctionCapability_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_FunctionCapability_descriptor,
         new java.lang.String[] { "Module", "Function", "Capabilities", });
     internal_static_ball_v1_CapabilitySummary_descriptor =
-      getDescriptor().getMessageType(48);
+      getDescriptor().getMessageType(33);
     internal_static_ball_v1_CapabilitySummary_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_CapabilitySummary_descriptor,

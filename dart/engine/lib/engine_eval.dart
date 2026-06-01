@@ -5,17 +5,6 @@ const _ballStringCodeUnitBytes = 2;
 const _ballMapEntryBytes = _ballPointerBytes * 2;
 
 extension BallEngineEval on BallEngine {
-  String _typeRefToStr(TypeRef ref) {
-    final buf = StringBuffer(ref.name);
-    if (ref.typeArgs.isNotEmpty) {
-      buf.write('<');
-      buf.write(ref.typeArgs.map(_typeRefToStr).join(', '));
-      buf.write('>');
-    }
-    if (ref.nullable) buf.write('?');
-    return buf.toString();
-  }
-
   /// Unwrap a value to its underlying [Map<String, Object?>] if it is a
   /// [BallMap] or already a raw map.  Returns `null` otherwise.
   Map<String, Object?>? _asMap(Object? v) {
@@ -153,20 +142,6 @@ extension BallEngineEval on BallEngine {
       }
     }
 
-    // Inject TypeRef type_args into input for std.is/std.as/std.is_not.
-    // The Ball IR stores the type on FunctionCall.typeArgs; the engine's
-    // _stdTypeCheck reads it from the input map's 'type' key.
-    var resolvedInput = input;
-    if (call.typeArgs.isNotEmpty &&
-        (call.function == 'is' ||
-            call.function == 'is_not' ||
-            call.function == 'as')) {
-      final typeStr = _typeRefToStr(call.typeArgs.first);
-      final m = _asMap(input) ?? <String, Object?>{};
-      m['type'] = typeStr;
-      resolvedInput = m;
-    }
-
     // Hot-path fast dispatch: explicitly-qualified std/dart_std calls are
     // always base functions. Skip the `$module.$function` string alloc
     // and the _functions map probe — go straight to the module handler.
@@ -176,7 +151,7 @@ extension BallEngineEval on BallEngine {
         call.module == 'dart_std' ||
         call.module == 'std_collections') {
       return _unwrapFuture(
-        await _callBaseFunction(call.module, call.function, resolvedInput),
+        await _callBaseFunction(call.module, call.function, input),
       );
     }
 
@@ -1199,20 +1174,11 @@ extension BallEngineEval on BallEngine {
 
         fields['__type__'] = msg.typeName;
 
-        // Extract type arguments from typeName (e.g., Box<int>) or metadata.
-        final genMatch = RegExp(r'^([\w:]+)<(.+)>$').firstMatch(msg.typeName);
+        // Extract type arguments if generic (e.g., Box<int>).
+        final genMatch = RegExp(r'^(\w+)<(.+)>$').firstMatch(msg.typeName);
         if (genMatch != null) {
           fields['__type__'] = genMatch.group(1)!;
           fields['__type_args__'] = _splitTypeArgs(genMatch.group(2)!);
-        } else if (msg.hasMetadata()) {
-          final metaTypeArgs = msg.metadata.fields['type_args'];
-          if (metaTypeArgs != null && metaTypeArgs.hasStringValue()) {
-            final taStr = metaTypeArgs.stringValue;
-            final stripped = taStr.startsWith('<') && taStr.endsWith('>')
-                ? taStr.substring(1, taStr.length - 1)
-                : taStr;
-            fields['__type_args__'] = _splitTypeArgs(stripped);
-          }
         }
 
         // No typeDef found: the typeName might be a function/method call
@@ -1588,11 +1554,6 @@ extension BallEngineEval on BallEngine {
   Future<Object?> _evalStatement(Statement stmt, _Scope scope) async {
     switch (stmt.whichStmt()) {
       case Statement_Stmt.let:
-        // No-init variable (e.g. `late int x;`): bind as null.
-        if (!stmt.let.hasValue()) {
-          scope.bind(stmt.let.name, null);
-          return null;
-        }
         var value = await _evalExpression(stmt.let.value, scope);
         if (value is _FlowSignal) return value;
         // If the let type says Map but we got an empty Set or List,

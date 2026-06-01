@@ -441,15 +441,18 @@
                                               "name": "other"
                                             }
                                           }
+                                        },
+                                        {
+                                          "name": "type",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "Vec2"
+                                            }
+                                          }
                                         }
                                       ]
                                     }
-                                  },
-                                  "typeArgs": [
-                                    {
-                                      "name": "Vec2"
-                                    }
-                                  ]
+                                  }
                                 }
                               }
                             },

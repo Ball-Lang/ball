@@ -294,20 +294,18 @@
                               "name": "value"
                             }
                           }
-                        }
-                      ]
-                    }
-                  },
-                  "typeArgs": [
-                    {
-                      "name": "List",
-                      "typeArgs": [
+                        },
                         {
-                          "name": "dynamic"
+                          "name": "type",
+                          "value": {
+                            "literal": {
+                              "stringValue": "List<dynamic>"
+                            }
+                          }
                         }
                       ]
                     }
-                  ]
+                  }
                 }
               }
             }
@@ -517,23 +515,18 @@
                               "name": "value"
                             }
                           }
-                        }
-                      ]
-                    }
-                  },
-                  "typeArgs": [
-                    {
-                      "name": "Map",
-                      "typeArgs": [
-                        {
-                          "name": "String"
                         },
                         {
-                          "name": "dynamic"
+                          "name": "type",
+                          "value": {
+                            "literal": {
+                              "stringValue": "Map<String, dynamic>"
+                            }
+                          }
                         }
                       ]
                     }
-                  ]
+                  }
                 }
               }
             }
@@ -604,15 +597,18 @@
                                                           "name": "value"
                                                         }
                                                       }
+                                                    },
+                                                    {
+                                                      "name": "type",
+                                                      "value": {
+                                                        "literal": {
+                                                          "stringValue": "List"
+                                                        }
+                                                      }
                                                     }
                                                   ]
                                                 }
-                                              },
-                                              "typeArgs": [
-                                                {
-                                                  "name": "List"
-                                                }
-                                              ]
+                                              }
                                             }
                                           }
                                         },
@@ -783,15 +779,18 @@
                                                           "name": "value"
                                                         }
                                                       }
+                                                    },
+                                                    {
+                                                      "name": "type",
+                                                      "value": {
+                                                        "literal": {
+                                                          "stringValue": "Map"
+                                                        }
+                                                      }
                                                     }
                                                   ]
                                                 }
-                                              },
-                                              "typeArgs": [
-                                                {
-                                                  "name": "Map"
-                                                }
-                                              ]
+                                              }
                                             }
                                           }
                                         },

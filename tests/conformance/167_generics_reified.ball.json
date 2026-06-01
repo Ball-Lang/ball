@@ -80,6 +80,14 @@
                         "typeName": "main:Box",
                         "fields": [
                           {
+                            "name": "__type_args__",
+                            "value": {
+                              "literal": {
+                                "stringValue": "<int>"
+                              }
+                            }
+                          },
+                          {
                             "name": "arg0",
                             "value": {
                               "literal": {
@@ -87,10 +95,7 @@
                               }
                             }
                           }
-                        ],
-                        "metadata": {
-                          "type_args": "<int>"
-                        }
+                        ]
                       }
                     },
                     "metadata": {
@@ -151,6 +156,14 @@
                         "typeName": "main:Box",
                         "fields": [
                           {
+                            "name": "__type_args__",
+                            "value": {
+                              "literal": {
+                                "stringValue": "<String>"
+                              }
+                            }
+                          },
+                          {
                             "name": "arg0",
                             "value": {
                               "literal": {
@@ -184,20 +197,18 @@
                                     "name": "intBox"
                                   }
                                 }
-                              }
-                            ]
-                          }
-                        },
-                        "typeArgs": [
-                          {
-                            "name": "Box",
-                            "typeArgs": [
+                              },
                               {
-                                "name": "int"
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "Box<int>"
+                                  }
+                                }
                               }
                             ]
                           }
-                        ]
+                        }
                       }
                     },
                     "metadata": {
@@ -246,20 +257,18 @@
                                     "name": "intBox"
                                   }
                                 }
-                              }
-                            ]
-                          }
-                        },
-                        "typeArgs": [
-                          {
-                            "name": "Box",
-                            "typeArgs": [
+                              },
                               {
-                                "name": "String"
+                                "name": "type",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "Box<String>"
+                                  }
+                                }
                               }
                             ]
                           }
-                        ]
+                        }
                       }
                     },
                     "metadata": {

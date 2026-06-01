@@ -3430,15 +3430,18 @@
                                       "name": "obj"
                                     }
                                   }
+                                },
+                                {
+                                  "name": "type",
+                                  "value": {
+                                    "literal": {
+                                      "stringValue": "int"
+                                    }
+                                  }
                                 }
                               ]
                             }
-                          },
-                          "typeArgs": [
-                            {
-                              "name": "int"
-                            }
-                          ]
+                          }
                         }
                       }
                     },
@@ -3517,15 +3520,18 @@
                                                   "name": "obj"
                                                 }
                                               }
+                                            },
+                                            {
+                                              "name": "type",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "String"
+                                                }
+                                              }
                                             }
                                           ]
                                         }
-                                      },
-                                      "typeArgs": [
-                                        {
-                                          "name": "String"
-                                        }
-                                      ]
+                                      }
                                     }
                                   }
                                 },
@@ -3647,8 +3653,7 @@
                                                     "name": "self",
                                                     "value": {
                                                       "reference": {
-                                                        "name": "self",
-                                                        "isCascadeTarget": true
+                                                        "name": "__cascade_self__"
                                                       }
                                                     }
                                                   },
@@ -3675,8 +3680,7 @@
                                                     "name": "self",
                                                     "value": {
                                                       "reference": {
-                                                        "name": "self",
-                                                        "isCascadeTarget": true
+                                                        "name": "__cascade_self__"
                                                       }
                                                     }
                                                   },
@@ -3703,8 +3707,7 @@
                                                     "name": "self",
                                                     "value": {
                                                       "reference": {
-                                                        "name": "self",
-                                                        "isCascadeTarget": true
+                                                        "name": "__cascade_self__"
                                                       }
                                                     }
                                                   },

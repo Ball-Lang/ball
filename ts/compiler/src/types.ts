@@ -74,24 +74,17 @@ export interface FieldDescriptor {
 export interface Expression {
   call?: FunctionCall;
   literal?: Literal;
-  reference?: { name: string; isCascadeTarget?: boolean };
+  reference?: { name: string };
   fieldAccess?: { object: Expression; field: string };
   messageCreation?: MessageCreation;
   block?: Block;
   lambda?: Lambda;
 }
 
-export interface TypeRef {
-  name: string;
-  typeArgs?: TypeRef[];
-  nullable?: boolean;
-}
-
 export interface FunctionCall {
   module?: string;
   function: string;
   input?: Expression;
-  typeArgs?: TypeRef[];
 }
 
 export interface Literal {
@@ -106,7 +99,6 @@ export interface Literal {
 export interface MessageCreation {
   typeName?: string;
   fields: FieldValuePair[];
-  metadata?: Struct;
 }
 
 export interface FieldValuePair {

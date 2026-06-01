@@ -24,7 +24,6 @@ import type {
   Statement,
   Struct,
   TypeDefinition,
-  TypeRef,
 } from "./types.ts";
 import { TS_RUNTIME_PREAMBLE } from "./preamble.ts";
 
@@ -308,7 +307,7 @@ export class BallCompiler {
           const __target = await this._evalExpression(__targetExpr, scope);
           if (__sw === 'null_aware_cascade' && __target == null) return null;
           const __cScope = scope.child();
-          __cScope.bind('self', __target);
+          __cScope.bind('__cascade_self__', __target);
           const __sectionsExpr = __cf['sections'];
           if (__sectionsExpr) {
             if (__sectionsExpr.whichExpr && __sectionsExpr.whichExpr() === 'literal' && __sectionsExpr.literal && __sectionsExpr.literal.whichValue && __sectionsExpr.literal.whichValue() === 'listValue') {
@@ -580,6 +579,7 @@ $1async _resolveAndCallFunction(`,
         const __fn = call.function;
         const __stdInput = Object.assign({}, input);
         delete __stdInput['self'];
+        delete __stdInput['__type_args__'];
         // Map positional args to named args for known dispatch functions.
         const __argMaps: any = {
           'generate': {arg0: 'count', arg1: 'generator'},
@@ -3518,9 +3518,6 @@ function __isUnknownFnError(e: any): boolean {
     if (e.literal) return this.compileLiteral(e.literal);
     if (e.reference) {
       const name = e.reference.name;
-      // Cascade target reference: isCascadeTarget maps to the __cascade_self__
-      // IIFE parameter emitted by cascade/null_aware_cascade compilation.
-      if (e.reference.isCascadeTarget) return "__cascade_self__";
       if (name === "this") return "this";
       // Ball's `self` → JS `this` in class methods, when `self` is not
       // an explicit parameter or a locally declared variable.
@@ -3702,7 +3699,8 @@ function __isUnknownFnError(e: any): boolean {
 
     // Map / Map.from / Map.of and the dart:collection map flavors
     // (LinkedHashMap, HashMap, SplayTreeMap) → spread-copy as a plain
-    // object (Ball maps are plain ordered objects, not JS Map).
+    // object (Ball maps are plain ordered objects, not JS Map). Drop the
+    // generic `__type_args__` marker so it doesn't leak as a data key.
     const mapCtors = new Set([
       "Map", "Map.from", "Map.of",
       "LinkedHashMap", "LinkedHashMap.from", "LinkedHashMap.of",
@@ -3710,12 +3708,14 @@ function __isUnknownFnError(e: any): boolean {
       "SplayTreeMap", "SplayTreeMap.from", "SplayTreeMap.of",
     ]);
     if (mapCtors.has(shortTn)) {
-      const arg = fields.length > 0 ? this.expr(fields[0].value) : "{}";
+      const dataFields = fields.filter(f => f.name !== "__type_args__" && f.name !== "__const__");
+      const arg = dataFields.length > 0 ? this.expr(dataFields[0].value) : "{}";
       return `({...${arg}})`;
     }
     // List / List.of / List.from → spread-copy as array
     if (shortTn === "List.of" || shortTn === "List.from") {
-      const arg = fields.length > 0 ? this.expr(fields[0].value) : "[]";
+      const dataFields = fields.filter(f => f.name !== "__type_args__" && f.name !== "__const__");
+      const arg = dataFields.length > 0 ? this.expr(dataFields[0].value) : "[]";
       return `([...${arg}])`;
     }
 
@@ -3755,6 +3755,7 @@ function __isUnknownFnError(e: any): boolean {
     const named: Array<[string, string]> = [];
     const argRe = /^arg(\d+)$/;
     for (const f of fields) {
+      if (f.name === "__type_args__" || f.name === "__const__") continue;
       if (argRe.test(f.name)) {
         positional.push(this.expr(f.value));
       } else {
@@ -3836,6 +3837,7 @@ function __isUnknownFnError(e: any): boolean {
       if (afterColon.endsWith(".new")) {
         const className = afterColon.slice(0, -4);
         const args = call.input?.messageCreation?.fields
+          ?.filter((f: any) => f.name !== "__type_args__" && f.name !== "__const__")
           ?.map((f: any) => this.expr(f.value))
           ?.join(", ") ?? "";
         return `new ${className}(${args})`;
@@ -3865,7 +3867,7 @@ function __isUnknownFnError(e: any): boolean {
       if (selfField) {
         const selfStr = this.expr(selfField.value);
         const otherArgs = fields
-          .filter((f) => f.name !== "self")
+          .filter((f) => f.name !== "self" && f.name !== "__type_args__")
           .map((f) => this.expr(f.value))
           .join(", ");
         // StringBuffer.writeCharCode(code) → self += String.fromCharCode(code)
@@ -3884,7 +3886,7 @@ function __isUnknownFnError(e: any): boolean {
           ? `${selfStr}.${fn}()`
           : `${selfStr}.${fn}(${otherArgs})`;
       }
-      const args = fields.map((f) => this.expr(f.value)).join(", ");
+      const args = fields.filter((f) => f.name !== "__type_args__" && f.name !== "__const__").map((f) => this.expr(f.value)).join(", ");
       return `${awaitPfx}${thisPrefix}${fn}(${args})`;
     }
     return `${awaitPfx}${thisPrefix}${fn}(${this.expr(input)})`;
@@ -3993,17 +3995,21 @@ function __isUnknownFnError(e: any): boolean {
       case "null_check": return this.expr(f.get("value")!);
       case "is": {
         const val = f.get("value");
-        const t = call.typeArgs?.[0] ? typeRefToString(call.typeArgs[0]) : (f.get("type")?.literal?.stringValue ?? "");
-        if (val && t) {
-          return this.emitIsCheck(this.expr(val), t);
+        const typ = f.get("type");
+        if (val && typ) {
+          const v = this.expr(val);
+          const t = typ.literal?.stringValue ?? "";
+          return this.emitIsCheck(v, t);
         }
         return `(${this.expr(f.get("value")!)} != null)`;
       }
       case "is_not": {
         const val = f.get("value");
-        const t = call.typeArgs?.[0] ? typeRefToString(call.typeArgs[0]) : (f.get("type")?.literal?.stringValue ?? "");
-        if (val && t) {
-          return `!(${this.emitIsCheck(this.expr(val), t)})`;
+        const typ = f.get("type");
+        if (val && typ) {
+          const v = this.expr(val);
+          const t = typ.literal?.stringValue ?? "";
+          return `!(${this.emitIsCheck(v, t)})`;
         }
         return `(${this.expr(f.get("value")!)} == null)`;
       }
@@ -4078,7 +4084,7 @@ function __isUnknownFnError(e: any): boolean {
         const methodName = method.literal?.stringValue ?? "";
         const inputFields = call.input?.messageCreation?.fields ?? [];
         const otherArgs = inputFields
-          .filter((fd) => fd.name !== "target" && fd.name !== "method")
+          .filter((fd) => fd.name !== "target" && fd.name !== "method" && fd.name !== "__type_args__")
           .map((fd) => this.expr(fd.value))
           .join(", ");
         return `${this.expr(target)}?.${methodName}(${otherArgs})`;
@@ -4132,7 +4138,7 @@ function __isUnknownFnError(e: any): boolean {
             for (const el of listElems) {
               elements.push(this.expr(el));
             }
-          } else {
+          } else if (fd.name !== "__type_args__" && fd.name !== "__const__") {
             elements.push(this.expr(fd.value));
           }
         }
@@ -4166,6 +4172,7 @@ function __isUnknownFnError(e: any): boolean {
         const named: Array<[string, string]> = [];
         const posRe = /^(?:\$|arg)(\d+)$/;
         for (const fd of call.input?.messageCreation?.fields ?? []) {
+          if (fd.name === "__type_args__") continue;
           if (posRe.test(fd.name)) {
             positional.push(this.expr(fd.value));
           } else {
@@ -4232,7 +4239,7 @@ function __isUnknownFnError(e: any): boolean {
         const callee = f.get("callee");
         const inputFields = call.input?.messageCreation?.fields ?? [];
         const otherArgs = inputFields
-          .filter((fd) => fd.name !== "callee" && fd.name !== "__type__")
+          .filter((fd) => fd.name !== "callee" && fd.name !== "__type__" && fd.name !== "__type_args__")
           .map((fd) => this.expr(fd.value));
         if (callee) {
           if (otherArgs.length === 0) return `${this.expr(callee)}()`;
@@ -4847,7 +4854,7 @@ function __isUnknownFnError(e: any): boolean {
         const arg0 = fields.find(f => f.name === "arg0");
         const msgExpr = arg0 ? this.expr(arg0.value) : "''";
         const extraFields = fields
-          .filter(f => f.name !== "arg0")
+          .filter(f => f.name !== "arg0" && f.name !== "__type_args__" && f.name !== "__const__")
           .map(f => `'${f.name}': ${this.expr(f.value)}`)
           .join(", ");
         const extra = extraFields ? `, ${extraFields}` : "";
@@ -5040,15 +5047,6 @@ class FieldMap extends Map<string, Expression> {
     }
     return undefined;
   }
-}
-
-function typeRefToString(ref: TypeRef): string {
-  let s = ref.name;
-  if (ref.typeArgs && ref.typeArgs.length > 0) {
-    s += `<${ref.typeArgs.map(typeRefToString).join(", ")}>`;
-  }
-  if (ref.nullable) s += "?";
-  return s;
 }
 
 function fieldMap(fields: FieldValuePair[]): Map<string, Expression> {

@@ -393,15 +393,18 @@
                                                           "name": "value"
                                                         }
                                                       }
+                                                    },
+                                                    {
+                                                      "name": "type",
+                                                      "value": {
+                                                        "literal": {
+                                                          "stringValue": "List"
+                                                        }
+                                                      }
                                                     }
                                                   ]
                                                 }
-                                              },
-                                              "typeArgs": [
-                                                {
-                                                  "name": "List"
-                                                }
-                                              ]
+                                              }
                                             }
                                           }
                                         },

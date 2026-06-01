@@ -246,6 +246,14 @@
                                         "messageCreation": {
                                           "fields": [
                                             {
+                                              "name": "__type_args__",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "<Object>"
+                                                }
+                                              }
+                                            },
+                                            {
                                               "name": "arg0",
                                               "value": {
                                                 "literal": {
@@ -255,12 +263,7 @@
                                             }
                                           ]
                                         }
-                                      },
-                                      "typeArgs": [
-                                        {
-                                          "name": "Object"
-                                        }
-                                      ]
+                                      }
                                     }
                                   },
                                   "field": "first"
@@ -293,6 +296,14 @@
                                         "messageCreation": {
                                           "fields": [
                                             {
+                                              "name": "__type_args__",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "<String>"
+                                                }
+                                              }
+                                            },
+                                            {
                                               "name": "arg0",
                                               "value": {
                                                 "literal": {
@@ -302,12 +313,7 @@
                                             }
                                           ]
                                         }
-                                      },
-                                      "typeArgs": [
-                                        {
-                                          "name": "String"
-                                        }
-                                      ]
+                                      }
                                     }
                                   },
                                   "field": "first"
@@ -350,6 +356,14 @@
                                                     "messageCreation": {
                                                       "fields": [
                                                         {
+                                                          "name": "__type_args__",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "<num>"
+                                                            }
+                                                          }
+                                                        },
+                                                        {
                                                           "name": "arg0",
                                                           "value": {
                                                             "literal": {
@@ -359,26 +373,24 @@
                                                         }
                                                       ]
                                                     }
-                                                  },
-                                                  "typeArgs": [
-                                                    {
-                                                      "name": "num"
-                                                    }
-                                                  ]
+                                                  }
                                                 }
                                               },
                                               "field": "first"
                                             }
                                           }
+                                        },
+                                        {
+                                          "name": "type",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "num"
+                                            }
+                                          }
                                         }
                                       ]
                                     }
-                                  },
-                                  "typeArgs": [
-                                    {
-                                      "name": "num"
-                                    }
-                                  ]
+                                  }
                                 }
                               }
                             }

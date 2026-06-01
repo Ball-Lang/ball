@@ -3248,7 +3248,10 @@ function __isUnknownFnError(e: any): boolean {
     const start = field(call, "start");
     let initStr: string;
     if (variable && start) {
-      initStr = `let ${variable} = ${this.expr(start)}`;
+      // Use `var` (not `let`) to match Dart's shared-variable loop semantics.
+      // Dart closures in loops capture the shared variable (final value);
+      // JS `let` gives per-iteration copies which breaks this behavior.
+      initStr = `var ${variable} = ${this.expr(start)}`;
     } else if (init && init.literal?.stringValue !== undefined) {
       initStr = translateInitString(init.literal.stringValue);
     } else if (init && init.block) {
@@ -3266,7 +3269,7 @@ function __isUnknownFnError(e: any): boolean {
           }
         }
       }
-      initStr = parts.length > 0 ? `let ${parts.join(", ")}` : "";
+      initStr = parts.length > 0 ? `var ${parts.join(", ")}` : "";
     } else if (init) {
       initStr = this.expr(init);
     } else {

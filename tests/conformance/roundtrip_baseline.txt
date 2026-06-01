@@ -10,7 +10,6 @@
 105_static_methods:ts-compiled
 106_factory_constructor:dart-roundtrip
 106_factory_constructor:ts-compiled
-107_method_override_super:ts-compiled
 109_enum_values:ts-compiled
 110_mixin:ts-compiled
 112_named_constructors:ts-compiled
@@ -34,7 +33,6 @@
 164_oop_inheritance:ts-compiled
 165_oop_virtual_dispatch:dart-compiled
 165_oop_virtual_dispatch:dart-roundtrip
-165_oop_virtual_dispatch:ts-compiled
 166_oop_super_call:ts-compiled
 167_generics_reified:ts-compiled
 168_generics_type_check:dart-compiled
@@ -43,7 +41,6 @@
 169_pattern_destructure:dart-compiled
 169_pattern_destructure:dart-roundtrip
 169_pattern_destructure:ts-compiled
-177_oop_diamond:ts-compiled
 180_generic_list_ops:ts-compiled
 181_generic_map_ops:ts-compiled
 182_list_patterns:ts-compiled

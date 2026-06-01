@@ -3208,6 +3208,11 @@ function __isUnknownFnError(e: any): boolean {
           !this.scopeDeclaredVars.has("self")) {
         return "this";
       }
+      // Ball's `super` reference → JS `super` keyword in class methods.
+      // Without this, sanitize() would emit `super_` (reserved word escape).
+      if (name === "super" && this.currentClassName !== undefined) {
+        return "super";
+      }
       // Inside a class method: bare references to fields need this.
       // prefix. Method references also need .bind(this) because Dart
       // tear-offs auto-bind but JS method references do not.

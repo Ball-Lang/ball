@@ -4232,6 +4232,13 @@ class DartCompiler {
 
   String _compileMathClamp(Map<String, Expression> f) {
     final v = f['value'], mn = f['min'], mx = f['max'];
+    // When the encoder misroutes a user static method (e.g. MathUtils.clamp)
+    // as math_clamp, 'value' is the class reference and the actual args are
+    // in min/max/arg2. Detect this and emit a proper static method call.
+    final arg2 = f['arg2'];
+    if (v != null && mn != null && mx != null && arg2 != null) {
+      return '${_e(v)}.clamp(${_e(mn)}, ${_e(mx)}, ${_e(arg2)})';
+    }
     return v != null && mn != null && mx != null
         ? '${_e(v)}'
               '.clamp(${_e(mn)}, ${_e(mx)})'

@@ -1,5 +1,4 @@
 {
-  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "encoded",
   "version": "1.0.0",
   "modules": [
@@ -474,6 +473,30 @@
                                               }
                                             }
                                           }
+                                        },
+                                        {
+                                          "name": "else",
+                                          "value": {
+                                            "call": {
+                                              "function": "return",
+                                              "module": "std",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "literal": {
+                                                          "stringValue": "other"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
                                         }
                                       ]
                                     }
@@ -637,5 +660,6 @@
     }
   ],
   "entryModule": "main",
-  "entryFunction": "main"
+  "entryFunction": "main",
+  "@type": "type.googleapis.com/ball.v1.Program"
 }

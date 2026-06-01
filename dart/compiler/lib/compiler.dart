@@ -1959,9 +1959,18 @@ class DartCompiler {
     final rawReturnType = func.outputType.isEmpty
         ? null
         : _dartType(func.outputType);
-    final returnType = rawReturnType != null
+    // For async functions with non-void/non-dynamic return types, make the
+    // inner type nullable (int → int?) so Dart null-safety allows implicit
+    // null returns in paths that always throw/rethrow.
+    var adjustedReturnType = rawReturnType;
+    if (adjustedReturnType != null && isAsync && !isAsyncStar &&
+        adjustedReturnType != 'void' && adjustedReturnType != 'dynamic' &&
+        !adjustedReturnType.endsWith('?')) {
+      adjustedReturnType = '$adjustedReturnType?';
+    }
+    final returnType = adjustedReturnType != null
         ? _wrapReturnType(
-            rawReturnType,
+            adjustedReturnType,
             isAsync: isAsync,
             isAsyncStar: isAsyncStar,
             isSyncStar: isSyncStar,
@@ -1988,6 +1997,14 @@ class DartCompiler {
         // its final expression. Mirror `_compileLambda` here.
         final hasReturn = meta['has_return'] == true || _hasNonVoidReturn(func);
         _generateFunctionBody(func.body, hasReturn);
+      }
+      // Async/generator functions with non-void return types need a safety
+      // return to satisfy Dart null-safety when not all paths return
+      // (e.g. try/catch that always rethrows).
+      if ((isAsync || isAsyncStar || isSyncStar) &&
+          rawReturnType != null &&
+          rawReturnType != 'void') {
+        _wl('return null as dynamic;');
       }
       _depth--;
       _wl('}');

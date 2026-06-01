@@ -24,8 +24,6 @@
 184_nested_patterns:dart-roundtrip
 188_std_time_now:dart-compiled
 188_std_time_now:dart-roundtrip
-189_std_time_components:dart-compiled
-189_std_time_components:dart-roundtrip
 192_overflow_and_large_numbers:ts-compiled
 207_record_pattern_destructure:dart-compiled
 207_record_pattern_destructure:dart-roundtrip

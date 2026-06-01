@@ -10,8 +10,6 @@
 151_recursive_descent_parser:dart-roundtrip
 163_generator_async:dart-compiled
 163_generator_async:dart-roundtrip
-165_oop_virtual_dispatch:dart-compiled
-165_oop_virtual_dispatch:dart-roundtrip
 167_generics_reified:ts-compiled
 168_generics_type_check:dart-compiled
 168_generics_type_check:dart-roundtrip

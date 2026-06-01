@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "std_time_components",
+  "name": "189_std_time_components",
   "version": "1.0.0",
   "modules": [
     {
@@ -9,32 +9,9 @@
         {
           "name": "print",
           "isBase": true
-        },
-        {
-          "name": "year",
-          "isBase": true
-        },
-        {
-          "name": "month",
-          "isBase": true
-        },
-        {
-          "name": "day",
-          "isBase": true
-        },
-        {
-          "name": "hour",
-          "isBase": true
-        },
-        {
-          "name": "minute",
-          "isBase": true
-        },
-        {
-          "name": "second",
-          "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -65,16 +42,12 @@
                   "let": {
                     "name": "y",
                     "value": {
-                      "call": {
-                        "module": "std",
-                        "function": "year",
-                        "input": {
-                          "messageCreation": {
-                            "typeName": "",
-                            "fields": []
-                          }
-                        }
+                      "literal": {
+                        "stringValue": "/* unsupported: DotShorthandPropertyAccessImpl: .year */"
                       }
+                    },
+                    "metadata": {
+                      "keyword": "final"
                     }
                   }
                 },
@@ -82,16 +55,12 @@
                   "let": {
                     "name": "m",
                     "value": {
-                      "call": {
-                        "module": "std",
-                        "function": "month",
-                        "input": {
-                          "messageCreation": {
-                            "typeName": "",
-                            "fields": []
-                          }
-                        }
+                      "literal": {
+                        "stringValue": "/* unsupported: DotShorthandPropertyAccessImpl: .month */"
                       }
+                    },
+                    "metadata": {
+                      "keyword": "final"
                     }
                   }
                 },
@@ -99,16 +68,12 @@
                   "let": {
                     "name": "d",
                     "value": {
-                      "call": {
-                        "module": "std",
-                        "function": "day",
-                        "input": {
-                          "messageCreation": {
-                            "typeName": "",
-                            "fields": []
-                          }
-                        }
+                      "literal": {
+                        "stringValue": "/* unsupported: DotShorthandPropertyAccessImpl: .day */"
                       }
+                    },
+                    "metadata": {
+                      "keyword": "final"
                     }
                   }
                 },
@@ -116,16 +81,12 @@
                   "let": {
                     "name": "h",
                     "value": {
-                      "call": {
-                        "module": "std",
-                        "function": "hour",
-                        "input": {
-                          "messageCreation": {
-                            "typeName": "",
-                            "fields": []
-                          }
-                        }
+                      "literal": {
+                        "stringValue": "/* unsupported: DotShorthandPropertyAccessImpl: .hour */"
                       }
+                    },
+                    "metadata": {
+                      "keyword": "final"
                     }
                   }
                 },
@@ -133,16 +94,12 @@
                   "let": {
                     "name": "min",
                     "value": {
-                      "call": {
-                        "module": "std",
-                        "function": "minute",
-                        "input": {
-                          "messageCreation": {
-                            "typeName": "",
-                            "fields": []
-                          }
-                        }
+                      "literal": {
+                        "stringValue": "/* unsupported: DotShorthandPropertyAccessImpl: .minute */"
                       }
+                    },
+                    "metadata": {
+                      "keyword": "final"
                     }
                   }
                 },
@@ -150,16 +107,12 @@
                   "let": {
                     "name": "s",
                     "value": {
-                      "call": {
-                        "module": "std",
-                        "function": "second",
-                        "input": {
-                          "messageCreation": {
-                            "typeName": "",
-                            "fields": []
-                          }
-                        }
+                      "literal": {
+                        "stringValue": "/* unsupported: DotShorthandPropertyAccessImpl: .second */"
                       }
+                    },
+                    "metadata": {
+                      "keyword": "final"
                     }
                   }
                 },
@@ -188,6 +141,9 @@
                 }
               ]
             }
+          },
+          "metadata": {
+            "kind": "function"
           }
         }
       ],

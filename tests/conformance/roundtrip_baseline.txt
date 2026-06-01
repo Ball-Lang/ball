@@ -3,14 +3,7 @@
 # current toolchain cannot yet reproduce. Mirrors the upstream
 # protobuf failure_list discipline. Regenerate after deliberate
 # compiler/encoder changes.
-105_static_methods:dart-compiled
-105_static_methods:dart-roundtrip
 106_factory_constructor:dart-roundtrip
-123_queue_simulation:dart-compiled
-123_queue_simulation:dart-roundtrip
-123_queue_simulation:ts-compiled
-124_frequency_counter:ts-compiled
-125_group_by:ts-compiled
 129_unique_elements:ts-compiled
 150_state_machine:ts-compiled
 151_recursive_descent_parser:dart-compiled
@@ -31,10 +24,8 @@
 184_nested_patterns:dart-roundtrip
 188_std_time_now:dart-compiled
 188_std_time_now:dart-roundtrip
-188_std_time_now:ts-compiled
 189_std_time_components:dart-compiled
 189_std_time_components:dart-roundtrip
-189_std_time_components:ts-compiled
 192_overflow_and_large_numbers:ts-compiled
 207_record_pattern_destructure:dart-compiled
 207_record_pattern_destructure:dart-roundtrip
@@ -51,4 +42,3 @@
 256_editions_resolver:dart-compiled
 256_editions_resolver:dart-roundtrip
 256_editions_resolver:ts-compiled
-78_map_operations:ts-compiled

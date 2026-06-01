@@ -3087,6 +3087,15 @@ class DartCompiler {
         'List.generate(${_e(f['count'] ?? f['length']!)}, ${_e(f['generator']!)})',
       'dart_list_filled' || 'list_filled' =>
         'List.filled(${_e(f['count'] ?? f['length']!)}, ${_e(f['value'] ?? f['fill']!)})',
+      // DateTime component accessors — value from field or implicit `input`
+      'year' => '${_e(f['value'] ?? f['self'] ?? call.input)}.year',
+      'month' => '${_e(f['value'] ?? f['self'] ?? call.input)}.month',
+      'day' => '${_e(f['value'] ?? f['self'] ?? call.input)}.day',
+      'hour' => '${_e(f['value'] ?? f['self'] ?? call.input)}.hour',
+      'minute' => '${_e(f['value'] ?? f['self'] ?? call.input)}.minute',
+      'second' => '${_e(f['value'] ?? f['self'] ?? call.input)}.second',
+      'millisecond' => '${_e(f['value'] ?? f['self'] ?? call.input)}.millisecond',
+      'weekday' => '${_e(f['value'] ?? f['self'] ?? call.input)}.weekday',
       _ => '/* unsupported: std.${call.function} */',
     };
   }

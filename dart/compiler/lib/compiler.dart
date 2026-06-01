@@ -76,6 +76,10 @@ class DartCompiler {
   /// change `return input;` from "return the field" to "return the param".
   Set<String> _currentClassMemberNames = const {};
 
+  /// Top-level variable/function names — used to prevent the `input` rename
+  /// from shadowing a module-level variable also named `input`.
+  Set<String> _topLevelNames = const {};
+
   /// Collect the instance member names of a class-like container:
   /// descriptor fields + declared methods/getters/setters/fields.
   /// Static members are excluded (they don't shadow instance refs).
@@ -462,6 +466,12 @@ class DartCompiler {
       }
       standaloneFunctions.add(func);
     }
+
+    // Collect top-level names for shadowing detection in _addParameters.
+    _topLevelNames = {
+      for (final f in standaloneFunctions) f.name,
+      for (final f in topLevelVars) f.name,
+    };
 
     return cb.Library((b) {
       // Library-level annotations (e.g. `@JS()` for JS interop libraries).
@@ -1542,11 +1552,13 @@ class DartCompiler {
     // `input` — the rename would shadow the member, changing the meaning
     // of any `input` reference in the body from "field" to "parameter".
     final classHasInputMember = _currentClassMemberNames.contains('input');
+    final topLevelHasInput = _topLevelNames.contains('input');
     final renameSinglePositional =
         positionalCount == 1 &&
         !hasInitializers &&
         !hasRedirect &&
-        !classHasInputMember;
+        !classHasInputMember &&
+        !topLevelHasInput;
 
     for (final p in params) {
       if (p is! Map) continue;

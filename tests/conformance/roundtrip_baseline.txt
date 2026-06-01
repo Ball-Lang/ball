@@ -4,8 +4,6 @@
 # protobuf failure_list discipline. Regenerate after deliberate
 # compiler/encoder changes.
 106_factory_constructor:dart-roundtrip
-129_unique_elements:ts-compiled
-150_state_machine:ts-compiled
 163_generator_async:dart-compiled
 163_generator_async:dart-roundtrip
 167_generics_reified:ts-compiled
@@ -19,7 +17,6 @@
 207_record_pattern_destructure:dart-roundtrip
 216_int_double_truncation:ts-compiled
 227_generic_type_ops:ts-compiled
-229_closure_loop_var_semantics:ts-compiled
 230_signed_int_boundaries:ts-compiled
 233_int_arithmetic_edges:ts-compiled
 241_generic_list_covariance:ts-compiled

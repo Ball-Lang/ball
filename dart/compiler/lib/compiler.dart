@@ -4194,9 +4194,15 @@ class DartCompiler {
         if (c.whichExpr() != Expression_Expr.messageCreation) continue;
         final cf = _fieldsToMap(c.messageCreation.fields);
         final pattern = _stringFieldValue(cf, 'pattern');
+        final isDefault = cf['is_default']?.literal.boolValue == true;
         final body = cf['body'];
-        if (pattern != null && body != null) {
+        if (isDefault && body != null) {
+          buf.write('_ => ${_e(body)},\n');
+        } else if (pattern != null && body != null) {
           buf.write('$pattern => ${_e(body)},\n');
+        } else if (cf['value'] != null && body != null) {
+          // Fallback: use the value expression as a constant pattern
+          buf.write('${_e(cf['value']!)} => ${_e(body)},\n');
         }
       }
     }

@@ -937,6 +937,468 @@ final $typed_data.Uint8List letBindingDescriptor = $convert.base64Decode(
     'YxLkV4cHJlc3Npb25SBXZhbHVlEjMKCG1ldGFkYXRhGAMgASgLMhcuZ29vZ2xlLnByb3RvYnVm'
     'LlN0cnVjdFIIbWV0YWRhdGE=');
 
+@$core.Deprecated('Use patternDescriptor instead')
+const Pattern$json = {
+  '1': 'Pattern',
+  '2': [
+    {
+      '1': 'wildcard',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.WildcardPattern',
+      '9': 0,
+      '10': 'wildcard'
+    },
+    {
+      '1': 'variable',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.VariablePattern',
+      '9': 0,
+      '10': 'variable'
+    },
+    {
+      '1': 'constant',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.ConstantPattern',
+      '9': 0,
+      '10': 'constant'
+    },
+    {
+      '1': 'type_test',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.TypeTestPattern',
+      '9': 0,
+      '10': 'typeTest'
+    },
+    {
+      '1': 'destructure',
+      '3': 5,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.DestructurePattern',
+      '9': 0,
+      '10': 'destructure'
+    },
+    {
+      '1': 'list',
+      '3': 6,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.ListPattern',
+      '9': 0,
+      '10': 'list'
+    },
+    {
+      '1': 'map',
+      '3': 7,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.MapPattern',
+      '9': 0,
+      '10': 'map'
+    },
+    {
+      '1': 'or',
+      '3': 8,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.OrPattern',
+      '9': 0,
+      '10': 'or'
+    },
+    {
+      '1': 'and',
+      '3': 9,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.AndPattern',
+      '9': 0,
+      '10': 'and'
+    },
+    {
+      '1': 'relational',
+      '3': 10,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.RelationalPattern',
+      '9': 0,
+      '10': 'relational'
+    },
+    {
+      '1': 'binding',
+      '3': 11,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.BindingPattern',
+      '9': 0,
+      '10': 'binding'
+    },
+    {
+      '1': 'rest',
+      '3': 12,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.RestPattern',
+      '9': 0,
+      '10': 'rest'
+    },
+    {
+      '1': 'guard',
+      '3': 15,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.Expression',
+      '10': 'guard'
+    },
+    {
+      '1': 'metadata',
+      '3': 16,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Struct',
+      '10': 'metadata'
+    },
+  ],
+  '8': [
+    {'1': 'kind'},
+  ],
+};
+
+/// Descriptor for `Pattern`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List patternDescriptor = $convert.base64Decode(
+    'CgdQYXR0ZXJuEjYKCHdpbGRjYXJkGAEgASgLMhguYmFsbC52MS5XaWxkY2FyZFBhdHRlcm5IAF'
+    'IId2lsZGNhcmQSNgoIdmFyaWFibGUYAiABKAsyGC5iYWxsLnYxLlZhcmlhYmxlUGF0dGVybkgA'
+    'Ugh2YXJpYWJsZRI2Cghjb25zdGFudBgDIAEoCzIYLmJhbGwudjEuQ29uc3RhbnRQYXR0ZXJuSA'
+    'BSCGNvbnN0YW50EjcKCXR5cGVfdGVzdBgEIAEoCzIYLmJhbGwudjEuVHlwZVRlc3RQYXR0ZXJu'
+    'SABSCHR5cGVUZXN0Ej8KC2Rlc3RydWN0dXJlGAUgASgLMhsuYmFsbC52MS5EZXN0cnVjdHVyZV'
+    'BhdHRlcm5IAFILZGVzdHJ1Y3R1cmUSKgoEbGlzdBgGIAEoCzIULmJhbGwudjEuTGlzdFBhdHRl'
+    'cm5IAFIEbGlzdBInCgNtYXAYByABKAsyEy5iYWxsLnYxLk1hcFBhdHRlcm5IAFIDbWFwEiQKAm'
+    '9yGAggASgLMhIuYmFsbC52MS5PclBhdHRlcm5IAFICb3ISJwoDYW5kGAkgASgLMhMuYmFsbC52'
+    'MS5BbmRQYXR0ZXJuSABSA2FuZBI8CgpyZWxhdGlvbmFsGAogASgLMhouYmFsbC52MS5SZWxhdG'
+    'lvbmFsUGF0dGVybkgAUgpyZWxhdGlvbmFsEjMKB2JpbmRpbmcYCyABKAsyFy5iYWxsLnYxLkJp'
+    'bmRpbmdQYXR0ZXJuSABSB2JpbmRpbmcSKgoEcmVzdBgMIAEoCzIULmJhbGwudjEuUmVzdFBhdH'
+    'Rlcm5IAFIEcmVzdBIpCgVndWFyZBgPIAEoCzITLmJhbGwudjEuRXhwcmVzc2lvblIFZ3VhcmQS'
+    'MwoIbWV0YWRhdGEYECABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0UghtZXRhZGF0YUIGCg'
+    'RraW5k');
+
+@$core.Deprecated('Use wildcardPatternDescriptor instead')
+const WildcardPattern$json = {
+  '1': 'WildcardPattern',
+};
+
+/// Descriptor for `WildcardPattern`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List wildcardPatternDescriptor =
+    $convert.base64Decode('Cg9XaWxkY2FyZFBhdHRlcm4=');
+
+@$core.Deprecated('Use variablePatternDescriptor instead')
+const VariablePattern$json = {
+  '1': 'VariablePattern',
+  '2': [
+    {'1': 'name', '3': 1, '4': 1, '5': 9, '10': 'name'},
+    {
+      '1': 'type',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.TypeRef',
+      '10': 'type'
+    },
+    {'1': 'is_final', '3': 3, '4': 1, '5': 8, '10': 'isFinal'},
+  ],
+};
+
+/// Descriptor for `VariablePattern`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List variablePatternDescriptor = $convert.base64Decode(
+    'Cg9WYXJpYWJsZVBhdHRlcm4SEgoEbmFtZRgBIAEoCVIEbmFtZRIkCgR0eXBlGAIgASgLMhAuYm'
+    'FsbC52MS5UeXBlUmVmUgR0eXBlEhkKCGlzX2ZpbmFsGAMgASgIUgdpc0ZpbmFs');
+
+@$core.Deprecated('Use constantPatternDescriptor instead')
+const ConstantPattern$json = {
+  '1': 'ConstantPattern',
+  '2': [
+    {
+      '1': 'value',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.Expression',
+      '10': 'value'
+    },
+  ],
+};
+
+/// Descriptor for `ConstantPattern`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List constantPatternDescriptor = $convert.base64Decode(
+    'Cg9Db25zdGFudFBhdHRlcm4SKQoFdmFsdWUYASABKAsyEy5iYWxsLnYxLkV4cHJlc3Npb25SBX'
+    'ZhbHVl');
+
+@$core.Deprecated('Use typeTestPatternDescriptor instead')
+const TypeTestPattern$json = {
+  '1': 'TypeTestPattern',
+  '2': [
+    {
+      '1': 'type',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.TypeRef',
+      '10': 'type'
+    },
+    {
+      '1': 'inner',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.Pattern',
+      '10': 'inner'
+    },
+    {'1': 'is_cast', '3': 3, '4': 1, '5': 8, '10': 'isCast'},
+    {'1': 'is_null_check', '3': 4, '4': 1, '5': 8, '10': 'isNullCheck'},
+    {'1': 'is_null_assert', '3': 5, '4': 1, '5': 8, '10': 'isNullAssert'},
+  ],
+};
+
+/// Descriptor for `TypeTestPattern`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List typeTestPatternDescriptor = $convert.base64Decode(
+    'Cg9UeXBlVGVzdFBhdHRlcm4SJAoEdHlwZRgBIAEoCzIQLmJhbGwudjEuVHlwZVJlZlIEdHlwZR'
+    'ImCgVpbm5lchgCIAEoCzIQLmJhbGwudjEuUGF0dGVyblIFaW5uZXISFwoHaXNfY2FzdBgDIAEo'
+    'CFIGaXNDYXN0EiIKDWlzX251bGxfY2hlY2sYBCABKAhSC2lzTnVsbENoZWNrEiQKDmlzX251bG'
+    'xfYXNzZXJ0GAUgASgIUgxpc051bGxBc3NlcnQ=');
+
+@$core.Deprecated('Use destructurePatternDescriptor instead')
+const DestructurePattern$json = {
+  '1': 'DestructurePattern',
+  '2': [
+    {
+      '1': 'type',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.TypeRef',
+      '10': 'type'
+    },
+    {
+      '1': 'fields',
+      '3': 2,
+      '4': 3,
+      '5': 11,
+      '6': '.ball.v1.DestructureField',
+      '10': 'fields'
+    },
+  ],
+};
+
+/// Descriptor for `DestructurePattern`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List destructurePatternDescriptor = $convert.base64Decode(
+    'ChJEZXN0cnVjdHVyZVBhdHRlcm4SJAoEdHlwZRgBIAEoCzIQLmJhbGwudjEuVHlwZVJlZlIEdH'
+    'lwZRIxCgZmaWVsZHMYAiADKAsyGS5iYWxsLnYxLkRlc3RydWN0dXJlRmllbGRSBmZpZWxkcw==');
+
+@$core.Deprecated('Use destructureFieldDescriptor instead')
+const DestructureField$json = {
+  '1': 'DestructureField',
+  '2': [
+    {'1': 'name', '3': 1, '4': 1, '5': 9, '10': 'name'},
+    {
+      '1': 'pattern',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.Pattern',
+      '10': 'pattern'
+    },
+  ],
+};
+
+/// Descriptor for `DestructureField`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List destructureFieldDescriptor = $convert.base64Decode(
+    'ChBEZXN0cnVjdHVyZUZpZWxkEhIKBG5hbWUYASABKAlSBG5hbWUSKgoHcGF0dGVybhgCIAEoCz'
+    'IQLmJhbGwudjEuUGF0dGVyblIHcGF0dGVybg==');
+
+@$core.Deprecated('Use listPatternDescriptor instead')
+const ListPattern$json = {
+  '1': 'ListPattern',
+  '2': [
+    {
+      '1': 'elements',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.ball.v1.Pattern',
+      '10': 'elements'
+    },
+  ],
+};
+
+/// Descriptor for `ListPattern`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listPatternDescriptor = $convert.base64Decode(
+    'CgtMaXN0UGF0dGVybhIsCghlbGVtZW50cxgBIAMoCzIQLmJhbGwudjEuUGF0dGVyblIIZWxlbW'
+    'VudHM=');
+
+@$core.Deprecated('Use mapPatternDescriptor instead')
+const MapPattern$json = {
+  '1': 'MapPattern',
+  '2': [
+    {
+      '1': 'entries',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.ball.v1.MapPatternEntry',
+      '10': 'entries'
+    },
+    {
+      '1': 'rest',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.Pattern',
+      '10': 'rest'
+    },
+  ],
+};
+
+/// Descriptor for `MapPattern`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List mapPatternDescriptor = $convert.base64Decode(
+    'CgpNYXBQYXR0ZXJuEjIKB2VudHJpZXMYASADKAsyGC5iYWxsLnYxLk1hcFBhdHRlcm5FbnRyeV'
+    'IHZW50cmllcxIkCgRyZXN0GAIgASgLMhAuYmFsbC52MS5QYXR0ZXJuUgRyZXN0');
+
+@$core.Deprecated('Use mapPatternEntryDescriptor instead')
+const MapPatternEntry$json = {
+  '1': 'MapPatternEntry',
+  '2': [
+    {
+      '1': 'key',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.Expression',
+      '10': 'key'
+    },
+    {
+      '1': 'value_pattern',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.Pattern',
+      '10': 'valuePattern'
+    },
+  ],
+};
+
+/// Descriptor for `MapPatternEntry`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List mapPatternEntryDescriptor = $convert.base64Decode(
+    'Cg9NYXBQYXR0ZXJuRW50cnkSJQoDa2V5GAEgASgLMhMuYmFsbC52MS5FeHByZXNzaW9uUgNrZX'
+    'kSNQoNdmFsdWVfcGF0dGVybhgCIAEoCzIQLmJhbGwudjEuUGF0dGVyblIMdmFsdWVQYXR0ZXJu');
+
+@$core.Deprecated('Use orPatternDescriptor instead')
+const OrPattern$json = {
+  '1': 'OrPattern',
+  '2': [
+    {
+      '1': 'patterns',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.ball.v1.Pattern',
+      '10': 'patterns'
+    },
+  ],
+};
+
+/// Descriptor for `OrPattern`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List orPatternDescriptor = $convert.base64Decode(
+    'CglPclBhdHRlcm4SLAoIcGF0dGVybnMYASADKAsyEC5iYWxsLnYxLlBhdHRlcm5SCHBhdHRlcm'
+    '5z');
+
+@$core.Deprecated('Use andPatternDescriptor instead')
+const AndPattern$json = {
+  '1': 'AndPattern',
+  '2': [
+    {
+      '1': 'patterns',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.ball.v1.Pattern',
+      '10': 'patterns'
+    },
+  ],
+};
+
+/// Descriptor for `AndPattern`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List andPatternDescriptor = $convert.base64Decode(
+    'CgpBbmRQYXR0ZXJuEiwKCHBhdHRlcm5zGAEgAygLMhAuYmFsbC52MS5QYXR0ZXJuUghwYXR0ZX'
+    'Jucw==');
+
+@$core.Deprecated('Use relationalPatternDescriptor instead')
+const RelationalPattern$json = {
+  '1': 'RelationalPattern',
+  '2': [
+    {'1': 'operator', '3': 1, '4': 1, '5': 9, '10': 'operator'},
+    {
+      '1': 'operand',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.Expression',
+      '10': 'operand'
+    },
+  ],
+};
+
+/// Descriptor for `RelationalPattern`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List relationalPatternDescriptor = $convert.base64Decode(
+    'ChFSZWxhdGlvbmFsUGF0dGVybhIaCghvcGVyYXRvchgBIAEoCVIIb3BlcmF0b3ISLQoHb3Blcm'
+    'FuZBgCIAEoCzITLmJhbGwudjEuRXhwcmVzc2lvblIHb3BlcmFuZA==');
+
+@$core.Deprecated('Use bindingPatternDescriptor instead')
+const BindingPattern$json = {
+  '1': 'BindingPattern',
+  '2': [
+    {'1': 'name', '3': 1, '4': 1, '5': 9, '10': 'name'},
+    {
+      '1': 'pattern',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.Pattern',
+      '10': 'pattern'
+    },
+  ],
+};
+
+/// Descriptor for `BindingPattern`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List bindingPatternDescriptor = $convert.base64Decode(
+    'Cg5CaW5kaW5nUGF0dGVybhISCgRuYW1lGAEgASgJUgRuYW1lEioKB3BhdHRlcm4YAiABKAsyEC'
+    '5iYWxsLnYxLlBhdHRlcm5SB3BhdHRlcm4=');
+
+@$core.Deprecated('Use restPatternDescriptor instead')
+const RestPattern$json = {
+  '1': 'RestPattern',
+  '2': [
+    {
+      '1': 'pattern',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.ball.v1.Pattern',
+      '10': 'pattern'
+    },
+  ],
+};
+
+/// Descriptor for `RestPattern`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List restPatternDescriptor = $convert.base64Decode(
+    'CgtSZXN0UGF0dGVybhIqCgdwYXR0ZXJuGAEgASgLMhAuYmFsbC52MS5QYXR0ZXJuUgdwYXR0ZX'
+    'Ju');
+
 @$core.Deprecated('Use ballManifestDescriptor instead')
 const BallManifest$json = {
   '1': 'BallManifest',

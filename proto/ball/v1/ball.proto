@@ -627,6 +627,116 @@ message LetBinding {
 }
 
 // ============================================================
+// Pattern Matching — 12 universal pattern kinds
+// ============================================================
+
+// A pattern used in match/switch expressions and destructuring declarations.
+// Covers all pattern matching across all target languages (Dart, Rust, Python,
+// Scala, Swift, C#, Java, Kotlin, Haskell, Go, C++).
+// See docs/PATTERN_DESIGN.md for the full cross-language mapping.
+message Pattern {
+  oneof kind {
+    WildcardPattern wildcard = 1;
+    VariablePattern variable = 2;
+    ConstantPattern constant = 3;
+    TypeTestPattern type_test = 4;
+    DestructurePattern destructure = 5;
+    ListPattern list = 6;
+    MapPattern map = 7;
+    OrPattern or = 8;
+    AndPattern and = 9;
+    RelationalPattern relational = 10;
+    BindingPattern binding = 11;
+    RestPattern rest = 12;
+  }
+
+  // Guard expression evaluated after structural match succeeds.
+  // Universal: Dart 'when', Rust 'if', Python 'if', C# 'when', Scala 'if'.
+  Expression guard = 15;
+
+  // Cosmetic metadata (source location, original syntax form).
+  google.protobuf.Struct metadata = 16;
+}
+
+// Matches any value, binds nothing. The universal wildcard.
+message WildcardPattern {}
+
+// Binds the matched value to a named variable, optionally with a type constraint.
+message VariablePattern {
+  string name = 1;
+  TypeRef type = 2;
+  bool is_final = 3;
+}
+
+// Matches a value equal to a constant expression.
+message ConstantPattern {
+  Expression value = 1;
+}
+
+// Tests the runtime type of the matched value.
+message TypeTestPattern {
+  TypeRef type = 1;
+  Pattern inner = 2;
+  bool is_cast = 3;
+  bool is_null_check = 4;
+  bool is_null_assert = 5;
+}
+
+// Destructures by position and/or name (tuples, records, constructors).
+message DestructurePattern {
+  TypeRef type = 1;
+  repeated DestructureField fields = 2;
+}
+
+message DestructureField {
+  string name = 1;
+  Pattern pattern = 2;
+}
+
+// Matches a sequence (list/array/slice) element by element.
+message ListPattern {
+  repeated Pattern elements = 1;
+}
+
+// Matches a mapping (dictionary/map) by key-value pairs.
+message MapPattern {
+  repeated MapPatternEntry entries = 1;
+  Pattern rest = 2;
+}
+
+message MapPatternEntry {
+  Expression key = 1;
+  Pattern value_pattern = 2;
+}
+
+// Matches if any sub-pattern matches (disjunction).
+message OrPattern {
+  repeated Pattern patterns = 1;
+}
+
+// Matches only if all sub-patterns match (conjunction).
+message AndPattern {
+  repeated Pattern patterns = 1;
+}
+
+// Compares the matched value against a constant using a relational operator.
+message RelationalPattern {
+  string operator = 1;
+  Expression operand = 2;
+}
+
+// Matches the inner pattern and binds the entire value to a name.
+message BindingPattern {
+  string name = 1;
+  Pattern pattern = 2;
+}
+
+// Matches zero or more remaining elements in a sequence or structure.
+message RestPattern {
+  Pattern pattern = 1;
+}
+
+// ============================================================
 // Package Management — manifest, lockfile, capability report
 // ============================================================
 

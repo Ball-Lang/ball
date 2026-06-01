@@ -4207,8 +4207,8 @@ class DartCompiler {
         }
       }
     }
-    // Ensure exhaustiveness for Dart null-safety
-    if (!hasDefault) buf.write("_ => throw StateError('non-exhaustive'),\n");
+    // Ensure exhaustiveness for Dart null-safety (only when cases exist)
+    if (!hasDefault && buf.length > 20) buf.write("_ => throw StateError('non-exhaustive'),\n");
     buf.write('}');
     return buf.toString();
   }

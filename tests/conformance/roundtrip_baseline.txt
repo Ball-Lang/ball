@@ -3,8 +3,6 @@
 # current toolchain cannot yet reproduce. Mirrors the upstream
 # protobuf failure_list discipline. Regenerate after deliberate
 # compiler/encoder changes.
-103_abstract_class:ts-compiled
-104_getter_setter:ts-compiled
 105_static_methods:dart-compiled
 105_static_methods:dart-roundtrip
 105_static_methods:ts-compiled
@@ -22,7 +20,6 @@
 124_frequency_counter:ts-compiled
 125_group_by:ts-compiled
 129_unique_elements:ts-compiled
-130_running_average:ts-compiled
 150_state_machine:ts-compiled
 151_recursive_descent_parser:dart-compiled
 151_recursive_descent_parser:dart-roundtrip
@@ -66,7 +63,9 @@
 227_generic_type_ops:ts-compiled
 229_closure_loop_var_semantics:ts-compiled
 230_signed_int_boundaries:ts-compiled
+232_double_extreme_values:ts-compiled
 233_int_arithmetic_edges:ts-compiled
+239_switch_expr_relational:ts-compiled
 241_generic_list_covariance:ts-compiled
 242_generic_fn_chains:ts-compiled
 251_bitwise_signed_edges:ts-compiled
@@ -76,4 +75,3 @@
 256_editions_resolver:ts-compiled
 78_map_operations:ts-compiled
 97_stack_operations:ts-compiled
-99_type_conversion:ts-compiled

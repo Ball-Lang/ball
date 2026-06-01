@@ -3116,7 +3116,9 @@ function __isUnknownFnError(e: any): boolean {
           break;
         }
         const subjectStr = this.expr(subjectExpr);
-        this.writeln(`{ const __sw = ${subjectStr};`);
+        // Wrap in do-while(false) so case `break;` exits the switch,
+        // not an enclosing for loop (switch is compiled as if/else chain).
+        this.writeln(`do { const __sw = ${subjectStr};`);
         this.depth++;
         const caseExprs = casesField.literal?.listValue?.elements ?? [];
         let defaultBody: Expression | undefined;
@@ -3214,7 +3216,7 @@ function __isUnknownFnError(e: any): boolean {
           }
         }
         this.depth--;
-        this.writeln("}");
+        this.writeln("} while (false);");
         break;
       }
     }

@@ -1370,7 +1370,8 @@ class DartCompiler {
               () {
                 _generateFunctionBody(func.body, _hasNonVoidReturn(func));
                 // Async/generator functions: safety return for null-safety
-                if ((isAsync || isAsyncStar || isSyncStar) &&
+                // Async (not generator) non-void: safety return
+                if (isAsync && !isAsyncStar &&
                     func.outputType.isNotEmpty &&
                     _dartType(func.outputType) != 'void') {
                   _wl('return null as dynamic;');
@@ -2007,7 +2008,8 @@ class DartCompiler {
       }
       // Async/generator functions with non-void return types need a safety
       // return to satisfy Dart null-safety when not all paths return.
-      if ((isAsync || isAsyncStar || isSyncStar) &&
+      // Async (not generator) non-void: safety return
+      if (isAsync && !isAsyncStar &&
           rawReturnType != null &&
           rawReturnType != 'void') {
         _wl('return null as dynamic;');

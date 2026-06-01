@@ -2510,9 +2510,23 @@ function __isUnknownFnError(e: any): boolean {
         `; }`
       );
     }
-    for (const p of rawParams) {
-      if (p.isThis || classFields.has(p.name)) {
-        prologueParts.push(`this.${p.name} = ${sanitize(p.name)};`);
+    // Ball's single-input convention: one param named 'input' with class
+    // fields → emit `this.fieldName = input;` (or per-field from input map).
+    const isSingleInput = rawParams.length === 1 && rawParams[0].name === "input";
+    if (isSingleInput && classFields.size > 0) {
+      if (classFields.size === 1) {
+        const fname = [...classFields][0];
+        prologueParts.push(`this.${fname} = input;`);
+      } else {
+        for (const fname of classFields) {
+          prologueParts.push(`this.${fname} = input?.['${fname}'] ?? input;`);
+        }
+      }
+    } else {
+      for (const p of rawParams) {
+        if (p.isThis || classFields.has(p.name)) {
+          prologueParts.push(`this.${p.name} = ${sanitize(p.name)};`);
+        }
       }
     }
     const prologue = prologueParts.join("\n");

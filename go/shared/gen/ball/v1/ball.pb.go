@@ -1066,6 +1066,83 @@ func (x *RegistrySource) GetRegistryUrl() string {
 	return ""
 }
 
+// A structured type reference for use in type checks, function call type
+// arguments, and function signatures. Replaces raw Dart-flavored type strings
+// (e.g. "Box<int>") with a structured, target-agnostic representation that
+// every compiler can interpret without parsing language-specific syntax.
+//
+// Examples:
+//
+//	int            → {name: "int"}
+//	Box<int>       → {name: "Box", type_args: [{name: "int"}]}
+//	Map<String, List<int?>> → {name: "Map", type_args: [
+//	  {name: "String"},
+//	  {name: "List", type_args: [{name: "int", nullable: true}]}
+//	]}
+type TypeRef struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Base type name (e.g., "int", "String", "Box", "List").
+	// For module-qualified types: "module:TypeName" (e.g., "main:Container").
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Generic type arguments. Empty for non-generic types.
+	TypeArgs []*TypeRef `protobuf:"bytes,2,rep,name=type_args,json=typeArgs,proto3" json:"type_args,omitempty"`
+	// Whether this type is nullable (e.g. int? → nullable = true).
+	Nullable      bool `protobuf:"varint,3,opt,name=nullable,proto3" json:"nullable,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TypeRef) Reset() {
+	*x = TypeRef{}
+	mi := &file_ball_v1_ball_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TypeRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TypeRef) ProtoMessage() {}
+
+func (x *TypeRef) ProtoReflect() protoreflect.Message {
+	mi := &file_ball_v1_ball_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TypeRef.ProtoReflect.Descriptor instead.
+func (*TypeRef) Descriptor() ([]byte, []int) {
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *TypeRef) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *TypeRef) GetTypeArgs() []*TypeRef {
+	if x != nil {
+		return x.TypeArgs
+	}
+	return nil
+}
+
+func (x *TypeRef) GetNullable() bool {
+	if x != nil {
+		return x.Nullable
+	}
+	return false
+}
+
 // A type parameter placeholder for generic types (e.g. T, K, V).
 // Bounds, variance, and other constraints are cosmetic hints in metadata.
 type TypeParameter struct {
@@ -1080,7 +1157,7 @@ type TypeParameter struct {
 
 func (x *TypeParameter) Reset() {
 	*x = TypeParameter{}
-	mi := &file_ball_v1_ball_proto_msgTypes[9]
+	mi := &file_ball_v1_ball_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1092,7 +1169,7 @@ func (x *TypeParameter) String() string {
 func (*TypeParameter) ProtoMessage() {}
 
 func (x *TypeParameter) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[9]
+	mi := &file_ball_v1_ball_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1105,7 +1182,7 @@ func (x *TypeParameter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TypeParameter.ProtoReflect.Descriptor instead.
 func (*TypeParameter) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{9}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *TypeParameter) GetName() string {
@@ -1147,7 +1224,7 @@ type TypeDefinition struct {
 
 func (x *TypeDefinition) Reset() {
 	*x = TypeDefinition{}
-	mi := &file_ball_v1_ball_proto_msgTypes[10]
+	mi := &file_ball_v1_ball_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1159,7 +1236,7 @@ func (x *TypeDefinition) String() string {
 func (*TypeDefinition) ProtoMessage() {}
 
 func (x *TypeDefinition) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[10]
+	mi := &file_ball_v1_ball_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1172,7 +1249,7 @@ func (x *TypeDefinition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TypeDefinition.ProtoReflect.Descriptor instead.
 func (*TypeDefinition) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{10}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *TypeDefinition) GetName() string {
@@ -1227,7 +1304,7 @@ type TypeAlias struct {
 
 func (x *TypeAlias) Reset() {
 	*x = TypeAlias{}
-	mi := &file_ball_v1_ball_proto_msgTypes[11]
+	mi := &file_ball_v1_ball_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1239,7 +1316,7 @@ func (x *TypeAlias) String() string {
 func (*TypeAlias) ProtoMessage() {}
 
 func (x *TypeAlias) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[11]
+	mi := &file_ball_v1_ball_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1252,7 +1329,7 @@ func (x *TypeAlias) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TypeAlias.ProtoReflect.Descriptor instead.
 func (*TypeAlias) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{11}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *TypeAlias) GetName() string {
@@ -1300,7 +1377,7 @@ type Constant struct {
 
 func (x *Constant) Reset() {
 	*x = Constant{}
-	mi := &file_ball_v1_ball_proto_msgTypes[12]
+	mi := &file_ball_v1_ball_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1312,7 +1389,7 @@ func (x *Constant) String() string {
 func (*Constant) ProtoMessage() {}
 
 func (x *Constant) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[12]
+	mi := &file_ball_v1_ball_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1325,7 +1402,7 @@ func (x *Constant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Constant.ProtoReflect.Descriptor instead.
 func (*Constant) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{12}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Constant) GetName() string {
@@ -1382,7 +1459,7 @@ type FunctionDefinition struct {
 
 func (x *FunctionDefinition) Reset() {
 	*x = FunctionDefinition{}
-	mi := &file_ball_v1_ball_proto_msgTypes[13]
+	mi := &file_ball_v1_ball_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1394,7 +1471,7 @@ func (x *FunctionDefinition) String() string {
 func (*FunctionDefinition) ProtoMessage() {}
 
 func (x *FunctionDefinition) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[13]
+	mi := &file_ball_v1_ball_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1407,7 +1484,7 @@ func (x *FunctionDefinition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FunctionDefinition.ProtoReflect.Descriptor instead.
 func (*FunctionDefinition) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{13}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *FunctionDefinition) GetName() string {
@@ -1479,7 +1556,7 @@ type Expression struct {
 
 func (x *Expression) Reset() {
 	*x = Expression{}
-	mi := &file_ball_v1_ball_proto_msgTypes[14]
+	mi := &file_ball_v1_ball_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1491,7 +1568,7 @@ func (x *Expression) String() string {
 func (*Expression) ProtoMessage() {}
 
 func (x *Expression) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[14]
+	mi := &file_ball_v1_ball_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1504,7 +1581,7 @@ func (x *Expression) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Expression.ProtoReflect.Descriptor instead.
 func (*Expression) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{14}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Expression) GetExpr() isExpression_Expr {
@@ -1642,14 +1719,20 @@ type FunctionCall struct {
 	// Function name to call
 	Function string `protobuf:"bytes,2,opt,name=function,proto3" json:"function,omitempty"`
 	// Input expression (evaluates to the function's input type)
-	Input         *Expression `protobuf:"bytes,3,opt,name=input,proto3" json:"input,omitempty"`
+	Input *Expression `protobuf:"bytes,3,opt,name=input,proto3" json:"input,omitempty"`
+	// Generic type arguments for this call (e.g., identity<int>(42)).
+	// Replaces the unstructured "__type_args__" string convention in
+	// MessageCreation fields. Compilers should prefer this field when
+	// present; fall back to the "__type_args__" metadata string for
+	// backward compatibility with older Ball programs.
+	TypeArgs      []*TypeRef `protobuf:"bytes,4,rep,name=type_args,json=typeArgs,proto3" json:"type_args,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FunctionCall) Reset() {
 	*x = FunctionCall{}
-	mi := &file_ball_v1_ball_proto_msgTypes[15]
+	mi := &file_ball_v1_ball_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1661,7 +1744,7 @@ func (x *FunctionCall) String() string {
 func (*FunctionCall) ProtoMessage() {}
 
 func (x *FunctionCall) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[15]
+	mi := &file_ball_v1_ball_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1674,7 +1757,7 @@ func (x *FunctionCall) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FunctionCall.ProtoReflect.Descriptor instead.
 func (*FunctionCall) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{15}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *FunctionCall) GetModule() string {
@@ -1698,6 +1781,13 @@ func (x *FunctionCall) GetInput() *Expression {
 	return nil
 }
 
+func (x *FunctionCall) GetTypeArgs() []*TypeRef {
+	if x != nil {
+		return x.TypeArgs
+	}
+	return nil
+}
+
 // A literal value. Uses oneof for type-safe value representation.
 type Literal struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1716,7 +1806,7 @@ type Literal struct {
 
 func (x *Literal) Reset() {
 	*x = Literal{}
-	mi := &file_ball_v1_ball_proto_msgTypes[16]
+	mi := &file_ball_v1_ball_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1728,7 +1818,7 @@ func (x *Literal) String() string {
 func (*Literal) ProtoMessage() {}
 
 func (x *Literal) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[16]
+	mi := &file_ball_v1_ball_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1741,7 +1831,7 @@ func (x *Literal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Literal.ProtoReflect.Descriptor instead.
 func (*Literal) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{16}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *Literal) GetValue() isLiteral_Value {
@@ -1861,7 +1951,7 @@ type ListLiteral struct {
 
 func (x *ListLiteral) Reset() {
 	*x = ListLiteral{}
-	mi := &file_ball_v1_ball_proto_msgTypes[17]
+	mi := &file_ball_v1_ball_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1873,7 +1963,7 @@ func (x *ListLiteral) String() string {
 func (*ListLiteral) ProtoMessage() {}
 
 func (x *ListLiteral) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[17]
+	mi := &file_ball_v1_ball_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1886,7 +1976,7 @@ func (x *ListLiteral) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLiteral.ProtoReflect.Descriptor instead.
 func (*ListLiteral) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{17}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ListLiteral) GetElements() []*Expression {
@@ -1907,7 +1997,7 @@ type Reference struct {
 
 func (x *Reference) Reset() {
 	*x = Reference{}
-	mi := &file_ball_v1_ball_proto_msgTypes[18]
+	mi := &file_ball_v1_ball_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1919,7 +2009,7 @@ func (x *Reference) String() string {
 func (*Reference) ProtoMessage() {}
 
 func (x *Reference) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[18]
+	mi := &file_ball_v1_ball_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1932,7 +2022,7 @@ func (x *Reference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Reference.ProtoReflect.Descriptor instead.
 func (*Reference) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{18}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Reference) GetName() string {
@@ -1956,7 +2046,7 @@ type FieldAccess struct {
 
 func (x *FieldAccess) Reset() {
 	*x = FieldAccess{}
-	mi := &file_ball_v1_ball_proto_msgTypes[19]
+	mi := &file_ball_v1_ball_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1968,7 +2058,7 @@ func (x *FieldAccess) String() string {
 func (*FieldAccess) ProtoMessage() {}
 
 func (x *FieldAccess) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[19]
+	mi := &file_ball_v1_ball_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1981,7 +2071,7 @@ func (x *FieldAccess) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldAccess.ProtoReflect.Descriptor instead.
 func (*FieldAccess) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{19}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *FieldAccess) GetObject() *Expression {
@@ -2012,7 +2102,7 @@ type MessageCreation struct {
 
 func (x *MessageCreation) Reset() {
 	*x = MessageCreation{}
-	mi := &file_ball_v1_ball_proto_msgTypes[20]
+	mi := &file_ball_v1_ball_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2024,7 +2114,7 @@ func (x *MessageCreation) String() string {
 func (*MessageCreation) ProtoMessage() {}
 
 func (x *MessageCreation) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[20]
+	mi := &file_ball_v1_ball_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2037,7 +2127,7 @@ func (x *MessageCreation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageCreation.ProtoReflect.Descriptor instead.
 func (*MessageCreation) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{20}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *MessageCreation) GetTypeName() string {
@@ -2067,7 +2157,7 @@ type FieldValuePair struct {
 
 func (x *FieldValuePair) Reset() {
 	*x = FieldValuePair{}
-	mi := &file_ball_v1_ball_proto_msgTypes[21]
+	mi := &file_ball_v1_ball_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2079,7 +2169,7 @@ func (x *FieldValuePair) String() string {
 func (*FieldValuePair) ProtoMessage() {}
 
 func (x *FieldValuePair) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[21]
+	mi := &file_ball_v1_ball_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2092,7 +2182,7 @@ func (x *FieldValuePair) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldValuePair.ProtoReflect.Descriptor instead.
 func (*FieldValuePair) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{21}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *FieldValuePair) GetName() string {
@@ -2123,7 +2213,7 @@ type Block struct {
 
 func (x *Block) Reset() {
 	*x = Block{}
-	mi := &file_ball_v1_ball_proto_msgTypes[22]
+	mi := &file_ball_v1_ball_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2135,7 +2225,7 @@ func (x *Block) String() string {
 func (*Block) ProtoMessage() {}
 
 func (x *Block) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[22]
+	mi := &file_ball_v1_ball_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2148,7 +2238,7 @@ func (x *Block) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Block.ProtoReflect.Descriptor instead.
 func (*Block) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{22}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *Block) GetStatements() []*Statement {
@@ -2179,7 +2269,7 @@ type Statement struct {
 
 func (x *Statement) Reset() {
 	*x = Statement{}
-	mi := &file_ball_v1_ball_proto_msgTypes[23]
+	mi := &file_ball_v1_ball_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2191,7 +2281,7 @@ func (x *Statement) String() string {
 func (*Statement) ProtoMessage() {}
 
 func (x *Statement) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[23]
+	mi := &file_ball_v1_ball_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2204,7 +2294,7 @@ func (x *Statement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Statement.ProtoReflect.Descriptor instead.
 func (*Statement) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{23}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Statement) GetStmt() isStatement_Stmt {
@@ -2266,7 +2356,7 @@ type LetBinding struct {
 
 func (x *LetBinding) Reset() {
 	*x = LetBinding{}
-	mi := &file_ball_v1_ball_proto_msgTypes[24]
+	mi := &file_ball_v1_ball_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2278,7 +2368,7 @@ func (x *LetBinding) String() string {
 func (*LetBinding) ProtoMessage() {}
 
 func (x *LetBinding) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[24]
+	mi := &file_ball_v1_ball_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2291,7 +2381,7 @@ func (x *LetBinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LetBinding.ProtoReflect.Descriptor instead.
 func (*LetBinding) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{24}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *LetBinding) GetName() string {
@@ -2337,7 +2427,7 @@ type BallManifest struct {
 
 func (x *BallManifest) Reset() {
 	*x = BallManifest{}
-	mi := &file_ball_v1_ball_proto_msgTypes[25]
+	mi := &file_ball_v1_ball_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2349,7 +2439,7 @@ func (x *BallManifest) String() string {
 func (*BallManifest) ProtoMessage() {}
 
 func (x *BallManifest) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[25]
+	mi := &file_ball_v1_ball_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2362,7 +2452,7 @@ func (x *BallManifest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BallManifest.ProtoReflect.Descriptor instead.
 func (*BallManifest) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{25}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *BallManifest) GetName() string {
@@ -2435,7 +2525,7 @@ type BallLockfile struct {
 
 func (x *BallLockfile) Reset() {
 	*x = BallLockfile{}
-	mi := &file_ball_v1_ball_proto_msgTypes[26]
+	mi := &file_ball_v1_ball_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2447,7 +2537,7 @@ func (x *BallLockfile) String() string {
 func (*BallLockfile) ProtoMessage() {}
 
 func (x *BallLockfile) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[26]
+	mi := &file_ball_v1_ball_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2460,7 +2550,7 @@ func (x *BallLockfile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BallLockfile.ProtoReflect.Descriptor instead.
 func (*BallLockfile) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{26}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *BallLockfile) GetPackages() []*ResolvedDependency {
@@ -2503,7 +2593,7 @@ type ResolvedDependency struct {
 
 func (x *ResolvedDependency) Reset() {
 	*x = ResolvedDependency{}
-	mi := &file_ball_v1_ball_proto_msgTypes[27]
+	mi := &file_ball_v1_ball_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2515,7 +2605,7 @@ func (x *ResolvedDependency) String() string {
 func (*ResolvedDependency) ProtoMessage() {}
 
 func (x *ResolvedDependency) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[27]
+	mi := &file_ball_v1_ball_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2528,7 +2618,7 @@ func (x *ResolvedDependency) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolvedDependency.ProtoReflect.Descriptor instead.
 func (*ResolvedDependency) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{27}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ResolvedDependency) GetName() string {
@@ -2650,7 +2740,7 @@ type BallCapabilityReport struct {
 
 func (x *BallCapabilityReport) Reset() {
 	*x = BallCapabilityReport{}
-	mi := &file_ball_v1_ball_proto_msgTypes[28]
+	mi := &file_ball_v1_ball_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2662,7 +2752,7 @@ func (x *BallCapabilityReport) String() string {
 func (*BallCapabilityReport) ProtoMessage() {}
 
 func (x *BallCapabilityReport) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[28]
+	mi := &file_ball_v1_ball_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2675,7 +2765,7 @@ func (x *BallCapabilityReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BallCapabilityReport.ProtoReflect.Descriptor instead.
 func (*BallCapabilityReport) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{28}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *BallCapabilityReport) GetProgramName() string {
@@ -2731,7 +2821,7 @@ type CapabilityEntry struct {
 
 func (x *CapabilityEntry) Reset() {
 	*x = CapabilityEntry{}
-	mi := &file_ball_v1_ball_proto_msgTypes[29]
+	mi := &file_ball_v1_ball_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2743,7 +2833,7 @@ func (x *CapabilityEntry) String() string {
 func (*CapabilityEntry) ProtoMessage() {}
 
 func (x *CapabilityEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[29]
+	mi := &file_ball_v1_ball_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2756,7 +2846,7 @@ func (x *CapabilityEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapabilityEntry.ProtoReflect.Descriptor instead.
 func (*CapabilityEntry) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{29}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *CapabilityEntry) GetCapability() string {
@@ -2798,7 +2888,7 @@ type CallSite struct {
 
 func (x *CallSite) Reset() {
 	*x = CallSite{}
-	mi := &file_ball_v1_ball_proto_msgTypes[30]
+	mi := &file_ball_v1_ball_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2810,7 +2900,7 @@ func (x *CallSite) String() string {
 func (*CallSite) ProtoMessage() {}
 
 func (x *CallSite) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[30]
+	mi := &file_ball_v1_ball_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2823,7 +2913,7 @@ func (x *CallSite) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CallSite.ProtoReflect.Descriptor instead.
 func (*CallSite) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{30}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *CallSite) GetModule() string {
@@ -2867,7 +2957,7 @@ type FunctionCapability struct {
 
 func (x *FunctionCapability) Reset() {
 	*x = FunctionCapability{}
-	mi := &file_ball_v1_ball_proto_msgTypes[31]
+	mi := &file_ball_v1_ball_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2879,7 +2969,7 @@ func (x *FunctionCapability) String() string {
 func (*FunctionCapability) ProtoMessage() {}
 
 func (x *FunctionCapability) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[31]
+	mi := &file_ball_v1_ball_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2892,7 +2982,7 @@ func (x *FunctionCapability) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FunctionCapability.ProtoReflect.Descriptor instead.
 func (*FunctionCapability) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{31}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *FunctionCapability) GetModule() string {
@@ -2941,7 +3031,7 @@ type CapabilitySummary struct {
 
 func (x *CapabilitySummary) Reset() {
 	*x = CapabilitySummary{}
-	mi := &file_ball_v1_ball_proto_msgTypes[32]
+	mi := &file_ball_v1_ball_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2953,7 +3043,7 @@ func (x *CapabilitySummary) String() string {
 func (*CapabilitySummary) ProtoMessage() {}
 
 func (x *CapabilitySummary) ProtoReflect() protoreflect.Message {
-	mi := &file_ball_v1_ball_proto_msgTypes[32]
+	mi := &file_ball_v1_ball_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2966,7 +3056,7 @@ func (x *CapabilitySummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapabilitySummary.ProtoReflect.Descriptor instead.
 func (*CapabilitySummary) Descriptor() ([]byte, []int) {
-	return file_ball_v1_ball_proto_rawDescGZIP(), []int{32}
+	return file_ball_v1_ball_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *CapabilitySummary) GetIsPure() bool {
@@ -3092,7 +3182,7 @@ const file_ball_v1_ball_proto_rawDesc = "" +
 	"\amodules\x18\x03 \x03(\v2\x0f.ball.v1.ModuleR\amodules\x12!\n" +
 	"\fentry_module\x18\x04 \x01(\tR\ventryModule\x12%\n" +
 	"\x0eentry_function\x18\x05 \x01(\tR\rentryFunction\x123\n" +
-	"\bmetadata\x18\x06 \x01(\v2\x17.google.protobuf.StructR\bmetadata\"\x8e\x04\n" +
+	"\bmetadata\x18\x06 \x01(\v2\x17.google.protobuf.StructR\bmetadata\"\x81\x04\n" +
 	"\x06Module\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12:\n" +
 	"\x05enums\x18\a \x03(\v2$.google.protobuf.EnumDescriptorProtoR\x05enums\x129\n" +
@@ -3103,7 +3193,7 @@ const file_ball_v1_ball_proto_rawDesc = "" +
 	"\ttype_defs\x18\b \x03(\v2\x17.ball.v1.TypeDefinitionR\btypeDefs\x125\n" +
 	"\ftype_aliases\x18\v \x03(\v2\x12.ball.v1.TypeAliasR\vtypeAliases\x12<\n" +
 	"\x10module_constants\x18\f \x03(\v2\x11.ball.v1.ConstantR\x0fmoduleConstants\x12,\n" +
-	"\x06assets\x18\r \x03(\v2\x14.ball.v1.ModuleAssetR\x06assetsJ\x04\b\x02\x10\x03R\x05types\"\x8f\x01\n" +
+	"\x06assets\x18\r \x03(\v2\x14.ball.v1.ModuleAssetR\x06assets\"\x8f\x01\n" +
 	"\vModuleAsset\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\fR\acontent\x12\x1d\n" +
@@ -3149,7 +3239,11 @@ const file_ball_v1_ball_proto_rawDesc = "" +
 	"\vmodule_path\x18\x04 \x01(\tR\n" +
 	"modulePath\x123\n" +
 	"\bencoding\x18\x05 \x01(\x0e2\x17.ball.v1.ModuleEncodingR\bencoding\x12!\n" +
-	"\fregistry_url\x18\x06 \x01(\tR\vregistryUrl\"X\n" +
+	"\fregistry_url\x18\x06 \x01(\tR\vregistryUrl\"h\n" +
+	"\aTypeRef\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12-\n" +
+	"\ttype_args\x18\x02 \x03(\v2\x10.ball.v1.TypeRefR\btypeArgs\x12\x1a\n" +
+	"\bnullable\x18\x03 \x01(\bR\bnullable\"X\n" +
 	"\rTypeParameter\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x123\n" +
 	"\bmetadata\x18\x02 \x01(\v2\x17.google.protobuf.StructR\bmetadata\"\xf6\x01\n" +
@@ -3193,11 +3287,12 @@ const file_ball_v1_ball_proto_rawDesc = "" +
 	"\x10message_creation\x18\x05 \x01(\v2\x18.ball.v1.MessageCreationH\x00R\x0fmessageCreation\x12&\n" +
 	"\x05block\x18\x06 \x01(\v2\x0e.ball.v1.BlockH\x00R\x05block\x125\n" +
 	"\x06lambda\x18\a \x01(\v2\x1b.ball.v1.FunctionDefinitionH\x00R\x06lambdaB\x06\n" +
-	"\x04expr\"m\n" +
+	"\x04expr\"\x9c\x01\n" +
 	"\fFunctionCall\x12\x16\n" +
 	"\x06module\x18\x01 \x01(\tR\x06module\x12\x1a\n" +
 	"\bfunction\x18\x02 \x01(\tR\bfunction\x12)\n" +
-	"\x05input\x18\x03 \x01(\v2\x13.ball.v1.ExpressionR\x05input\"\xf6\x01\n" +
+	"\x05input\x18\x03 \x01(\v2\x13.ball.v1.ExpressionR\x05input\x12-\n" +
+	"\ttype_args\x18\x04 \x03(\v2\x10.ball.v1.TypeRefR\btypeArgs\"\xf6\x01\n" +
 	"\aLiteral\x12\x1d\n" +
 	"\tint_value\x18\x01 \x01(\x03H\x00R\bintValue\x12#\n" +
 	"\fdouble_value\x18\x02 \x01(\x01H\x00R\vdoubleValue\x12#\n" +
@@ -3331,7 +3426,7 @@ func file_ball_v1_ball_proto_rawDescGZIP() []byte {
 }
 
 var file_ball_v1_ball_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_ball_v1_ball_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
+var file_ball_v1_ball_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_ball_v1_ball_proto_goTypes = []any{
 	(Registry)(0),                            // 0: ball.v1.Registry
 	(ModuleEncoding)(0),                      // 1: ball.v1.ModuleEncoding
@@ -3344,105 +3439,108 @@ var file_ball_v1_ball_proto_goTypes = []any{
 	(*InlineSource)(nil),                     // 8: ball.v1.InlineSource
 	(*GitSource)(nil),                        // 9: ball.v1.GitSource
 	(*RegistrySource)(nil),                   // 10: ball.v1.RegistrySource
-	(*TypeParameter)(nil),                    // 11: ball.v1.TypeParameter
-	(*TypeDefinition)(nil),                   // 12: ball.v1.TypeDefinition
-	(*TypeAlias)(nil),                        // 13: ball.v1.TypeAlias
-	(*Constant)(nil),                         // 14: ball.v1.Constant
-	(*FunctionDefinition)(nil),               // 15: ball.v1.FunctionDefinition
-	(*Expression)(nil),                       // 16: ball.v1.Expression
-	(*FunctionCall)(nil),                     // 17: ball.v1.FunctionCall
-	(*Literal)(nil),                          // 18: ball.v1.Literal
-	(*ListLiteral)(nil),                      // 19: ball.v1.ListLiteral
-	(*Reference)(nil),                        // 20: ball.v1.Reference
-	(*FieldAccess)(nil),                      // 21: ball.v1.FieldAccess
-	(*MessageCreation)(nil),                  // 22: ball.v1.MessageCreation
-	(*FieldValuePair)(nil),                   // 23: ball.v1.FieldValuePair
-	(*Block)(nil),                            // 24: ball.v1.Block
-	(*Statement)(nil),                        // 25: ball.v1.Statement
-	(*LetBinding)(nil),                       // 26: ball.v1.LetBinding
-	(*BallManifest)(nil),                     // 27: ball.v1.BallManifest
-	(*BallLockfile)(nil),                     // 28: ball.v1.BallLockfile
-	(*ResolvedDependency)(nil),               // 29: ball.v1.ResolvedDependency
-	(*BallCapabilityReport)(nil),             // 30: ball.v1.BallCapabilityReport
-	(*CapabilityEntry)(nil),                  // 31: ball.v1.CapabilityEntry
-	(*CallSite)(nil),                         // 32: ball.v1.CallSite
-	(*FunctionCapability)(nil),               // 33: ball.v1.FunctionCapability
-	(*CapabilitySummary)(nil),                // 34: ball.v1.CapabilitySummary
-	nil,                                      // 35: ball.v1.HttpSource.HeadersEntry
-	(*structpb.Struct)(nil),                  // 36: google.protobuf.Struct
-	(*descriptorpb.EnumDescriptorProto)(nil), // 37: google.protobuf.EnumDescriptorProto
-	(*descriptorpb.DescriptorProto)(nil),     // 38: google.protobuf.DescriptorProto
+	(*TypeRef)(nil),                          // 11: ball.v1.TypeRef
+	(*TypeParameter)(nil),                    // 12: ball.v1.TypeParameter
+	(*TypeDefinition)(nil),                   // 13: ball.v1.TypeDefinition
+	(*TypeAlias)(nil),                        // 14: ball.v1.TypeAlias
+	(*Constant)(nil),                         // 15: ball.v1.Constant
+	(*FunctionDefinition)(nil),               // 16: ball.v1.FunctionDefinition
+	(*Expression)(nil),                       // 17: ball.v1.Expression
+	(*FunctionCall)(nil),                     // 18: ball.v1.FunctionCall
+	(*Literal)(nil),                          // 19: ball.v1.Literal
+	(*ListLiteral)(nil),                      // 20: ball.v1.ListLiteral
+	(*Reference)(nil),                        // 21: ball.v1.Reference
+	(*FieldAccess)(nil),                      // 22: ball.v1.FieldAccess
+	(*MessageCreation)(nil),                  // 23: ball.v1.MessageCreation
+	(*FieldValuePair)(nil),                   // 24: ball.v1.FieldValuePair
+	(*Block)(nil),                            // 25: ball.v1.Block
+	(*Statement)(nil),                        // 26: ball.v1.Statement
+	(*LetBinding)(nil),                       // 27: ball.v1.LetBinding
+	(*BallManifest)(nil),                     // 28: ball.v1.BallManifest
+	(*BallLockfile)(nil),                     // 29: ball.v1.BallLockfile
+	(*ResolvedDependency)(nil),               // 30: ball.v1.ResolvedDependency
+	(*BallCapabilityReport)(nil),             // 31: ball.v1.BallCapabilityReport
+	(*CapabilityEntry)(nil),                  // 32: ball.v1.CapabilityEntry
+	(*CallSite)(nil),                         // 33: ball.v1.CallSite
+	(*FunctionCapability)(nil),               // 34: ball.v1.FunctionCapability
+	(*CapabilitySummary)(nil),                // 35: ball.v1.CapabilitySummary
+	nil,                                      // 36: ball.v1.HttpSource.HeadersEntry
+	(*structpb.Struct)(nil),                  // 37: google.protobuf.Struct
+	(*descriptorpb.EnumDescriptorProto)(nil), // 38: google.protobuf.EnumDescriptorProto
+	(*descriptorpb.DescriptorProto)(nil),     // 39: google.protobuf.DescriptorProto
 }
 var file_ball_v1_ball_proto_depIdxs = []int32{
 	3,  // 0: ball.v1.Program.modules:type_name -> ball.v1.Module
-	36, // 1: ball.v1.Program.metadata:type_name -> google.protobuf.Struct
-	37, // 2: ball.v1.Module.enums:type_name -> google.protobuf.EnumDescriptorProto
-	15, // 3: ball.v1.Module.functions:type_name -> ball.v1.FunctionDefinition
-	36, // 4: ball.v1.Module.metadata:type_name -> google.protobuf.Struct
+	37, // 1: ball.v1.Program.metadata:type_name -> google.protobuf.Struct
+	38, // 2: ball.v1.Module.enums:type_name -> google.protobuf.EnumDescriptorProto
+	16, // 3: ball.v1.Module.functions:type_name -> ball.v1.FunctionDefinition
+	37, // 4: ball.v1.Module.metadata:type_name -> google.protobuf.Struct
 	5,  // 5: ball.v1.Module.module_imports:type_name -> ball.v1.ModuleImport
-	12, // 6: ball.v1.Module.type_defs:type_name -> ball.v1.TypeDefinition
-	13, // 7: ball.v1.Module.type_aliases:type_name -> ball.v1.TypeAlias
-	14, // 8: ball.v1.Module.module_constants:type_name -> ball.v1.Constant
+	13, // 6: ball.v1.Module.type_defs:type_name -> ball.v1.TypeDefinition
+	14, // 7: ball.v1.Module.type_aliases:type_name -> ball.v1.TypeAlias
+	15, // 8: ball.v1.Module.module_constants:type_name -> ball.v1.Constant
 	4,  // 9: ball.v1.Module.assets:type_name -> ball.v1.ModuleAsset
-	36, // 10: ball.v1.ModuleAsset.metadata:type_name -> google.protobuf.Struct
-	36, // 11: ball.v1.ModuleImport.metadata:type_name -> google.protobuf.Struct
+	37, // 10: ball.v1.ModuleAsset.metadata:type_name -> google.protobuf.Struct
+	37, // 11: ball.v1.ModuleImport.metadata:type_name -> google.protobuf.Struct
 	6,  // 12: ball.v1.ModuleImport.http:type_name -> ball.v1.HttpSource
 	7,  // 13: ball.v1.ModuleImport.file:type_name -> ball.v1.FileSource
 	8,  // 14: ball.v1.ModuleImport.inline:type_name -> ball.v1.InlineSource
 	9,  // 15: ball.v1.ModuleImport.git:type_name -> ball.v1.GitSource
 	10, // 16: ball.v1.ModuleImport.registry:type_name -> ball.v1.RegistrySource
 	1,  // 17: ball.v1.HttpSource.encoding:type_name -> ball.v1.ModuleEncoding
-	35, // 18: ball.v1.HttpSource.headers:type_name -> ball.v1.HttpSource.HeadersEntry
+	36, // 18: ball.v1.HttpSource.headers:type_name -> ball.v1.HttpSource.HeadersEntry
 	1,  // 19: ball.v1.FileSource.encoding:type_name -> ball.v1.ModuleEncoding
 	1,  // 20: ball.v1.GitSource.encoding:type_name -> ball.v1.ModuleEncoding
 	0,  // 21: ball.v1.RegistrySource.registry:type_name -> ball.v1.Registry
 	1,  // 22: ball.v1.RegistrySource.encoding:type_name -> ball.v1.ModuleEncoding
-	36, // 23: ball.v1.TypeParameter.metadata:type_name -> google.protobuf.Struct
-	38, // 24: ball.v1.TypeDefinition.descriptor:type_name -> google.protobuf.DescriptorProto
-	11, // 25: ball.v1.TypeDefinition.type_params:type_name -> ball.v1.TypeParameter
-	36, // 26: ball.v1.TypeDefinition.metadata:type_name -> google.protobuf.Struct
-	11, // 27: ball.v1.TypeAlias.type_params:type_name -> ball.v1.TypeParameter
-	36, // 28: ball.v1.TypeAlias.metadata:type_name -> google.protobuf.Struct
-	16, // 29: ball.v1.Constant.value:type_name -> ball.v1.Expression
-	36, // 30: ball.v1.Constant.metadata:type_name -> google.protobuf.Struct
-	16, // 31: ball.v1.FunctionDefinition.body:type_name -> ball.v1.Expression
-	36, // 32: ball.v1.FunctionDefinition.metadata:type_name -> google.protobuf.Struct
-	17, // 33: ball.v1.Expression.call:type_name -> ball.v1.FunctionCall
-	18, // 34: ball.v1.Expression.literal:type_name -> ball.v1.Literal
-	20, // 35: ball.v1.Expression.reference:type_name -> ball.v1.Reference
-	21, // 36: ball.v1.Expression.field_access:type_name -> ball.v1.FieldAccess
-	22, // 37: ball.v1.Expression.message_creation:type_name -> ball.v1.MessageCreation
-	24, // 38: ball.v1.Expression.block:type_name -> ball.v1.Block
-	15, // 39: ball.v1.Expression.lambda:type_name -> ball.v1.FunctionDefinition
-	16, // 40: ball.v1.FunctionCall.input:type_name -> ball.v1.Expression
-	19, // 41: ball.v1.Literal.list_value:type_name -> ball.v1.ListLiteral
-	16, // 42: ball.v1.ListLiteral.elements:type_name -> ball.v1.Expression
-	16, // 43: ball.v1.FieldAccess.object:type_name -> ball.v1.Expression
-	23, // 44: ball.v1.MessageCreation.fields:type_name -> ball.v1.FieldValuePair
-	16, // 45: ball.v1.FieldValuePair.value:type_name -> ball.v1.Expression
-	25, // 46: ball.v1.Block.statements:type_name -> ball.v1.Statement
-	16, // 47: ball.v1.Block.result:type_name -> ball.v1.Expression
-	26, // 48: ball.v1.Statement.let:type_name -> ball.v1.LetBinding
-	16, // 49: ball.v1.Statement.expression:type_name -> ball.v1.Expression
-	16, // 50: ball.v1.LetBinding.value:type_name -> ball.v1.Expression
-	36, // 51: ball.v1.LetBinding.metadata:type_name -> google.protobuf.Struct
-	5,  // 52: ball.v1.BallManifest.dependencies:type_name -> ball.v1.ModuleImport
-	5,  // 53: ball.v1.BallManifest.dev_dependencies:type_name -> ball.v1.ModuleImport
-	36, // 54: ball.v1.BallManifest.metadata:type_name -> google.protobuf.Struct
-	29, // 55: ball.v1.BallLockfile.packages:type_name -> ball.v1.ResolvedDependency
-	6,  // 56: ball.v1.ResolvedDependency.http:type_name -> ball.v1.HttpSource
-	9,  // 57: ball.v1.ResolvedDependency.git:type_name -> ball.v1.GitSource
-	7,  // 58: ball.v1.ResolvedDependency.file:type_name -> ball.v1.FileSource
-	10, // 59: ball.v1.ResolvedDependency.registry:type_name -> ball.v1.RegistrySource
-	31, // 60: ball.v1.BallCapabilityReport.capabilities:type_name -> ball.v1.CapabilityEntry
-	33, // 61: ball.v1.BallCapabilityReport.functions:type_name -> ball.v1.FunctionCapability
-	34, // 62: ball.v1.BallCapabilityReport.summary:type_name -> ball.v1.CapabilitySummary
-	32, // 63: ball.v1.CapabilityEntry.call_sites:type_name -> ball.v1.CallSite
-	64, // [64:64] is the sub-list for method output_type
-	64, // [64:64] is the sub-list for method input_type
-	64, // [64:64] is the sub-list for extension type_name
-	64, // [64:64] is the sub-list for extension extendee
-	0,  // [0:64] is the sub-list for field type_name
+	11, // 23: ball.v1.TypeRef.type_args:type_name -> ball.v1.TypeRef
+	37, // 24: ball.v1.TypeParameter.metadata:type_name -> google.protobuf.Struct
+	39, // 25: ball.v1.TypeDefinition.descriptor:type_name -> google.protobuf.DescriptorProto
+	12, // 26: ball.v1.TypeDefinition.type_params:type_name -> ball.v1.TypeParameter
+	37, // 27: ball.v1.TypeDefinition.metadata:type_name -> google.protobuf.Struct
+	12, // 28: ball.v1.TypeAlias.type_params:type_name -> ball.v1.TypeParameter
+	37, // 29: ball.v1.TypeAlias.metadata:type_name -> google.protobuf.Struct
+	17, // 30: ball.v1.Constant.value:type_name -> ball.v1.Expression
+	37, // 31: ball.v1.Constant.metadata:type_name -> google.protobuf.Struct
+	17, // 32: ball.v1.FunctionDefinition.body:type_name -> ball.v1.Expression
+	37, // 33: ball.v1.FunctionDefinition.metadata:type_name -> google.protobuf.Struct
+	18, // 34: ball.v1.Expression.call:type_name -> ball.v1.FunctionCall
+	19, // 35: ball.v1.Expression.literal:type_name -> ball.v1.Literal
+	21, // 36: ball.v1.Expression.reference:type_name -> ball.v1.Reference
+	22, // 37: ball.v1.Expression.field_access:type_name -> ball.v1.FieldAccess
+	23, // 38: ball.v1.Expression.message_creation:type_name -> ball.v1.MessageCreation
+	25, // 39: ball.v1.Expression.block:type_name -> ball.v1.Block
+	16, // 40: ball.v1.Expression.lambda:type_name -> ball.v1.FunctionDefinition
+	17, // 41: ball.v1.FunctionCall.input:type_name -> ball.v1.Expression
+	11, // 42: ball.v1.FunctionCall.type_args:type_name -> ball.v1.TypeRef
+	20, // 43: ball.v1.Literal.list_value:type_name -> ball.v1.ListLiteral
+	17, // 44: ball.v1.ListLiteral.elements:type_name -> ball.v1.Expression
+	17, // 45: ball.v1.FieldAccess.object:type_name -> ball.v1.Expression
+	24, // 46: ball.v1.MessageCreation.fields:type_name -> ball.v1.FieldValuePair
+	17, // 47: ball.v1.FieldValuePair.value:type_name -> ball.v1.Expression
+	26, // 48: ball.v1.Block.statements:type_name -> ball.v1.Statement
+	17, // 49: ball.v1.Block.result:type_name -> ball.v1.Expression
+	27, // 50: ball.v1.Statement.let:type_name -> ball.v1.LetBinding
+	17, // 51: ball.v1.Statement.expression:type_name -> ball.v1.Expression
+	17, // 52: ball.v1.LetBinding.value:type_name -> ball.v1.Expression
+	37, // 53: ball.v1.LetBinding.metadata:type_name -> google.protobuf.Struct
+	5,  // 54: ball.v1.BallManifest.dependencies:type_name -> ball.v1.ModuleImport
+	5,  // 55: ball.v1.BallManifest.dev_dependencies:type_name -> ball.v1.ModuleImport
+	37, // 56: ball.v1.BallManifest.metadata:type_name -> google.protobuf.Struct
+	30, // 57: ball.v1.BallLockfile.packages:type_name -> ball.v1.ResolvedDependency
+	6,  // 58: ball.v1.ResolvedDependency.http:type_name -> ball.v1.HttpSource
+	9,  // 59: ball.v1.ResolvedDependency.git:type_name -> ball.v1.GitSource
+	7,  // 60: ball.v1.ResolvedDependency.file:type_name -> ball.v1.FileSource
+	10, // 61: ball.v1.ResolvedDependency.registry:type_name -> ball.v1.RegistrySource
+	32, // 62: ball.v1.BallCapabilityReport.capabilities:type_name -> ball.v1.CapabilityEntry
+	34, // 63: ball.v1.BallCapabilityReport.functions:type_name -> ball.v1.FunctionCapability
+	35, // 64: ball.v1.BallCapabilityReport.summary:type_name -> ball.v1.CapabilitySummary
+	33, // 65: ball.v1.CapabilityEntry.call_sites:type_name -> ball.v1.CallSite
+	66, // [66:66] is the sub-list for method output_type
+	66, // [66:66] is the sub-list for method input_type
+	66, // [66:66] is the sub-list for extension type_name
+	66, // [66:66] is the sub-list for extension extendee
+	0,  // [0:66] is the sub-list for field type_name
 }
 
 func init() { file_ball_v1_ball_proto_init() }
@@ -3461,7 +3559,7 @@ func file_ball_v1_ball_proto_init() {
 		(*InlineSource_ProtoBytes)(nil),
 		(*InlineSource_Json)(nil),
 	}
-	file_ball_v1_ball_proto_msgTypes[14].OneofWrappers = []any{
+	file_ball_v1_ball_proto_msgTypes[15].OneofWrappers = []any{
 		(*Expression_Call)(nil),
 		(*Expression_Literal)(nil),
 		(*Expression_Reference)(nil),
@@ -3470,7 +3568,7 @@ func file_ball_v1_ball_proto_init() {
 		(*Expression_Block)(nil),
 		(*Expression_Lambda)(nil),
 	}
-	file_ball_v1_ball_proto_msgTypes[16].OneofWrappers = []any{
+	file_ball_v1_ball_proto_msgTypes[17].OneofWrappers = []any{
 		(*Literal_IntValue)(nil),
 		(*Literal_DoubleValue)(nil),
 		(*Literal_StringValue)(nil),
@@ -3478,11 +3576,11 @@ func file_ball_v1_ball_proto_init() {
 		(*Literal_BytesValue)(nil),
 		(*Literal_ListValue)(nil),
 	}
-	file_ball_v1_ball_proto_msgTypes[23].OneofWrappers = []any{
+	file_ball_v1_ball_proto_msgTypes[24].OneofWrappers = []any{
 		(*Statement_Let)(nil),
 		(*Statement_Expression)(nil),
 	}
-	file_ball_v1_ball_proto_msgTypes[27].OneofWrappers = []any{
+	file_ball_v1_ball_proto_msgTypes[28].OneofWrappers = []any{
 		(*ResolvedDependency_Http)(nil),
 		(*ResolvedDependency_Git)(nil),
 		(*ResolvedDependency_File)(nil),
@@ -3494,7 +3592,7 @@ func file_ball_v1_ball_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ball_v1_ball_proto_rawDesc), len(file_ball_v1_ball_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   34,
+			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

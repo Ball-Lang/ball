@@ -49,6 +49,8 @@ PROTOBUF_CONSTINIT ::google::protobuf::internal::ReflectionData
         {&::_pbi::kDescriptorMethods, &::descriptor_table_ball_2fv1_2fball_2eproto, /* tracker*/ nullptr,},
         // ::ball::v1::RegistrySource
         {&::_pbi::kDescriptorMethods, &::descriptor_table_ball_2fv1_2fball_2eproto, /* tracker*/ nullptr,},
+        // ::ball::v1::TypeRef
+        {&::_pbi::kDescriptorMethods, &::descriptor_table_ball_2fv1_2fball_2eproto, /* tracker*/ nullptr,},
         // ::ball::v1::TypeParameter
         {&::_pbi::kDescriptorMethods, &::descriptor_table_ball_2fv1_2fball_2eproto, /* tracker*/ nullptr,},
         // ::ball::v1::TypeDefinition
@@ -102,6 +104,177 @@ PROTOBUF_CONSTINIT ::google::protobuf::internal::ReflectionData
 #endif
 namespace ball {
 namespace v1 {
+class TypeRef::_Internal {
+ public:
+  using HasBits = decltype(::std::declval<TypeRef>()._impl_._has_bits_);
+  static constexpr ::int32_t kHasBitsOffset =
+      8 * PROTOBUF_FIELD_OFFSET(TypeRef, _impl_._has_bits_);
+};
+
+constexpr TypeRef::ParseTableT_ TypeRef::InternalGenerateParseTable_(const ::_pbi::ClassData* class_data) {
+  return ParseTableT_{
+    {
+      PROTOBUF_FIELD_OFFSET(TypeRef, _impl_._has_bits_),
+      0, // no _extensions_
+      3, 24,  // max_field_number, fast_idx_mask
+      offsetof(ParseTableT_, field_lookup_table),
+      4294967288,  // skipmap
+      offsetof(ParseTableT_, field_entries),
+      3,  // num_field_entries
+      1,  // num_aux_entries
+      offsetof(ParseTableT_, aux_entries),
+      class_data,
+      nullptr,  // post_loop_handler
+      ::_pbi::TcParser::GenericFallback,  // fallback
+      #ifdef PROTOBUF_PREFETCH_PARSE_TABLE
+      ::_pbi::TcParser::GetTable<::ball::v1::TypeRef>(),  // to_prefetch
+      #endif  // PROTOBUF_PREFETCH_PARSE_TABLE
+    }, {{
+      {::_pbi::TcParser::MiniParse, {}},
+      // string name = 1 [json_name = "name"];
+      {::_pbi::TcParser::FastUS1,
+       {10, 1, 0,
+        PROTOBUF_FIELD_OFFSET(TypeRef, _impl_.name_)}},
+      // repeated .ball.v1.TypeRef type_args = 2 [json_name = "typeArgs"];
+      {::_pbi::TcParser::FastMtR1,
+       {18, 0, 0,
+        PROTOBUF_FIELD_OFFSET(TypeRef, _impl_.type_args_)}},
+      // bool nullable = 3 [json_name = "nullable"];
+      {::_pbi::TcParser::SingularVarintNoZag1<bool, offsetof(TypeRef, _impl_.nullable_), 2>(),
+       {24, 2, 0,
+        PROTOBUF_FIELD_OFFSET(TypeRef, _impl_.nullable_)}},
+    }}, {{
+      65535, 65535
+    }}, {{
+      // string name = 1 [json_name = "name"];
+      {PROTOBUF_FIELD_OFFSET(TypeRef, _impl_.name_), _Internal::kHasBitsOffset + 1, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
+      // repeated .ball.v1.TypeRef type_args = 2 [json_name = "typeArgs"];
+      {PROTOBUF_FIELD_OFFSET(TypeRef, _impl_.type_args_), _Internal::kHasBitsOffset + 0, 0, (0 | ::_fl::kFcRepeated | ::_fl::kMessage | ::_fl::kTvTable)},
+      // bool nullable = 3 [json_name = "nullable"];
+      {PROTOBUF_FIELD_OFFSET(TypeRef, _impl_.nullable_), _Internal::kHasBitsOffset + 2, 0, (0 | ::_fl::kFcOptional | ::_fl::kBool)},
+    }},
+    {{
+        #ifndef PROTOBUF_MESSAGE_GLOBALS
+        {::_pbi::TcParser::GetTable<::ball::v1::TypeRef>()},
+        #else
+        {::_pbi::FieldAuxMessageGlobals(), &::ball::v1::TypeRef_globals_},
+        #endif
+    }},
+    {{
+      "\17\4\0\0\0\0\0\0"
+      "ball.v1.TypeRef"
+      "name"
+    }},
+  };
+}
+
+
+inline constexpr TypeRef::Impl_::Impl_(
+    [[maybe_unused]] ::google::protobuf::internal::InternalVisibility visibility,
+    ::_pbi::ConstantInitialized) noexcept
+      : _cached_size_{0},
+        type_args_ { visibility, ::_pbi::InternalMetadataOffset::Build<
+            ::ball::v1::TypeRef,
+            PROTOBUF_FIELD_OFFSET(::ball::v1::TypeRef, _impl_.type_args_)>()
+         }
+        ,
+        name_(
+            &::google::protobuf::internal::fixed_address_empty_string,
+            ::_pbi::ConstantInitialized()),
+        nullable_{false} {}
+
+template <typename>
+constexpr TypeRef::TypeRef(::_pbi::ConstantInitialized,
+                       const ::_pbi::ClassData* PROTOBUF_NONNULL class_data)
+    : ::google::protobuf::Message(
+#if defined(PROTOBUF_CUSTOM_VTABLE)
+          class_data
+#endif  // PROTOBUF_CUSTOM_VTABLE
+          ),
+      _impl_(internal_visibility(), ::_pbi::ConstantInitialized()) {
+}
+inline void* PROTOBUF_NONNULL TypeRef::PlacementNew_(
+    const void* PROTOBUF_NONNULL, void* PROTOBUF_NONNULL mem,
+    ::google::protobuf::Arena* PROTOBUF_NULLABLE arena) {
+  return ::new (mem) TypeRef(arena);
+}
+constexpr auto TypeRef::InternalNewImpl_() {
+  return ::google::protobuf::internal::MessageCreator::CopyInit(sizeof(TypeRef), alignof(TypeRef));
+}
+constexpr auto TypeRef::InternalGenerateClassData_(
+    const MessageLite& prototype,
+    const ::google::protobuf::internal::TcParseTableBase* tc_table) {
+  return ::google::protobuf::internal::ClassDataFull{
+      ::google::protobuf::internal::ClassData{
+          &prototype,
+#ifndef PROTOBUF_MESSAGE_GLOBALS
+          &_table_.header,
+#else
+          tc_table,
+#endif
+          nullptr,  // IsInitialized
+          &TypeRef::MergeImpl,
+          ::google::protobuf::Message::GetNewImpl<TypeRef>(),
+#if defined(PROTOBUF_CUSTOM_VTABLE)
+          &TypeRef::SharedDtor,
+          ::google::protobuf::Message::GetClearImpl<TypeRef>(), &TypeRef::ByteSizeLong,
+              &TypeRef::_InternalSerialize,
+#endif  // PROTOBUF_CUSTOM_VTABLE
+          PROTOBUF_FIELD_OFFSET(TypeRef, _impl_._cached_size_),
+          false,
+      },
+#ifdef PROTOBUF_MESSAGE_GLOBALS
+      &file_reflection_data[10],
+#else   // !PROTOBUF_MESSAGE_GLOBALS
+      &::_pbi::kDescriptorMethods,
+      &descriptor_table_ball_2fv1_2fball_2eproto,
+      nullptr,  // tracker
+#endif  // PROTOBUF_MESSAGE_GLOBALS
+  };
+}
+struct TypeRefGlobalsTypeInternal : ::_pbi::MessageGlobalsBase {
+  constexpr TypeRefGlobalsTypeInternal()
+      :
+#ifndef PROTOBUF_MESSAGE_GLOBALS
+        _default(::_pbi::ConstantInitialized{},
+                 TypeRef_class_data_.base())
+#else   // !PROTOBUF_MESSAGE_GLOBALS
+        MessageGlobalsBase(TypeRef::InternalGenerateClassData_(
+            _default, &TypeRef_globals_._table.header)),
+        _default(::_pbi::ConstantInitialized{}, GetClassData()),
+        _table(::_pbi::PrivateAccess::GenerateParseTable<TypeRef>(
+            GetClassData()))
+#endif  // PROTOBUF_MESSAGE_GLOBALS
+  {
+  }
+  ~TypeRefGlobalsTypeInternal() {}
+  union {
+    alignas(::_pbi::kMaxMessageAlignment) TypeRef _default;
+  };
+#ifdef PROTOBUF_MESSAGE_GLOBALS
+  decltype(::_pbi::PrivateAccess::GenerateParseTable<TypeRef>(
+      ::std::declval<const ::_pbi::ClassData*>())) _table;
+#endif
+};
+#ifdef PROTOBUF_MESSAGE_GLOBALS
+static_assert(PROTOBUF_FIELD_OFFSET(TypeRefGlobalsTypeInternal, _default) ==
+              ::_pbi::MessageGlobalsBase::OffsetToDefault());
+#endif  // PROTOBUF_MESSAGE_GLOBALS
+
+PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT
+    PROTOBUF_ATTRIBUTE_INIT_PRIORITY1 PROTOBUF_MESSAGE_GLOBALS_CONST TypeRefGlobalsTypeInternal TypeRef_globals_
+        PROTOBUF_MESSAGE_GLOBALS_SECTION(.data.rel.ro);
+#if defined(PROTOBUF_CUSTOM_VTABLE)
+namespace {
+const ::_pbi::ClassData* TypeRef_get_class_data() {
+#ifdef PROTOBUF_MESSAGE_GLOBALS
+  return TypeRef_globals_.GetClassData();
+#else
+  return TypeRef_class_data_.base();
+#endif  // PROTOBUF_MESSAGE_GLOBALS
+}
+}  // namespace
+#endif  // PROTOBUF_CUSTOM_VTABLE
 class RegistrySource::_Internal {
  public:
   using HasBits = decltype(::std::declval<RegistrySource>()._impl_._has_bits_);
@@ -389,7 +562,7 @@ constexpr auto Reference::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[19],
+      &file_reflection_data[20],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -1012,7 +1185,7 @@ constexpr auto FunctionCapability::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[32],
+      &file_reflection_data[33],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -1411,7 +1584,7 @@ constexpr auto CapabilitySummary::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[33],
+      &file_reflection_data[34],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -1587,7 +1760,7 @@ constexpr auto CallSite::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[31],
+      &file_reflection_data[32],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -1746,7 +1919,7 @@ constexpr auto TypeParameter::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[10],
+      &file_reflection_data[11],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -2262,7 +2435,7 @@ constexpr auto CapabilityEntry::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[30],
+      &file_reflection_data[31],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -2425,7 +2598,7 @@ constexpr auto Block::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[23],
+      &file_reflection_data[24],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -2612,7 +2785,7 @@ constexpr auto Expression::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[15],
+      &file_reflection_data[16],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -2771,7 +2944,7 @@ constexpr auto FieldAccess::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[20],
+      &file_reflection_data[21],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -2930,7 +3103,7 @@ constexpr auto FieldValuePair::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[22],
+      &file_reflection_data[23],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -2993,12 +3166,12 @@ constexpr FunctionCall::ParseTableT_ FunctionCall::InternalGenerateParseTable_(c
     {
       PROTOBUF_FIELD_OFFSET(FunctionCall, _impl_._has_bits_),
       0, // no _extensions_
-      3, 24,  // max_field_number, fast_idx_mask
+      4, 24,  // max_field_number, fast_idx_mask
       offsetof(ParseTableT_, field_lookup_table),
-      4294967288,  // skipmap
+      4294967280,  // skipmap
       offsetof(ParseTableT_, field_entries),
-      3,  // num_field_entries
-      1,  // num_aux_entries
+      4,  // num_field_entries
+      2,  // num_aux_entries
       offsetof(ParseTableT_, aux_entries),
       class_data,
       nullptr,  // post_loop_handler
@@ -3007,34 +3180,44 @@ constexpr FunctionCall::ParseTableT_ FunctionCall::InternalGenerateParseTable_(c
       ::_pbi::TcParser::GetTable<::ball::v1::FunctionCall>(),  // to_prefetch
       #endif  // PROTOBUF_PREFETCH_PARSE_TABLE
     }, {{
-      {::_pbi::TcParser::MiniParse, {}},
+      // repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];
+      {::_pbi::TcParser::FastMtR1,
+       {34, 0, 1,
+        PROTOBUF_FIELD_OFFSET(FunctionCall, _impl_.type_args_)}},
       // string module = 1 [json_name = "module"];
       {::_pbi::TcParser::FastUS1,
-       {10, 0, 0,
+       {10, 1, 0,
         PROTOBUF_FIELD_OFFSET(FunctionCall, _impl_.module_)}},
       // string function = 2 [json_name = "function"];
       {::_pbi::TcParser::FastUS1,
-       {18, 1, 0,
+       {18, 2, 0,
         PROTOBUF_FIELD_OFFSET(FunctionCall, _impl_.function_)}},
       // .ball.v1.Expression input = 3 [json_name = "input"];
       {::_pbi::TcParser::FastMtS1,
-       {26, 2, 0,
+       {26, 3, 0,
         PROTOBUF_FIELD_OFFSET(FunctionCall, _impl_.input_)}},
     }}, {{
       65535, 65535
     }}, {{
       // string module = 1 [json_name = "module"];
-      {PROTOBUF_FIELD_OFFSET(FunctionCall, _impl_.module_), _Internal::kHasBitsOffset + 0, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
+      {PROTOBUF_FIELD_OFFSET(FunctionCall, _impl_.module_), _Internal::kHasBitsOffset + 1, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
       // string function = 2 [json_name = "function"];
-      {PROTOBUF_FIELD_OFFSET(FunctionCall, _impl_.function_), _Internal::kHasBitsOffset + 1, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
+      {PROTOBUF_FIELD_OFFSET(FunctionCall, _impl_.function_), _Internal::kHasBitsOffset + 2, 0, (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
       // .ball.v1.Expression input = 3 [json_name = "input"];
-      {PROTOBUF_FIELD_OFFSET(FunctionCall, _impl_.input_), _Internal::kHasBitsOffset + 2, 0, (0 | ::_fl::kFcOptional | ::_fl::kMessage | ::_fl::kTvTable)},
+      {PROTOBUF_FIELD_OFFSET(FunctionCall, _impl_.input_), _Internal::kHasBitsOffset + 3, 0, (0 | ::_fl::kFcOptional | ::_fl::kMessage | ::_fl::kTvTable)},
+      // repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];
+      {PROTOBUF_FIELD_OFFSET(FunctionCall, _impl_.type_args_), _Internal::kHasBitsOffset + 0, 1, (0 | ::_fl::kFcRepeated | ::_fl::kMessage | ::_fl::kTvTable)},
     }},
     {{
         #ifndef PROTOBUF_MESSAGE_GLOBALS
         {::_pbi::TcParser::GetTable<::ball::v1::Expression>()},
         #else
         {::_pbi::FieldAuxMessageGlobals(), &::ball::v1::Expression_globals_},
+        #endif
+        #ifndef PROTOBUF_MESSAGE_GLOBALS
+        {::_pbi::TcParser::GetTable<::ball::v1::TypeRef>()},
+        #else
+        {::_pbi::FieldAuxMessageGlobals(), &::ball::v1::TypeRef_globals_},
         #endif
     }},
     {{
@@ -3051,6 +3234,11 @@ inline constexpr FunctionCall::Impl_::Impl_(
     [[maybe_unused]] ::google::protobuf::internal::InternalVisibility visibility,
     ::_pbi::ConstantInitialized) noexcept
       : _cached_size_{0},
+        type_args_ { visibility, ::_pbi::InternalMetadataOffset::Build<
+            ::ball::v1::FunctionCall,
+            PROTOBUF_FIELD_OFFSET(::ball::v1::FunctionCall, _impl_.type_args_)>()
+         }
+        ,
         module_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()),
@@ -3100,7 +3288,7 @@ constexpr auto FunctionCall::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[16],
+      &file_reflection_data[17],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -3309,7 +3497,7 @@ constexpr auto FunctionDefinition::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[14],
+      &file_reflection_data[15],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -3481,7 +3669,7 @@ constexpr auto LetBinding::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[25],
+      &file_reflection_data[26],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -3632,7 +3820,7 @@ constexpr auto ListLiteral::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[18],
+      &file_reflection_data[19],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -3790,7 +3978,7 @@ constexpr auto Literal::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[17],
+      &file_reflection_data[18],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -3953,7 +4141,7 @@ constexpr auto MessageCreation::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[21],
+      &file_reflection_data[22],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -4105,7 +4293,7 @@ constexpr auto Statement::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[24],
+      &file_reflection_data[25],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -4290,7 +4478,7 @@ constexpr auto TypeAlias::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[12],
+      &file_reflection_data[13],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -4501,7 +4689,7 @@ constexpr auto ResolvedDependency::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[28],
+      &file_reflection_data[29],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -4891,7 +5079,7 @@ constexpr auto Constant::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[13],
+      &file_reflection_data[14],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -5095,7 +5283,7 @@ constexpr auto BallCapabilityReport::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[29],
+      &file_reflection_data[30],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -5326,7 +5514,7 @@ constexpr auto BallManifest::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[26],
+      &file_reflection_data[27],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -5489,7 +5677,7 @@ constexpr auto BallLockfile::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[27],
+      &file_reflection_data[28],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -5689,7 +5877,7 @@ constexpr auto TypeDefinition::InternalGenerateClassData_(
           false,
       },
 #ifdef PROTOBUF_MESSAGE_GLOBALS
-      &file_reflection_data[11],
+      &file_reflection_data[12],
 #else   // !PROTOBUF_MESSAGE_GLOBALS
       &::_pbi::kDescriptorMethods,
       &descriptor_table_ball_2fv1_2fball_2eproto,
@@ -6368,6 +6556,15 @@ const ::uint32_t
         5,
         3,
         0x081, // bitmap
+        PROTOBUF_FIELD_OFFSET(::ball::v1::TypeRef, _impl_._has_bits_),
+        6, // hasbit index offset
+        PROTOBUF_FIELD_OFFSET(::ball::v1::TypeRef, _impl_.name_),
+        PROTOBUF_FIELD_OFFSET(::ball::v1::TypeRef, _impl_.type_args_),
+        PROTOBUF_FIELD_OFFSET(::ball::v1::TypeRef, _impl_.nullable_),
+        1,
+        0,
+        2,
+        0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::ball::v1::TypeParameter, _impl_._has_bits_),
         5, // hasbit index offset
         PROTOBUF_FIELD_OFFSET(::ball::v1::TypeParameter, _impl_.name_),
@@ -6438,13 +6635,15 @@ const ::uint32_t
         PROTOBUF_FIELD_OFFSET(::ball::v1::Expression, _impl_.expr_),
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::ball::v1::FunctionCall, _impl_._has_bits_),
-        6, // hasbit index offset
+        7, // hasbit index offset
         PROTOBUF_FIELD_OFFSET(::ball::v1::FunctionCall, _impl_.module_),
         PROTOBUF_FIELD_OFFSET(::ball::v1::FunctionCall, _impl_.function_),
         PROTOBUF_FIELD_OFFSET(::ball::v1::FunctionCall, _impl_.input_),
-        0,
+        PROTOBUF_FIELD_OFFSET(::ball::v1::FunctionCall, _impl_.type_args_),
         1,
         2,
+        3,
+        0,
         0x004, // bitmap
         PROTOBUF_FIELD_OFFSET(::ball::v1::Literal, _impl_._oneof_case_[0]),
         PROTOBUF_FIELD_OFFSET(::ball::v1::Literal, _impl_.value_),
@@ -6644,30 +6843,31 @@ static const ::_pbi::MigrationSchema
         {93, sizeof(::ball::v1::InlineSource)},
         {98, sizeof(::ball::v1::GitSource)},
         {109, sizeof(::ball::v1::RegistrySource)},
-        {124, sizeof(::ball::v1::TypeParameter)},
-        {131, sizeof(::ball::v1::TypeDefinition)},
-        {144, sizeof(::ball::v1::TypeAlias)},
-        {155, sizeof(::ball::v1::Constant)},
-        {166, sizeof(::ball::v1::FunctionDefinition)},
-        {183, sizeof(::ball::v1::Expression)},
-        {193, sizeof(::ball::v1::FunctionCall)},
-        {202, sizeof(::ball::v1::Literal)},
-        {211, sizeof(::ball::v1::ListLiteral)},
-        {216, sizeof(::ball::v1::Reference)},
-        {221, sizeof(::ball::v1::FieldAccess)},
-        {228, sizeof(::ball::v1::MessageCreation)},
-        {235, sizeof(::ball::v1::FieldValuePair)},
-        {242, sizeof(::ball::v1::Block)},
-        {249, sizeof(::ball::v1::Statement)},
-        {254, sizeof(::ball::v1::LetBinding)},
-        {263, sizeof(::ball::v1::BallManifest)},
-        {282, sizeof(::ball::v1::BallLockfile)},
-        {289, sizeof(::ball::v1::ResolvedDependency)},
-        {310, sizeof(::ball::v1::BallCapabilityReport)},
-        {323, sizeof(::ball::v1::CapabilityEntry)},
-        {332, sizeof(::ball::v1::CallSite)},
-        {343, sizeof(::ball::v1::FunctionCapability)},
-        {352, sizeof(::ball::v1::CapabilitySummary)},
+        {124, sizeof(::ball::v1::TypeRef)},
+        {133, sizeof(::ball::v1::TypeParameter)},
+        {140, sizeof(::ball::v1::TypeDefinition)},
+        {153, sizeof(::ball::v1::TypeAlias)},
+        {164, sizeof(::ball::v1::Constant)},
+        {175, sizeof(::ball::v1::FunctionDefinition)},
+        {192, sizeof(::ball::v1::Expression)},
+        {202, sizeof(::ball::v1::FunctionCall)},
+        {213, sizeof(::ball::v1::Literal)},
+        {222, sizeof(::ball::v1::ListLiteral)},
+        {227, sizeof(::ball::v1::Reference)},
+        {232, sizeof(::ball::v1::FieldAccess)},
+        {239, sizeof(::ball::v1::MessageCreation)},
+        {246, sizeof(::ball::v1::FieldValuePair)},
+        {253, sizeof(::ball::v1::Block)},
+        {260, sizeof(::ball::v1::Statement)},
+        {265, sizeof(::ball::v1::LetBinding)},
+        {274, sizeof(::ball::v1::BallManifest)},
+        {293, sizeof(::ball::v1::BallLockfile)},
+        {300, sizeof(::ball::v1::ResolvedDependency)},
+        {321, sizeof(::ball::v1::BallCapabilityReport)},
+        {334, sizeof(::ball::v1::CapabilityEntry)},
+        {343, sizeof(::ball::v1::CallSite)},
+        {354, sizeof(::ball::v1::FunctionCapability)},
+        {363, sizeof(::ball::v1::CapabilitySummary)},
 };
 static const ::_pbi::MessageGlobalsBase* PROTOBUF_NONNULL const
     file_message_globals[] = {
@@ -6681,6 +6881,7 @@ static const ::_pbi::MessageGlobalsBase* PROTOBUF_NONNULL const
         &::ball::v1::InlineSource_globals_,
         &::ball::v1::GitSource_globals_,
         &::ball::v1::RegistrySource_globals_,
+        &::ball::v1::TypeRef_globals_,
         &::ball::v1::TypeParameter_globals_,
         &::ball::v1::TypeDefinition_globals_,
         &::ball::v1::TypeAlias_globals_,
@@ -6716,7 +6917,7 @@ const char descriptor_table_protodef_ball_2fv1_2fball_2eproto[] ABSL_ATTRIBUTE_S
     "try_module\030\004 \001(\tR\013entryModule\022%\n\016entry_f"
     "unction\030\005 \001(\tR\rentryFunction\0223\n\010metadata"
     "\030\006 \001(\0132\027.google.protobuf.StructR\010metadat"
-    "a\"\216\004\n\006Module\022\022\n\004name\030\001 \001(\tR\004name\022:\n\005enum"
+    "a\"\201\004\n\006Module\022\022\n\004name\030\001 \001(\tR\004name\022:\n\005enum"
     "s\030\007 \003(\0132$.google.protobuf.EnumDescriptor"
     "ProtoR\005enums\0229\n\tfunctions\030\003 \003(\0132\033.ball.v"
     "1.FunctionDefinitionR\tfunctions\022 \n\013descr"
@@ -6728,162 +6929,165 @@ const char descriptor_table_protodef_ball_2fv1_2fball_2eproto[] ABSL_ATTRIBUTE_S
     "pe_aliases\030\013 \003(\0132\022.ball.v1.TypeAliasR\013ty"
     "peAliases\022<\n\020module_constants\030\014 \003(\0132\021.ba"
     "ll.v1.ConstantR\017moduleConstants\022,\n\006asset"
-    "s\030\r \003(\0132\024.ball.v1.ModuleAssetR\006assetsJ\004\010"
-    "\002\020\003R\005types\"\217\001\n\013ModuleAsset\022\022\n\004path\030\001 \001(\t"
-    "R\004path\022\030\n\007content\030\002 \001(\014R\007content\022\035\n\nmedi"
-    "a_type\030\003 \001(\tR\tmediaType\0223\n\010metadata\030\004 \001("
-    "\0132\027.google.protobuf.StructR\010metadata\"\345\002\n"
-    "\014ModuleImport\022\022\n\004name\030\001 \001(\tR\004name\022\034\n\tint"
-    "egrity\030\002 \001(\tR\tintegrity\0223\n\010metadata\030\003 \001("
-    "\0132\027.google.protobuf.StructR\010metadata\022)\n\004"
-    "http\030\004 \001(\0132\023.ball.v1.HttpSourceH\000R\004http\022"
-    ")\n\004file\030\005 \001(\0132\023.ball.v1.FileSourceH\000R\004fi"
-    "le\022/\n\006inline\030\006 \001(\0132\025.ball.v1.InlineSourc"
-    "eH\000R\006inline\022&\n\003git\030\007 \001(\0132\022.ball.v1.GitSo"
-    "urceH\000R\003git\0225\n\010registry\030\010 \001(\0132\027.ball.v1."
-    "RegistrySourceH\000R\010registryB\010\n\006source\"\313\001\n"
-    "\nHttpSource\022\020\n\003url\030\001 \001(\tR\003url\0223\n\010encodin"
-    "g\030\002 \001(\0162\027.ball.v1.ModuleEncodingR\010encodi"
-    "ng\022:\n\007headers\030\003 \003(\0132 .ball.v1.HttpSource"
-    ".HeadersEntryR\007headers\032:\n\014HeadersEntry\022\020"
-    "\n\003key\030\001 \001(\tR\003key\022\024\n\005value\030\002 \001(\tR\005value:\002"
-    "8\001\"U\n\nFileSource\022\022\n\004path\030\001 \001(\tR\004path\0223\n\010"
-    "encoding\030\002 \001(\0162\027.ball.v1.ModuleEncodingR"
-    "\010encoding\"R\n\014InlineSource\022!\n\013proto_bytes"
-    "\030\001 \001(\014H\000R\nprotoBytes\022\024\n\004json\030\002 \001(\tH\000R\004js"
-    "onB\t\n\007content\"x\n\tGitSource\022\020\n\003url\030\001 \001(\tR"
-    "\003url\022\020\n\003ref\030\002 \001(\tR\003ref\022\022\n\004path\030\003 \001(\tR\004pa"
-    "th\0223\n\010encoding\030\004 \001(\0162\027.ball.v1.ModuleEnc"
-    "odingR\010encoding\"\354\001\n\016RegistrySource\022-\n\010re"
-    "gistry\030\001 \001(\0162\021.ball.v1.RegistryR\010registr"
-    "y\022\030\n\007package\030\002 \001(\tR\007package\022\030\n\007version\030\003"
-    " \001(\tR\007version\022\037\n\013module_path\030\004 \001(\tR\nmodu"
-    "lePath\0223\n\010encoding\030\005 \001(\0162\027.ball.v1.Modul"
-    "eEncodingR\010encoding\022!\n\014registry_url\030\006 \001("
-    "\tR\013registryUrl\"X\n\rTypeParameter\022\022\n\004name\030"
-    "\001 \001(\tR\004name\0223\n\010metadata\030\002 \001(\0132\027.google.p"
-    "rotobuf.StructR\010metadata\"\366\001\n\016TypeDefinit"
-    "ion\022\022\n\004name\030\001 \001(\tR\004name\022@\n\ndescriptor\030\002 "
-    "\001(\0132 .google.protobuf.DescriptorProtoR\nd"
-    "escriptor\0227\n\013type_params\030\003 \003(\0132\026.ball.v1"
-    ".TypeParameterR\ntypeParams\022 \n\013descriptio"
-    "n\030\004 \001(\tR\013description\0223\n\010metadata\030\005 \001(\0132\027"
-    ".google.protobuf.StructR\010metadata\"\256\001\n\tTy"
-    "peAlias\022\022\n\004name\030\001 \001(\tR\004name\022\037\n\013target_ty"
-    "pe\030\002 \001(\tR\ntargetType\0227\n\013type_params\030\003 \003("
-    "\0132\026.ball.v1.TypeParameterR\ntypeParams\0223\n"
-    "\010metadata\030\004 \001(\0132\027.google.protobuf.Struct"
-    "R\010metadata\"\222\001\n\010Constant\022\022\n\004name\030\001 \001(\tR\004n"
-    "ame\022\022\n\004type\030\002 \001(\tR\004type\022)\n\005value\030\003 \001(\0132\023"
-    ".ball.v1.ExpressionR\005value\0223\n\010metadata\030\004"
-    " \001(\0132\027.google.protobuf.StructR\010metadata\""
-    "\201\002\n\022FunctionDefinition\022\022\n\004name\030\001 \001(\tR\004na"
-    "me\022\035\n\ninput_type\030\002 \001(\tR\tinputType\022\037\n\013out"
-    "put_type\030\003 \001(\tR\noutputType\022\'\n\004body\030\004 \001(\013"
-    "2\023.ball.v1.ExpressionR\004body\022 \n\013descripti"
-    "on\030\005 \001(\tR\013description\022\027\n\007is_base\030\006 \001(\010R\006"
-    "isBase\0223\n\010metadata\030\007 \001(\0132\027.google.protob"
-    "uf.StructR\010metadata\"\204\003\n\nExpression\022+\n\004ca"
-    "ll\030\001 \001(\0132\025.ball.v1.FunctionCallH\000R\004call\022"
-    ",\n\007literal\030\002 \001(\0132\020.ball.v1.LiteralH\000R\007li"
-    "teral\0222\n\treference\030\003 \001(\0132\022.ball.v1.Refer"
-    "enceH\000R\treference\0229\n\014field_access\030\004 \001(\0132"
-    "\024.ball.v1.FieldAccessH\000R\013fieldAccess\022E\n\020"
-    "message_creation\030\005 \001(\0132\030.ball.v1.Message"
-    "CreationH\000R\017messageCreation\022&\n\005block\030\006 \001"
-    "(\0132\016.ball.v1.BlockH\000R\005block\0225\n\006lambda\030\007 "
-    "\001(\0132\033.ball.v1.FunctionDefinitionH\000R\006lamb"
-    "daB\006\n\004expr\"m\n\014FunctionCall\022\026\n\006module\030\001 \001"
-    "(\tR\006module\022\032\n\010function\030\002 \001(\tR\010function\022)"
-    "\n\005input\030\003 \001(\0132\023.ball.v1.ExpressionR\005inpu"
-    "t\"\366\001\n\007Literal\022\035\n\tint_value\030\001 \001(\003H\000R\010intV"
-    "alue\022#\n\014double_value\030\002 \001(\001H\000R\013doubleValu"
-    "e\022#\n\014string_value\030\003 \001(\tH\000R\013stringValue\022\037"
-    "\n\nbool_value\030\004 \001(\010H\000R\tboolValue\022!\n\013bytes"
-    "_value\030\005 \001(\014H\000R\nbytesValue\0225\n\nlist_value"
-    "\030\006 \001(\0132\024.ball.v1.ListLiteralH\000R\tlistValu"
-    "eB\007\n\005value\">\n\013ListLiteral\022/\n\010elements\030\001 "
-    "\003(\0132\023.ball.v1.ExpressionR\010elements\"\037\n\tRe"
-    "ference\022\022\n\004name\030\001 \001(\tR\004name\"P\n\013FieldAcce"
-    "ss\022+\n\006object\030\001 \001(\0132\023.ball.v1.ExpressionR"
-    "\006object\022\024\n\005field\030\002 \001(\tR\005field\"_\n\017Message"
-    "Creation\022\033\n\ttype_name\030\001 \001(\tR\010typeName\022/\n"
-    "\006fields\030\002 \003(\0132\027.ball.v1.FieldValuePairR\006"
-    "fields\"O\n\016FieldValuePair\022\022\n\004name\030\001 \001(\tR\004"
-    "name\022)\n\005value\030\002 \001(\0132\023.ball.v1.Expression"
-    "R\005value\"h\n\005Block\0222\n\nstatements\030\001 \003(\0132\022.b"
-    "all.v1.StatementR\nstatements\022+\n\006result\030\002"
-    " \001(\0132\023.ball.v1.ExpressionR\006result\"s\n\tSta"
-    "tement\022\'\n\003let\030\001 \001(\0132\023.ball.v1.LetBinding"
-    "H\000R\003let\0225\n\nexpression\030\002 \001(\0132\023.ball.v1.Ex"
-    "pressionH\000R\nexpressionB\006\n\004stmt\"\200\001\n\nLetBi"
-    "nding\022\022\n\004name\030\001 \001(\tR\004name\022)\n\005value\030\002 \001(\013"
-    "2\023.ball.v1.ExpressionR\005value\0223\n\010metadata"
-    "\030\003 \001(\0132\027.google.protobuf.StructR\010metadat"
-    "a\"\332\002\n\014BallManifest\022\022\n\004name\030\001 \001(\tR\004name\022\030"
-    "\n\007version\030\002 \001(\tR\007version\022 \n\013description\030"
-    "\003 \001(\tR\013description\022!\n\014entry_module\030\004 \001(\t"
-    "R\013entryModule\022%\n\016entry_function\030\005 \001(\tR\re"
-    "ntryFunction\0229\n\014dependencies\030\006 \003(\0132\025.bal"
-    "l.v1.ModuleImportR\014dependencies\022@\n\020dev_d"
-    "ependencies\030\007 \003(\0132\025.ball.v1.ModuleImport"
-    "R\017devDependencies\0223\n\010metadata\030\010 \001(\0132\027.go"
-    "ogle.protobuf.StructR\010metadata\"j\n\014BallLo"
-    "ckfile\0227\n\010packages\030\001 \003(\0132\033.ball.v1.Resol"
-    "vedDependencyR\010packages\022!\n\014lock_version\030"
-    "\002 \001(\tR\013lockVersion\"\344\002\n\022ResolvedDependenc"
-    "y\022\022\n\004name\030\001 \001(\tR\004name\022)\n\020resolved_versio"
-    "n\030\002 \001(\tR\017resolvedVersion\022\034\n\tintegrity\030\003 "
-    "\001(\tR\tintegrity\022)\n\004http\030\004 \001(\0132\023.ball.v1.H"
-    "ttpSourceH\000R\004http\022&\n\003git\030\005 \001(\0132\022.ball.v1"
-    ".GitSourceH\000R\003git\022)\n\004file\030\006 \001(\0132\023.ball.v"
-    "1.FileSourceH\000R\004file\0225\n\010registry\030\007 \001(\0132\027"
-    ".ball.v1.RegistrySourceH\000R\010registry\022)\n\020d"
-    "ependency_names\030\010 \003(\tR\017dependencyNamesB\021"
-    "\n\017resolved_source\"\221\002\n\024BallCapabilityRepo"
-    "rt\022!\n\014program_name\030\001 \001(\tR\013programName\022\'\n"
-    "\017program_version\030\002 \001(\tR\016programVersion\022<"
-    "\n\014capabilities\030\003 \003(\0132\030.ball.v1.Capabilit"
-    "yEntryR\014capabilities\0229\n\tfunctions\030\004 \003(\0132"
-    "\033.ball.v1.FunctionCapabilityR\tfunctions\022"
-    "4\n\007summary\030\005 \001(\0132\032.ball.v1.CapabilitySum"
-    "maryR\007summary\"\202\001\n\017CapabilityEntry\022\036\n\ncap"
-    "ability\030\001 \001(\tR\ncapability\022\035\n\nrisk_level\030"
-    "\002 \001(\tR\triskLevel\0220\n\ncall_sites\030\003 \003(\0132\021.b"
-    "all.v1.CallSiteR\tcallSites\"\214\001\n\010CallSite\022"
-    "\026\n\006module\030\001 \001(\tR\006module\022\032\n\010function\030\002 \001("
-    "\tR\010function\022#\n\rcallee_module\030\003 \001(\tR\014call"
-    "eeModule\022\'\n\017callee_function\030\004 \001(\tR\016calle"
-    "eFunction\"l\n\022FunctionCapability\022\026\n\006modul"
-    "e\030\001 \001(\tR\006module\022\032\n\010function\030\002 \001(\tR\010funct"
-    "ion\022\"\n\014capabilities\030\003 \003(\tR\014capabilities\""
-    "\365\004\n\021CapabilitySummary\022\027\n\007is_pure\030\001 \001(\010R\006"
-    "isPure\022)\n\020reads_filesystem\030\002 \001(\010R\017readsF"
-    "ilesystem\022+\n\021writes_filesystem\030\003 \001(\010R\020wr"
-    "itesFilesystem\022\037\n\013reads_stdin\030\004 \001(\010R\nrea"
-    "dsStdin\022#\n\rwrites_stdout\030\005 \001(\010R\014writesSt"
-    "dout\022#\n\rwrites_stderr\030\006 \001(\010R\014writesStder"
-    "r\022+\n\021reads_environment\030\007 \001(\010R\020readsEnvir"
-    "onment\022)\n\020controls_process\030\010 \001(\010R\017contro"
-    "lsProcess\022\037\n\013uses_memory\030\t \001(\010R\nusesMemo"
-    "ry\022\033\n\tuses_time\030\n \001(\010R\010usesTime\022\037\n\013uses_"
-    "random\030\013 \001(\010R\nusesRandom\022)\n\020uses_concurr"
-    "ency\030\014 \001(\010R\017usesConcurrency\022!\n\014uses_netw"
-    "ork\030\r \001(\010R\013usesNetwork\022\'\n\017total_function"
-    "s\030\016 \001(\005R\016totalFunctions\022%\n\016pure_function"
-    "s\030\017 \001(\005R\rpureFunctions\022/\n\023effectful_func"
-    "tions\030\020 \001(\005R\022effectfulFunctions*\227\001\n\010Regi"
-    "stry\022\030\n\024REGISTRY_UNSPECIFIED\020\000\022\020\n\014REGIST"
-    "RY_PUB\020\001\022\020\n\014REGISTRY_NPM\020\002\022\022\n\016REGISTRY_N"
-    "UGET\020\003\022\022\n\016REGISTRY_CARGO\020\004\022\021\n\rREGISTRY_P"
-    "YPI\020\005\022\022\n\016REGISTRY_MAVEN\020\006*f\n\016ModuleEncod"
-    "ing\022\037\n\033MODULE_ENCODING_UNSPECIFIED\020\000\022\031\n\025"
-    "MODULE_ENCODING_PROTO\020\001\022\030\n\024MODULE_ENCODI"
-    "NG_JSON\020\002B\215\001\n\013com.ball.v1B\tBallProtoP\001Z6"
-    "github.com/ball-lang/ball/go/shared/gen/"
-    "ball/v1;ballv1\242\002\003BXX\252\002\007Ball.V1\312\002\007Ball\\V1"
-    "\342\002\023Ball\\V1\\GPBMetadata\352\002\010Ball::V1b\006proto"
-    "3"
+    "s\030\r \003(\0132\024.ball.v1.ModuleAssetR\006assets\"\217\001"
+    "\n\013ModuleAsset\022\022\n\004path\030\001 \001(\tR\004path\022\030\n\007con"
+    "tent\030\002 \001(\014R\007content\022\035\n\nmedia_type\030\003 \001(\tR"
+    "\tmediaType\0223\n\010metadata\030\004 \001(\0132\027.google.pr"
+    "otobuf.StructR\010metadata\"\345\002\n\014ModuleImport"
+    "\022\022\n\004name\030\001 \001(\tR\004name\022\034\n\tintegrity\030\002 \001(\tR"
+    "\tintegrity\0223\n\010metadata\030\003 \001(\0132\027.google.pr"
+    "otobuf.StructR\010metadata\022)\n\004http\030\004 \001(\0132\023."
+    "ball.v1.HttpSourceH\000R\004http\022)\n\004file\030\005 \001(\013"
+    "2\023.ball.v1.FileSourceH\000R\004file\022/\n\006inline\030"
+    "\006 \001(\0132\025.ball.v1.InlineSourceH\000R\006inline\022&"
+    "\n\003git\030\007 \001(\0132\022.ball.v1.GitSourceH\000R\003git\0225"
+    "\n\010registry\030\010 \001(\0132\027.ball.v1.RegistrySourc"
+    "eH\000R\010registryB\010\n\006source\"\313\001\n\nHttpSource\022\020"
+    "\n\003url\030\001 \001(\tR\003url\0223\n\010encoding\030\002 \001(\0162\027.bal"
+    "l.v1.ModuleEncodingR\010encoding\022:\n\007headers"
+    "\030\003 \003(\0132 .ball.v1.HttpSource.HeadersEntry"
+    "R\007headers\032:\n\014HeadersEntry\022\020\n\003key\030\001 \001(\tR\003"
+    "key\022\024\n\005value\030\002 \001(\tR\005value:\0028\001\"U\n\nFileSou"
+    "rce\022\022\n\004path\030\001 \001(\tR\004path\0223\n\010encoding\030\002 \001("
+    "\0162\027.ball.v1.ModuleEncodingR\010encoding\"R\n\014"
+    "InlineSource\022!\n\013proto_bytes\030\001 \001(\014H\000R\npro"
+    "toBytes\022\024\n\004json\030\002 \001(\tH\000R\004jsonB\t\n\007content"
+    "\"x\n\tGitSource\022\020\n\003url\030\001 \001(\tR\003url\022\020\n\003ref\030\002"
+    " \001(\tR\003ref\022\022\n\004path\030\003 \001(\tR\004path\0223\n\010encodin"
+    "g\030\004 \001(\0162\027.ball.v1.ModuleEncodingR\010encodi"
+    "ng\"\354\001\n\016RegistrySource\022-\n\010registry\030\001 \001(\0162"
+    "\021.ball.v1.RegistryR\010registry\022\030\n\007package\030"
+    "\002 \001(\tR\007package\022\030\n\007version\030\003 \001(\tR\007version"
+    "\022\037\n\013module_path\030\004 \001(\tR\nmodulePath\0223\n\010enc"
+    "oding\030\005 \001(\0162\027.ball.v1.ModuleEncodingR\010en"
+    "coding\022!\n\014registry_url\030\006 \001(\tR\013registryUr"
+    "l\"h\n\007TypeRef\022\022\n\004name\030\001 \001(\tR\004name\022-\n\ttype"
+    "_args\030\002 \003(\0132\020.ball.v1.TypeRefR\010typeArgs\022"
+    "\032\n\010nullable\030\003 \001(\010R\010nullable\"X\n\rTypeParam"
+    "eter\022\022\n\004name\030\001 \001(\tR\004name\0223\n\010metadata\030\002 \001"
+    "(\0132\027.google.protobuf.StructR\010metadata\"\366\001"
+    "\n\016TypeDefinition\022\022\n\004name\030\001 \001(\tR\004name\022@\n\n"
+    "descriptor\030\002 \001(\0132 .google.protobuf.Descr"
+    "iptorProtoR\ndescriptor\0227\n\013type_params\030\003 "
+    "\003(\0132\026.ball.v1.TypeParameterR\ntypeParams\022"
+    " \n\013description\030\004 \001(\tR\013description\0223\n\010met"
+    "adata\030\005 \001(\0132\027.google.protobuf.StructR\010me"
+    "tadata\"\256\001\n\tTypeAlias\022\022\n\004name\030\001 \001(\tR\004name"
+    "\022\037\n\013target_type\030\002 \001(\tR\ntargetType\0227\n\013typ"
+    "e_params\030\003 \003(\0132\026.ball.v1.TypeParameterR\n"
+    "typeParams\0223\n\010metadata\030\004 \001(\0132\027.google.pr"
+    "otobuf.StructR\010metadata\"\222\001\n\010Constant\022\022\n\004"
+    "name\030\001 \001(\tR\004name\022\022\n\004type\030\002 \001(\tR\004type\022)\n\005"
+    "value\030\003 \001(\0132\023.ball.v1.ExpressionR\005value\022"
+    "3\n\010metadata\030\004 \001(\0132\027.google.protobuf.Stru"
+    "ctR\010metadata\"\201\002\n\022FunctionDefinition\022\022\n\004n"
+    "ame\030\001 \001(\tR\004name\022\035\n\ninput_type\030\002 \001(\tR\tinp"
+    "utType\022\037\n\013output_type\030\003 \001(\tR\noutputType\022"
+    "\'\n\004body\030\004 \001(\0132\023.ball.v1.ExpressionR\004body"
+    "\022 \n\013description\030\005 \001(\tR\013description\022\027\n\007is"
+    "_base\030\006 \001(\010R\006isBase\0223\n\010metadata\030\007 \001(\0132\027."
+    "google.protobuf.StructR\010metadata\"\204\003\n\nExp"
+    "ression\022+\n\004call\030\001 \001(\0132\025.ball.v1.Function"
+    "CallH\000R\004call\022,\n\007literal\030\002 \001(\0132\020.ball.v1."
+    "LiteralH\000R\007literal\0222\n\treference\030\003 \001(\0132\022."
+    "ball.v1.ReferenceH\000R\treference\0229\n\014field_"
+    "access\030\004 \001(\0132\024.ball.v1.FieldAccessH\000R\013fi"
+    "eldAccess\022E\n\020message_creation\030\005 \001(\0132\030.ba"
+    "ll.v1.MessageCreationH\000R\017messageCreation"
+    "\022&\n\005block\030\006 \001(\0132\016.ball.v1.BlockH\000R\005block"
+    "\0225\n\006lambda\030\007 \001(\0132\033.ball.v1.FunctionDefin"
+    "itionH\000R\006lambdaB\006\n\004expr\"\234\001\n\014FunctionCall"
+    "\022\026\n\006module\030\001 \001(\tR\006module\022\032\n\010function\030\002 \001"
+    "(\tR\010function\022)\n\005input\030\003 \001(\0132\023.ball.v1.Ex"
+    "pressionR\005input\022-\n\ttype_args\030\004 \003(\0132\020.bal"
+    "l.v1.TypeRefR\010typeArgs\"\366\001\n\007Literal\022\035\n\tin"
+    "t_value\030\001 \001(\003H\000R\010intValue\022#\n\014double_valu"
+    "e\030\002 \001(\001H\000R\013doubleValue\022#\n\014string_value\030\003"
+    " \001(\tH\000R\013stringValue\022\037\n\nbool_value\030\004 \001(\010H"
+    "\000R\tboolValue\022!\n\013bytes_value\030\005 \001(\014H\000R\nbyt"
+    "esValue\0225\n\nlist_value\030\006 \001(\0132\024.ball.v1.Li"
+    "stLiteralH\000R\tlistValueB\007\n\005value\">\n\013ListL"
+    "iteral\022/\n\010elements\030\001 \003(\0132\023.ball.v1.Expre"
+    "ssionR\010elements\"\037\n\tReference\022\022\n\004name\030\001 \001"
+    "(\tR\004name\"P\n\013FieldAccess\022+\n\006object\030\001 \001(\0132"
+    "\023.ball.v1.ExpressionR\006object\022\024\n\005field\030\002 "
+    "\001(\tR\005field\"_\n\017MessageCreation\022\033\n\ttype_na"
+    "me\030\001 \001(\tR\010typeName\022/\n\006fields\030\002 \003(\0132\027.bal"
+    "l.v1.FieldValuePairR\006fields\"O\n\016FieldValu"
+    "ePair\022\022\n\004name\030\001 \001(\tR\004name\022)\n\005value\030\002 \001(\013"
+    "2\023.ball.v1.ExpressionR\005value\"h\n\005Block\0222\n"
+    "\nstatements\030\001 \003(\0132\022.ball.v1.StatementR\ns"
+    "tatements\022+\n\006result\030\002 \001(\0132\023.ball.v1.Expr"
+    "essionR\006result\"s\n\tStatement\022\'\n\003let\030\001 \001(\013"
+    "2\023.ball.v1.LetBindingH\000R\003let\0225\n\nexpressi"
+    "on\030\002 \001(\0132\023.ball.v1.ExpressionH\000R\nexpress"
+    "ionB\006\n\004stmt\"\200\001\n\nLetBinding\022\022\n\004name\030\001 \001(\t"
+    "R\004name\022)\n\005value\030\002 \001(\0132\023.ball.v1.Expressi"
+    "onR\005value\0223\n\010metadata\030\003 \001(\0132\027.google.pro"
+    "tobuf.StructR\010metadata\"\332\002\n\014BallManifest\022"
+    "\022\n\004name\030\001 \001(\tR\004name\022\030\n\007version\030\002 \001(\tR\007ve"
+    "rsion\022 \n\013description\030\003 \001(\tR\013description\022"
+    "!\n\014entry_module\030\004 \001(\tR\013entryModule\022%\n\016en"
+    "try_function\030\005 \001(\tR\rentryFunction\0229\n\014dep"
+    "endencies\030\006 \003(\0132\025.ball.v1.ModuleImportR\014"
+    "dependencies\022@\n\020dev_dependencies\030\007 \003(\0132\025"
+    ".ball.v1.ModuleImportR\017devDependencies\0223"
+    "\n\010metadata\030\010 \001(\0132\027.google.protobuf.Struc"
+    "tR\010metadata\"j\n\014BallLockfile\0227\n\010packages\030"
+    "\001 \003(\0132\033.ball.v1.ResolvedDependencyR\010pack"
+    "ages\022!\n\014lock_version\030\002 \001(\tR\013lockVersion\""
+    "\344\002\n\022ResolvedDependency\022\022\n\004name\030\001 \001(\tR\004na"
+    "me\022)\n\020resolved_version\030\002 \001(\tR\017resolvedVe"
+    "rsion\022\034\n\tintegrity\030\003 \001(\tR\tintegrity\022)\n\004h"
+    "ttp\030\004 \001(\0132\023.ball.v1.HttpSourceH\000R\004http\022&"
+    "\n\003git\030\005 \001(\0132\022.ball.v1.GitSourceH\000R\003git\022)"
+    "\n\004file\030\006 \001(\0132\023.ball.v1.FileSourceH\000R\004fil"
+    "e\0225\n\010registry\030\007 \001(\0132\027.ball.v1.RegistrySo"
+    "urceH\000R\010registry\022)\n\020dependency_names\030\010 \003"
+    "(\tR\017dependencyNamesB\021\n\017resolved_source\"\221"
+    "\002\n\024BallCapabilityReport\022!\n\014program_name\030"
+    "\001 \001(\tR\013programName\022\'\n\017program_version\030\002 "
+    "\001(\tR\016programVersion\022<\n\014capabilities\030\003 \003("
+    "\0132\030.ball.v1.CapabilityEntryR\014capabilitie"
+    "s\0229\n\tfunctions\030\004 \003(\0132\033.ball.v1.FunctionC"
+    "apabilityR\tfunctions\0224\n\007summary\030\005 \001(\0132\032."
+    "ball.v1.CapabilitySummaryR\007summary\"\202\001\n\017C"
+    "apabilityEntry\022\036\n\ncapability\030\001 \001(\tR\ncapa"
+    "bility\022\035\n\nrisk_level\030\002 \001(\tR\triskLevel\0220\n"
+    "\ncall_sites\030\003 \003(\0132\021.ball.v1.CallSiteR\tca"
+    "llSites\"\214\001\n\010CallSite\022\026\n\006module\030\001 \001(\tR\006mo"
+    "dule\022\032\n\010function\030\002 \001(\tR\010function\022#\n\rcall"
+    "ee_module\030\003 \001(\tR\014calleeModule\022\'\n\017callee_"
+    "function\030\004 \001(\tR\016calleeFunction\"l\n\022Functi"
+    "onCapability\022\026\n\006module\030\001 \001(\tR\006module\022\032\n\010"
+    "function\030\002 \001(\tR\010function\022\"\n\014capabilities"
+    "\030\003 \003(\tR\014capabilities\"\365\004\n\021CapabilitySumma"
+    "ry\022\027\n\007is_pure\030\001 \001(\010R\006isPure\022)\n\020reads_fil"
+    "esystem\030\002 \001(\010R\017readsFilesystem\022+\n\021writes"
+    "_filesystem\030\003 \001(\010R\020writesFilesystem\022\037\n\013r"
+    "eads_stdin\030\004 \001(\010R\nreadsStdin\022#\n\rwrites_s"
+    "tdout\030\005 \001(\010R\014writesStdout\022#\n\rwrites_stde"
+    "rr\030\006 \001(\010R\014writesStderr\022+\n\021reads_environm"
+    "ent\030\007 \001(\010R\020readsEnvironment\022)\n\020controls_"
+    "process\030\010 \001(\010R\017controlsProcess\022\037\n\013uses_m"
+    "emory\030\t \001(\010R\nusesMemory\022\033\n\tuses_time\030\n \001"
+    "(\010R\010usesTime\022\037\n\013uses_random\030\013 \001(\010R\nusesR"
+    "andom\022)\n\020uses_concurrency\030\014 \001(\010R\017usesCon"
+    "currency\022!\n\014uses_network\030\r \001(\010R\013usesNetw"
+    "ork\022\'\n\017total_functions\030\016 \001(\005R\016totalFunct"
+    "ions\022%\n\016pure_functions\030\017 \001(\005R\rpureFuncti"
+    "ons\022/\n\023effectful_functions\030\020 \001(\005R\022effect"
+    "fulFunctions*\227\001\n\010Registry\022\030\n\024REGISTRY_UN"
+    "SPECIFIED\020\000\022\020\n\014REGISTRY_PUB\020\001\022\020\n\014REGISTR"
+    "Y_NPM\020\002\022\022\n\016REGISTRY_NUGET\020\003\022\022\n\016REGISTRY_"
+    "CARGO\020\004\022\021\n\rREGISTRY_PYPI\020\005\022\022\n\016REGISTRY_M"
+    "AVEN\020\006*f\n\016ModuleEncoding\022\037\n\033MODULE_ENCOD"
+    "ING_UNSPECIFIED\020\000\022\031\n\025MODULE_ENCODING_PRO"
+    "TO\020\001\022\030\n\024MODULE_ENCODING_JSON\020\002B\215\001\n\013com.b"
+    "all.v1B\tBallProtoP\001Z6github.com/ball-lan"
+    "g/ball/go/shared/gen/ball/v1;ballv1\242\002\003BX"
+    "X\252\002\007Ball.V1\312\002\007Ball\\V1\342\002\023Ball\\V1\\GPBMetad"
+    "ata\352\002\010Ball::V1b\006proto3"
 };
 static const ::_pbi::DescriptorTable* PROTOBUF_NONNULL const
     descriptor_table_ball_2fv1_2fball_2eproto_deps[2] = {
@@ -6894,13 +7098,13 @@ static ::absl::once_flag descriptor_table_ball_2fv1_2fball_2eproto_once;
 PROTOBUF_CONSTINIT const ::_pbi::DescriptorTable descriptor_table_ball_2fv1_2fball_2eproto = {
     false,
     false,
-    7001,
+    7142,
     descriptor_table_protodef_ball_2fv1_2fball_2eproto,
     "ball/v1/ball.proto",
     &descriptor_table_ball_2fv1_2fball_2eproto_once,
     descriptor_table_ball_2fv1_2fball_2eproto_deps,
     2,
-    34,
+    35,
     schemas,
     file_message_globals,
     TableStruct_ball_2fv1_2fball_2eproto::offsets,
@@ -10359,6 +10563,291 @@ void RegistrySource::InternalSwap(RegistrySource* PROTOBUF_RESTRICT PROTOBUF_NON
 }
 // ===================================================================
 
+TypeRef::TypeRef(::google::protobuf::Arena* PROTOBUF_NULLABLE arena)
+#if defined(PROTOBUF_CUSTOM_VTABLE)
+    : ::google::protobuf::Message(arena, TypeRef_get_class_data()) {
+#else   // PROTOBUF_CUSTOM_VTABLE
+    : ::google::protobuf::Message(arena) {
+#endif  // PROTOBUF_CUSTOM_VTABLE
+  SharedCtor(arena);
+  // @@protoc_insertion_point(arena_constructor:ball.v1.TypeRef)
+}
+PROTOBUF_NDEBUG_INLINE TypeRef::Impl_::Impl_(
+    [[maybe_unused]] ::google::protobuf::internal::InternalVisibility visibility,
+    [[maybe_unused]] ::google::protobuf::Arena* PROTOBUF_NULLABLE arena, const Impl_& from,
+    [[maybe_unused]] const ::ball::v1::TypeRef& from_msg)
+      : _has_bits_{from._has_bits_},
+        _cached_size_{0},
+        type_args_ {
+          visibility, ::_pbi::InternalMetadataOffset::Build<
+              ::ball::v1::TypeRef,
+              PROTOBUF_FIELD_OFFSET(::ball::v1::TypeRef, _impl_.type_args_)>()
+          , from.type_args_
+        }
+        ,
+        name_(arena, from.name_) {}
+
+TypeRef::TypeRef(
+    ::google::protobuf::Arena* PROTOBUF_NULLABLE arena,
+    const TypeRef& from)
+#if defined(PROTOBUF_CUSTOM_VTABLE)
+    : ::google::protobuf::Message(arena, TypeRef_get_class_data()) {
+
+#else   // PROTOBUF_CUSTOM_VTABLE
+    : ::google::protobuf::Message(arena) {
+#endif  // PROTOBUF_CUSTOM_VTABLE
+  TypeRef* const _this = this;
+  (void)_this;
+  _internal_metadata_.MergeFrom<::google::protobuf::UnknownFieldSet>(
+      from._internal_metadata_);
+  new (&_impl_) Impl_(internal_visibility(), arena, from._impl_, from);
+  _impl_.nullable_ = from._impl_.nullable_;
+
+  // @@protoc_insertion_point(copy_constructor:ball.v1.TypeRef)
+}
+PROTOBUF_NDEBUG_INLINE TypeRef::Impl_::Impl_(
+    [[maybe_unused]] ::google::protobuf::internal::InternalVisibility visibility,
+    [[maybe_unused]] ::google::protobuf::Arena* PROTOBUF_NULLABLE arena)
+      : _cached_size_{0},
+        type_args_ { visibility, ::_pbi::InternalMetadataOffset::Build<
+            ::ball::v1::TypeRef,
+            PROTOBUF_FIELD_OFFSET(::ball::v1::TypeRef, _impl_.type_args_)>()
+         }
+        ,
+        name_(arena) {}
+
+inline void TypeRef::SharedCtor(::_pb::Arena* PROTOBUF_NULLABLE arena) {
+  new (&_impl_) Impl_(internal_visibility(), arena);
+  _impl_.nullable_ = {};
+}
+TypeRef::~TypeRef() {
+  // @@protoc_insertion_point(destructor:ball.v1.TypeRef)
+  SharedDtor(*this);
+}
+inline void TypeRef::SharedDtor(MessageLite& self) {
+  TypeRef& this_ = static_cast<TypeRef&>(self);
+  if constexpr (::_pbi::DebugHardenCheckHasBitConsistency()) {
+    this_.CheckHasBitConsistency();
+  }
+  this_._internal_metadata_.Delete<::google::protobuf::UnknownFieldSet>();
+  ABSL_DCHECK(this_.GetArena() == nullptr);
+  this_._impl_.name_.Destroy();
+  this_._impl_.~Impl_();
+}
+
+#ifndef PROTOBUF_MESSAGE_GLOBALS
+PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1 const
+    ::google::protobuf::internal::ClassDataFull TypeRef_class_data_ =
+        TypeRef::InternalGenerateClassData_(TypeRef_globals_._default);
+
+PROTOBUF_ATTRIBUTE_WEAK const ::google::protobuf::internal::ClassData* PROTOBUF_NONNULL
+TypeRef::GetClassData() const {
+  ::google::protobuf::internal::PrefetchToLocalCache(&TypeRef_class_data_);
+  ::google::protobuf::internal::PrefetchToLocalCache(TypeRef_class_data_.tc_table);
+  return TypeRef_class_data_.base();
+}
+#else
+PROTOBUF_ATTRIBUTE_WEAK const ::google::protobuf::internal::ClassData* PROTOBUF_NONNULL
+TypeRef::GetClassData() const {
+  ::google::protobuf::internal::PrefetchToLocalCache(&TypeRef_globals_);
+  ::google::protobuf::internal::PrefetchToLocalCache(
+      ::google::protobuf::internal::MessageGlobalsBase::ToParseTableBase(&TypeRef_globals_));
+  return TypeRef_globals_.GetClassData();
+}
+#endif  // !PROTOBUF_MESSAGE_GLOBALS
+#ifndef PROTOBUF_MESSAGE_GLOBALS
+PROTOBUF_CONSTINIT
+PROTOBUF_ATTRIBUTE_INIT_PRIORITY1 const TypeRef::ParseTableT_
+    TypeRef::_table_ =
+        TypeRef::InternalGenerateParseTable_(TypeRef_class_data_.base());
+#endif  // !PROTOBUF_MESSAGE_GLOBALS
+PROTOBUF_NOINLINE void TypeRef::Clear() {
+// @@protoc_insertion_point(message_clear_start:ball.v1.TypeRef)
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  ::uint32_t cached_has_bits = 0;
+  // Prevent compiler warnings about cached_has_bits being unused
+  (void) cached_has_bits;
+
+  cached_has_bits = _impl_._has_bits_[0];
+  if (BatchCheckHasBit(cached_has_bits, 0x00000003U)) {
+    if (CheckHasBit(cached_has_bits, 0x00000001U)) {
+      _impl_.type_args_.Clear();
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000002U)) {
+      _impl_.name_.ClearNonDefaultToEmpty();
+    }
+  }
+  _impl_.nullable_ = false;
+  _impl_._has_bits_.Clear();
+  _internal_metadata_.Clear<::google::protobuf::UnknownFieldSet>();
+}
+
+#if defined(PROTOBUF_CUSTOM_VTABLE)
+::uint8_t* PROTOBUF_NONNULL TypeRef::_InternalSerialize(
+    const ::google::protobuf::MessageLite& base, ::uint8_t* PROTOBUF_NONNULL target,
+    ::google::protobuf::io::EpsCopyOutputStream* PROTOBUF_NONNULL stream) {
+  const TypeRef& this_ = static_cast<const TypeRef&>(base);
+#else   // PROTOBUF_CUSTOM_VTABLE
+::uint8_t* PROTOBUF_NONNULL TypeRef::_InternalSerialize(
+    ::uint8_t* PROTOBUF_NONNULL target,
+    ::google::protobuf::io::EpsCopyOutputStream* PROTOBUF_NONNULL stream) const {
+  const TypeRef& this_ = *this;
+#endif  // PROTOBUF_CUSTOM_VTABLE
+  if constexpr (::_pbi::DebugHardenCheckHasBitConsistency()) {
+    this_.CheckHasBitConsistency();
+  }
+  // @@protoc_insertion_point(serialize_to_array_start:ball.v1.TypeRef)
+  ::uint32_t cached_has_bits = 0;
+  (void)cached_has_bits;
+
+  cached_has_bits = this_._impl_._has_bits_[0];
+  // string name = 1 [json_name = "name"];
+  if (CheckHasBit(cached_has_bits, 0x00000002U)) {
+    if (!this_._internal_name().empty()) {
+      const ::std::string& _s = this_._internal_name();
+      ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
+          _s.data(), static_cast<int>(_s.length()), ::google::protobuf::internal::WireFormatLite::SERIALIZE, "ball.v1.TypeRef.name");
+      target = stream->WriteStringMaybeAliased(1, _s, target);
+    }
+  }
+
+  // repeated .ball.v1.TypeRef type_args = 2 [json_name = "typeArgs"];
+  if (CheckHasBit(cached_has_bits, 0x00000001U)) {
+    for (unsigned i = 0, n = static_cast<unsigned>(
+                             this_._internal_type_args_size());
+         i < n; i++) {
+      const auto& repfield = this_._internal_type_args().Get(i);
+      target =
+          ::google::protobuf::internal::WireFormatLite::InternalWriteMessage(
+              2, repfield, repfield.GetCachedSize(),
+              target, stream);
+    }
+  }
+
+  // bool nullable = 3 [json_name = "nullable"];
+  if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+    if (this_._internal_nullable() != 0) {
+      target = stream->EnsureSpace(target);
+      target = ::_pbi::WireFormatLite::WriteBoolToArray(
+          3, this_._internal_nullable(), target);
+    }
+  }
+
+  if (ABSL_PREDICT_FALSE(this_._internal_metadata_.have_unknown_fields())) {
+    target =
+        ::_pbi::WireFormat::InternalSerializeUnknownFieldsToArray(
+            this_._internal_metadata_.unknown_fields<::google::protobuf::UnknownFieldSet>(::google::protobuf::UnknownFieldSet::default_instance), target, stream);
+  }
+  // @@protoc_insertion_point(serialize_to_array_end:ball.v1.TypeRef)
+  return target;
+}
+
+#if defined(PROTOBUF_CUSTOM_VTABLE)
+::size_t TypeRef::ByteSizeLong(const MessageLite& base) {
+  const TypeRef& this_ = static_cast<const TypeRef&>(base);
+#else   // PROTOBUF_CUSTOM_VTABLE
+::size_t TypeRef::ByteSizeLong() const {
+  const TypeRef& this_ = *this;
+#endif  // PROTOBUF_CUSTOM_VTABLE
+  // @@protoc_insertion_point(message_byte_size_start:ball.v1.TypeRef)
+  ::size_t total_size = 0;
+
+  ::uint32_t cached_has_bits = 0;
+  // Prevent compiler warnings about cached_has_bits being unused
+  (void)cached_has_bits;
+
+  ::_pbi::Prefetch5LinesFrom7Lines(&this_);
+  cached_has_bits = this_._impl_._has_bits_[0];
+  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
+    // repeated .ball.v1.TypeRef type_args = 2 [json_name = "typeArgs"];
+    if (CheckHasBit(cached_has_bits, 0x00000001U)) {
+      total_size += 1UL * this_._internal_type_args_size();
+      for (const auto& msg : this_._internal_type_args()) {
+        total_size += ::google::protobuf::internal::WireFormatLite::MessageSize(msg);
+      }
+    }
+    // string name = 1 [json_name = "name"];
+    if (CheckHasBit(cached_has_bits, 0x00000002U)) {
+      if (!this_._internal_name().empty()) {
+        total_size += 1 + ::google::protobuf::internal::WireFormatLite::StringSize(
+                                        this_._internal_name());
+      }
+    }
+    // bool nullable = 3 [json_name = "nullable"];
+    if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+      if (this_._internal_nullable() != 0) {
+        total_size += 2;
+      }
+    }
+  }
+  return this_.MaybeComputeUnknownFieldsSize(total_size,
+                                             &this_._impl_._cached_size_);
+}
+
+void TypeRef::MergeImpl(::google::protobuf::MessageLite& to_msg,
+                      const ::google::protobuf::MessageLite& from_msg) {
+   auto* const _this = static_cast<TypeRef*>(&to_msg);
+  auto& from = static_cast<const TypeRef&>(from_msg);
+  if constexpr (::_pbi::DebugHardenCheckHasBitConsistency()) {
+    from.CheckHasBitConsistency();
+  }
+  ::google::protobuf::Arena* arena = _this->GetArena();
+  // @@protoc_insertion_point(class_specific_merge_from_start:ball.v1.TypeRef)
+  ABSL_DCHECK_NE(&from, _this);
+  ::uint32_t cached_has_bits = 0;
+  (void)cached_has_bits;
+
+  cached_has_bits = from._impl_._has_bits_[0];
+  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
+    if (CheckHasBit(cached_has_bits, 0x00000001U)) {
+      _this->_internal_mutable_type_args()->InternalMergeFromWithArena(
+          ::google::protobuf::MessageLite::internal_visibility(), arena,
+          from._internal_type_args());
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000002U)) {
+      if (!from._internal_name().empty()) {
+        _this->_internal_set_name(from._internal_name());
+      } else {
+        if (_this->_impl_.name_.IsDefault()) {
+          _this->_internal_set_name("");
+        }
+      }
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+      if (from._internal_nullable() != 0) {
+        _this->_impl_.nullable_ = from._impl_.nullable_;
+      }
+    }
+  }
+  _this->_impl_._has_bits_[0] |= cached_has_bits;
+  _this->_internal_metadata_.MergeFrom<::google::protobuf::UnknownFieldSet>(
+      from._internal_metadata_);
+}
+
+void TypeRef::CopyFrom(const TypeRef& from) {
+  // @@protoc_insertion_point(class_specific_copy_from_start:ball.v1.TypeRef)
+  if (&from == this) return;
+  Clear();
+  MergeFrom(from);
+}
+
+
+void TypeRef::InternalSwap(TypeRef* PROTOBUF_RESTRICT PROTOBUF_NONNULL other) {
+  using ::std::swap;
+  auto* arena = GetArena();
+  ABSL_DCHECK_EQ(arena, other->GetArena());
+  _internal_metadata_.InternalSwap(&other->_internal_metadata_);
+  swap(_impl_._has_bits_[0], other->_impl_._has_bits_[0]);
+  _impl_.type_args_.InternalSwap(&other->_impl_.type_args_);
+  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.name_, &other->_impl_.name_, arena);
+  swap(_impl_.nullable_, other->_impl_.nullable_);
+}
+
+::google::protobuf::Metadata TypeRef::GetMetadata() const {
+  return ::google::protobuf::Message::GetMetadataImpl(GetClassData()->full());
+}
+// ===================================================================
+
 void TypeParameter::clear_metadata() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   if (_impl_.metadata_ != nullptr) _impl_.metadata_->Clear();
@@ -12612,6 +13101,13 @@ PROTOBUF_NDEBUG_INLINE FunctionCall::Impl_::Impl_(
     [[maybe_unused]] const ::ball::v1::FunctionCall& from_msg)
       : _has_bits_{from._has_bits_},
         _cached_size_{0},
+        type_args_ {
+          visibility, ::_pbi::InternalMetadataOffset::Build<
+              ::ball::v1::FunctionCall,
+              PROTOBUF_FIELD_OFFSET(::ball::v1::FunctionCall, _impl_.type_args_)>()
+          , from.type_args_
+        }
+        ,
         module_(arena, from.module_),
         function_(arena, from.function_) {}
 
@@ -12630,7 +13126,7 @@ FunctionCall::FunctionCall(
       from._internal_metadata_);
   new (&_impl_) Impl_(internal_visibility(), arena, from._impl_, from);
   ::uint32_t cached_has_bits = _impl_._has_bits_[0];
-  _impl_.input_ = (CheckHasBit(cached_has_bits, 0x00000004U))
+  _impl_.input_ = (CheckHasBit(cached_has_bits, 0x00000008U))
                 ? ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.input_)
                 : nullptr;
 
@@ -12640,6 +13136,11 @@ PROTOBUF_NDEBUG_INLINE FunctionCall::Impl_::Impl_(
     [[maybe_unused]] ::google::protobuf::internal::InternalVisibility visibility,
     [[maybe_unused]] ::google::protobuf::Arena* PROTOBUF_NULLABLE arena)
       : _cached_size_{0},
+        type_args_ { visibility, ::_pbi::InternalMetadataOffset::Build<
+            ::ball::v1::FunctionCall,
+            PROTOBUF_FIELD_OFFSET(::ball::v1::FunctionCall, _impl_.type_args_)>()
+         }
+        ,
         module_(arena),
         function_(arena) {}
 
@@ -12698,14 +13199,17 @@ PROTOBUF_NOINLINE void FunctionCall::Clear() {
   (void) cached_has_bits;
 
   cached_has_bits = _impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x0000000fU)) {
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
-      _impl_.module_.ClearNonDefaultToEmpty();
+      _impl_.type_args_.Clear();
     }
     if (CheckHasBit(cached_has_bits, 0x00000002U)) {
-      _impl_.function_.ClearNonDefaultToEmpty();
+      _impl_.module_.ClearNonDefaultToEmpty();
     }
     if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+      _impl_.function_.ClearNonDefaultToEmpty();
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000008U)) {
       ABSL_DCHECK(_impl_.input_ != nullptr);
       _impl_.input_->Clear();
     }
@@ -12734,7 +13238,7 @@ PROTOBUF_NOINLINE void FunctionCall::Clear() {
 
   cached_has_bits = this_._impl_._has_bits_[0];
   // string module = 1 [json_name = "module"];
-  if (CheckHasBit(cached_has_bits, 0x00000001U)) {
+  if (CheckHasBit(cached_has_bits, 0x00000002U)) {
     if (!this_._internal_module().empty()) {
       const ::std::string& _s = this_._internal_module();
       ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
@@ -12744,7 +13248,7 @@ PROTOBUF_NOINLINE void FunctionCall::Clear() {
   }
 
   // string function = 2 [json_name = "function"];
-  if (CheckHasBit(cached_has_bits, 0x00000002U)) {
+  if (CheckHasBit(cached_has_bits, 0x00000004U)) {
     if (!this_._internal_function().empty()) {
       const ::std::string& _s = this_._internal_function();
       ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
@@ -12754,10 +13258,23 @@ PROTOBUF_NOINLINE void FunctionCall::Clear() {
   }
 
   // .ball.v1.Expression input = 3 [json_name = "input"];
-  if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+  if (CheckHasBit(cached_has_bits, 0x00000008U)) {
     target = ::google::protobuf::internal::WireFormatLite::InternalWriteMessage(
         3, *this_._impl_.input_, this_._impl_.input_->GetCachedSize(), target,
         stream);
+  }
+
+  // repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];
+  if (CheckHasBit(cached_has_bits, 0x00000001U)) {
+    for (unsigned i = 0, n = static_cast<unsigned>(
+                             this_._internal_type_args_size());
+         i < n; i++) {
+      const auto& repfield = this_._internal_type_args().Get(i);
+      target =
+          ::google::protobuf::internal::WireFormatLite::InternalWriteMessage(
+              4, repfield, repfield.GetCachedSize(),
+              target, stream);
+    }
   }
 
   if (ABSL_PREDICT_FALSE(this_._internal_metadata_.have_unknown_fields())) {
@@ -12785,23 +13302,30 @@ PROTOBUF_NOINLINE void FunctionCall::Clear() {
 
   ::_pbi::Prefetch5LinesFrom7Lines(&this_);
   cached_has_bits = this_._impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
-    // string module = 1 [json_name = "module"];
+  if (BatchCheckHasBit(cached_has_bits, 0x0000000fU)) {
+    // repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
+      total_size += 1UL * this_._internal_type_args_size();
+      for (const auto& msg : this_._internal_type_args()) {
+        total_size += ::google::protobuf::internal::WireFormatLite::MessageSize(msg);
+      }
+    }
+    // string module = 1 [json_name = "module"];
+    if (CheckHasBit(cached_has_bits, 0x00000002U)) {
       if (!this_._internal_module().empty()) {
         total_size += 1 + ::google::protobuf::internal::WireFormatLite::StringSize(
                                         this_._internal_module());
       }
     }
     // string function = 2 [json_name = "function"];
-    if (CheckHasBit(cached_has_bits, 0x00000002U)) {
+    if (CheckHasBit(cached_has_bits, 0x00000004U)) {
       if (!this_._internal_function().empty()) {
         total_size += 1 + ::google::protobuf::internal::WireFormatLite::StringSize(
                                         this_._internal_function());
       }
     }
     // .ball.v1.Expression input = 3 [json_name = "input"];
-    if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+    if (CheckHasBit(cached_has_bits, 0x00000008U)) {
       total_size += 1 +
                     ::google::protobuf::internal::WireFormatLite::MessageSize(*this_._impl_.input_);
     }
@@ -12824,8 +13348,13 @@ void FunctionCall::MergeImpl(::google::protobuf::MessageLite& to_msg,
   (void)cached_has_bits;
 
   cached_has_bits = from._impl_._has_bits_[0];
-  if (BatchCheckHasBit(cached_has_bits, 0x00000007U)) {
+  if (BatchCheckHasBit(cached_has_bits, 0x0000000fU)) {
     if (CheckHasBit(cached_has_bits, 0x00000001U)) {
+      _this->_internal_mutable_type_args()->InternalMergeFromWithArena(
+          ::google::protobuf::MessageLite::internal_visibility(), arena,
+          from._internal_type_args());
+    }
+    if (CheckHasBit(cached_has_bits, 0x00000002U)) {
       if (!from._internal_module().empty()) {
         _this->_internal_set_module(from._internal_module());
       } else {
@@ -12834,7 +13363,7 @@ void FunctionCall::MergeImpl(::google::protobuf::MessageLite& to_msg,
         }
       }
     }
-    if (CheckHasBit(cached_has_bits, 0x00000002U)) {
+    if (CheckHasBit(cached_has_bits, 0x00000004U)) {
       if (!from._internal_function().empty()) {
         _this->_internal_set_function(from._internal_function());
       } else {
@@ -12843,7 +13372,7 @@ void FunctionCall::MergeImpl(::google::protobuf::MessageLite& to_msg,
         }
       }
     }
-    if (CheckHasBit(cached_has_bits, 0x00000004U)) {
+    if (CheckHasBit(cached_has_bits, 0x00000008U)) {
       ABSL_DCHECK(from._impl_.input_ != nullptr);
       if (_this->_impl_.input_ == nullptr) {
         _this->_impl_.input_ = ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.input_);
@@ -12871,6 +13400,7 @@ void FunctionCall::InternalSwap(FunctionCall* PROTOBUF_RESTRICT PROTOBUF_NONNULL
   ABSL_DCHECK_EQ(arena, other->GetArena());
   _internal_metadata_.InternalSwap(&other->_internal_metadata_);
   swap(_impl_._has_bits_[0], other->_impl_._has_bits_[0]);
+  _impl_.type_args_.InternalSwap(&other->_impl_.type_args_);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.module_, &other->_impl_.module_, arena);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.function_, &other->_impl_.function_, arena);
   swap(_impl_.input_, other->_impl_.input_);

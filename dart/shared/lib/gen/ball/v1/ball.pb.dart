@@ -1109,6 +1109,94 @@ class RegistrySource extends $pb.GeneratedMessage {
   void clearRegistryUrl() => $_clearField(6);
 }
 
+/// A structured type reference for use in type checks, function call type
+/// arguments, and function signatures. Replaces raw Dart-flavored type strings
+/// (e.g. "Box<int>") with a structured, target-agnostic representation that
+/// every compiler can interpret without parsing language-specific syntax.
+///
+/// Examples:
+///   int            → {name: "int"}
+///   Box<int>       → {name: "Box", type_args: [{name: "int"}]}
+///   Map<String, List<int?>> → {name: "Map", type_args: [
+///     {name: "String"},
+///     {name: "List", type_args: [{name: "int", nullable: true}]}
+///   ]}
+class TypeRef extends $pb.GeneratedMessage {
+  factory TypeRef({
+    $core.String? name,
+    $core.Iterable<TypeRef>? typeArgs,
+    $core.bool? nullable,
+  }) {
+    final result = create();
+    if (name != null) result.name = name;
+    if (typeArgs != null) result.typeArgs.addAll(typeArgs);
+    if (nullable != null) result.nullable = nullable;
+    return result;
+  }
+
+  TypeRef._();
+
+  factory TypeRef.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory TypeRef.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'TypeRef',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'ball.v1'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'name')
+    ..pPM<TypeRef>(2, _omitFieldNames ? '' : 'typeArgs',
+        subBuilder: TypeRef.create)
+    ..aOB(3, _omitFieldNames ? '' : 'nullable')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TypeRef clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TypeRef copyWith(void Function(TypeRef) updates) =>
+      super.copyWith((message) => updates(message as TypeRef)) as TypeRef;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static TypeRef create() => TypeRef._();
+  @$core.override
+  TypeRef createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static TypeRef getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<TypeRef>(create);
+  static TypeRef? _defaultInstance;
+
+  /// Base type name (e.g., "int", "String", "Box", "List").
+  /// For module-qualified types: "module:TypeName" (e.g., "main:Container").
+  @$pb.TagNumber(1)
+  $core.String get name => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set name($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasName() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearName() => $_clearField(1);
+
+  /// Generic type arguments. Empty for non-generic types.
+  @$pb.TagNumber(2)
+  $pb.PbList<TypeRef> get typeArgs => $_getList(1);
+
+  /// Whether this type is nullable (e.g. int? → nullable = true).
+  @$pb.TagNumber(3)
+  $core.bool get nullable => $_getBF(2);
+  @$pb.TagNumber(3)
+  set nullable($core.bool value) => $_setBool(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasNullable() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearNullable() => $_clearField(3);
+}
+
 /// A type parameter placeholder for generic types (e.g. T, K, V).
 /// Bounds, variance, and other constraints are cosmetic hints in metadata.
 class TypeParameter extends $pb.GeneratedMessage {
@@ -1834,11 +1922,13 @@ class FunctionCall extends $pb.GeneratedMessage {
     $core.String? module,
     $core.String? function,
     Expression? input,
+    $core.Iterable<TypeRef>? typeArgs,
   }) {
     final result = create();
     if (module != null) result.module = module;
     if (function != null) result.function = function;
     if (input != null) result.input = input;
+    if (typeArgs != null) result.typeArgs.addAll(typeArgs);
     return result;
   }
 
@@ -1859,6 +1949,8 @@ class FunctionCall extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'function')
     ..aOM<Expression>(3, _omitFieldNames ? '' : 'input',
         subBuilder: Expression.create)
+    ..pPM<TypeRef>(4, _omitFieldNames ? '' : 'typeArgs',
+        subBuilder: TypeRef.create)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1911,6 +2003,14 @@ class FunctionCall extends $pb.GeneratedMessage {
   void clearInput() => $_clearField(3);
   @$pb.TagNumber(3)
   Expression ensureInput() => $_ensure(2);
+
+  /// Generic type arguments for this call (e.g., identity<int>(42)).
+  /// Replaces the unstructured "__type_args__" string convention in
+  /// MessageCreation fields. Compilers should prefer this field when
+  /// present; fall back to the "__type_args__" metadata string for
+  /// backward compatibility with older Ball programs.
+  @$pb.TagNumber(4)
+  $pb.PbList<TypeRef> get typeArgs => $_getList(3);
 }
 
 enum Literal_Value {

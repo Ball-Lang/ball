@@ -556,6 +556,52 @@ export declare type RegistrySource = Message<"ball.v1.RegistrySource"> & {
 export declare const RegistrySourceSchema: GenMessage<RegistrySource>;
 
 /**
+ * A structured type reference for use in type checks, function call type
+ * arguments, and function signatures. Replaces raw Dart-flavored type strings
+ * (e.g. "Box<int>") with a structured, target-agnostic representation that
+ * every compiler can interpret without parsing language-specific syntax.
+ *
+ * Examples:
+ *   int            → {name: "int"}
+ *   Box<int>       → {name: "Box", type_args: [{name: "int"}]}
+ *   Map<String, List<int?>> → {name: "Map", type_args: [
+ *     {name: "String"},
+ *     {name: "List", type_args: [{name: "int", nullable: true}]}
+ *   ]}
+ *
+ * @generated from message ball.v1.TypeRef
+ */
+export declare type TypeRef = Message<"ball.v1.TypeRef"> & {
+  /**
+   * Base type name (e.g., "int", "String", "Box", "List").
+   * For module-qualified types: "module:TypeName" (e.g., "main:Container").
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * Generic type arguments. Empty for non-generic types.
+   *
+   * @generated from field: repeated ball.v1.TypeRef type_args = 2;
+   */
+  typeArgs: TypeRef[];
+
+  /**
+   * Whether this type is nullable (e.g. int? → nullable = true).
+   *
+   * @generated from field: bool nullable = 3;
+   */
+  nullable: boolean;
+};
+
+/**
+ * Describes the message ball.v1.TypeRef.
+ * Use `create(TypeRefSchema)` to create a new message.
+ */
+export declare const TypeRefSchema: GenMessage<TypeRef>;
+
+/**
  * A type parameter placeholder for generic types (e.g. T, K, V).
  * Bounds, variance, and other constraints are cosmetic hints in metadata.
  *
@@ -889,6 +935,17 @@ export declare type FunctionCall = Message<"ball.v1.FunctionCall"> & {
    * @generated from field: ball.v1.Expression input = 3;
    */
   input?: Expression | undefined;
+
+  /**
+   * Generic type arguments for this call (e.g., identity<int>(42)).
+   * Replaces the unstructured "__type_args__" string convention in
+   * MessageCreation fields. Compilers should prefer this field when
+   * present; fall back to the "__type_args__" metadata string for
+   * backward compatibility with older Ball programs.
+   *
+   * @generated from field: repeated ball.v1.TypeRef type_args = 4;
+   */
+  typeArgs: TypeRef[];
 };
 
 /**

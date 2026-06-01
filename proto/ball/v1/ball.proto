@@ -350,6 +350,30 @@ enum ModuleEncoding {
 // Type Definitions (first-class, replaces _meta_ hack)
 // ============================================================
 
+// A structured type reference for use in type checks, function call type
+// arguments, and function signatures. Replaces raw Dart-flavored type strings
+// (e.g. "Box<int>") with a structured, target-agnostic representation that
+// every compiler can interpret without parsing language-specific syntax.
+//
+// Examples:
+//   int            → {name: "int"}
+//   Box<int>       → {name: "Box", type_args: [{name: "int"}]}
+//   Map<String, List<int?>> → {name: "Map", type_args: [
+//     {name: "String"},
+//     {name: "List", type_args: [{name: "int", nullable: true}]}
+//   ]}
+message TypeRef {
+  // Base type name (e.g., "int", "String", "Box", "List").
+  // For module-qualified types: "module:TypeName" (e.g., "main:Container").
+  string name = 1;
+
+  // Generic type arguments. Empty for non-generic types.
+  repeated TypeRef type_args = 2;
+
+  // Whether this type is nullable (e.g. int? → nullable = true).
+  bool nullable = 3;
+}
+
 // A type parameter placeholder for generic types (e.g. T, K, V).
 // Bounds, variance, and other constraints are cosmetic hints in metadata.
 message TypeParameter {
@@ -490,6 +514,10 @@ message FunctionCall {
 
   // Input expression (evaluates to the function's input type)
   Expression input = 3;
+
+  // Generic type arguments for this call (e.g., identity<int>(42)).
+  // Replaces the former "__type_args__" string convention.
+  repeated TypeRef type_args = 4;
 }
 
 // A literal value. Uses oneof for type-safe value representation.

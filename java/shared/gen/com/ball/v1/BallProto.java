@@ -77,6 +77,11 @@ public final class BallProto extends com.google.protobuf.GeneratedFile {
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_ball_v1_RegistrySource_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_ball_v1_TypeRef_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_ball_v1_TypeRef_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
     internal_static_ball_v1_TypeParameter_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
@@ -213,7 +218,7 @@ public final class BallProto extends com.google.protobuf.GeneratedFile {
       "try_module\030\004 \001(\tR\013entryModule\022%\n\016entry_f" +
       "unction\030\005 \001(\tR\rentryFunction\0223\n\010metadata" +
       "\030\006 \001(\0132\027.google.protobuf.StructR\010metadat" +
-      "a\"\216\004\n\006Module\022\022\n\004name\030\001 \001(\tR\004name\022:\n\005enum" +
+      "a\"\201\004\n\006Module\022\022\n\004name\030\001 \001(\tR\004name\022:\n\005enum" +
       "s\030\007 \003(\0132$.google.protobuf.EnumDescriptor" +
       "ProtoR\005enums\0229\n\tfunctions\030\003 \003(\0132\033.ball.v" +
       "1.FunctionDefinitionR\tfunctions\022 \n\013descr" +
@@ -225,162 +230,165 @@ public final class BallProto extends com.google.protobuf.GeneratedFile {
       "pe_aliases\030\013 \003(\0132\022.ball.v1.TypeAliasR\013ty" +
       "peAliases\022<\n\020module_constants\030\014 \003(\0132\021.ba" +
       "ll.v1.ConstantR\017moduleConstants\022,\n\006asset" +
-      "s\030\r \003(\0132\024.ball.v1.ModuleAssetR\006assetsJ\004\010" +
-      "\002\020\003R\005types\"\217\001\n\013ModuleAsset\022\022\n\004path\030\001 \001(\t" +
-      "R\004path\022\030\n\007content\030\002 \001(\014R\007content\022\035\n\nmedi" +
-      "a_type\030\003 \001(\tR\tmediaType\0223\n\010metadata\030\004 \001(" +
-      "\0132\027.google.protobuf.StructR\010metadata\"\345\002\n" +
-      "\014ModuleImport\022\022\n\004name\030\001 \001(\tR\004name\022\034\n\tint" +
-      "egrity\030\002 \001(\tR\tintegrity\0223\n\010metadata\030\003 \001(" +
-      "\0132\027.google.protobuf.StructR\010metadata\022)\n\004" +
-      "http\030\004 \001(\0132\023.ball.v1.HttpSourceH\000R\004http\022" +
-      ")\n\004file\030\005 \001(\0132\023.ball.v1.FileSourceH\000R\004fi" +
-      "le\022/\n\006inline\030\006 \001(\0132\025.ball.v1.InlineSourc" +
-      "eH\000R\006inline\022&\n\003git\030\007 \001(\0132\022.ball.v1.GitSo" +
-      "urceH\000R\003git\0225\n\010registry\030\010 \001(\0132\027.ball.v1." +
-      "RegistrySourceH\000R\010registryB\010\n\006source\"\313\001\n" +
-      "\nHttpSource\022\020\n\003url\030\001 \001(\tR\003url\0223\n\010encodin" +
-      "g\030\002 \001(\0162\027.ball.v1.ModuleEncodingR\010encodi" +
-      "ng\022:\n\007headers\030\003 \003(\0132 .ball.v1.HttpSource" +
-      ".HeadersEntryR\007headers\032:\n\014HeadersEntry\022\020" +
-      "\n\003key\030\001 \001(\tR\003key\022\024\n\005value\030\002 \001(\tR\005value:\002" +
-      "8\001\"U\n\nFileSource\022\022\n\004path\030\001 \001(\tR\004path\0223\n\010" +
-      "encoding\030\002 \001(\0162\027.ball.v1.ModuleEncodingR" +
-      "\010encoding\"R\n\014InlineSource\022!\n\013proto_bytes" +
-      "\030\001 \001(\014H\000R\nprotoBytes\022\024\n\004json\030\002 \001(\tH\000R\004js" +
-      "onB\t\n\007content\"x\n\tGitSource\022\020\n\003url\030\001 \001(\tR" +
-      "\003url\022\020\n\003ref\030\002 \001(\tR\003ref\022\022\n\004path\030\003 \001(\tR\004pa" +
-      "th\0223\n\010encoding\030\004 \001(\0162\027.ball.v1.ModuleEnc" +
-      "odingR\010encoding\"\354\001\n\016RegistrySource\022-\n\010re" +
-      "gistry\030\001 \001(\0162\021.ball.v1.RegistryR\010registr" +
-      "y\022\030\n\007package\030\002 \001(\tR\007package\022\030\n\007version\030\003" +
-      " \001(\tR\007version\022\037\n\013module_path\030\004 \001(\tR\nmodu" +
-      "lePath\0223\n\010encoding\030\005 \001(\0162\027.ball.v1.Modul" +
-      "eEncodingR\010encoding\022!\n\014registry_url\030\006 \001(" +
-      "\tR\013registryUrl\"X\n\rTypeParameter\022\022\n\004name\030" +
-      "\001 \001(\tR\004name\0223\n\010metadata\030\002 \001(\0132\027.google.p" +
-      "rotobuf.StructR\010metadata\"\366\001\n\016TypeDefinit" +
-      "ion\022\022\n\004name\030\001 \001(\tR\004name\022@\n\ndescriptor\030\002 " +
-      "\001(\0132 .google.protobuf.DescriptorProtoR\nd" +
-      "escriptor\0227\n\013type_params\030\003 \003(\0132\026.ball.v1" +
-      ".TypeParameterR\ntypeParams\022 \n\013descriptio" +
-      "n\030\004 \001(\tR\013description\0223\n\010metadata\030\005 \001(\0132\027" +
-      ".google.protobuf.StructR\010metadata\"\256\001\n\tTy" +
-      "peAlias\022\022\n\004name\030\001 \001(\tR\004name\022\037\n\013target_ty" +
-      "pe\030\002 \001(\tR\ntargetType\0227\n\013type_params\030\003 \003(" +
-      "\0132\026.ball.v1.TypeParameterR\ntypeParams\0223\n" +
-      "\010metadata\030\004 \001(\0132\027.google.protobuf.Struct" +
-      "R\010metadata\"\222\001\n\010Constant\022\022\n\004name\030\001 \001(\tR\004n" +
-      "ame\022\022\n\004type\030\002 \001(\tR\004type\022)\n\005value\030\003 \001(\0132\023" +
-      ".ball.v1.ExpressionR\005value\0223\n\010metadata\030\004" +
-      " \001(\0132\027.google.protobuf.StructR\010metadata\"" +
-      "\201\002\n\022FunctionDefinition\022\022\n\004name\030\001 \001(\tR\004na" +
-      "me\022\035\n\ninput_type\030\002 \001(\tR\tinputType\022\037\n\013out" +
-      "put_type\030\003 \001(\tR\noutputType\022\'\n\004body\030\004 \001(\013" +
-      "2\023.ball.v1.ExpressionR\004body\022 \n\013descripti" +
-      "on\030\005 \001(\tR\013description\022\027\n\007is_base\030\006 \001(\010R\006" +
-      "isBase\0223\n\010metadata\030\007 \001(\0132\027.google.protob" +
-      "uf.StructR\010metadata\"\204\003\n\nExpression\022+\n\004ca" +
-      "ll\030\001 \001(\0132\025.ball.v1.FunctionCallH\000R\004call\022" +
-      ",\n\007literal\030\002 \001(\0132\020.ball.v1.LiteralH\000R\007li" +
-      "teral\0222\n\treference\030\003 \001(\0132\022.ball.v1.Refer" +
-      "enceH\000R\treference\0229\n\014field_access\030\004 \001(\0132" +
-      "\024.ball.v1.FieldAccessH\000R\013fieldAccess\022E\n\020" +
-      "message_creation\030\005 \001(\0132\030.ball.v1.Message" +
-      "CreationH\000R\017messageCreation\022&\n\005block\030\006 \001" +
-      "(\0132\016.ball.v1.BlockH\000R\005block\0225\n\006lambda\030\007 " +
-      "\001(\0132\033.ball.v1.FunctionDefinitionH\000R\006lamb" +
-      "daB\006\n\004expr\"m\n\014FunctionCall\022\026\n\006module\030\001 \001" +
-      "(\tR\006module\022\032\n\010function\030\002 \001(\tR\010function\022)" +
-      "\n\005input\030\003 \001(\0132\023.ball.v1.ExpressionR\005inpu" +
-      "t\"\366\001\n\007Literal\022\035\n\tint_value\030\001 \001(\003H\000R\010intV" +
-      "alue\022#\n\014double_value\030\002 \001(\001H\000R\013doubleValu" +
-      "e\022#\n\014string_value\030\003 \001(\tH\000R\013stringValue\022\037" +
-      "\n\nbool_value\030\004 \001(\010H\000R\tboolValue\022!\n\013bytes" +
-      "_value\030\005 \001(\014H\000R\nbytesValue\0225\n\nlist_value" +
-      "\030\006 \001(\0132\024.ball.v1.ListLiteralH\000R\tlistValu" +
-      "eB\007\n\005value\">\n\013ListLiteral\022/\n\010elements\030\001 " +
-      "\003(\0132\023.ball.v1.ExpressionR\010elements\"\037\n\tRe" +
-      "ference\022\022\n\004name\030\001 \001(\tR\004name\"P\n\013FieldAcce" +
-      "ss\022+\n\006object\030\001 \001(\0132\023.ball.v1.ExpressionR" +
-      "\006object\022\024\n\005field\030\002 \001(\tR\005field\"_\n\017Message" +
-      "Creation\022\033\n\ttype_name\030\001 \001(\tR\010typeName\022/\n" +
-      "\006fields\030\002 \003(\0132\027.ball.v1.FieldValuePairR\006" +
-      "fields\"O\n\016FieldValuePair\022\022\n\004name\030\001 \001(\tR\004" +
-      "name\022)\n\005value\030\002 \001(\0132\023.ball.v1.Expression" +
-      "R\005value\"h\n\005Block\0222\n\nstatements\030\001 \003(\0132\022.b" +
-      "all.v1.StatementR\nstatements\022+\n\006result\030\002" +
-      " \001(\0132\023.ball.v1.ExpressionR\006result\"s\n\tSta" +
-      "tement\022\'\n\003let\030\001 \001(\0132\023.ball.v1.LetBinding" +
-      "H\000R\003let\0225\n\nexpression\030\002 \001(\0132\023.ball.v1.Ex" +
-      "pressionH\000R\nexpressionB\006\n\004stmt\"\200\001\n\nLetBi" +
-      "nding\022\022\n\004name\030\001 \001(\tR\004name\022)\n\005value\030\002 \001(\013" +
-      "2\023.ball.v1.ExpressionR\005value\0223\n\010metadata" +
-      "\030\003 \001(\0132\027.google.protobuf.StructR\010metadat" +
-      "a\"\332\002\n\014BallManifest\022\022\n\004name\030\001 \001(\tR\004name\022\030" +
-      "\n\007version\030\002 \001(\tR\007version\022 \n\013description\030" +
-      "\003 \001(\tR\013description\022!\n\014entry_module\030\004 \001(\t" +
-      "R\013entryModule\022%\n\016entry_function\030\005 \001(\tR\re" +
-      "ntryFunction\0229\n\014dependencies\030\006 \003(\0132\025.bal" +
-      "l.v1.ModuleImportR\014dependencies\022@\n\020dev_d" +
-      "ependencies\030\007 \003(\0132\025.ball.v1.ModuleImport" +
-      "R\017devDependencies\0223\n\010metadata\030\010 \001(\0132\027.go" +
-      "ogle.protobuf.StructR\010metadata\"j\n\014BallLo" +
-      "ckfile\0227\n\010packages\030\001 \003(\0132\033.ball.v1.Resol" +
-      "vedDependencyR\010packages\022!\n\014lock_version\030" +
-      "\002 \001(\tR\013lockVersion\"\344\002\n\022ResolvedDependenc" +
-      "y\022\022\n\004name\030\001 \001(\tR\004name\022)\n\020resolved_versio" +
-      "n\030\002 \001(\tR\017resolvedVersion\022\034\n\tintegrity\030\003 " +
-      "\001(\tR\tintegrity\022)\n\004http\030\004 \001(\0132\023.ball.v1.H" +
-      "ttpSourceH\000R\004http\022&\n\003git\030\005 \001(\0132\022.ball.v1" +
-      ".GitSourceH\000R\003git\022)\n\004file\030\006 \001(\0132\023.ball.v" +
-      "1.FileSourceH\000R\004file\0225\n\010registry\030\007 \001(\0132\027" +
-      ".ball.v1.RegistrySourceH\000R\010registry\022)\n\020d" +
-      "ependency_names\030\010 \003(\tR\017dependencyNamesB\021" +
-      "\n\017resolved_source\"\221\002\n\024BallCapabilityRepo" +
-      "rt\022!\n\014program_name\030\001 \001(\tR\013programName\022\'\n" +
-      "\017program_version\030\002 \001(\tR\016programVersion\022<" +
-      "\n\014capabilities\030\003 \003(\0132\030.ball.v1.Capabilit" +
-      "yEntryR\014capabilities\0229\n\tfunctions\030\004 \003(\0132" +
-      "\033.ball.v1.FunctionCapabilityR\tfunctions\022" +
-      "4\n\007summary\030\005 \001(\0132\032.ball.v1.CapabilitySum" +
-      "maryR\007summary\"\202\001\n\017CapabilityEntry\022\036\n\ncap" +
-      "ability\030\001 \001(\tR\ncapability\022\035\n\nrisk_level\030" +
-      "\002 \001(\tR\triskLevel\0220\n\ncall_sites\030\003 \003(\0132\021.b" +
-      "all.v1.CallSiteR\tcallSites\"\214\001\n\010CallSite\022" +
-      "\026\n\006module\030\001 \001(\tR\006module\022\032\n\010function\030\002 \001(" +
-      "\tR\010function\022#\n\rcallee_module\030\003 \001(\tR\014call" +
-      "eeModule\022\'\n\017callee_function\030\004 \001(\tR\016calle" +
-      "eFunction\"l\n\022FunctionCapability\022\026\n\006modul" +
-      "e\030\001 \001(\tR\006module\022\032\n\010function\030\002 \001(\tR\010funct" +
-      "ion\022\"\n\014capabilities\030\003 \003(\tR\014capabilities\"" +
-      "\365\004\n\021CapabilitySummary\022\027\n\007is_pure\030\001 \001(\010R\006" +
-      "isPure\022)\n\020reads_filesystem\030\002 \001(\010R\017readsF" +
-      "ilesystem\022+\n\021writes_filesystem\030\003 \001(\010R\020wr" +
-      "itesFilesystem\022\037\n\013reads_stdin\030\004 \001(\010R\nrea" +
-      "dsStdin\022#\n\rwrites_stdout\030\005 \001(\010R\014writesSt" +
-      "dout\022#\n\rwrites_stderr\030\006 \001(\010R\014writesStder" +
-      "r\022+\n\021reads_environment\030\007 \001(\010R\020readsEnvir" +
-      "onment\022)\n\020controls_process\030\010 \001(\010R\017contro" +
-      "lsProcess\022\037\n\013uses_memory\030\t \001(\010R\nusesMemo" +
-      "ry\022\033\n\tuses_time\030\n \001(\010R\010usesTime\022\037\n\013uses_" +
-      "random\030\013 \001(\010R\nusesRandom\022)\n\020uses_concurr" +
-      "ency\030\014 \001(\010R\017usesConcurrency\022!\n\014uses_netw" +
-      "ork\030\r \001(\010R\013usesNetwork\022\'\n\017total_function" +
-      "s\030\016 \001(\005R\016totalFunctions\022%\n\016pure_function" +
-      "s\030\017 \001(\005R\rpureFunctions\022/\n\023effectful_func" +
-      "tions\030\020 \001(\005R\022effectfulFunctions*\227\001\n\010Regi" +
-      "stry\022\030\n\024REGISTRY_UNSPECIFIED\020\000\022\020\n\014REGIST" +
-      "RY_PUB\020\001\022\020\n\014REGISTRY_NPM\020\002\022\022\n\016REGISTRY_N" +
-      "UGET\020\003\022\022\n\016REGISTRY_CARGO\020\004\022\021\n\rREGISTRY_P" +
-      "YPI\020\005\022\022\n\016REGISTRY_MAVEN\020\006*f\n\016ModuleEncod" +
-      "ing\022\037\n\033MODULE_ENCODING_UNSPECIFIED\020\000\022\031\n\025" +
-      "MODULE_ENCODING_PROTO\020\001\022\030\n\024MODULE_ENCODI" +
-      "NG_JSON\020\002B\215\001\n\013com.ball.v1B\tBallProtoP\001Z6" +
-      "github.com/ball-lang/ball/go/shared/gen/" +
-      "ball/v1;ballv1\242\002\003BXX\252\002\007Ball.V1\312\002\007Ball\\V1" +
-      "\342\002\023Ball\\V1\\GPBMetadata\352\002\010Ball::V1b\006proto" +
-      "3"
+      "s\030\r \003(\0132\024.ball.v1.ModuleAssetR\006assets\"\217\001" +
+      "\n\013ModuleAsset\022\022\n\004path\030\001 \001(\tR\004path\022\030\n\007con" +
+      "tent\030\002 \001(\014R\007content\022\035\n\nmedia_type\030\003 \001(\tR" +
+      "\tmediaType\0223\n\010metadata\030\004 \001(\0132\027.google.pr" +
+      "otobuf.StructR\010metadata\"\345\002\n\014ModuleImport" +
+      "\022\022\n\004name\030\001 \001(\tR\004name\022\034\n\tintegrity\030\002 \001(\tR" +
+      "\tintegrity\0223\n\010metadata\030\003 \001(\0132\027.google.pr" +
+      "otobuf.StructR\010metadata\022)\n\004http\030\004 \001(\0132\023." +
+      "ball.v1.HttpSourceH\000R\004http\022)\n\004file\030\005 \001(\013" +
+      "2\023.ball.v1.FileSourceH\000R\004file\022/\n\006inline\030" +
+      "\006 \001(\0132\025.ball.v1.InlineSourceH\000R\006inline\022&" +
+      "\n\003git\030\007 \001(\0132\022.ball.v1.GitSourceH\000R\003git\0225" +
+      "\n\010registry\030\010 \001(\0132\027.ball.v1.RegistrySourc" +
+      "eH\000R\010registryB\010\n\006source\"\313\001\n\nHttpSource\022\020" +
+      "\n\003url\030\001 \001(\tR\003url\0223\n\010encoding\030\002 \001(\0162\027.bal" +
+      "l.v1.ModuleEncodingR\010encoding\022:\n\007headers" +
+      "\030\003 \003(\0132 .ball.v1.HttpSource.HeadersEntry" +
+      "R\007headers\032:\n\014HeadersEntry\022\020\n\003key\030\001 \001(\tR\003" +
+      "key\022\024\n\005value\030\002 \001(\tR\005value:\0028\001\"U\n\nFileSou" +
+      "rce\022\022\n\004path\030\001 \001(\tR\004path\0223\n\010encoding\030\002 \001(" +
+      "\0162\027.ball.v1.ModuleEncodingR\010encoding\"R\n\014" +
+      "InlineSource\022!\n\013proto_bytes\030\001 \001(\014H\000R\npro" +
+      "toBytes\022\024\n\004json\030\002 \001(\tH\000R\004jsonB\t\n\007content" +
+      "\"x\n\tGitSource\022\020\n\003url\030\001 \001(\tR\003url\022\020\n\003ref\030\002" +
+      " \001(\tR\003ref\022\022\n\004path\030\003 \001(\tR\004path\0223\n\010encodin" +
+      "g\030\004 \001(\0162\027.ball.v1.ModuleEncodingR\010encodi" +
+      "ng\"\354\001\n\016RegistrySource\022-\n\010registry\030\001 \001(\0162" +
+      "\021.ball.v1.RegistryR\010registry\022\030\n\007package\030" +
+      "\002 \001(\tR\007package\022\030\n\007version\030\003 \001(\tR\007version" +
+      "\022\037\n\013module_path\030\004 \001(\tR\nmodulePath\0223\n\010enc" +
+      "oding\030\005 \001(\0162\027.ball.v1.ModuleEncodingR\010en" +
+      "coding\022!\n\014registry_url\030\006 \001(\tR\013registryUr" +
+      "l\"h\n\007TypeRef\022\022\n\004name\030\001 \001(\tR\004name\022-\n\ttype" +
+      "_args\030\002 \003(\0132\020.ball.v1.TypeRefR\010typeArgs\022" +
+      "\032\n\010nullable\030\003 \001(\010R\010nullable\"X\n\rTypeParam" +
+      "eter\022\022\n\004name\030\001 \001(\tR\004name\0223\n\010metadata\030\002 \001" +
+      "(\0132\027.google.protobuf.StructR\010metadata\"\366\001" +
+      "\n\016TypeDefinition\022\022\n\004name\030\001 \001(\tR\004name\022@\n\n" +
+      "descriptor\030\002 \001(\0132 .google.protobuf.Descr" +
+      "iptorProtoR\ndescriptor\0227\n\013type_params\030\003 " +
+      "\003(\0132\026.ball.v1.TypeParameterR\ntypeParams\022" +
+      " \n\013description\030\004 \001(\tR\013description\0223\n\010met" +
+      "adata\030\005 \001(\0132\027.google.protobuf.StructR\010me" +
+      "tadata\"\256\001\n\tTypeAlias\022\022\n\004name\030\001 \001(\tR\004name" +
+      "\022\037\n\013target_type\030\002 \001(\tR\ntargetType\0227\n\013typ" +
+      "e_params\030\003 \003(\0132\026.ball.v1.TypeParameterR\n" +
+      "typeParams\0223\n\010metadata\030\004 \001(\0132\027.google.pr" +
+      "otobuf.StructR\010metadata\"\222\001\n\010Constant\022\022\n\004" +
+      "name\030\001 \001(\tR\004name\022\022\n\004type\030\002 \001(\tR\004type\022)\n\005" +
+      "value\030\003 \001(\0132\023.ball.v1.ExpressionR\005value\022" +
+      "3\n\010metadata\030\004 \001(\0132\027.google.protobuf.Stru" +
+      "ctR\010metadata\"\201\002\n\022FunctionDefinition\022\022\n\004n" +
+      "ame\030\001 \001(\tR\004name\022\035\n\ninput_type\030\002 \001(\tR\tinp" +
+      "utType\022\037\n\013output_type\030\003 \001(\tR\noutputType\022" +
+      "\'\n\004body\030\004 \001(\0132\023.ball.v1.ExpressionR\004body" +
+      "\022 \n\013description\030\005 \001(\tR\013description\022\027\n\007is" +
+      "_base\030\006 \001(\010R\006isBase\0223\n\010metadata\030\007 \001(\0132\027." +
+      "google.protobuf.StructR\010metadata\"\204\003\n\nExp" +
+      "ression\022+\n\004call\030\001 \001(\0132\025.ball.v1.Function" +
+      "CallH\000R\004call\022,\n\007literal\030\002 \001(\0132\020.ball.v1." +
+      "LiteralH\000R\007literal\0222\n\treference\030\003 \001(\0132\022." +
+      "ball.v1.ReferenceH\000R\treference\0229\n\014field_" +
+      "access\030\004 \001(\0132\024.ball.v1.FieldAccessH\000R\013fi" +
+      "eldAccess\022E\n\020message_creation\030\005 \001(\0132\030.ba" +
+      "ll.v1.MessageCreationH\000R\017messageCreation" +
+      "\022&\n\005block\030\006 \001(\0132\016.ball.v1.BlockH\000R\005block" +
+      "\0225\n\006lambda\030\007 \001(\0132\033.ball.v1.FunctionDefin" +
+      "itionH\000R\006lambdaB\006\n\004expr\"\234\001\n\014FunctionCall" +
+      "\022\026\n\006module\030\001 \001(\tR\006module\022\032\n\010function\030\002 \001" +
+      "(\tR\010function\022)\n\005input\030\003 \001(\0132\023.ball.v1.Ex" +
+      "pressionR\005input\022-\n\ttype_args\030\004 \003(\0132\020.bal" +
+      "l.v1.TypeRefR\010typeArgs\"\366\001\n\007Literal\022\035\n\tin" +
+      "t_value\030\001 \001(\003H\000R\010intValue\022#\n\014double_valu" +
+      "e\030\002 \001(\001H\000R\013doubleValue\022#\n\014string_value\030\003" +
+      " \001(\tH\000R\013stringValue\022\037\n\nbool_value\030\004 \001(\010H" +
+      "\000R\tboolValue\022!\n\013bytes_value\030\005 \001(\014H\000R\nbyt" +
+      "esValue\0225\n\nlist_value\030\006 \001(\0132\024.ball.v1.Li" +
+      "stLiteralH\000R\tlistValueB\007\n\005value\">\n\013ListL" +
+      "iteral\022/\n\010elements\030\001 \003(\0132\023.ball.v1.Expre" +
+      "ssionR\010elements\"\037\n\tReference\022\022\n\004name\030\001 \001" +
+      "(\tR\004name\"P\n\013FieldAccess\022+\n\006object\030\001 \001(\0132" +
+      "\023.ball.v1.ExpressionR\006object\022\024\n\005field\030\002 " +
+      "\001(\tR\005field\"_\n\017MessageCreation\022\033\n\ttype_na" +
+      "me\030\001 \001(\tR\010typeName\022/\n\006fields\030\002 \003(\0132\027.bal" +
+      "l.v1.FieldValuePairR\006fields\"O\n\016FieldValu" +
+      "ePair\022\022\n\004name\030\001 \001(\tR\004name\022)\n\005value\030\002 \001(\013" +
+      "2\023.ball.v1.ExpressionR\005value\"h\n\005Block\0222\n" +
+      "\nstatements\030\001 \003(\0132\022.ball.v1.StatementR\ns" +
+      "tatements\022+\n\006result\030\002 \001(\0132\023.ball.v1.Expr" +
+      "essionR\006result\"s\n\tStatement\022\'\n\003let\030\001 \001(\013" +
+      "2\023.ball.v1.LetBindingH\000R\003let\0225\n\nexpressi" +
+      "on\030\002 \001(\0132\023.ball.v1.ExpressionH\000R\nexpress" +
+      "ionB\006\n\004stmt\"\200\001\n\nLetBinding\022\022\n\004name\030\001 \001(\t" +
+      "R\004name\022)\n\005value\030\002 \001(\0132\023.ball.v1.Expressi" +
+      "onR\005value\0223\n\010metadata\030\003 \001(\0132\027.google.pro" +
+      "tobuf.StructR\010metadata\"\332\002\n\014BallManifest\022" +
+      "\022\n\004name\030\001 \001(\tR\004name\022\030\n\007version\030\002 \001(\tR\007ve" +
+      "rsion\022 \n\013description\030\003 \001(\tR\013description\022" +
+      "!\n\014entry_module\030\004 \001(\tR\013entryModule\022%\n\016en" +
+      "try_function\030\005 \001(\tR\rentryFunction\0229\n\014dep" +
+      "endencies\030\006 \003(\0132\025.ball.v1.ModuleImportR\014" +
+      "dependencies\022@\n\020dev_dependencies\030\007 \003(\0132\025" +
+      ".ball.v1.ModuleImportR\017devDependencies\0223" +
+      "\n\010metadata\030\010 \001(\0132\027.google.protobuf.Struc" +
+      "tR\010metadata\"j\n\014BallLockfile\0227\n\010packages\030" +
+      "\001 \003(\0132\033.ball.v1.ResolvedDependencyR\010pack" +
+      "ages\022!\n\014lock_version\030\002 \001(\tR\013lockVersion\"" +
+      "\344\002\n\022ResolvedDependency\022\022\n\004name\030\001 \001(\tR\004na" +
+      "me\022)\n\020resolved_version\030\002 \001(\tR\017resolvedVe" +
+      "rsion\022\034\n\tintegrity\030\003 \001(\tR\tintegrity\022)\n\004h" +
+      "ttp\030\004 \001(\0132\023.ball.v1.HttpSourceH\000R\004http\022&" +
+      "\n\003git\030\005 \001(\0132\022.ball.v1.GitSourceH\000R\003git\022)" +
+      "\n\004file\030\006 \001(\0132\023.ball.v1.FileSourceH\000R\004fil" +
+      "e\0225\n\010registry\030\007 \001(\0132\027.ball.v1.RegistrySo" +
+      "urceH\000R\010registry\022)\n\020dependency_names\030\010 \003" +
+      "(\tR\017dependencyNamesB\021\n\017resolved_source\"\221" +
+      "\002\n\024BallCapabilityReport\022!\n\014program_name\030" +
+      "\001 \001(\tR\013programName\022\'\n\017program_version\030\002 " +
+      "\001(\tR\016programVersion\022<\n\014capabilities\030\003 \003(" +
+      "\0132\030.ball.v1.CapabilityEntryR\014capabilitie" +
+      "s\0229\n\tfunctions\030\004 \003(\0132\033.ball.v1.FunctionC" +
+      "apabilityR\tfunctions\0224\n\007summary\030\005 \001(\0132\032." +
+      "ball.v1.CapabilitySummaryR\007summary\"\202\001\n\017C" +
+      "apabilityEntry\022\036\n\ncapability\030\001 \001(\tR\ncapa" +
+      "bility\022\035\n\nrisk_level\030\002 \001(\tR\triskLevel\0220\n" +
+      "\ncall_sites\030\003 \003(\0132\021.ball.v1.CallSiteR\tca" +
+      "llSites\"\214\001\n\010CallSite\022\026\n\006module\030\001 \001(\tR\006mo" +
+      "dule\022\032\n\010function\030\002 \001(\tR\010function\022#\n\rcall" +
+      "ee_module\030\003 \001(\tR\014calleeModule\022\'\n\017callee_" +
+      "function\030\004 \001(\tR\016calleeFunction\"l\n\022Functi" +
+      "onCapability\022\026\n\006module\030\001 \001(\tR\006module\022\032\n\010" +
+      "function\030\002 \001(\tR\010function\022\"\n\014capabilities" +
+      "\030\003 \003(\tR\014capabilities\"\365\004\n\021CapabilitySumma" +
+      "ry\022\027\n\007is_pure\030\001 \001(\010R\006isPure\022)\n\020reads_fil" +
+      "esystem\030\002 \001(\010R\017readsFilesystem\022+\n\021writes" +
+      "_filesystem\030\003 \001(\010R\020writesFilesystem\022\037\n\013r" +
+      "eads_stdin\030\004 \001(\010R\nreadsStdin\022#\n\rwrites_s" +
+      "tdout\030\005 \001(\010R\014writesStdout\022#\n\rwrites_stde" +
+      "rr\030\006 \001(\010R\014writesStderr\022+\n\021reads_environm" +
+      "ent\030\007 \001(\010R\020readsEnvironment\022)\n\020controls_" +
+      "process\030\010 \001(\010R\017controlsProcess\022\037\n\013uses_m" +
+      "emory\030\t \001(\010R\nusesMemory\022\033\n\tuses_time\030\n \001" +
+      "(\010R\010usesTime\022\037\n\013uses_random\030\013 \001(\010R\nusesR" +
+      "andom\022)\n\020uses_concurrency\030\014 \001(\010R\017usesCon" +
+      "currency\022!\n\014uses_network\030\r \001(\010R\013usesNetw" +
+      "ork\022\'\n\017total_functions\030\016 \001(\005R\016totalFunct" +
+      "ions\022%\n\016pure_functions\030\017 \001(\005R\rpureFuncti" +
+      "ons\022/\n\023effectful_functions\030\020 \001(\005R\022effect" +
+      "fulFunctions*\227\001\n\010Registry\022\030\n\024REGISTRY_UN" +
+      "SPECIFIED\020\000\022\020\n\014REGISTRY_PUB\020\001\022\020\n\014REGISTR" +
+      "Y_NPM\020\002\022\022\n\016REGISTRY_NUGET\020\003\022\022\n\016REGISTRY_" +
+      "CARGO\020\004\022\021\n\rREGISTRY_PYPI\020\005\022\022\n\016REGISTRY_M" +
+      "AVEN\020\006*f\n\016ModuleEncoding\022\037\n\033MODULE_ENCOD" +
+      "ING_UNSPECIFIED\020\000\022\031\n\025MODULE_ENCODING_PRO" +
+      "TO\020\001\022\030\n\024MODULE_ENCODING_JSON\020\002B\215\001\n\013com.b" +
+      "all.v1B\tBallProtoP\001Z6github.com/ball-lan" +
+      "g/ball/go/shared/gen/ball/v1;ballv1\242\002\003BX" +
+      "X\252\002\007Ball.V1\312\002\007Ball\\V1\342\002\023Ball\\V1\\GPBMetad" +
+      "ata\352\002\010Ball::V1b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -448,146 +456,152 @@ public final class BallProto extends com.google.protobuf.GeneratedFile {
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_RegistrySource_descriptor,
         new java.lang.String[] { "Registry", "Package", "Version", "ModulePath", "Encoding", "RegistryUrl", });
-    internal_static_ball_v1_TypeParameter_descriptor =
+    internal_static_ball_v1_TypeRef_descriptor =
       getDescriptor().getMessageType(9);
+    internal_static_ball_v1_TypeRef_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_ball_v1_TypeRef_descriptor,
+        new java.lang.String[] { "Name", "TypeArgs", "Nullable", });
+    internal_static_ball_v1_TypeParameter_descriptor =
+      getDescriptor().getMessageType(10);
     internal_static_ball_v1_TypeParameter_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_TypeParameter_descriptor,
         new java.lang.String[] { "Name", "Metadata", });
     internal_static_ball_v1_TypeDefinition_descriptor =
-      getDescriptor().getMessageType(10);
+      getDescriptor().getMessageType(11);
     internal_static_ball_v1_TypeDefinition_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_TypeDefinition_descriptor,
         new java.lang.String[] { "Name", "Descriptor", "TypeParams", "Description", "Metadata", });
     internal_static_ball_v1_TypeAlias_descriptor =
-      getDescriptor().getMessageType(11);
+      getDescriptor().getMessageType(12);
     internal_static_ball_v1_TypeAlias_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_TypeAlias_descriptor,
         new java.lang.String[] { "Name", "TargetType", "TypeParams", "Metadata", });
     internal_static_ball_v1_Constant_descriptor =
-      getDescriptor().getMessageType(12);
+      getDescriptor().getMessageType(13);
     internal_static_ball_v1_Constant_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_Constant_descriptor,
         new java.lang.String[] { "Name", "Type", "Value", "Metadata", });
     internal_static_ball_v1_FunctionDefinition_descriptor =
-      getDescriptor().getMessageType(13);
+      getDescriptor().getMessageType(14);
     internal_static_ball_v1_FunctionDefinition_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_FunctionDefinition_descriptor,
         new java.lang.String[] { "Name", "InputType", "OutputType", "Body", "Description", "IsBase", "Metadata", });
     internal_static_ball_v1_Expression_descriptor =
-      getDescriptor().getMessageType(14);
+      getDescriptor().getMessageType(15);
     internal_static_ball_v1_Expression_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_Expression_descriptor,
         new java.lang.String[] { "Call", "Literal", "Reference", "FieldAccess", "MessageCreation", "Block", "Lambda", "Expr", });
     internal_static_ball_v1_FunctionCall_descriptor =
-      getDescriptor().getMessageType(15);
+      getDescriptor().getMessageType(16);
     internal_static_ball_v1_FunctionCall_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_FunctionCall_descriptor,
-        new java.lang.String[] { "Module", "Function", "Input", });
+        new java.lang.String[] { "Module", "Function", "Input", "TypeArgs", });
     internal_static_ball_v1_Literal_descriptor =
-      getDescriptor().getMessageType(16);
+      getDescriptor().getMessageType(17);
     internal_static_ball_v1_Literal_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_Literal_descriptor,
         new java.lang.String[] { "IntValue", "DoubleValue", "StringValue", "BoolValue", "BytesValue", "ListValue", "Value", });
     internal_static_ball_v1_ListLiteral_descriptor =
-      getDescriptor().getMessageType(17);
+      getDescriptor().getMessageType(18);
     internal_static_ball_v1_ListLiteral_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_ListLiteral_descriptor,
         new java.lang.String[] { "Elements", });
     internal_static_ball_v1_Reference_descriptor =
-      getDescriptor().getMessageType(18);
+      getDescriptor().getMessageType(19);
     internal_static_ball_v1_Reference_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_Reference_descriptor,
         new java.lang.String[] { "Name", });
     internal_static_ball_v1_FieldAccess_descriptor =
-      getDescriptor().getMessageType(19);
+      getDescriptor().getMessageType(20);
     internal_static_ball_v1_FieldAccess_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_FieldAccess_descriptor,
         new java.lang.String[] { "Object", "Field", });
     internal_static_ball_v1_MessageCreation_descriptor =
-      getDescriptor().getMessageType(20);
+      getDescriptor().getMessageType(21);
     internal_static_ball_v1_MessageCreation_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_MessageCreation_descriptor,
         new java.lang.String[] { "TypeName", "Fields", });
     internal_static_ball_v1_FieldValuePair_descriptor =
-      getDescriptor().getMessageType(21);
+      getDescriptor().getMessageType(22);
     internal_static_ball_v1_FieldValuePair_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_FieldValuePair_descriptor,
         new java.lang.String[] { "Name", "Value", });
     internal_static_ball_v1_Block_descriptor =
-      getDescriptor().getMessageType(22);
+      getDescriptor().getMessageType(23);
     internal_static_ball_v1_Block_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_Block_descriptor,
         new java.lang.String[] { "Statements", "Result", });
     internal_static_ball_v1_Statement_descriptor =
-      getDescriptor().getMessageType(23);
+      getDescriptor().getMessageType(24);
     internal_static_ball_v1_Statement_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_Statement_descriptor,
         new java.lang.String[] { "Let", "Expression", "Stmt", });
     internal_static_ball_v1_LetBinding_descriptor =
-      getDescriptor().getMessageType(24);
+      getDescriptor().getMessageType(25);
     internal_static_ball_v1_LetBinding_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_LetBinding_descriptor,
         new java.lang.String[] { "Name", "Value", "Metadata", });
     internal_static_ball_v1_BallManifest_descriptor =
-      getDescriptor().getMessageType(25);
+      getDescriptor().getMessageType(26);
     internal_static_ball_v1_BallManifest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_BallManifest_descriptor,
         new java.lang.String[] { "Name", "Version", "Description", "EntryModule", "EntryFunction", "Dependencies", "DevDependencies", "Metadata", });
     internal_static_ball_v1_BallLockfile_descriptor =
-      getDescriptor().getMessageType(26);
+      getDescriptor().getMessageType(27);
     internal_static_ball_v1_BallLockfile_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_BallLockfile_descriptor,
         new java.lang.String[] { "Packages", "LockVersion", });
     internal_static_ball_v1_ResolvedDependency_descriptor =
-      getDescriptor().getMessageType(27);
+      getDescriptor().getMessageType(28);
     internal_static_ball_v1_ResolvedDependency_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_ResolvedDependency_descriptor,
         new java.lang.String[] { "Name", "ResolvedVersion", "Integrity", "Http", "Git", "File", "Registry", "DependencyNames", "ResolvedSource", });
     internal_static_ball_v1_BallCapabilityReport_descriptor =
-      getDescriptor().getMessageType(28);
+      getDescriptor().getMessageType(29);
     internal_static_ball_v1_BallCapabilityReport_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_BallCapabilityReport_descriptor,
         new java.lang.String[] { "ProgramName", "ProgramVersion", "Capabilities", "Functions", "Summary", });
     internal_static_ball_v1_CapabilityEntry_descriptor =
-      getDescriptor().getMessageType(29);
+      getDescriptor().getMessageType(30);
     internal_static_ball_v1_CapabilityEntry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_CapabilityEntry_descriptor,
         new java.lang.String[] { "Capability", "RiskLevel", "CallSites", });
     internal_static_ball_v1_CallSite_descriptor =
-      getDescriptor().getMessageType(30);
+      getDescriptor().getMessageType(31);
     internal_static_ball_v1_CallSite_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_CallSite_descriptor,
         new java.lang.String[] { "Module", "Function", "CalleeModule", "CalleeFunction", });
     internal_static_ball_v1_FunctionCapability_descriptor =
-      getDescriptor().getMessageType(31);
+      getDescriptor().getMessageType(32);
     internal_static_ball_v1_FunctionCapability_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_FunctionCapability_descriptor,
         new java.lang.String[] { "Module", "Function", "Capabilities", });
     internal_static_ball_v1_CapabilitySummary_descriptor =
-      getDescriptor().getMessageType(32);
+      getDescriptor().getMessageType(33);
     internal_static_ball_v1_CapabilitySummary_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_CapabilitySummary_descriptor,

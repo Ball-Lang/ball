@@ -35,6 +35,7 @@ private static final long serialVersionUID = 0L;
   private FunctionCall() {
     module_ = "";
     function_ = "";
+    typeArgs_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -188,6 +189,87 @@ private static final long serialVersionUID = 0L;
     return input_ == null ? com.ball.v1.Expression.getDefaultInstance() : input_;
   }
 
+  public static final int TYPE_ARGS_FIELD_NUMBER = 4;
+  @SuppressWarnings("serial")
+  private java.util.List<com.ball.v1.TypeRef> typeArgs_;
+  /**
+   * <pre>
+   * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+   * Replaces the unstructured "__type_args__" string convention in
+   * MessageCreation fields. Compilers should prefer this field when
+   * present; fall back to the "__type_args__" metadata string for
+   * backward compatibility with older Ball programs.
+   * </pre>
+   *
+   * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<com.ball.v1.TypeRef> getTypeArgsList() {
+    return typeArgs_;
+  }
+  /**
+   * <pre>
+   * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+   * Replaces the unstructured "__type_args__" string convention in
+   * MessageCreation fields. Compilers should prefer this field when
+   * present; fall back to the "__type_args__" metadata string for
+   * backward compatibility with older Ball programs.
+   * </pre>
+   *
+   * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<? extends com.ball.v1.TypeRefOrBuilder> 
+      getTypeArgsOrBuilderList() {
+    return typeArgs_;
+  }
+  /**
+   * <pre>
+   * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+   * Replaces the unstructured "__type_args__" string convention in
+   * MessageCreation fields. Compilers should prefer this field when
+   * present; fall back to the "__type_args__" metadata string for
+   * backward compatibility with older Ball programs.
+   * </pre>
+   *
+   * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+   */
+  @java.lang.Override
+  public int getTypeArgsCount() {
+    return typeArgs_.size();
+  }
+  /**
+   * <pre>
+   * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+   * Replaces the unstructured "__type_args__" string convention in
+   * MessageCreation fields. Compilers should prefer this field when
+   * present; fall back to the "__type_args__" metadata string for
+   * backward compatibility with older Ball programs.
+   * </pre>
+   *
+   * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+   */
+  @java.lang.Override
+  public com.ball.v1.TypeRef getTypeArgs(int index) {
+    return typeArgs_.get(index);
+  }
+  /**
+   * <pre>
+   * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+   * Replaces the unstructured "__type_args__" string convention in
+   * MessageCreation fields. Compilers should prefer this field when
+   * present; fall back to the "__type_args__" metadata string for
+   * backward compatibility with older Ball programs.
+   * </pre>
+   *
+   * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+   */
+  @java.lang.Override
+  public com.ball.v1.TypeRefOrBuilder getTypeArgsOrBuilder(
+      int index) {
+    return typeArgs_.get(index);
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -211,6 +293,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(3, getInput());
     }
+    for (int i = 0; i < typeArgs_.size(); i++) {
+      output.writeMessage(4, typeArgs_.get(i));
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -225,6 +310,15 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(3, getInput());
     }
+
+        {
+          final int count = typeArgs_.size();
+          for (int i = 0; i < count; i++) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeMessageSizeNoTag(typeArgs_.get(i));
+          }
+          size += 1 * count;
+        }
     return size;
   }
   @java.lang.Override
@@ -258,6 +352,8 @@ private static final long serialVersionUID = 0L;
       if (!getInput()
           .equals(other.getInput())) return false;
     }
+    if (!getTypeArgsList()
+        .equals(other.getTypeArgsList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -276,6 +372,10 @@ private static final long serialVersionUID = 0L;
     if (hasInput()) {
       hash = (37 * hash) + INPUT_FIELD_NUMBER;
       hash = (53 * hash) + getInput().hashCode();
+    }
+    if (getTypeArgsCount() > 0) {
+      hash = (37 * hash) + TYPE_ARGS_FIELD_NUMBER;
+      hash = (53 * hash) + getTypeArgsList().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -413,6 +513,7 @@ private static final long serialVersionUID = 0L;
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
         internalGetInputFieldBuilder();
+        internalGetTypeArgsFieldBuilder();
       }
     }
     @java.lang.Override
@@ -426,6 +527,13 @@ private static final long serialVersionUID = 0L;
         inputBuilder_.dispose();
         inputBuilder_ = null;
       }
+      if (typeArgsBuilder_ == null) {
+        typeArgs_ = java.util.Collections.emptyList();
+      } else {
+        typeArgs_ = null;
+        typeArgsBuilder_.clear();
+      }
+      bitField0_ = (bitField0_ & ~0x00000008);
       return this;
     }
 
@@ -452,9 +560,22 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public com.ball.v1.FunctionCall buildPartial() {
       com.ball.v1.FunctionCall result = new com.ball.v1.FunctionCall(this);
+      buildPartialRepeatedFields(result);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
+    }
+
+    private void buildPartialRepeatedFields(com.ball.v1.FunctionCall result) {
+      if (typeArgsBuilder_ == null) {
+        if (((bitField0_ & 0x00000008) != 0)) {
+          typeArgs_ = java.util.Collections.unmodifiableList(typeArgs_);
+          bitField0_ = (bitField0_ & ~0x00000008);
+        }
+        result.typeArgs_ = typeArgs_;
+      } else {
+        result.typeArgs_ = typeArgsBuilder_.build();
+      }
     }
 
     private void buildPartial0(com.ball.v1.FunctionCall result) {
@@ -500,6 +621,32 @@ private static final long serialVersionUID = 0L;
       if (other.hasInput()) {
         mergeInput(other.getInput());
       }
+      if (typeArgsBuilder_ == null) {
+        if (!other.typeArgs_.isEmpty()) {
+          if (typeArgs_.isEmpty()) {
+            typeArgs_ = other.typeArgs_;
+            bitField0_ = (bitField0_ & ~0x00000008);
+          } else {
+            ensureTypeArgsIsMutable();
+            typeArgs_.addAll(other.typeArgs_);
+          }
+          onChanged();
+        }
+      } else {
+        if (!other.typeArgs_.isEmpty()) {
+          if (typeArgsBuilder_.isEmpty()) {
+            typeArgsBuilder_.dispose();
+            typeArgsBuilder_ = null;
+            typeArgs_ = other.typeArgs_;
+            bitField0_ = (bitField0_ & ~0x00000008);
+            typeArgsBuilder_ = 
+              com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                 internalGetTypeArgsFieldBuilder() : null;
+          } else {
+            typeArgsBuilder_.addAllMessages(other.typeArgs_);
+          }
+        }
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -543,6 +690,19 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000004;
               break;
             } // case 26
+            case 34: {
+              com.ball.v1.TypeRef m =
+                  input.readMessage(
+                      com.ball.v1.TypeRef.parser(),
+                      extensionRegistry);
+              if (typeArgsBuilder_ == null) {
+                ensureTypeArgsIsMutable();
+                typeArgs_.add(m);
+              } else {
+                typeArgsBuilder_.addMessage(m);
+              }
+              break;
+            } // case 34
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -899,6 +1059,390 @@ private static final long serialVersionUID = 0L;
         input_ = null;
       }
       return inputBuilder_;
+    }
+
+    private java.util.List<com.ball.v1.TypeRef> typeArgs_ =
+      java.util.Collections.emptyList();
+    private void ensureTypeArgsIsMutable() {
+      if (!((bitField0_ & 0x00000008) != 0)) {
+        typeArgs_ = new java.util.ArrayList<com.ball.v1.TypeRef>(typeArgs_);
+        bitField0_ |= 0x00000008;
+       }
+    }
+
+    private com.google.protobuf.RepeatedFieldBuilder<
+        com.ball.v1.TypeRef, com.ball.v1.TypeRef.Builder, com.ball.v1.TypeRefOrBuilder> typeArgsBuilder_;
+
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public java.util.List<com.ball.v1.TypeRef> getTypeArgsList() {
+      if (typeArgsBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(typeArgs_);
+      } else {
+        return typeArgsBuilder_.getMessageList();
+      }
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public int getTypeArgsCount() {
+      if (typeArgsBuilder_ == null) {
+        return typeArgs_.size();
+      } else {
+        return typeArgsBuilder_.getCount();
+      }
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public com.ball.v1.TypeRef getTypeArgs(int index) {
+      if (typeArgsBuilder_ == null) {
+        return typeArgs_.get(index);
+      } else {
+        return typeArgsBuilder_.getMessage(index);
+      }
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public Builder setTypeArgs(
+        int index, com.ball.v1.TypeRef value) {
+      if (typeArgsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureTypeArgsIsMutable();
+        typeArgs_.set(index, value);
+        onChanged();
+      } else {
+        typeArgsBuilder_.setMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public Builder setTypeArgs(
+        int index, com.ball.v1.TypeRef.Builder builderForValue) {
+      if (typeArgsBuilder_ == null) {
+        ensureTypeArgsIsMutable();
+        typeArgs_.set(index, builderForValue.build());
+        onChanged();
+      } else {
+        typeArgsBuilder_.setMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public Builder addTypeArgs(com.ball.v1.TypeRef value) {
+      if (typeArgsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureTypeArgsIsMutable();
+        typeArgs_.add(value);
+        onChanged();
+      } else {
+        typeArgsBuilder_.addMessage(value);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public Builder addTypeArgs(
+        int index, com.ball.v1.TypeRef value) {
+      if (typeArgsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureTypeArgsIsMutable();
+        typeArgs_.add(index, value);
+        onChanged();
+      } else {
+        typeArgsBuilder_.addMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public Builder addTypeArgs(
+        com.ball.v1.TypeRef.Builder builderForValue) {
+      if (typeArgsBuilder_ == null) {
+        ensureTypeArgsIsMutable();
+        typeArgs_.add(builderForValue.build());
+        onChanged();
+      } else {
+        typeArgsBuilder_.addMessage(builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public Builder addTypeArgs(
+        int index, com.ball.v1.TypeRef.Builder builderForValue) {
+      if (typeArgsBuilder_ == null) {
+        ensureTypeArgsIsMutable();
+        typeArgs_.add(index, builderForValue.build());
+        onChanged();
+      } else {
+        typeArgsBuilder_.addMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public Builder addAllTypeArgs(
+        java.lang.Iterable<? extends com.ball.v1.TypeRef> values) {
+      if (typeArgsBuilder_ == null) {
+        ensureTypeArgsIsMutable();
+        com.google.protobuf.AbstractMessageLite.Builder.addAll(
+            values, typeArgs_);
+        onChanged();
+      } else {
+        typeArgsBuilder_.addAllMessages(values);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public Builder clearTypeArgs() {
+      if (typeArgsBuilder_ == null) {
+        typeArgs_ = java.util.Collections.emptyList();
+        bitField0_ = (bitField0_ & ~0x00000008);
+        onChanged();
+      } else {
+        typeArgsBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public Builder removeTypeArgs(int index) {
+      if (typeArgsBuilder_ == null) {
+        ensureTypeArgsIsMutable();
+        typeArgs_.remove(index);
+        onChanged();
+      } else {
+        typeArgsBuilder_.remove(index);
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public com.ball.v1.TypeRef.Builder getTypeArgsBuilder(
+        int index) {
+      return internalGetTypeArgsFieldBuilder().getBuilder(index);
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public com.ball.v1.TypeRefOrBuilder getTypeArgsOrBuilder(
+        int index) {
+      if (typeArgsBuilder_ == null) {
+        return typeArgs_.get(index);  } else {
+        return typeArgsBuilder_.getMessageOrBuilder(index);
+      }
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public java.util.List<? extends com.ball.v1.TypeRefOrBuilder> 
+         getTypeArgsOrBuilderList() {
+      if (typeArgsBuilder_ != null) {
+        return typeArgsBuilder_.getMessageOrBuilderList();
+      } else {
+        return java.util.Collections.unmodifiableList(typeArgs_);
+      }
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public com.ball.v1.TypeRef.Builder addTypeArgsBuilder() {
+      return internalGetTypeArgsFieldBuilder().addBuilder(
+          com.ball.v1.TypeRef.getDefaultInstance());
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public com.ball.v1.TypeRef.Builder addTypeArgsBuilder(
+        int index) {
+      return internalGetTypeArgsFieldBuilder().addBuilder(
+          index, com.ball.v1.TypeRef.getDefaultInstance());
+    }
+    /**
+     * <pre>
+     * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+     * Replaces the unstructured "__type_args__" string convention in
+     * MessageCreation fields. Compilers should prefer this field when
+     * present; fall back to the "__type_args__" metadata string for
+     * backward compatibility with older Ball programs.
+     * </pre>
+     *
+     * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+     */
+    public java.util.List<com.ball.v1.TypeRef.Builder> 
+         getTypeArgsBuilderList() {
+      return internalGetTypeArgsFieldBuilder().getBuilderList();
+    }
+    private com.google.protobuf.RepeatedFieldBuilder<
+        com.ball.v1.TypeRef, com.ball.v1.TypeRef.Builder, com.ball.v1.TypeRefOrBuilder> 
+        internalGetTypeArgsFieldBuilder() {
+      if (typeArgsBuilder_ == null) {
+        typeArgsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+            com.ball.v1.TypeRef, com.ball.v1.TypeRef.Builder, com.ball.v1.TypeRefOrBuilder>(
+                typeArgs_,
+                ((bitField0_ & 0x00000008) != 0),
+                getParentForChildren(),
+                isClean());
+        typeArgs_ = null;
+      }
+      return typeArgsBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:ball.v1.FunctionCall)

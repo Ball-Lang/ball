@@ -156,10 +156,6 @@ const Module$json = {
       '10': 'assets'
     },
   ],
-  '9': [
-    {'1': 2, '2': 3},
-  ],
-  '10': ['types'],
 };
 
 /// Descriptor for `Module`. Decode as a `google.protobuf.DescriptorProto`.
@@ -173,7 +169,7 @@ final $typed_data.Uint8List moduleDescriptor = $convert.base64Decode(
     'aW5pdGlvblIIdHlwZURlZnMSNQoMdHlwZV9hbGlhc2VzGAsgAygLMhIuYmFsbC52MS5UeXBlQW'
     'xpYXNSC3R5cGVBbGlhc2VzEjwKEG1vZHVsZV9jb25zdGFudHMYDCADKAsyES5iYWxsLnYxLkNv'
     'bnN0YW50Ug9tb2R1bGVDb25zdGFudHMSLAoGYXNzZXRzGA0gAygLMhQuYmFsbC52MS5Nb2R1bG'
-    'VBc3NldFIGYXNzZXRzSgQIAhADUgV0eXBlcw==');
+    'VBc3NldFIGYXNzZXRz');
 
 @$core.Deprecated('Use moduleAssetDescriptor instead')
 const ModuleAsset$json = {
@@ -412,6 +408,28 @@ final $typed_data.Uint8List registrySourceDescriptor = $convert.base64Decode(
     'c2lvbhIfCgttb2R1bGVfcGF0aBgEIAEoCVIKbW9kdWxlUGF0aBIzCghlbmNvZGluZxgFIAEoDj'
     'IXLmJhbGwudjEuTW9kdWxlRW5jb2RpbmdSCGVuY29kaW5nEiEKDHJlZ2lzdHJ5X3VybBgGIAEo'
     'CVILcmVnaXN0cnlVcmw=');
+
+@$core.Deprecated('Use typeRefDescriptor instead')
+const TypeRef$json = {
+  '1': 'TypeRef',
+  '2': [
+    {'1': 'name', '3': 1, '4': 1, '5': 9, '10': 'name'},
+    {
+      '1': 'type_args',
+      '3': 2,
+      '4': 3,
+      '5': 11,
+      '6': '.ball.v1.TypeRef',
+      '10': 'typeArgs'
+    },
+    {'1': 'nullable', '3': 3, '4': 1, '5': 8, '10': 'nullable'},
+  ],
+};
+
+/// Descriptor for `TypeRef`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List typeRefDescriptor = $convert.base64Decode(
+    'CgdUeXBlUmVmEhIKBG5hbWUYASABKAlSBG5hbWUSLQoJdHlwZV9hcmdzGAIgAygLMhAuYmFsbC'
+    '52MS5UeXBlUmVmUgh0eXBlQXJncxIaCghudWxsYWJsZRgDIAEoCFIIbnVsbGFibGU=');
 
 @$core.Deprecated('Use typeParameterDescriptor instead')
 const TypeParameter$json = {
@@ -672,13 +690,22 @@ const FunctionCall$json = {
       '6': '.ball.v1.Expression',
       '10': 'input'
     },
+    {
+      '1': 'type_args',
+      '3': 4,
+      '4': 3,
+      '5': 11,
+      '6': '.ball.v1.TypeRef',
+      '10': 'typeArgs'
+    },
   ],
 };
 
 /// Descriptor for `FunctionCall`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List functionCallDescriptor = $convert.base64Decode(
     'CgxGdW5jdGlvbkNhbGwSFgoGbW9kdWxlGAEgASgJUgZtb2R1bGUSGgoIZnVuY3Rpb24YAiABKA'
-    'lSCGZ1bmN0aW9uEikKBWlucHV0GAMgASgLMhMuYmFsbC52MS5FeHByZXNzaW9uUgVpbnB1dA==');
+    'lSCGZ1bmN0aW9uEikKBWlucHV0GAMgASgLMhMuYmFsbC52MS5FeHByZXNzaW9uUgVpbnB1dBIt'
+    'Cgl0eXBlX2FyZ3MYBCADKAsyEC5iYWxsLnYxLlR5cGVSZWZSCHR5cGVBcmdz');
 
 @$core.Deprecated('Use literalDescriptor instead')
 const Literal$json = {

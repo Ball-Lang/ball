@@ -76,4 +76,68 @@ public interface FunctionCallOrBuilder extends
    * <code>.ball.v1.Expression input = 3 [json_name = "input"];</code>
    */
   com.ball.v1.ExpressionOrBuilder getInputOrBuilder();
+
+  /**
+   * <pre>
+   * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+   * Replaces the unstructured "__type_args__" string convention in
+   * MessageCreation fields. Compilers should prefer this field when
+   * present; fall back to the "__type_args__" metadata string for
+   * backward compatibility with older Ball programs.
+   * </pre>
+   *
+   * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+   */
+  java.util.List<com.ball.v1.TypeRef> 
+      getTypeArgsList();
+  /**
+   * <pre>
+   * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+   * Replaces the unstructured "__type_args__" string convention in
+   * MessageCreation fields. Compilers should prefer this field when
+   * present; fall back to the "__type_args__" metadata string for
+   * backward compatibility with older Ball programs.
+   * </pre>
+   *
+   * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+   */
+  com.ball.v1.TypeRef getTypeArgs(int index);
+  /**
+   * <pre>
+   * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+   * Replaces the unstructured "__type_args__" string convention in
+   * MessageCreation fields. Compilers should prefer this field when
+   * present; fall back to the "__type_args__" metadata string for
+   * backward compatibility with older Ball programs.
+   * </pre>
+   *
+   * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+   */
+  int getTypeArgsCount();
+  /**
+   * <pre>
+   * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+   * Replaces the unstructured "__type_args__" string convention in
+   * MessageCreation fields. Compilers should prefer this field when
+   * present; fall back to the "__type_args__" metadata string for
+   * backward compatibility with older Ball programs.
+   * </pre>
+   *
+   * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+   */
+  java.util.List<? extends com.ball.v1.TypeRefOrBuilder> 
+      getTypeArgsOrBuilderList();
+  /**
+   * <pre>
+   * Generic type arguments for this call (e.g., identity&lt;int&gt;(42)).
+   * Replaces the unstructured "__type_args__" string convention in
+   * MessageCreation fields. Compilers should prefer this field when
+   * present; fall back to the "__type_args__" metadata string for
+   * backward compatibility with older Ball programs.
+   * </pre>
+   *
+   * <code>repeated .ball.v1.TypeRef type_args = 4 [json_name = "typeArgs"];</code>
+   */
+  com.ball.v1.TypeRefOrBuilder getTypeArgsOrBuilder(
+      int index);
 }

@@ -1330,9 +1330,16 @@ class DartCompiler {
       if (isSetter) b.type = cb.MethodType.setter;
 
       if (func.outputType.isNotEmpty) {
+        var dartRetType = _dartType(func.outputType);
+        // Async non-void returns → nullable inner type for null-safety
+        if (isAsync && !isAsyncStar &&
+            dartRetType != 'void' && dartRetType != 'dynamic' &&
+            !dartRetType.endsWith('?')) {
+          dartRetType = '$dartRetType?';
+        }
         b.returns = cb.refer(
           _wrapReturnType(
-            _dartType(func.outputType),
+            dartRetType,
             isAsync: isAsync,
             isAsyncStar: isAsyncStar,
             isSyncStar: isSyncStar,

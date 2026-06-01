@@ -2,7 +2,7 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-bool? identity(bool input) {
+bool identity(bool input) {
   bool b = input;
   return b;
 }

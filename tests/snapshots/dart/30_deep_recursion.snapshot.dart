@@ -2,7 +2,7 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-int? sumTo(int input) {
+int sumTo(int input) {
   int n = input;
   if ((n <= 0)) {
     return 0;
@@ -10,7 +10,7 @@ int? sumTo(int input) {
   return (n + sumTo((n - 1)));
 }
 
-int? power(int base, int exp) {
+int power(int base, int exp) {
   if ((exp == 0)) {
     return 1;
   }

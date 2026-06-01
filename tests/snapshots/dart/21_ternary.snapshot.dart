@@ -2,7 +2,7 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-int? abs(int input) {
+int abs(int input) {
   int x = input;
   if ((x < 0)) {
     return -x;
@@ -11,7 +11,7 @@ int? abs(int input) {
   }
 }
 
-String? sign(int input) {
+String sign(int input) {
   int x = input;
   if ((x > 0)) {
     return 'pos';

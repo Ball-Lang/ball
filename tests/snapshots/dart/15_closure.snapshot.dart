@@ -2,7 +2,7 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-int Function(int)? adder(int input) {
+int Function(int) adder(int input) {
   int delta = input;
   return (int x) => (x + delta);
 }

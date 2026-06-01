@@ -2,7 +2,7 @@
 // Source: encoded v1.0.0
 // Target: Dart
 
-int? factorial(int input) {
+int factorial(int input) {
   int n = input;
   if ((n <= 1)) {
     return 1;
@@ -10,7 +10,7 @@ int? factorial(int input) {
   return (n * factorial((n - 1)));
 }
 
-int? fibonacci(int input) {
+int fibonacci(int input) {
   int n = input;
   if ((n < 2)) {
     return n;

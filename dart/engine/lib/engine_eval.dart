@@ -33,9 +33,15 @@ extension BallEngineEval on BallEngine {
   }
 
   static String _typeRefValueToString(structpb.Value v) {
+    // Guard: if v is a plain string (e.g. "int"), return it directly.
+    if (v.hasStringValue()) return v.stringValue;
+    if (!v.hasStructValue()) return '';
     final s = v.structValue;
     final name = s.fields['name']?.stringValue ?? '';
-    final args = s.fields['type_args']?.listValue.values;
+    final typeArgsField = s.fields['type_args'];
+    final args = (typeArgsField != null && typeArgsField.hasListValue())
+        ? typeArgsField.listValue.values
+        : null;
     final nullable = s.fields['nullable']?.boolValue ?? false;
     final buf = StringBuffer(name);
     if (args != null && args.isNotEmpty) {

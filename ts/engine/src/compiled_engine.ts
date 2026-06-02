@@ -2695,18 +2695,22 @@ export class BallEngine {
 
   static _typeRefValueToString(v: any): any {
     const input = v;
+    if (hasStringValue(v)) {
+      return v.stringValue;
+    }
+    if (!hasStructValue(v)) {
+      return '';
+    }
     let s = v.structValue;
     let name = ((() => {
       let __naa_6 = __ball_index(s.fields, 'name');
       return (__ball_eq(__naa_6, null) ? null : __naa_6.stringValue);
     })() ?? '');
-    let args = (() => {
-      let __naa_7 = __ball_index(s.fields, 'type_args');
-      return (__ball_eq(__naa_7, null) ? null : __naa_7.listValue);
-    })().values;
+    let typeArgsField = __ball_index(s.fields, 'type_args');
+    let args = ((!__ball_eq(typeArgsField, null) && hasListValue(typeArgsField)) ? typeArgsField.listValue.values : null);
     let nullable = ((() => {
-      let __naa_8 = __ball_index(s.fields, 'nullable');
-      return (__ball_eq(__naa_8, null) ? null : __naa_8.boolValue);
+      let __naa_7 = __ball_index(s.fields, 'nullable');
+      return (__ball_eq(__naa_7, null) ? null : __naa_7.boolValue);
     })() ?? false);
     let buf = "";
     if ((!__ball_eq(args, null) && args.isNotEmpty)) {
@@ -3765,8 +3769,8 @@ export class BallEngine {
             if (((__ball_eq(f.name, msg.typeName) && !f.isBase) && hasBody(f))) {
               if (hasMetadata(f)) {
                 let k = (() => {
-                  let __naa_9 = __ball_index(f.metadata.fields, 'kind');
-                  return (__ball_eq(__naa_9, null) ? null : __naa_9.stringValue);
+                  let __naa_8 = __ball_index(f.metadata.fields, 'kind');
+                  return (__ball_eq(__naa_8, null) ? null : __naa_8.stringValue);
                 })();
                 if (((__ball_eq(k, 'constructor') || __ball_eq(k, 'top_level_variable')) || __ball_eq(k, 'static_field'))) {
                   continue;
@@ -3807,8 +3811,8 @@ export class BallEngine {
               for (const fv of fieldsMetaVal.listValue.values) {
                 if (__ball_eq(whichKind(fv), structpb_Value_Kind.structValue)) {
                   let fname = (() => {
-                    let __naa_10 = __ball_index(fv.structValue.fields, 'name');
-                    return (__ball_eq(__naa_10, null) ? null : __naa_10.stringValue);
+                    let __naa_9 = __ball_index(fv.structValue.fields, 'name');
+                    return (__ball_eq(__naa_9, null) ? null : __naa_9.stringValue);
                   })();
                   if ((!__ball_eq(fname, null) && !fieldNames.includes(fname))) {
                     fieldNames = (fieldNames.push(fname), fieldNames);
@@ -3835,15 +3839,15 @@ export class BallEngine {
                   continue;
                 }
                 let fname = (() => {
-                  let __naa_11 = __ball_index(fv.structValue.fields, 'name');
-                  return (__ball_eq(__naa_11, null) ? null : __naa_11.stringValue);
+                  let __naa_10 = __ball_index(fv.structValue.fields, 'name');
+                  return (__ball_eq(__naa_10, null) ? null : __naa_10.stringValue);
                 })();
                 if ((__ball_eq(fname, null) || (fname in fields))) {
                   continue;
                 }
                 let init = (() => {
-                  let __naa_12 = __ball_index(fv.structValue.fields, 'initializer');
-                  return (__ball_eq(__naa_12, null) ? null : __naa_12.stringValue);
+                  let __naa_11 = __ball_index(fv.structValue.fields, 'initializer');
+                  return (__ball_eq(__naa_11, null) ? null : __naa_11.stringValue);
                 })();
                 if (!__ball_eq(init, null)) {
                   fields[fname] = this._parseInitializer(init);
@@ -4036,8 +4040,8 @@ export class BallEngine {
         }
         if (hasMetadata(stmt.let)) {
           let letType = (() => {
-            let __naa_13 = __ball_index(stmt.let.metadata.fields, 'type');
-            return (__ball_eq(__naa_13, null) ? null : __naa_13.stringValue);
+            let __naa_12 = __ball_index(stmt.let.metadata.fields, 'type');
+            return (__ball_eq(__naa_12, null) ? null : __naa_12.stringValue);
           })();
           if ((!__ball_eq(letType, null) && letType.startsWith('Map'))) {
             if (((value instanceof Set) && value.isEmpty)) {
@@ -6693,8 +6697,8 @@ export class BallEngine {
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
         let sep = ((() => {
-          let __nac_16 = __ball_index(m, 'separator');
-          return (__ball_eq(__nac_16, null) ? null : __nac_16.toString());
+          let __nac_15 = __ball_index(m, 'separator');
+          return (__ball_eq(__nac_15, null) ? null : __nac_15.toString());
         })() ?? ',');
         return list.map(((e) => {
           const input = e;
@@ -7036,8 +7040,8 @@ export class BallEngine {
       }), 'regex_find': ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
-          let __nac_17 = new RegExp(b).firstMatch(a);
-          return (__ball_eq(__nac_17, null) ? null : __nac_17.group(0));
+          let __nac_16 = new RegExp(b).firstMatch(a);
+          return (__ball_eq(__nac_16, null) ? null : __nac_16.group(0));
         }));
       }), 'regex_find_all': ((i) => {
         const input = i;
@@ -7179,8 +7183,8 @@ export class BallEngine {
         const input = i;
         let im = this._stdAsMap(i);
         let msg = (!__ball_eq(im, null) ? ((() => {
-          let __nac_18 = __ball_index(im, 'message');
-          return (__ball_eq(__nac_18, null) ? null : __nac_18.toString());
+          let __nac_17 = __ball_index(im, 'message');
+          return (__ball_eq(__nac_17, null) ? null : __nac_17.toString());
         })() ?? '') : __ball_to_string(i));
         this.stderr(msg);
       }), 'read_line': ((_) => {
@@ -7197,8 +7201,8 @@ export class BallEngine {
         this._checkSandbox('panic');
         let im = this._stdAsMap(i);
         let msg = (!__ball_eq(im, null) ? ((() => {
-          let __nac_19 = __ball_index(im, 'message');
-          return (__ball_eq(__nac_19, null) ? null : __nac_19.toString());
+          let __nac_18 = __ball_index(im, 'message');
+          return (__ball_eq(__nac_18, null) ? null : __nac_18.toString());
         })() ?? '') : __ball_to_string(i));
         this.stderr(msg);
         throw new _ExitSignal(1);
@@ -7215,12 +7219,12 @@ export class BallEngine {
         const input = i;
         let m = this._stdAsMap(i);
         let min = ((() => {
-          let __nac_20 = __ball_index(m, 'min');
-          return (__ball_eq(__nac_20, null) ? null : __nac_20.toInt());
+          let __nac_19 = __ball_index(m, 'min');
+          return (__ball_eq(__nac_19, null) ? null : __nac_19.toInt());
         })() ?? 0);
         let max = ((() => {
-          let __nac_21 = __ball_index(m, 'max');
-          return (__ball_eq(__nac_21, null) ? null : __nac_21.toInt());
+          let __nac_20 = __ball_index(m, 'max');
+          return (__ball_eq(__nac_20, null) ? null : __nac_20.toInt());
         })() ?? 100);
         return __ball_add(min, this._random.nextInt(__ball_add(__ball_sub(max, min), 1)));
       }), 'random_double': ((_) => {
@@ -7275,8 +7279,8 @@ export class BallEngine {
         const input = i;
         let m = this._stdAsMap(i);
         let ms = ((() => {
-          let __nac_22 = __ball_index(m, 'timestamp_ms');
-          return (__ball_eq(__nac_22, null) ? null : __nac_22.toInt());
+          let __nac_21 = __ball_index(m, 'timestamp_ms');
+          return (__ball_eq(__nac_21, null) ? null : __nac_21.toInt());
         })() ?? 0);
         let dt = DateTime.fromMillisecondsSinceEpoch(ms, true);
         return dt.toIso8601String();
@@ -8362,8 +8366,8 @@ export class BallEngine {
 
   _matchesObjectType(value: any, patternType: any): any {
     let actual = (() => {
-      let __nac_23 = __ball_index(value, '__type__');
-      return (__ball_eq(__nac_23, null) ? null : __nac_23.toString());
+      let __nac_22 = __ball_index(value, '__type__');
+      return (__ball_eq(__nac_22, null) ? null : __nac_22.toString());
     })();
     if (__ball_eq(actual, null)) {
       return false;

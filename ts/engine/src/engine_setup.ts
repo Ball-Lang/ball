@@ -395,10 +395,12 @@ export function createEngineSetup(mod: EngineModule) {
         if (k === 'fields' && Array.isArray(v) && v.length === 0) continue;
         rawMap[k] = v;
       }
+      const dartMethods = new Set(['containsKey', 'forEach', 'entries', 'keys', 'values', 'length', 'isEmpty', 'isNotEmpty', 'toString', 'toList']);
       const fieldsProxy = new Proxy(rawMap, {
         get(target, prop) {
           if (typeof prop !== 'string') return undefined;
           if (prop in target) return wrapValue(target[prop]);
+          if (dartMethods.has(prop)) return (Object.prototype as any)[prop];
           return null;
         },
       });

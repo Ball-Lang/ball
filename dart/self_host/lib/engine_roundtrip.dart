@@ -1339,9 +1339,52 @@ class BallEngine {
       return null;
     }
     return msg.metadata.fields['type_args']!.listValue.values
-        .map((v) => v.structValue.fields['name']!.stringValue)
+        .map(_typeRefValueToString)
         .toList()
         .toList();
+  }
+
+  static String _typeRefValueToString(structpb.Value input) {
+    structpb.Value v = input;
+    if (v.hasStringValue()) {
+      return v.stringValue;
+    }
+    if (!v.hasStructValue()) {
+      return '';
+    }
+    final s = v.structValue;
+    final name =
+        ((() {
+          final __naa_6 = s.fields['name'];
+          return ((__naa_6 == null) ? null : __naa_6.stringValue);
+        })() ??
+        '');
+    final typeArgsField = s.fields['type_args'];
+    final args = (((typeArgsField != null) && typeArgsField.hasListValue())
+        ? typeArgsField.listValue.values
+        : null);
+    final nullable =
+        ((() {
+          final __naa_7 = s.fields['nullable'];
+          return ((__naa_7 == null) ? null : __naa_7.boolValue);
+        })() ??
+        false);
+    final buf = StringBuffer(name);
+    if (((args != null) && args.isNotEmpty)) {
+      buf.write(
+        (('<' +
+                args
+                    .map(_typeRefValueToString)
+                    .toList()
+                    .join(', ')
+                    .toString()) +
+            '>'),
+      );
+    }
+    if (nullable) {
+      buf.write('?');
+    }
+    return buf.toString();
   }
 
   Future<Object?> _evalExpression(Expression expr, _Scope scope) async {
@@ -2533,8 +2576,8 @@ class BallEngine {
             if ((((f.name == msg.typeName) && !f.isBase) && f.hasBody())) {
               if (f.hasMetadata()) {
                 final k = (() {
-                  final __naa_6 = f.metadata.fields['kind'];
-                  return ((__naa_6 == null) ? null : __naa_6.stringValue);
+                  final __naa_8 = f.metadata.fields['kind'];
+                  return ((__naa_8 == null) ? null : __naa_8.stringValue);
                 })();
                 if ((((k == 'constructor') || (k == 'top_level_variable')) ||
                     (k == 'static_field'))) {
@@ -2579,8 +2622,8 @@ class BallEngine {
               for (final fv in fieldsMetaVal.listValue.values) {
                 if ((fv.whichKind() == structpb.Value_Kind.structValue)) {
                   final fname = (() {
-                    final __naa_7 = fv.structValue.fields['name'];
-                    return ((__naa_7 == null) ? null : __naa_7.stringValue);
+                    final __naa_9 = fv.structValue.fields['name'];
+                    return ((__naa_9 == null) ? null : __naa_9.stringValue);
                   })();
                   if (((fname != null) && !fieldNames.contains(fname))) {
                     fieldNames..add(fname);
@@ -2610,15 +2653,15 @@ class BallEngine {
                   continue;
                 }
                 final fname = (() {
-                  final __naa_8 = fv.structValue.fields['name'];
-                  return ((__naa_8 == null) ? null : __naa_8.stringValue);
+                  final __naa_10 = fv.structValue.fields['name'];
+                  return ((__naa_10 == null) ? null : __naa_10.stringValue);
                 })();
                 if (((fname == null) || fields.containsKey(fname))) {
                   continue;
                 }
                 final init = (() {
-                  final __naa_9 = fv.structValue.fields['initializer'];
-                  return ((__naa_9 == null) ? null : __naa_9.stringValue);
+                  final __naa_11 = fv.structValue.fields['initializer'];
+                  return ((__naa_11 == null) ? null : __naa_11.stringValue);
                 })();
                 if ((init != null)) {
                   fields[fname] = _parseInitializer(init);
@@ -2849,8 +2892,8 @@ class BallEngine {
         }
         if (stmt.let.hasMetadata()) {
           final letType = (() {
-            final __naa_10 = stmt.let.metadata.fields['type'];
-            return ((__naa_10 == null) ? null : __naa_10.stringValue);
+            final __naa_12 = stmt.let.metadata.fields['type'];
+            return ((__naa_12 == null) ? null : __naa_12.stringValue);
           })();
           if (((letType != null) && letType.startsWith('Map'))) {
             if (((value is Set) && value.isEmpty)) {
@@ -4760,8 +4803,8 @@ class BallEngine {
           return this.padLeft(
             _toInt(arg0),
             ((() {
-                  final __nac_11 = args['arg1'];
-                  return ((__nac_11 == null) ? null : __nac_11.toString());
+                  final __nac_13 = args['arg1'];
+                  return ((__nac_13 == null) ? null : __nac_13.toString());
                 })() ??
                 ' '),
           );
@@ -4769,8 +4812,8 @@ class BallEngine {
           return this.padRight(
             _toInt(arg0),
             ((() {
-                  final __nac_12 = args['arg1'];
-                  return ((__nac_12 == null) ? null : __nac_12.toString());
+                  final __nac_14 = args['arg1'];
+                  return ((__nac_14 == null) ? null : __nac_14.toString());
                 })() ??
                 ' '),
           );
@@ -5542,8 +5585,8 @@ class BallEngine {
         final list = _stdAsList(m['list'])!;
         final sep =
             ((() {
-              final __nac_13 = m['separator'];
-              return ((__nac_13 == null) ? null : __nac_13.toString());
+              final __nac_15 = m['separator'];
+              return ((__nac_15 == null) ? null : __nac_15.toString());
             })() ??
             ',');
         return list.map((e) => _ballToString(e)).toList().join(sep);
@@ -5859,8 +5902,8 @@ class BallEngine {
       'regex_find': (i) => _stdBinaryAny(
         i,
         (a, b) => (() {
-          final __nac_14 = RegExp(((b as String))).firstMatch(((a as String)));
-          return ((__nac_14 == null) ? null : __nac_14.group(0));
+          final __nac_16 = RegExp(((b as String))).firstMatch(((a as String)));
+          return ((__nac_16 == null) ? null : __nac_16.group(0));
         })(),
       ),
       'regex_find_all': (i) => _stdBinaryAny(
@@ -5908,8 +5951,8 @@ class BallEngine {
         final im = _stdAsMap(i);
         final msg = ((im != null)
             ? ((() {
-                    final __nac_15 = im['message'];
-                    return ((__nac_15 == null) ? null : __nac_15.toString());
+                    final __nac_17 = im['message'];
+                    return ((__nac_17 == null) ? null : __nac_17.toString());
                   })() ??
                   '')
             : i.toString());
@@ -5929,8 +5972,8 @@ class BallEngine {
         final im = _stdAsMap(i);
         final msg = ((im != null)
             ? ((() {
-                    final __nac_16 = im['message'];
-                    return ((__nac_16 == null) ? null : __nac_16.toString());
+                    final __nac_18 = im['message'];
+                    return ((__nac_18 == null) ? null : __nac_18.toString());
                   })() ??
                   '')
             : i.toString());
@@ -5949,14 +5992,14 @@ class BallEngine {
         final m = _stdAsMap(i)!;
         final min =
             ((() {
-              final __nac_17 = ((m['min'] as num?));
-              return ((__nac_17 == null) ? null : __nac_17.toInt());
+              final __nac_19 = ((m['min'] as num?));
+              return ((__nac_19 == null) ? null : __nac_19.toInt());
             })() ??
             0);
         final max =
             ((() {
-              final __nac_18 = ((m['max'] as num?));
-              return ((__nac_18 == null) ? null : __nac_18.toInt());
+              final __nac_20 = ((m['max'] as num?));
+              return ((__nac_20 == null) ? null : __nac_20.toInt());
             })() ??
             100);
         return (min + _random.nextInt(((max - min) + 1)));
@@ -6017,8 +6060,8 @@ class BallEngine {
         final m = _stdAsMap(i)!;
         final ms =
             ((() {
-              final __nac_19 = ((m['timestamp_ms'] as num?));
-              return ((__nac_19 == null) ? null : __nac_19.toInt());
+              final __nac_21 = ((m['timestamp_ms'] as num?));
+              return ((__nac_21 == null) ? null : __nac_21.toInt());
             })() ??
             0);
         final dt = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
@@ -6145,6 +6188,20 @@ class BallEngine {
       return (('[' + v.map(_ballToString).toList().join(', ').toString()) +
           ']');
     }
+    if ((v is BallException)) {
+      final ev = v.value;
+      final em = _stdAsMap(ev);
+      if ((em != null)) {
+        final msg = em['message'];
+        if ((msg is String)) {
+          return msg;
+        }
+      }
+      if ((ev is String)) {
+        return ev;
+      }
+      return v.typeName;
+    }
     final map = _stdAsMap(v);
     if ((map != null)) {
       final typeName = ((map['__type__'] as String?));
@@ -6164,8 +6221,24 @@ class BallEngine {
         return (((map['__buffer__'] as String?)) ?? '');
       }
       if ((typeName != null)) {
+        if ((typeName.endsWith('Exception') || typeName.endsWith('Error'))) {
+          final msg = map['message'];
+          if ((msg is String)) {
+            return msg;
+          }
+          return (typeName.contains(':')
+              ? typeName.substring((typeName.lastIndexOf(':') + 1))
+              : typeName);
+        }
+        if (map.containsKey('__tostring_guard__')) {
+          final shortType = (typeName.contains(':')
+              ? typeName.substring((typeName.lastIndexOf(':') + 1))
+              : typeName);
+          return (shortType.toString() + '{...}');
+        }
         final resolved = _resolveMethod(typeName, 'toString');
         if ((resolved != null)) {
+          map['__tostring_guard__'] = true;
           try {
             final future = _callFunction(
               resolved.module,
@@ -6182,9 +6255,14 @@ class BallEngine {
               return (((syncResult == null) ? null : syncResult.toString()) ??
                   'null');
             }
-            return map.toString();
+            final shortType = (typeName.contains(':')
+                ? typeName.substring((typeName.lastIndexOf(':') + 1))
+                : typeName);
+            return (shortType.toString() + '{...}');
           } catch (__ball_e) {
             final dynamic _ = __ball_e;
+          } finally {
+            map.remove('__tostring_guard__');
           }
         }
       }
@@ -6315,6 +6393,20 @@ class BallEngine {
       }
       return (('[' + parts.join(', ').toString()) + ']');
     }
+    if ((v is BallException)) {
+      final ev = v.value;
+      final em = _stdAsMap(ev);
+      if ((em != null)) {
+        final msg = em['message'];
+        if ((msg is String)) {
+          return msg;
+        }
+      }
+      if ((ev is String)) {
+        return ev;
+      }
+      return v.typeName;
+    }
     final map = _stdAsMap(v);
     if ((map != null)) {
       final typeName = ((map['__type__'] as String?));
@@ -6324,8 +6416,24 @@ class BallEngine {
         return (((map['__buffer__'] as String?)) ?? '');
       }
       if ((typeName != null)) {
+        if ((typeName.endsWith('Exception') || typeName.endsWith('Error'))) {
+          final msg = map['message'];
+          if ((msg is String)) {
+            return msg;
+          }
+          return (typeName.contains(':')
+              ? typeName.substring((typeName.lastIndexOf(':') + 1))
+              : typeName);
+        }
+        if (map.containsKey('__tostring_guard__')) {
+          final shortType = (typeName.contains(':')
+              ? typeName.substring((typeName.lastIndexOf(':') + 1))
+              : typeName);
+          return (shortType.toString() + '{...}');
+        }
         final resolved = _resolveMethod(typeName, 'toString');
         if ((resolved != null)) {
+          map['__tostring_guard__'] = true;
           try {
             final result = await _callFunction(
               resolved.module,
@@ -6335,6 +6443,8 @@ class BallEngine {
             return (((result == null) ? null : result.toString()) ?? 'null');
           } catch (__ball_e) {
             final dynamic _ = __ball_e;
+          } finally {
+            map.remove('__tostring_guard__');
           }
         }
       }
@@ -7108,8 +7218,8 @@ class BallEngine {
 
   bool _matchesObjectType(Map<String, Object?> value, String patternType) {
     final actual = (() {
-      final __nac_20 = value['__type__'];
-      return ((__nac_20 == null) ? null : __nac_20.toString());
+      final __nac_22 = value['__type__'];
+      return ((__nac_22 == null) ? null : __nac_22.toString());
     })();
     if ((actual == null)) {
       return false;

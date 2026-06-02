@@ -1259,6 +1259,18 @@ extension BallEngineStd on BallEngine {
     if (_isBallFuture(v)) return _ballToString(_unwrapBallFuture(v));
     if (v is BallList) return '[${v.items.map(_ballToString).join(', ')}]';
     if (v is List) return '[${v.map(_ballToString).join(', ')}]';
+    // BallException: return message/value directly without invoking toString
+    // to prevent infinite recursion when exceptions are caught and stringified.
+    if (v is BallException) {
+      final ev = v.value;
+      final em = _stdAsMap(ev);
+      if (em != null) {
+        final msg = em['message'];
+        if (msg is String) return msg;
+      }
+      if (ev is String) return ev;
+      return v.typeName;
+    }
     final map = _stdAsMap(v);
     if (map != null) {
       // StringBuffer: return the buffer contents.
@@ -1276,10 +1288,28 @@ extension BallEngineStd on BallEngine {
           (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
         return (map['__buffer__'] as String?) ?? '';
       }
-      // Typed object: try to invoke the user's toString method.
+      // Typed object: try to invoke the user's toString method, with a
+      // recursion guard to prevent infinite loops.
       if (typeName != null) {
+        // Exception-typed objects: return the message field directly.
+        if (typeName.endsWith('Exception') || typeName.endsWith('Error')) {
+          final msg = map['message'];
+          if (msg is String) return msg;
+          return typeName.contains(':')
+              ? typeName.substring(typeName.lastIndexOf(':') + 1)
+              : typeName;
+        }
+        // Recursion guard: place a sentinel key on the map itself.
+        // This is portable across Dart/TS/C++ targets (no identityHashCode).
+        if (map.containsKey('__tostring_guard__')) {
+          final shortType = typeName.contains(':')
+              ? typeName.substring(typeName.lastIndexOf(':') + 1)
+              : typeName;
+          return '$shortType{...}';
+        }
         final resolved = _resolveMethod(typeName, 'toString');
         if (resolved != null) {
+          map['__tostring_guard__'] = true;
           try {
             final future = _callFunction(
               resolved.module,
@@ -1296,10 +1326,16 @@ extension BallEngineStd on BallEngine {
               done = true;
             });
             if (done) return syncResult?.toString() ?? 'null';
-            // If truly async, fall back to default representation.
-            return map.toString();
+            // If truly async, fall back to a safe representation instead
+            // of map.toString() which would recurse infinitely.
+            final shortType = typeName.contains(':')
+                ? typeName.substring(typeName.lastIndexOf(':') + 1)
+                : typeName;
+            return '$shortType{...}';
           } catch (_) {
             // If toString throws, fall back.
+          } finally {
+            map.remove('__tostring_guard__');
           }
         }
       }
@@ -1415,6 +1451,18 @@ extension BallEngineStd on BallEngine {
       }
       return '[${parts.join(', ')}]';
     }
+    // BallException: return message/value directly without invoking toString
+    // to prevent infinite recursion when exceptions are caught and stringified.
+    if (v is BallException) {
+      final ev = v.value;
+      final em = _stdAsMap(ev);
+      if (em != null) {
+        final msg = em['message'];
+        if (msg is String) return msg;
+      }
+      if (ev is String) return ev;
+      return v.typeName;
+    }
     final map = _stdAsMap(v);
     if (map != null) {
       final typeName = map['__type__'] as String?;
@@ -1423,8 +1471,24 @@ extension BallEngineStd on BallEngine {
         return (map['__buffer__'] as String?) ?? '';
       }
       if (typeName != null) {
+        // Exception-typed objects: return the message field directly.
+        if (typeName.endsWith('Exception') || typeName.endsWith('Error')) {
+          final msg = map['message'];
+          if (msg is String) return msg;
+          return typeName.contains(':')
+              ? typeName.substring(typeName.lastIndexOf(':') + 1)
+              : typeName;
+        }
+        // Recursion guard: sentinel key on the map (portable).
+        if (map.containsKey('__tostring_guard__')) {
+          final shortType = typeName.contains(':')
+              ? typeName.substring(typeName.lastIndexOf(':') + 1)
+              : typeName;
+          return '$shortType{...}';
+        }
         final resolved = _resolveMethod(typeName, 'toString');
         if (resolved != null) {
+          map['__tostring_guard__'] = true;
           try {
             final result = await _callFunction(
               resolved.module,
@@ -1434,6 +1498,8 @@ extension BallEngineStd on BallEngine {
             return result?.toString() ?? 'null';
           } catch (_) {
             // Fall back on error.
+          } finally {
+            map.remove('__tostring_guard__');
           }
         }
       }

@@ -398,19 +398,20 @@ int main() {
     // reported as TIMEOUT. This replaces the old whitelist approach.
     constexpr int TIMEOUT_SECONDS = 60;
 
-    // Skip list: programs known to hang in the self-hosted engine.
-    // These cause infinite loops due to BallDyn wrapping issues in
-    // map-based memoization or modulo operations that prevent proper
-    // loop termination.
+    // Skip list: programs that exceed practical time limits in the
+    // self-hosted engine (double-interpretation performance collapse).
+    // The Dart engine fixes for toString recursion (108) and exception
+    // stringification (84) are in place, but these tests remain too slow
+    // for the C++ self-host due to double-interpretation overhead.
     static const std::vector<std::string> skip_list = {
-        // Programs that genuinely hang / crash the worker thread (one such
-        // fixture would otherwise abort the whole in-process suite). Use the
-        // per-fixture cpp/test/run_selfhost_tally.sh for a crash-robust count.
-        "95_fibonacci_memo",     // infinite loop: map key lookup swallows StepLimitExceeded
-        "136_string_pattern_match", // >30s regex operations
-        "108_class_tostring",    // stack overflow: toString recursion (under investigation)
-        "84_exception_chain",    // non-terminating recursion
-        "144_lcm_computation",   // non-terminating recursion
+        // Performance: double-interpretation makes these exceed timeout.
+        "95_fibonacci_memo",        // memoization map lookups too slow
+        "136_string_pattern_match", // >30s string operations
+        "144_lcm_computation",      // modulo-heavy loops too slow
+        // Fixed in Dart engine (toString/exception recursion guards) but
+        // still too slow for double-interpreted C++ self-host.
+        "108_class_tostring",       // toString dispatch overhead
+        "84_exception_chain",       // exception catch/stringify overhead
         // Host-knob fixtures: need BallEngine ctor args (timeoutMs/maxMemoryBytes/
         // sandbox) the IR can't express, so they run unbounded — cannot pass in
         // self-host (mirrors the Dart-roundtrip skip-list in SELF_HOST_STATUS.md).

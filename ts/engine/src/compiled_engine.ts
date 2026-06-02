@@ -2690,10 +2690,32 @@ export class BallEngine {
     if ((!hasMetadata(msg) || !('type_args' in msg.metadata.fields))) {
       return null;
     }
-    return [...__ball_index(msg.metadata.fields, 'type_args').listValue.values.map(((v) => {
-      const input = v;
-      return __ball_index(v.structValue.fields, 'name').stringValue;
-    }))];
+    return [...__ball_index(msg.metadata.fields, 'type_args').listValue.values.map(BallEngine._typeRefValueToString)];
+  }
+
+  static _typeRefValueToString(v: any): any {
+    const input = v;
+    let s = v.structValue;
+    let name = ((() => {
+      let __naa_6 = __ball_index(s.fields, 'name');
+      return (__ball_eq(__naa_6, null) ? null : __naa_6.stringValue);
+    })() ?? '');
+    let args = (() => {
+      let __naa_7 = __ball_index(s.fields, 'type_args');
+      return (__ball_eq(__naa_7, null) ? null : __naa_7.listValue);
+    })().values;
+    let nullable = ((() => {
+      let __naa_8 = __ball_index(s.fields, 'nullable');
+      return (__ball_eq(__naa_8, null) ? null : __naa_8.boolValue);
+    })() ?? false);
+    let buf = "";
+    if ((!__ball_eq(args, null) && args.isNotEmpty)) {
+      (buf += (('<' + __ball_to_string(args.map(BallEngine._typeRefValueToString).join(', '))) + '>'));
+    }
+    if (nullable) {
+      (buf += '?');
+    }
+    return __ball_to_string(buf);
   }
 
   async _evalExpression(expr: any, scope: any): Promise<any> {
@@ -3743,8 +3765,8 @@ export class BallEngine {
             if (((__ball_eq(f.name, msg.typeName) && !f.isBase) && hasBody(f))) {
               if (hasMetadata(f)) {
                 let k = (() => {
-                  let __naa_6 = __ball_index(f.metadata.fields, 'kind');
-                  return (__ball_eq(__naa_6, null) ? null : __naa_6.stringValue);
+                  let __naa_9 = __ball_index(f.metadata.fields, 'kind');
+                  return (__ball_eq(__naa_9, null) ? null : __naa_9.stringValue);
                 })();
                 if (((__ball_eq(k, 'constructor') || __ball_eq(k, 'top_level_variable')) || __ball_eq(k, 'static_field'))) {
                   continue;
@@ -3785,8 +3807,8 @@ export class BallEngine {
               for (const fv of fieldsMetaVal.listValue.values) {
                 if (__ball_eq(whichKind(fv), structpb_Value_Kind.structValue)) {
                   let fname = (() => {
-                    let __naa_7 = __ball_index(fv.structValue.fields, 'name');
-                    return (__ball_eq(__naa_7, null) ? null : __naa_7.stringValue);
+                    let __naa_10 = __ball_index(fv.structValue.fields, 'name');
+                    return (__ball_eq(__naa_10, null) ? null : __naa_10.stringValue);
                   })();
                   if ((!__ball_eq(fname, null) && !fieldNames.includes(fname))) {
                     fieldNames = (fieldNames.push(fname), fieldNames);
@@ -3813,15 +3835,15 @@ export class BallEngine {
                   continue;
                 }
                 let fname = (() => {
-                  let __naa_8 = __ball_index(fv.structValue.fields, 'name');
-                  return (__ball_eq(__naa_8, null) ? null : __naa_8.stringValue);
+                  let __naa_11 = __ball_index(fv.structValue.fields, 'name');
+                  return (__ball_eq(__naa_11, null) ? null : __naa_11.stringValue);
                 })();
                 if ((__ball_eq(fname, null) || (fname in fields))) {
                   continue;
                 }
                 let init = (() => {
-                  let __naa_9 = __ball_index(fv.structValue.fields, 'initializer');
-                  return (__ball_eq(__naa_9, null) ? null : __naa_9.stringValue);
+                  let __naa_12 = __ball_index(fv.structValue.fields, 'initializer');
+                  return (__ball_eq(__naa_12, null) ? null : __naa_12.stringValue);
                 })();
                 if (!__ball_eq(init, null)) {
                   fields[fname] = this._parseInitializer(init);
@@ -4014,8 +4036,8 @@ export class BallEngine {
         }
         if (hasMetadata(stmt.let)) {
           let letType = (() => {
-            let __naa_10 = __ball_index(stmt.let.metadata.fields, 'type');
-            return (__ball_eq(__naa_10, null) ? null : __naa_10.stringValue);
+            let __naa_13 = __ball_index(stmt.let.metadata.fields, 'type');
+            return (__ball_eq(__naa_13, null) ? null : __naa_13.stringValue);
           })();
           if ((!__ball_eq(letType, null) && letType.startsWith('Map'))) {
             if (((value instanceof Set) && value.isEmpty)) {
@@ -6671,8 +6693,8 @@ export class BallEngine {
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
         let sep = ((() => {
-          let __nac_13 = __ball_index(m, 'separator');
-          return (__ball_eq(__nac_13, null) ? null : __nac_13.toString());
+          let __nac_16 = __ball_index(m, 'separator');
+          return (__ball_eq(__nac_16, null) ? null : __nac_16.toString());
         })() ?? ',');
         return list.map(((e) => {
           const input = e;
@@ -7014,8 +7036,8 @@ export class BallEngine {
       }), 'regex_find': ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
-          let __nac_14 = new RegExp(b).firstMatch(a);
-          return (__ball_eq(__nac_14, null) ? null : __nac_14.group(0));
+          let __nac_17 = new RegExp(b).firstMatch(a);
+          return (__ball_eq(__nac_17, null) ? null : __nac_17.group(0));
         }));
       }), 'regex_find_all': ((i) => {
         const input = i;
@@ -7157,8 +7179,8 @@ export class BallEngine {
         const input = i;
         let im = this._stdAsMap(i);
         let msg = (!__ball_eq(im, null) ? ((() => {
-          let __nac_15 = __ball_index(im, 'message');
-          return (__ball_eq(__nac_15, null) ? null : __nac_15.toString());
+          let __nac_18 = __ball_index(im, 'message');
+          return (__ball_eq(__nac_18, null) ? null : __nac_18.toString());
         })() ?? '') : __ball_to_string(i));
         this.stderr(msg);
       }), 'read_line': ((_) => {
@@ -7175,8 +7197,8 @@ export class BallEngine {
         this._checkSandbox('panic');
         let im = this._stdAsMap(i);
         let msg = (!__ball_eq(im, null) ? ((() => {
-          let __nac_16 = __ball_index(im, 'message');
-          return (__ball_eq(__nac_16, null) ? null : __nac_16.toString());
+          let __nac_19 = __ball_index(im, 'message');
+          return (__ball_eq(__nac_19, null) ? null : __nac_19.toString());
         })() ?? '') : __ball_to_string(i));
         this.stderr(msg);
         throw new _ExitSignal(1);
@@ -7193,12 +7215,12 @@ export class BallEngine {
         const input = i;
         let m = this._stdAsMap(i);
         let min = ((() => {
-          let __nac_17 = __ball_index(m, 'min');
-          return (__ball_eq(__nac_17, null) ? null : __nac_17.toInt());
+          let __nac_20 = __ball_index(m, 'min');
+          return (__ball_eq(__nac_20, null) ? null : __nac_20.toInt());
         })() ?? 0);
         let max = ((() => {
-          let __nac_18 = __ball_index(m, 'max');
-          return (__ball_eq(__nac_18, null) ? null : __nac_18.toInt());
+          let __nac_21 = __ball_index(m, 'max');
+          return (__ball_eq(__nac_21, null) ? null : __nac_21.toInt());
         })() ?? 100);
         return __ball_add(min, this._random.nextInt(__ball_add(__ball_sub(max, min), 1)));
       }), 'random_double': ((_) => {
@@ -7253,8 +7275,8 @@ export class BallEngine {
         const input = i;
         let m = this._stdAsMap(i);
         let ms = ((() => {
-          let __nac_19 = __ball_index(m, 'timestamp_ms');
-          return (__ball_eq(__nac_19, null) ? null : __nac_19.toInt());
+          let __nac_22 = __ball_index(m, 'timestamp_ms');
+          return (__ball_eq(__nac_22, null) ? null : __nac_22.toInt());
         })() ?? 0);
         let dt = DateTime.fromMillisecondsSinceEpoch(ms, true);
         return dt.toIso8601String();
@@ -7396,6 +7418,20 @@ export class BallEngine {
     if (Array.isArray(v)) {
       return (('[' + __ball_to_string(v.map(this._ballToString.bind(this)).join(', '))) + ']');
     }
+    if ((v instanceof BallException)) {
+      let ev = v.value;
+      let em = this._stdAsMap(ev);
+      if (!__ball_eq(em, null)) {
+        let msg = __ball_index(em, 'message');
+        if ((typeof msg === 'string')) {
+          return msg;
+        }
+      }
+      if ((typeof ev === 'string')) {
+        return ev;
+      }
+      return v.typeName;
+    }
     let map = this._stdAsMap(v);
     if (!__ball_eq(map, null)) {
       let typeName = __ball_index(map, '__type__');
@@ -7410,8 +7446,20 @@ export class BallEngine {
         return (__ball_index(map, '__buffer__') ?? '');
       }
       if (!__ball_eq(typeName, null)) {
+        if ((typeName.endsWith('Exception') || typeName.endsWith('Error'))) {
+          let msg = __ball_index(map, 'message');
+          if ((typeof msg === 'string')) {
+            return msg;
+          }
+          return (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
+        }
+        if (('__tostring_guard__' in map)) {
+          let shortType = (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
+          return (__ball_to_string(shortType) + '{...}');
+        }
         let resolved = this._resolveMethod(typeName, 'toString');
         if (!__ball_eq(resolved, null)) {
+          map['__tostring_guard__'] = true;
           try {
             let future = this._callFunction(resolved.module, resolved.func, { 'self': map });
             let syncResult = __no_init__;
@@ -7424,9 +7472,12 @@ export class BallEngine {
             if (done) {
               return ((__ball_eq(syncResult, null) ? null : syncResult.toString()) ?? 'null');
             }
-            return __ball_to_string(map);
+            let shortType = (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
+            return (__ball_to_string(shortType) + '{...}');
           } catch (__ball_active_error) {
             const _ = __ball_active_error;
+          } finally {
+            map.remove('__tostring_guard__');
           }
         }
       }
@@ -7541,6 +7592,20 @@ export class BallEngine {
       }
       return (('[' + __ball_to_string(parts.join(', '))) + ']');
     }
+    if ((v instanceof BallException)) {
+      let ev = v.value;
+      let em = this._stdAsMap(ev);
+      if (!__ball_eq(em, null)) {
+        let msg = __ball_index(em, 'message');
+        if ((typeof msg === 'string')) {
+          return msg;
+        }
+      }
+      if ((typeof ev === 'string')) {
+        return ev;
+      }
+      return v.typeName;
+    }
     let map = this._stdAsMap(v);
     if (!__ball_eq(map, null)) {
       let typeName = __ball_index(map, '__type__');
@@ -7548,13 +7613,27 @@ export class BallEngine {
         return (__ball_index(map, '__buffer__') ?? '');
       }
       if (!__ball_eq(typeName, null)) {
+        if ((typeName.endsWith('Exception') || typeName.endsWith('Error'))) {
+          let msg = __ball_index(map, 'message');
+          if ((typeof msg === 'string')) {
+            return msg;
+          }
+          return (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
+        }
+        if (('__tostring_guard__' in map)) {
+          let shortType = (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
+          return (__ball_to_string(shortType) + '{...}');
+        }
         let resolved = this._resolveMethod(typeName, 'toString');
         if (!__ball_eq(resolved, null)) {
+          map['__tostring_guard__'] = true;
           try {
             let result = await this._callFunction(resolved.module, resolved.func, { 'self': map });
             return ((__ball_eq(result, null) ? null : result.toString()) ?? 'null');
           } catch (__ball_active_error) {
             const _ = __ball_active_error;
+          } finally {
+            map.remove('__tostring_guard__');
           }
         }
       }
@@ -8283,8 +8362,8 @@ export class BallEngine {
 
   _matchesObjectType(value: any, patternType: any): any {
     let actual = (() => {
-      let __nac_20 = __ball_index(value, '__type__');
-      return (__ball_eq(__nac_20, null) ? null : __nac_20.toString());
+      let __nac_23 = __ball_index(value, '__type__');
+      return (__ball_eq(__nac_23, null) ? null : __nac_23.toString());
     })();
     if (__ball_eq(actual, null)) {
       return false;

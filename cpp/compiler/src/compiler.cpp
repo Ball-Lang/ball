@@ -3317,8 +3317,46 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
 void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
     if (stmt.has_let()) {
         emit_indent();
-        out_ << "auto " << ball_local_var_name(sanitize_name(stmt.let().name())) << " = BallDyn("
-             << compile_expr(stmt.let().value()) << ");\n";
+        auto var_name = ball_local_var_name(sanitize_name(stmt.let().name()));
+        auto val_str = compile_expr(stmt.let().value());
+
+        // Check if the value is a user-class construction. If so, emit the
+        // concrete class type so that method calls and field accesses resolve
+        // directly on the struct (BallDyn wrapping erases the type and breaks
+        // member access).
+        bool is_user_class = false;
+        std::string class_type;
+        if (stmt.let().value().expr_case() == ball::v1::Expression::kMessageCreation) {
+            const auto& tn = stmt.let().value().message_creation().type_name();
+            if (!tn.empty()) {
+                // Check if the sanitized bare name is a user class.
+                auto colon = tn.find(':');
+                auto bare = colon != std::string::npos ? tn.substr(colon + 1) : tn;
+                auto sbare = sanitize_name(bare);
+                if (user_class_names_.count(sbare) > 0) {
+                    is_user_class = true;
+                    class_type = sbare;
+                }
+            }
+        }
+        // Also check the let metadata for a type hint matching a user class.
+        if (!is_user_class && stmt.let().has_metadata()) {
+            auto it = stmt.let().metadata().fields().find("type");
+            if (it != stmt.let().metadata().fields().end() &&
+                it->second.kind_case() == google::protobuf::Value::kStringValue) {
+                auto stype = sanitize_name(it->second.string_value());
+                if (user_class_names_.count(stype) > 0) {
+                    is_user_class = true;
+                    class_type = stype;
+                }
+            }
+        }
+
+        if (is_user_class) {
+            out_ << class_type << " " << var_name << " = " << val_str << ";\n";
+        } else {
+            out_ << "auto " << var_name << " = BallDyn(" << val_str << ");\n";
+        }
     } else if (stmt.has_expression()) {
         // Block expressions used as statements (no result expression):
         //   * If EVERY statement is a `let`, this is Dart record-pattern

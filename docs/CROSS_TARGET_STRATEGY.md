@@ -153,21 +153,19 @@ enforces missing `expect/actual` at compile time — Ball should do the same.
 
 ### Pattern 2: Module Hierarchy for Partial Sharing (KMP)
 
-Formalize Ball's module hierarchy:
+Ball's module hierarchy is now universal-first. Language-specific base modules (`dart_std`,
+`cpp_std`) have been eliminated -- encoders expand language-specific constructs into universal
+`std` operations at encoding time. The hierarchy is:
 ```
-std (universal, all targets)
-├── native_std (C++, Rust, Go)
-│   ├── cpp_std
-│   ├── rust_std
-│   └── go_std
-├── gc_std (Dart, Java, C#, Python)
-│   ├── dart_std
-│   ├── java_std
-│   └── python_std
+std (universal, all targets — includes cascade, spread, invoke, null_aware_access, etc.)
 ├── std_collections (universal)
 ├── std_io (universal)
 └── std_memory (C/C++ interop, linear memory)
 ```
+
+Future language-specific modules (if ever needed) would contain only cosmetic helpers
+or constructs that genuinely cannot be expressed as `std` expression trees, not base
+functions that every target must implement.
 
 ### Pattern 3: IR Must Not Encode Target-Specific Semantics (LLVM + Haxe)
 

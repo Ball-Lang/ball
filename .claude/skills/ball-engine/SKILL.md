@@ -19,7 +19,7 @@ A Ball engine interprets and executes Ball programs directly at runtime, without
 ```
 Program (protobuf)
   → Build lookup tables (types, functions by name)
-  → Register module handlers (std, dart_std, custom)
+  → Register module handlers (std, std_collections, std_io, custom)
   → Create root scope
   → Find entry function (entryModule.entryFunction)
   → Evaluate entry function body

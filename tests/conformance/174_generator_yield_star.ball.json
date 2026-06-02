@@ -1,19 +1,11 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "174_generator_yield_star",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
-        {
-          "name": "print",
-          "isBase": true
-        },
-        {
-          "name": "for_in",
-          "isBase": true
-        },
         {
           "name": "yield",
           "isBase": true
@@ -21,8 +13,21 @@
         {
           "name": "yield_each",
           "isBase": true
+        },
+        {
+          "name": "for",
+          "isBase": true
+        },
+        {
+          "name": "for_in",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -39,40 +44,6 @@
           }
         },
         {
-          "name": "ForInInput",
-          "descriptor": {
-            "name": "ForInInput",
-            "field": [
-              {
-                "name": "variable",
-                "number": 1,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_STRING"
-              },
-              {
-                "name": "variable_type",
-                "number": 2,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_STRING"
-              },
-              {
-                "name": "iterable",
-                "number": 3,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_MESSAGE",
-                "typeName": ".ball.v1.Expression"
-              },
-              {
-                "name": "body",
-                "number": 4,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_MESSAGE",
-                "typeName": ".ball.v1.Expression"
-              }
-            ]
-          }
-        },
-        {
           "name": "UnaryInput",
           "descriptor": {
             "name": "UnaryInput",
@@ -81,30 +52,7 @@
                 "name": "value",
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
-                "type": "TYPE_MESSAGE",
-                "typeName": ".ball.v1.Expression"
-              }
-            ]
-          }
-        },
-        {
-          "name": "BinaryInput",
-          "descriptor": {
-            "name": "BinaryInput",
-            "field": [
-              {
-                "name": "left",
-                "number": 1,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_MESSAGE",
-                "typeName": ".ball.v1.Expression"
-              },
-              {
-                "name": "right",
-                "number": 2,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_MESSAGE",
-                "typeName": ".ball.v1.Expression"
+                "type": "TYPE_STRING"
               }
             ]
           }
@@ -117,10 +65,24 @@
         {
           "name": "inner",
           "inputType": "int",
-          "outputType": "List<int>",
+          "outputType": "Iterable<int>",
           "body": {
             "block": {
               "statements": [
+                {
+                  "let": {
+                    "name": "x",
+                    "value": {
+                      "reference": {
+                        "name": "input"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "int"
+                    }
+                  }
+                },
                 {
                   "expression": {
                     "call": {
@@ -128,7 +90,7 @@
                       "function": "yield",
                       "input": {
                         "messageCreation": {
-                          "typeName": "UnaryInput",
+                          "typeName": "",
                           "fields": [
                             {
                               "name": "value",
@@ -151,7 +113,7 @@
                       "function": "yield",
                       "input": {
                         "messageCreation": {
-                          "typeName": "UnaryInput",
+                          "typeName": "",
                           "fields": [
                             {
                               "name": "value",
@@ -174,7 +136,7 @@
                       "function": "yield",
                       "input": {
                         "messageCreation": {
-                          "typeName": "UnaryInput",
+                          "typeName": "",
                           "fields": [
                             {
                               "name": "value",
@@ -198,7 +160,7 @@
             "is_sync_star": true,
             "params": [
               {
-                "name": "x",
+                "name": "input",
                 "type": "int"
               }
             ]
@@ -207,18 +169,32 @@
         {
           "name": "outer",
           "inputType": "int",
-          "outputType": "List<int>",
+          "outputType": "Iterable<int>",
           "body": {
             "block": {
               "statements": [
                 {
+                  "let": {
+                    "name": "n",
+                    "value": {
+                      "reference": {
+                        "name": "input"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "int"
+                    }
+                  }
+                },
+                {
                   "expression": {
                     "call": {
-                      "module": "dart_std",
+                      "module": "std",
                       "function": "yield_each",
                       "input": {
                         "messageCreation": {
-                          "typeName": "UnaryInput",
+                          "typeName": "",
                           "fields": [
                             {
                               "name": "value",
@@ -226,17 +202,8 @@
                                 "call": {
                                   "function": "inner",
                                   "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "arg0",
-                                          "value": {
-                                            "reference": {
-                                              "name": "n"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                    "reference": {
+                                      "name": "n"
                                     }
                                   }
                                 }
@@ -256,7 +223,7 @@
             "is_sync_star": true,
             "params": [
               {
-                "name": "n",
+                "name": "input",
                 "type": "int"
               }
             ]
@@ -275,24 +242,15 @@
                       "call": {
                         "function": "outer",
                         "input": {
-                          "messageCreation": {
-                            "fields": [
-                              {
-                                "name": "arg0",
-                                "value": {
-                                  "literal": {
-                                    "intValue": "0"
-                                  }
-                                }
-                              }
-                            ]
+                          "literal": {
+                            "intValue": "0"
                           }
                         }
                       }
                     },
                     "metadata": {
                       "keyword": "var",
-                      "type": "List<int>"
+                      "type": "Iterable<int>"
                     }
                   }
                 },
@@ -303,13 +261,21 @@
                       "function": "for_in",
                       "input": {
                         "messageCreation": {
-                          "typeName": "ForInInput",
+                          "typeName": "",
                           "fields": [
                             {
                               "name": "variable",
                               "value": {
                                 "literal": {
                                   "stringValue": "v"
+                                }
+                              }
+                            },
+                            {
+                              "name": "variable_keyword",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "final"
                                 }
                               }
                             },
@@ -324,32 +290,24 @@
                             {
                               "name": "body",
                               "value": {
-                                "block": {
-                                  "statements": [
-                                    {
-                                      "expression": {
-                                        "call": {
-                                          "module": "std",
-                                          "function": "print",
-                                          "input": {
-                                            "messageCreation": {
-                                              "typeName": "PrintInput",
-                                              "fields": [
-                                                {
-                                                  "name": "message",
-                                                  "value": {
-                                                    "reference": {
-                                                      "name": "v"
-                                                    }
-                                                  }
-                                                }
-                                              ]
+                                "call": {
+                                  "module": "std",
+                                  "function": "print",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "PrintInput",
+                                      "fields": [
+                                        {
+                                          "name": "message",
+                                          "value": {
+                                            "reference": {
+                                              "name": "v"
                                             }
                                           }
                                         }
-                                      }
+                                      ]
                                     }
-                                  ]
+                                  }
                                 }
                               }
                             }
@@ -370,32 +328,6 @@
       "moduleImports": [
         {
           "name": "std"
-        }
-      ]
-    },
-    {
-      "name": "dart_std",
-      "functions": [
-        {
-          "name": "yield_each",
-          "isBase": true
-        }
-      ],
-      "typeDefs": [
-        {
-          "name": "UnaryInput",
-          "descriptor": {
-            "name": "UnaryInput",
-            "field": [
-              {
-                "name": "value",
-                "number": 1,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_MESSAGE",
-                "typeName": ".ball.v1.Expression"
-              }
-            ]
-          }
         }
       ]
     }

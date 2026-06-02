@@ -197,15 +197,17 @@ These are functions that existing tests likely exercise indirectly or that are f
 
 ## Module Coverage (Non-std)
 
-The `std_collections`, `std_io`, `std_memory`, and `dart_std` modules also lack dedicated conformance fixtures. Their functions are exercised only through composite programs that happen to call them (e.g., `list_push`, `map_create`, `set_create` appear in some hand-written fixtures).
+The `std_collections`, `std_io`, and `std_memory` modules also lack dedicated conformance fixtures. Their functions are exercised only through composite programs that happen to call them (e.g., `list_push`, `map_create`, `set_create` appear in some hand-written fixtures).
 
 | Module | Functions | Functions in Conformance | Est. Coverage |
 |--------|-----------|------------------------:|:-------------:|
-| `std` (core) | 118 | 52 | 44% |
-| `std_collections` | ~43 | ~3 (map_create, set_create, list_push) | ~7% |
+| `std` (core) | 130+ | 52 | ~40% |
+| `std_collections` | ~53 | ~3 (map_create, set_create, list_push) | ~6% |
 | `std_io` | ~10 | 0 | 0% |
-| `std_memory` | ~30 | 0 | 0% |
-| `dart_std` | ~18 | 0 | 0% |
+| `std_memory` | ~38 | 0 | 0% |
+
+> **Note:** The `dart_std` module has been eliminated. All its functions (cascade, spread,
+> null_aware_access, invoke, etc.) now route through the universal `std` module.
 
 ---
 
@@ -243,4 +245,4 @@ Ranked by likely impact on cross-language compatibility:
 2. **Add conformance fixtures for Regex** (Tier 3) — all 5 regex functions have zero coverage
 3. **Add representative Math fixtures** (Tier 4) — focus on the most commonly used: sqrt, pow, min, max, floor, ceil, round, gcd, sign
 4. **Add async/generator fixtures** for `await` and `yield` once those features stabilize
-5. **Extend coverage to non-std modules** (`std_collections`, `std_io`, `std_memory`, `dart_std`) in future waves
+5. **Extend coverage to non-std modules** (`std_collections`, `std_io`, `std_memory`) in future waves

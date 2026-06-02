@@ -58,7 +58,7 @@ import 'package:ball_encoder/package_encoder.dart' show PackageEncoder;
 class PackageCompiler {
   final Program program;
 
-  /// Names of modules that are pure base (std, dart_std, external stubs).
+  /// Names of modules that are pure base (std, std_collections, external stubs).
   /// These are skipped during package compilation.
   late final Set<String> _baseModuleNames;
 

@@ -1019,7 +1019,7 @@ export function createEngineSetup(mod: EngineModule) {
     // Override set operations
     _r('set_create', (i: any) => { const m = _m(i); const elements = m['elements']; if (Array.isArray(elements)) return new Set(elements); return new Set(); });
   
-    // dart_std.typed_list: a typed list literal `<T>[...]`. The type argument is
+    // std.typed_list: a typed list literal `<T>[...]`. The type argument is
     // erased at runtime — the value is just the element array.
     _r('typed_list', (i: any) => { const m = _m(i); const elements = m['elements']; return Array.isArray(elements) ? elements : []; });
   

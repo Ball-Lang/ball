@@ -9,8 +9,6 @@ find_package(Protobuf QUIET)
 
 add_library(ball_cpp_encoder_lib
     src/encoder.cpp
-    src/normalizer.cpp
-    src/cpp_std.cpp
 )
 
 target_include_directories(ball_cpp_encoder_lib PUBLIC

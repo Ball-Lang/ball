@@ -330,7 +330,12 @@
 
 ---
 
-## `dart_std` Module (~18 functions)
+## Former `dart_std` Functions (now in `std`)
+
+> **Note:** The `dart_std` module has been eliminated. All its functions now route through
+> the universal `std` module. The encoder expands Dart-specific constructs into `std`
+> operations at encoding time. The functions below are listed for historical reference
+> and to confirm they are all implemented in `std`.
 
 | Function | Dart Engine | Dart Compiler | C++ Engine | C++ Compiler |
 |----------|:-----------:|:-------------:|:----------:|:------------:|
@@ -358,12 +363,11 @@
 
 | Module | Dart Engine | Dart Compiler | C++ Engine | C++ Compiler |
 |--------|:-----------:|:-------------:|:----------:|:------------:|
-| std (core) | 73/73 (100%) | 73/73 (100%) | 71/73 (97%) | 68/73 (93%) |
+| std (core, incl. former dart_std) | 90/90 (100%) | 90/90 (100%) | 89/90 (99%) | 86/90 (96%) |
 | std_collections | 43/43 (100%) | 43/43 (100%) | 43/43 (100%) | 43/43 (100%) |
 | std_io | 10/10 (100%) | 10/10 (100%) | 9/10 (90%) | 10/10 (100%) |
 | std_memory | 30/30 (100%) | 30/30 (100%) | 30/30 (100%) | 30/30 (100%) |
-| dart_std | 18/18 (100%) | 18/18 (100%) | 18/18 (100%) | 18/18 (100%) |
-| **Total** | **174/174 (100%)** | **174/174 (100%)** | **171/174 (98%)** | **169/174 (97%)** |
+| **Total** | **173/173 (100%)** | **173/173 (100%)** | **171/173 (99%)** | **169/173 (98%)** |
 
 ---
 
@@ -376,4 +380,4 @@
 | `std_time` | now, now_micros, format_timestamp, parse_timestamp, etc. | Planned (Tier 8.9) |
 | `std_concurrency` | thread_spawn, thread_join, mutex_*, atomic_*, scoped_lock | Planned (Tier 8.5) |
 | `std_net` | http_get, http_post, tcp_connect, tcp_send, tcp_receive | Planned (Tier 10.3) |
-| `cpp_std` (shared) | cpp_move, cpp_forward, cpp_make_unique, cpp_make_shared, etc. | Planned (Tier 8.1) |
+| ~~`cpp_std`~~ | ~~Eliminated~~ — C++ pointer/reference ops are now inlined into universal `std`/`std_memory` by the encoder | N/A |

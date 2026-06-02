@@ -154,28 +154,28 @@ export class TsEncoder {
     );
 
     const metadata: Struct = {};
-    if (params.length > 0) metadata["params"] = params;
+    if (params.length > 0) {
+      // Emit params as an array of structs with a `name` field (and optional
+      // `type`, `default`, `is_rest` etc.), matching the Dart encoder format.
+      // The engine's _extractParams filters for structValue entries and reads
+      // each entry's `.structValue.fields.name.stringValue`.
+      const paramStructs: Record<string, unknown>[] = [];
+      for (const p of node.parameters) {
+        const pName = ts.isIdentifier(p.name) ? p.name.text : p.name.getText();
+        const pm: Record<string, unknown> = { name: pName };
+        if (p.type) pm["type"] = p.type.getText();
+        if (p.initializer) pm["default"] = p.initializer.getText();
+        if (p.dotDotDotToken) pm["is_rest"] = true;
+        paramStructs.push(pm);
+      }
+      metadata["params"] = paramStructs;
+    }
     if (node.type) metadata["returnType"] = node.type.getText();
 
     // Async functions
     if (node.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword)) {
       metadata["is_async"] = true;
     }
-
-    // Rest parameters
-    const lastParam = node.parameters[node.parameters.length - 1];
-    if (lastParam?.dotDotDotToken) {
-      metadata["rest_param"] = ts.isIdentifier(lastParam.name) ? lastParam.name.text : lastParam.name.getText();
-    }
-
-    // Default parameter values
-    const defaults: Record<string, unknown> = {};
-    for (const p of node.parameters) {
-      if (p.initializer && ts.isIdentifier(p.name)) {
-        defaults[p.name.text] = p.initializer.getText();
-      }
-    }
-    if (Object.keys(defaults).length > 0) metadata["param_defaults"] = defaults;
 
     const body = node.body ? this.encodeBody(node.body) : undefined;
 
@@ -308,6 +308,22 @@ export class TsEncoder {
     if (ts.isBlock(node)) {
       return [{ expression: this.encodeBlock(node) }];
     }
+    if (ts.isFunctionDeclaration(node) && node.name) {
+      // Inner function declaration: encode as a let binding with a lambda.
+      const fnDef = this.encodeFunction(node);
+      return [{
+        let: {
+          name: fnDef.name,
+          value: {
+            lambda: {
+              name: fnDef.name,
+              body: fnDef.body,
+              metadata: fnDef.metadata,
+            },
+          },
+        },
+      }];
+    }
     this.warn(`Unhandled statement kind: ${ts.SyntaxKind[node.kind]}`);
     return [{ expression: { literal: { stringValue: `/* unhandled: ${ts.SyntaxKind[node.kind]} */` } } }];
   }
@@ -359,7 +375,7 @@ export class TsEncoder {
         return this.stdCall("optional_access", [
           { name: "object", value: this.encodeExpr(node.expression) },
           { name: "field", value: { literal: { stringValue: node.name.text } } },
-        ], "ts_std");
+        ]);
       }
       return { fieldAccess: { object: this.encodeExpr(node.expression), field: node.name.text } };
     }
@@ -368,7 +384,7 @@ export class TsEncoder {
         return this.stdCall("optional_access", [
           { name: "object", value: this.encodeExpr(node.expression) },
           { name: "field", value: this.encodeExpr(node.argumentExpression) },
-        ], "ts_std");
+        ]);
       }
       return this.stdCall("index", [
         { name: "target", value: this.encodeExpr(node.expression) },
@@ -399,7 +415,7 @@ export class TsEncoder {
               value: this.stdCall("computed_property", [
                 { name: "key", value: this.encodeExpr(prop.name.expression) },
                 { name: "value", value: this.encodeExpr(prop.initializer) },
-              ], "ts_std"),
+              ]),
             });
           } else {
             const propName = ts.isIdentifier(prop.name)
@@ -414,7 +430,7 @@ export class TsEncoder {
             name: "__spread",
             value: this.stdCall("spread", [
               { name: "value", value: this.encodeExpr(prop.expression) },
-            ], "ts_std"),
+            ]),
           });
         }
       }
@@ -423,8 +439,8 @@ export class TsEncoder {
     if (ts.isConditionalExpression(node)) {
       return this.stdCall("if", [
         { name: "condition", value: this.encodeExpr(node.condition) },
-        { name: "then", value: { lambda: { name: "", body: this.encodeExpr(node.whenTrue) } } },
-        { name: "else", value: { lambda: { name: "", body: this.encodeExpr(node.whenFalse) } } },
+        { name: "then", value: this.encodeExpr(node.whenTrue) },
+        { name: "else", value: this.encodeExpr(node.whenFalse) },
       ]);
     }
     if (ts.isTemplateExpression(node)) {
@@ -454,7 +470,7 @@ export class TsEncoder {
     if (ts.isSpreadElement(node)) {
       return this.stdCall("spread", [
         { name: "value", value: this.encodeExpr(node.expression) },
-      ], "ts_std");
+      ]);
     }
     if (ts.isVoidExpression(node)) {
       // `void <expr>` always evaluates to `undefined`; encode as null.
@@ -594,8 +610,57 @@ export class TsEncoder {
     }));
 
     if (ts.isPropertyAccessExpression(node.expression)) {
-      const obj = this.encodeExpr(node.expression.expression);
       const method = node.expression.name.text;
+
+      // console.log(x) / console.log(x, y, ...) → std.print per argument.
+      // console.error(x) → std.print_error(x).
+      // This ensures that TS programs using the idiomatic console API are
+      // faithfully represented in Ball IR using the universal std module, so
+      // the Ball engine can execute them without a "console" module.
+      if (ts.isIdentifier(node.expression.expression) &&
+          node.expression.expression.text === "console") {
+        if (method === "log" || method === "info" || method === "warn") {
+          if (args.length === 0) {
+            return this.stdCall("print", [
+              { name: "message", value: { literal: { stringValue: "" } } },
+            ]);
+          }
+          if (args.length === 1) {
+            return this.stdCall("print", [
+              { name: "message", value: args[0].value },
+            ]);
+          }
+          // Multiple arguments: emit one std.print per arg inside a block.
+          const stmts: Statement[] = args.map(a => ({
+            expression: this.stdCall("print", [
+              { name: "message", value: a.value },
+            ]),
+          }));
+          return { block: { statements: stmts } };
+        }
+        if (method === "error") {
+          if (args.length >= 1) {
+            return this.stdCall("print_error", [
+              { name: "message", value: args[0].value },
+            ]);
+          }
+          return this.stdCall("print_error", [
+            { name: "message", value: { literal: { stringValue: "" } } },
+          ]);
+        }
+      }
+
+      const obj = this.encodeExpr(node.expression.expression);
+
+      // Map common JS/TS method calls to their Ball std equivalents.
+      // The engine's std module uses snake_case names with type prefixes.
+      const stdMethod = this.mapMethodToStd(method, args);
+      if (stdMethod) {
+        return this.stdCall(stdMethod.fn, [
+          { name: stdMethod.selfName ?? "value", value: obj },
+          ...stdMethod.extraFields(args),
+        ], stdMethod.module ?? "std");
+      }
 
       // Optional chaining call: obj?.method()
       if (node.expression.questionDotToken || node.questionDotToken) {
@@ -603,7 +668,7 @@ export class TsEncoder {
           { name: "object", value: obj },
           { name: "method", value: { literal: { stringValue: method } } },
           ...args,
-        ], "ts_std");
+        ]);
       }
 
       return {
@@ -657,25 +722,23 @@ export class TsEncoder {
     ) : undefined;
 
     const metadata: Struct = {};
-    if (params.length > 0) metadata["params"] = params;
+    if (params.length > 0) {
+      // Emit params as structs with a `name` field, matching the Dart encoder
+      // format and the engine's _extractParams expectations.
+      const paramStructs: Record<string, unknown>[] = [];
+      for (const p of node.parameters) {
+        const pName = ts.isIdentifier(p.name) ? p.name.text : p.name.getText();
+        const pm: Record<string, unknown> = { name: pName };
+        if (p.type) pm["type"] = p.type.getText();
+        if (p.initializer) pm["default"] = p.initializer.getText();
+        if (p.dotDotDotToken) pm["is_rest"] = true;
+        paramStructs.push(pm);
+      }
+      metadata["params"] = paramStructs;
+    }
     if (node.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword)) {
       metadata["is_async"] = true;
     }
-
-    // Rest parameters
-    const lastParam = node.parameters[node.parameters.length - 1];
-    if (lastParam?.dotDotDotToken) {
-      metadata["rest_param"] = ts.isIdentifier(lastParam.name) ? lastParam.name.text : lastParam.name.getText();
-    }
-
-    // Default parameter values
-    const defaults: Record<string, unknown> = {};
-    for (const p of node.parameters) {
-      if (p.initializer && ts.isIdentifier(p.name)) {
-        defaults[p.name.text] = p.initializer.getText();
-      }
-    }
-    if (Object.keys(defaults).length > 0) metadata["param_defaults"] = defaults;
 
     // Destructured parameters
     const destructured: Record<string, string> = {};
@@ -697,47 +760,61 @@ export class TsEncoder {
   }
 
   private encodeIf(node: ts.IfStatement): Expression {
+    // Control flow fields (then, else) are direct expressions — NOT lambdas.
+    // The engine evaluates them lazily (Ball invariant #4).  Wrapping in a
+    // lambda would eat flow signals like std.return/break/continue.
     const fields: FieldValuePair[] = [
       { name: "condition", value: this.encodeExpr(node.expression) },
-      { name: "then", value: { lambda: { name: "", body: this.encodeBody(
+      { name: "then", value: this.encodeBody(
         ts.isBlock(node.thenStatement) ? node.thenStatement : ts.factory.createBlock([node.thenStatement])
-      ) } } },
+      ) },
     ];
     if (node.elseStatement) {
       if (ts.isIfStatement(node.elseStatement)) {
-        fields.push({ name: "else", value: { lambda: { name: "", body: this.encodeIf(node.elseStatement) } } });
+        fields.push({ name: "else", value: this.encodeIf(node.elseStatement) });
       } else {
-        fields.push({ name: "else", value: { lambda: { name: "", body: this.encodeBody(
+        fields.push({ name: "else", value: this.encodeBody(
           ts.isBlock(node.elseStatement) ? node.elseStatement : ts.factory.createBlock([node.elseStatement])
-        ) } } });
+        ) });
       }
     }
     return this.stdCall("if", fields);
   }
 
   private encodeFor(node: ts.ForStatement): Expression {
+    // Control flow fields are direct expressions — the engine evaluates them
+    // lazily. No lambda wrappers (see encodeIf comment).
+    //
+    // The engine's _evalLazyFor reads `init` (not `variable`/`start`).
+    // For a variable declaration `let i = 0`, emit a block with a let binding.
+    // For a bare expression initializer, emit the expression directly.
     const fields: FieldValuePair[] = [];
     if (node.initializer) {
       if (ts.isVariableDeclarationList(node.initializer)) {
-        const decls = node.initializer.declarations;
-        if (decls.length > 0) {
-          const d = decls[0];
-          fields.push({ name: "variable", value: { literal: { stringValue: ts.isIdentifier(d.name) ? d.name.text : d.name.getText() } } });
-          if (d.initializer) fields.push({ name: "start", value: this.encodeExpr(d.initializer) });
+        const stmts: Statement[] = [];
+        for (const d of node.initializer.declarations) {
+          const varName = ts.isIdentifier(d.name) ? d.name.text : d.name.getText();
+          stmts.push({
+            let: {
+              name: varName,
+              value: d.initializer ? this.encodeExpr(d.initializer) : undefined,
+            },
+          });
         }
+        fields.push({ name: "init", value: { block: { statements: stmts } } });
       } else {
-        fields.push({ name: "init", value: { lambda: { name: "", body: this.encodeExpr(node.initializer) } } });
+        fields.push({ name: "init", value: this.encodeExpr(node.initializer) });
       }
     }
     if (node.condition) {
-      fields.push({ name: "condition", value: { lambda: { name: "", body: this.encodeExpr(node.condition) } } });
+      fields.push({ name: "condition", value: this.encodeExpr(node.condition) });
     }
     if (node.incrementor) {
-      fields.push({ name: "update", value: { lambda: { name: "", body: this.encodeExpr(node.incrementor) } } });
+      fields.push({ name: "update", value: this.encodeExpr(node.incrementor) });
     }
-    fields.push({ name: "body", value: { lambda: { name: "", body: this.encodeBody(
+    fields.push({ name: "body", value: this.encodeBody(
       ts.isBlock(node.statement) ? node.statement : ts.factory.createBlock([node.statement])
-    ) } } });
+    ) });
     return this.stdCall("for", fields);
   }
 
@@ -751,48 +828,53 @@ export class TsEncoder {
     return this.stdCall(fnName, [
       { name: "variable", value: { literal: { stringValue: varName } } },
       { name: "iterable", value: this.encodeExpr(node.expression) },
-      { name: "body", value: { lambda: { name: "", body: this.encodeBody(
+      { name: "body", value: this.encodeBody(
         ts.isBlock(node.statement) ? node.statement : ts.factory.createBlock([node.statement])
-      ) } } },
+      ) },
     ]);
   }
 
   private encodeWhile(node: ts.WhileStatement): Expression {
     return this.stdCall("while", [
-      { name: "condition", value: { lambda: { name: "", body: this.encodeExpr(node.expression) } } },
-      { name: "body", value: { lambda: { name: "", body: this.encodeBody(
+      { name: "condition", value: this.encodeExpr(node.expression) },
+      { name: "body", value: this.encodeBody(
         ts.isBlock(node.statement) ? node.statement : ts.factory.createBlock([node.statement])
-      ) } } },
+      ) },
     ]);
   }
 
   private encodeDoWhile(node: ts.DoStatement): Expression {
     return this.stdCall("do_while", [
-      { name: "condition", value: { lambda: { name: "", body: this.encodeExpr(node.expression) } } },
-      { name: "body", value: { lambda: { name: "", body: this.encodeBody(
+      { name: "condition", value: this.encodeExpr(node.expression) },
+      { name: "body", value: this.encodeBody(
         ts.isBlock(node.statement) ? node.statement : ts.factory.createBlock([node.statement])
-      ) } } },
+      ) },
     ]);
   }
 
   private encodeTry(node: ts.TryStatement): Expression {
+    // try body is a direct block expression (not a lambda).
     const fields: FieldValuePair[] = [
-      { name: "body", value: { lambda: { name: "", body: this.encodeBlock(node.tryBlock) } } },
+      { name: "body", value: this.encodeBlock(node.tryBlock) },
     ];
     if (node.catchClause) {
       const cc = node.catchClause;
+      // The Dart encoder emits catches as a listValue of catch entries, each
+      // with optional `type`, `variable`, and `body` fields.  TS catch clauses
+      // are untyped, so we omit the `type` field.
       const catchFields: FieldValuePair[] = [];
       if (cc.variableDeclaration && ts.isIdentifier(cc.variableDeclaration.name)) {
         catchFields.push({ name: "variable", value: { literal: { stringValue: cc.variableDeclaration.name.text } } });
       }
-      catchFields.push({ name: "body", value: { lambda: { name: "", body: this.encodeBlock(cc.block) } } });
+      catchFields.push({ name: "body", value: this.encodeBlock(cc.block) });
+      const catchEntry: Expression = { messageCreation: { typeName: "", fields: catchFields } };
       fields.push({
-        name: "catch",
-        value: { messageCreation: { typeName: "", fields: catchFields } },
+        name: "catches",
+        value: { literal: { listValue: { elements: [catchEntry] } } },
       });
     }
     if (node.finallyBlock) {
-      fields.push({ name: "finally", value: { lambda: { name: "", body: this.encodeBlock(node.finallyBlock) } } });
+      fields.push({ name: "finally", value: this.encodeBlock(node.finallyBlock) });
     }
     return this.stdCall("try", fields);
   }
@@ -804,17 +886,17 @@ export class TsEncoder {
       if (ts.isCaseClause(clause)) {
         caseFields.push({ name: "value", value: this.encodeExpr(clause.expression) });
       } else {
-        caseFields.push({ name: "isDefault", value: { literal: { boolValue: true } } });
+        caseFields.push({ name: "is_default", value: { literal: { boolValue: true } } });
       }
       const stmts: Statement[] = [];
       for (const s of clause.statements) {
         stmts.push(...this.encodeStatement(s));
       }
-      caseFields.push({ name: "body", value: { lambda: { name: "", body: { block: { statements: stmts } } } } });
+      caseFields.push({ name: "body", value: { block: { statements: stmts } } });
       cases.push({ messageCreation: { typeName: "", fields: caseFields } });
     }
     return this.stdCall("switch", [
-      { name: "value", value: this.encodeExpr(node.expression) },
+      { name: "subject", value: this.encodeExpr(node.expression) },
       { name: "cases", value: { literal: { listValue: { elements: cases } } } },
     ]);
   }
@@ -967,7 +1049,94 @@ export class TsEncoder {
       { name: "tag", value: tag },
       { name: "strings", value: { literal: { listValue: { elements: parts } } } },
       { name: "expressions", value: { literal: { listValue: { elements: exprs } } } },
-    ], "ts_std");
+    ]);
+  }
+
+  /**
+   * Map a JS/TS method name to its Ball std function equivalent.
+   * Returns null if no mapping exists (falls through to generic method call).
+   */
+  private mapMethodToStd(
+    method: string,
+    _args: { name: string; value: Expression }[],
+  ): { fn: string; module?: string; selfName?: string; extraFields: (a: typeof _args) => FieldValuePair[] } | null {
+    // String methods
+    const STR_METHODS: Record<string, string> = {
+      toUpperCase: "string_to_upper_case",
+      toLowerCase: "string_to_lower_case",
+      trim: "string_trim",
+      trimStart: "string_trim_left",
+      trimEnd: "string_trim_right",
+      includes: "string_contains",
+      indexOf: "string_index_of",
+      startsWith: "string_starts_with",
+      endsWith: "string_ends_with",
+      split: "string_split",
+      substring: "string_substring",
+      slice: "string_substring",
+      replace: "string_replace_first",
+      replaceAll: "string_replace_all",
+      padStart: "string_pad_left",
+      padEnd: "string_pad_right",
+      repeat: "string_repeat",
+      charAt: "string_char_at",
+      charCodeAt: "string_code_unit_at",
+    };
+    if (method in STR_METHODS) {
+      return {
+        fn: STR_METHODS[method],
+        selfName: "value",
+        extraFields: (a) => a.map((x, i) => ({
+          name: i === 0 ? "other" : `arg${i}`,
+          value: x.value,
+        })),
+      };
+    }
+
+    // Array methods
+    const ARR_METHODS: Record<string, { fn: string; mod?: string }> = {
+      push: { fn: "list_add" },
+      pop: { fn: "list_remove_last" },
+      indexOf: { fn: "list_index_of", mod: "std_collections" },
+      includes: { fn: "list_contains", mod: "std_collections" },
+      join: { fn: "list_join", mod: "std_collections" },
+      reverse: { fn: "list_reversed", mod: "std_collections" },
+      slice: { fn: "list_sublist", mod: "std_collections" },
+      splice: { fn: "list_remove_at" },
+      sort: { fn: "list_sort", mod: "std_collections" },
+      map: { fn: "list_map", mod: "std_collections" },
+      filter: { fn: "list_where", mod: "std_collections" },
+      forEach: { fn: "list_for_each", mod: "std_collections" },
+      reduce: { fn: "list_fold", mod: "std_collections" },
+      find: { fn: "list_first_where", mod: "std_collections" },
+      flat: { fn: "list_flatten", mod: "std_collections" },
+      concat: { fn: "list_concat", mod: "std_collections" },
+      every: { fn: "list_every", mod: "std_collections" },
+      some: { fn: "list_any", mod: "std_collections" },
+    };
+    if (method in ARR_METHODS) {
+      const m = ARR_METHODS[method];
+      return {
+        fn: m.fn,
+        module: m.mod,
+        selfName: "list",
+        extraFields: (a) => a.map((x, i) => ({
+          name: i === 0 ? "value" : `arg${i}`,
+          value: x.value,
+        })),
+      };
+    }
+
+    // toString
+    if (method === "toString") {
+      return {
+        fn: "to_string",
+        selfName: "value",
+        extraFields: () => [],
+      };
+    }
+
+    return null;
   }
 
   private stdCall(fn: string, fields: FieldValuePair[], module = "std"): Expression {

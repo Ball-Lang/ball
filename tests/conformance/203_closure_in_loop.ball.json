@@ -1,11 +1,15 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "203_closure_in_loop",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
+        {
+          "name": "typed_list",
+          "isBase": true
+        },
         {
           "name": "for",
           "isBase": true
@@ -19,15 +23,19 @@
           "isBase": true
         },
         {
-          "name": "add",
-          "isBase": true
-        },
-        {
           "name": "list_push",
           "isBase": true
         },
         {
+          "name": "add",
+          "isBase": true
+        },
+        {
           "name": "assign",
+          "isBase": true
+        },
+        {
+          "name": "invoke",
           "isBase": true
         },
         {
@@ -92,20 +100,6 @@
       ]
     },
     {
-      "name": "dart_std",
-      "functions": [
-        {
-          "name": "typed_list",
-          "isBase": true
-        },
-        {
-          "name": "invoke",
-          "isBase": true
-        }
-      ],
-      "description": "Dart-specific standard library base module"
-    },
-    {
       "name": "std_collections",
       "functions": [
         {
@@ -129,7 +123,7 @@
                     "name": "adders",
                     "value": {
                       "call": {
-                        "module": "dart_std",
+                        "module": "std",
                         "function": "typed_list",
                         "input": {
                           "messageCreation": {
@@ -382,7 +376,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "module": "dart_std",
+                                  "module": "std",
                                   "function": "invoke",
                                   "input": {
                                     "messageCreation": {
@@ -453,7 +447,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "module": "dart_std",
+                                  "module": "std",
                                   "function": "invoke",
                                   "input": {
                                     "messageCreation": {
@@ -524,7 +518,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "module": "dart_std",
+                                  "module": "std",
                                   "function": "invoke",
                                   "input": {
                                     "messageCreation": {
@@ -593,9 +587,6 @@
       "moduleImports": [
         {
           "name": "std"
-        },
-        {
-          "name": "dart_std"
         }
       ]
     }

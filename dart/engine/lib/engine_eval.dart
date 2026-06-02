@@ -24,6 +24,27 @@ extension BallEngineEval on BallEngine {
     return null;
   }
 
+  static List<String>? _extractMetadataTypeArgs(MessageCreation msg) {
+    if (!msg.hasMetadata() ||
+        !msg.metadata.fields.containsKey('type_args')) return null;
+    return msg.metadata.fields['type_args']!.listValue.values
+        .map(_typeRefValueToString)
+        .toList();
+  }
+
+  static String _typeRefValueToString(structpb.Value v) {
+    final s = v.structValue;
+    final name = s.fields['name']?.stringValue ?? '';
+    final args = s.fields['type_args']?.listValue.values;
+    final nullable = s.fields['nullable']?.boolValue ?? false;
+    final buf = StringBuffer(name);
+    if (args != null && args.isNotEmpty) {
+      buf.write('<${args.map(_typeRefValueToString).join(', ')}>');
+    }
+    if (nullable) buf.write('?');
+    return buf.toString();
+  }
+
   Future<Object?> _evalExpression(Expression expr, _Scope scope) async {
     _checkExecutionTimeout();
     _checkExpressionDepth();
@@ -63,8 +84,8 @@ extension BallEngineEval on BallEngine {
   Future<Object?> _evalCall(FunctionCall call, _Scope scope) async {
     final moduleName = call.module.isEmpty ? _currentModule : call.module;
 
-    // Lazy-evaluated std/dart_std functions (control flow)
-    if (moduleName == 'std' || moduleName == 'dart_std') {
+    // Lazy-evaluated std functions (control flow)
+    if (moduleName == 'std') {
       switch (call.function) {
         case 'if':
           return _evalLazyIf(call, scope);
@@ -117,12 +138,6 @@ extension BallEngineEval on BallEngine {
       }
     }
 
-    // cpp_scope_exit must be lazy: register the cleanup expression without
-    // evaluating it, then execute in LIFO order when the enclosing block exits.
-    if (moduleName == 'cpp_std' && call.function == 'cpp_scope_exit') {
-      return _evalCppScopeExit(call, scope);
-    }
-
     // Eager evaluation for all other calls
     final input = call.hasInput()
         ? await _evalExpression(call.input, scope)
@@ -142,14 +157,12 @@ extension BallEngineEval on BallEngine {
       }
     }
 
-    // Hot-path fast dispatch: explicitly-qualified std/dart_std calls are
-    // always base functions. Skip the `$module.$function` string alloc
-    // and the _functions map probe — go straight to the module handler.
+    // Hot-path fast dispatch: explicitly-qualified std calls are always
+    // base functions. Skip the `$module.$function` string alloc and the
+    // _functions map probe — go straight to the module handler.
     // Only fires when call.module is set explicitly (empty-module calls
     // still flow through the scope-closure check below).
-    if (call.module == 'std' ||
-        call.module == 'dart_std' ||
-        call.module == 'std_collections') {
+    if (call.module == 'std' || call.module == 'std_collections') {
       return _unwrapFuture(
         await _callBaseFunction(call.module, call.function, input),
       );
@@ -306,13 +319,11 @@ extension BallEngineEval on BallEngine {
       if (element.hasCall()) {
         final call = element.call;
         final fn = call.function;
-        if ((call.module == 'dart_std' || call.module == 'std') &&
-            fn == 'collection_if') {
+        if (call.module == 'std' && fn == 'collection_if') {
           await _evalCollectionIf(call, scope, result);
           continue;
         }
-        if ((call.module == 'dart_std' || call.module == 'std') &&
-            fn == 'collection_for') {
+        if (call.module == 'std' && fn == 'collection_for') {
           await _evalCollectionFor(call, scope, result);
           continue;
         }
@@ -378,13 +389,11 @@ extension BallEngineEval on BallEngine {
     if (expr.hasCall()) {
       final call = expr.call;
       final fn = call.function;
-      if ((call.module == 'dart_std' || call.module == 'std') &&
-          fn == 'collection_if') {
+      if (call.module == 'std' && fn == 'collection_if') {
         await _evalCollectionIf(call, scope, result);
         return;
       }
-      if ((call.module == 'dart_std' || call.module == 'std') &&
-          fn == 'collection_for') {
+      if (call.module == 'std' && fn == 'collection_for') {
         await _evalCollectionFor(call, scope, result);
         return;
       }
@@ -1082,6 +1091,9 @@ extension BallEngineEval on BallEngine {
           superObject ??= _buildSuperObject(superclass, instanceFields);
         }
 
+        final metaTypeArgs = _extractMetadataTypeArgs(msg);
+        if (metaTypeArgs != null) instanceFields['__type_args__'] = metaTypeArgs;
+
         final methods = _resolveTypeMethodsWithInheritance(msg.typeName);
         final instance = BallObject(
           typeName: msg.typeName,
@@ -1149,6 +1161,8 @@ extension BallEngineEval on BallEngine {
               instanceFields[entry.key] = entry.value;
             }
           }
+          final metaTA = _extractMetadataTypeArgs(msg);
+          if (metaTA != null) instanceFields['__type_args__'] = metaTA;
           final methods = _resolveTypeMethodsWithInheritance(msg.typeName);
           final instance = BallObject(
             typeName: msg.typeName,
@@ -1174,11 +1188,18 @@ extension BallEngineEval on BallEngine {
 
         fields['__type__'] = msg.typeName;
 
-        // Extract type arguments if generic (e.g., Box<int>).
-        final genMatch = RegExp(r'^(\w+)<(.+)>$').firstMatch(msg.typeName);
-        if (genMatch != null) {
-          fields['__type__'] = genMatch.group(1)!;
-          fields['__type_args__'] = _splitTypeArgs(genMatch.group(2)!);
+        // Extract type arguments: prefer structured metadata.type_args,
+        // fall back to parsing angle brackets from typeName (legacy format).
+        final metaTA2 = _extractMetadataTypeArgs(msg);
+        if (metaTA2 != null) {
+          fields['__type_args__'] = metaTA2;
+        } else {
+          final genMatch =
+              RegExp(r'^(\w+)<(.+)>$').firstMatch(msg.typeName);
+          if (genMatch != null) {
+            fields['__type__'] = genMatch.group(1)!;
+            fields['__type_args__'] = _splitTypeArgs(genMatch.group(2)!);
+          }
         }
 
         // No typeDef found: the typeName might be a function/method call
@@ -1524,8 +1545,6 @@ extension BallEngineEval on BallEngine {
     for (final stmt in block.statements) {
       final result = await _evalStatement(stmt, blockScope);
       if (result is _FlowSignal) {
-        // Run scope-exits in LIFO order before propagating the signal.
-        await _runScopeExits(blockScope);
         return result;
       }
     }
@@ -1534,21 +1553,7 @@ extension BallEngineEval on BallEngine {
     } else {
       flowResult = null;
     }
-    // Run scope-exits in LIFO order (normal exit).
-    await _runScopeExits(blockScope);
     return flowResult;
-  }
-
-  /// Execute all registered scope-exit cleanups in LIFO order.
-  Future<void> _runScopeExits(_Scope blockScope) async {
-    if (blockScope._scopeExits.isEmpty) return;
-    for (final (expr, evalScope) in blockScope._scopeExits.reversed) {
-      try {
-        await _evalExpression(expr, evalScope);
-      } catch (_) {
-        // Scope-exit cleanup errors are swallowed (RAII destructor semantics).
-      }
-    }
   }
 
   Future<Object?> _evalStatement(Statement stmt, _Scope scope) async {

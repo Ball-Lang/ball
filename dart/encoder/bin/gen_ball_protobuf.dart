@@ -7,7 +7,7 @@
 /// self-contained file while preserving its internal multi-module structure —
 /// and, unlike the previous `Program`-with-empty-`entry_function` shape, it is a
 /// real reusable library with no fake entry point (see docs/EDITIONS_PLAN.md
-/// §2.1). std / dart_std / std_collections / proto are intentionally NOT
+/// §2.1). std / std_collections / proto are intentionally NOT
 /// bundled: a library does not ship std; the consuming program or engine
 /// provides it.
 ///
@@ -101,7 +101,7 @@ void main(List<String> args) {
   // Facade Module: a real reusable library (no entry point) whose
   // module_imports embed each implementation module inline. Cross-module calls
   // already reference modules by their own names (ball_protobuf.<file>), so the
-  // import alias is the module's own name. std/dart_std/std_collections/proto
+  // import alias is the module's own name. std/std_collections/proto
   // are NOT bundled — the consuming program or engine provides them.
   final facade = Module()
     ..name = 'ball_protobuf'

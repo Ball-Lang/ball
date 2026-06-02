@@ -337,8 +337,8 @@ export class BallCompiler {
     // Post-processing: expand the std module check in _evalCall to include
     // std_collections, std_io, etc. so their functions route to _callBaseFunction.
     body = body.replace(
-      /if \(\(\(call\.module === 'std'\) \|\| \(call\.module === 'dart_std'\)\)\) \{\s*return this\._callBaseFunction\(call\.module, call\.function, input\);\s*\}/,
-      `if (call.module === 'std' || call.module === 'dart_std' || call.module === 'std_collections' || call.module === 'std_io' || call.module === 'std_convert' || call.module === 'std_memory') {
+      /if \(\(?(?:\(call\.module === 'std'\)|call\.module === 'std')\)?\) \{\s*return this\._callBaseFunction\(call\.module, call\.function, input\);\s*\}/,
+      `if (call.module === 'std' || call.module === 'std_collections' || call.module === 'std_io' || call.module === 'std_convert' || call.module === 'std_memory') {
       return this._callBaseFunction(call.module, call.function, input);
     }`,
     );
@@ -619,7 +619,6 @@ $1async _resolveAndCallFunction(`,
         else if (__cr === 'Set') __stdNames.push('set_' + __fn, 'dart_set_' + __fn, __fn);
         for (const __sn of __stdNames) {
           try { return await this._callBaseFunction('std', __sn, __stdInput); } catch (e) { if (!__isUnknownFnError(e)) throw e; }
-          try { return await this._callBaseFunction('dart_std', __sn, __stdInput); } catch (e) { if (!__isUnknownFnError(e)) throw e; }
           try { return await this._callBaseFunction('std_collections', __sn, __stdInput); } catch (e) { if (!__isUnknownFnError(e)) throw e; }
         }
       }
@@ -1061,7 +1060,7 @@ $1async _resolveAndCallFunction(`,
       }
       // Fallback: try dispatching as a std/std_collections base function
       // This handles method-style calls like sort(), where() on lists/maps
-      for (const __stdMod of ['std', 'std_collections', 'dart_std', 'std_io']) {
+      for (const __stdMod of ['std', 'std_collections', 'std_io']) {
         try { return await this._callBaseFunction(__stdMod, function_, input); } catch(e) { if (!__isUnknownFnError(e)) throw e; }
       }
       // Try with list_ or map_ prefix
@@ -1069,7 +1068,7 @@ $1async _resolveAndCallFunction(`,
       if (__self2 != null) {
         const __prefixes = Array.isArray(__self2) ? ['list_'] : (typeof __self2 === 'string' ? ['string_'] : ['map_']);
         for (const __px of __prefixes) {
-          for (const __stdMod of ['std', 'std_collections', 'dart_std']) {
+          for (const __stdMod of ['std', 'std_collections']) {
             try { return await this._callBaseFunction(__stdMod, __px + function_, input); } catch(e) { if (!__isUnknownFnError(e)) throw e; }
           }
         }
@@ -3464,7 +3463,7 @@ function __isUnknownFnError(e: any): boolean {
   private lvalueExpr(e: Expression): string {
     const c = e.call;
     if (c && c.function === "index" &&
-        (c.module === "" || c.module === "std" || c.module === "dart_std")) {
+        (c.module === "" || c.module === "std")) {
       const t = field(c, "target");
       const idx = field(c, "index");
       if (t && idx) return `${this.expr(t)}[${this.expr(idx)}]`;
@@ -3647,7 +3646,7 @@ function __isUnknownFnError(e: any): boolean {
         this.typeIsUserDefinedClass(ident)
       ) {
         const args = this.extractPositionalAndNamed(fields);
-        return `new ${classTsName(tn)}(${args})`;
+        return this.wrapWithTypeArgs(`new ${classTsName(tn)}(${args})`, mc);
       }
       const identShort = memberShortName(ident);
       // Class method of the class currently being compiled → `this.m(...)`
@@ -3683,7 +3682,7 @@ function __isUnknownFnError(e: any): boolean {
     // User-defined class → `new X(...)`.
     if (this.typeIsUserDefinedClass(tn)) {
       const args = this.extractPositionalAndNamed(fields);
-      return `new ${classTsName(tn)}(${args})`;
+      return this.wrapWithTypeArgs(`new ${classTsName(tn)}(${args})`, mc);
     }
 
     // Dart/JS built-in constructors: RegExp, Map, Set, Error, etc.
@@ -4191,7 +4190,7 @@ function __isUnknownFnError(e: any): boolean {
       }
       case "yield":      return `yield ${this.expr(f.get("value")!)}`;
       case "yield_each": return `yield* ${this.expr(f.get("value")!)}`;
-      // Dart-specific std/dart_std functions
+      // Dart-specific std functions
       case "cascade": {
         const target = f.get("target") ?? f.get("value");
         const sections = f.get("sections") ?? f.get("operations") ?? f.get("ops");
@@ -4697,11 +4696,33 @@ function __isUnknownFnError(e: any): boolean {
     }
   }
 
+  private typeRefMetaToString(ref: any): string {
+    let s: string = ref?.name ?? '';
+    const args = ref?.type_args;
+    if (Array.isArray(args) && args.length > 0) {
+      s += '<' + args.map((a: any) => this.typeRefMetaToString(a)).join(', ') + '>';
+    }
+    if (ref?.nullable) s += '?';
+    return s;
+  }
+
+  private wrapWithTypeArgs(expr: string, mc: NonNullable<Expression["messageCreation"]>): string {
+    const typeArgs = mc.metadata?.["type_args"];
+    if (!Array.isArray(typeArgs) || typeArgs.length === 0) return expr;
+    const strs = typeArgs.map((ta: any) => this.typeRefMetaToString(ta));
+    return `__ball_with_type_args(${expr}, [${strs.map(s => JSON.stringify(s)).join(', ')}])`;
+  }
+
   private emitIsCheck(value: string, type: string): string {
-    // Strip generic args: Map<String, Object?> → Map
-    const baseType = type.includes("<") ? type.slice(0, type.indexOf("<")).trim() : type.trim();
-    // Strip nullable: Map? → Map
-    const t = baseType.endsWith("?") ? baseType.slice(0, -1) : baseType;
+    const trimmed = type.trim();
+    if (trimmed.includes("<")) {
+      return `__ball_is_type(${value}, ${JSON.stringify(trimmed)})`;
+    }
+    if (trimmed.endsWith("?")) {
+      const inner = this.emitIsCheck(value, trimmed.slice(0, -1));
+      return `(${value} == null || ${inner})`;
+    }
+    const t = trimmed;
     switch (t) {
       case "int": return `(typeof ${value} === 'number' && Number.isInteger(${value}))`;
       case "double": return `(${value} instanceof BallDouble || (typeof ${value} === 'number' && !Number.isInteger(${value})))`;
@@ -5066,7 +5087,7 @@ function classTsName(qualified: string): string {
 }
 
 function isStd(module: string | undefined): boolean {
-  return module === "std" || module === "dart_std" ||
+  return module === "std" ||
     module === "std_collections" || module === "std_io" ||
     module === "std_convert" || module === "std_memory" ||
     module === "std_time";

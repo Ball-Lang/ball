@@ -536,7 +536,7 @@ class BallEngine {
   /// Initialize top-level variables by evaluating their body expressions.
   Future<void> _initTopLevelVariables() async {
     for (final module in program.modules) {
-      if (module.name == 'std' || module.name == 'dart_std') continue;
+      if (module.name == 'std') continue;
       for (final func in module.functions) {
         if (!func.hasMetadata()) continue;
         final kindValue = func.metadata.fields['kind'];

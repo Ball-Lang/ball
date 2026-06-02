@@ -113,9 +113,9 @@ descriptor glue. You keep binary + JSON serialization.
 back to lossy JSON-only parsing. Compile Ball's own protobuf runtime to your target and use it:
 
 1. The committed Ball program is `dart/shared/ball_protobuf.json` / `.bin` (15 modules: base
-   `std`/`dart_std`/`std_collections` + 12 `ball_protobuf.*` runtime modules; entry module
-   `ball_protobuf.marshal`). Regenerate from `dart/` with `melos run regen-protobuf`
-   (= `cd dart/encoder && dart run bin/gen_ball_protobuf.dart [out_dir]`).
+   `std`/`std_collections` + 12 `ball_protobuf.*` runtime modules; entry module
+   `ball_protobuf.marshal`). Regenerate from `dart/` with
+   `cd dart/encoder && dart run bin/gen_ball_protobuf.dart [out_dir]`.
 2. Compile it to your language with your Phase-2 compiler:
    `<lang>/compiler/compile dart/shared/ball_protobuf.json -o <lang>/shared/ball_protobuf.<ext>`
 3. You now have a native, full-fidelity runtime (binary wire + proto3 JSON + well-known types +
@@ -202,7 +202,7 @@ The compiler reads a `Program` protobuf and emits target-language source code.
 ```
 compile(Program) → String (or multiple files)
   1. Build lookup tables: types by name, functions by (module, name)
-  2. Identify base modules: std, std_collections, std_io, std_memory, dart_std
+  2. Identify base modules: std, std_collections, std_io, std_memory
   3. Generate imports / preamble
   4. For each module (skip base modules):
      a. Generate types from typeDefs[]
@@ -336,15 +336,19 @@ Walk the parsed AST and map each construct:
 | Method | `FunctionDefinition` with `is_method: true` in metadata |
 | Lambda / closure | `FunctionDefinition` with name `""` |
 
-### 3.3 Language-specific module
+### 3.3 Universal module architecture (no language-specific base modules)
 
-If the language has constructs that don't map to `std`, create a `<lang>_std` module:
+Language-specific base modules (`dart_std`, `cpp_std`) have been eliminated from Ball.
+All constructs must route through universal modules (`std`, `std_collections`, `std_io`,
+`std_memory`). When the source language has constructs that don't map directly to a single
+`std` call, the encoder should expand them into equivalent `std` expression trees at
+encoding time. For example:
+- Dart's `?.` (null-aware access) expands to `std.if(std.is_null(target), null, fieldAccess)`
+- Dart's `..` (cascade) expands to a `Block` with a temp variable and sequential calls
+- C++ pointer dereference inlines to `std_memory` operations or field access
 
-- Dart has `dart_std` (cascade, null_aware_access, spread, invoke, etc.)
-- C++ has `cpp_std` (pointer_deref, address_of, arrow, etc.)
-
-Define the module's base functions in the encoder. Document them in `docs/MODULES.md` (or create
-one if it doesn't exist).
+Do NOT create `<lang>_std` base modules. This is a core design principle: encoders must
+produce programs that any target compiler/engine can execute without language-specific handlers.
 
 ### 3.4 Metadata preservation
 
@@ -368,7 +372,7 @@ encoded programs minimal.
 - [ ] Operator mapping complete (arithmetic, comparison, logic, assignment)
 - [ ] Control flow encoded as std function calls (if, for, while, etc.)
 - [ ] Types encoded as TypeDefinitions with DescriptorProto fields
-- [ ] Language-specific module created if needed (`<lang>_std`)
+- [ ] All constructs route through universal `std` (no `<lang>_std` base modules)
 - [ ] Metadata preserved for round-trip fidelity
 - [ ] Std modules accumulated from actual usage
 - [ ] Round-trip test: encode → compile → verify output matches original semantics

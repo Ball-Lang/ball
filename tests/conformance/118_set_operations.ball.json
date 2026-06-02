@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "118_set_operations",
   "version": "1.0.0",
   "modules": [
     {
@@ -11,11 +11,15 @@
           "isBase": true
         },
         {
+          "name": "list_sort",
+          "isBase": true
+        },
+        {
           "name": "list_to_list",
           "isBase": true
         },
         {
-          "name": "concat",
+          "name": "add",
           "isBase": true
         },
         {
@@ -84,20 +88,14 @@
       ]
     },
     {
-      "name": "dart_std",
-      "functions": [
-        {
-          "name": "cascade",
-          "isBase": true
-        }
-      ],
-      "description": "Dart-specific standard library base module"
-    },
-    {
       "name": "std_collections",
       "functions": [
         {
           "name": "list_contains",
+          "isBase": true
+        },
+        {
+          "name": "list_sort",
           "isBase": true
         },
         {
@@ -273,14 +271,13 @@
                     "name": "unionSorted",
                     "value": {
                       "call": {
-                        "module": "dart_std",
-                        "function": "cascade",
+                        "module": "std_collections",
+                        "function": "list_sort",
                         "input": {
                           "messageCreation": {
-                            "typeName": "",
                             "fields": [
                               {
-                                "name": "target",
+                                "name": "list",
                                 "value": {
                                   "call": {
                                     "module": "std_collections",
@@ -298,36 +295,6 @@
                                           }
                                         ]
                                       }
-                                    }
-                                  }
-                                }
-                              },
-                              {
-                                "name": "sections",
-                                "value": {
-                                  "literal": {
-                                    "listValue": {
-                                      "elements": [
-                                        {
-                                          "call": {
-                                            "function": "sort",
-                                            "input": {
-                                              "messageCreation": {
-                                                "fields": [
-                                                  {
-                                                    "name": "self",
-                                                    "value": {
-                                                      "reference": {
-                                                        "name": "__cascade_self__"
-                                                      }
-                                                    }
-                                                  }
-                                                ]
-                                              }
-                                            }
-                                          }
-                                        }
-                                      ]
                                     }
                                   }
                                 }
@@ -357,7 +324,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "concat",
+                                  "function": "add",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -447,14 +414,13 @@
                     "name": "interSorted",
                     "value": {
                       "call": {
-                        "module": "dart_std",
-                        "function": "cascade",
+                        "module": "std_collections",
+                        "function": "list_sort",
                         "input": {
                           "messageCreation": {
-                            "typeName": "",
                             "fields": [
                               {
-                                "name": "target",
+                                "name": "list",
                                 "value": {
                                   "call": {
                                     "module": "std_collections",
@@ -472,36 +438,6 @@
                                           }
                                         ]
                                       }
-                                    }
-                                  }
-                                }
-                              },
-                              {
-                                "name": "sections",
-                                "value": {
-                                  "literal": {
-                                    "listValue": {
-                                      "elements": [
-                                        {
-                                          "call": {
-                                            "function": "sort",
-                                            "input": {
-                                              "messageCreation": {
-                                                "fields": [
-                                                  {
-                                                    "name": "self",
-                                                    "value": {
-                                                      "reference": {
-                                                        "name": "__cascade_self__"
-                                                      }
-                                                    }
-                                                  }
-                                                ]
-                                              }
-                                            }
-                                          }
-                                        }
-                                      ]
                                     }
                                   }
                                 }
@@ -531,7 +467,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "concat",
+                                  "function": "add",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -621,14 +557,13 @@
                     "name": "diffSorted",
                     "value": {
                       "call": {
-                        "module": "dart_std",
-                        "function": "cascade",
+                        "module": "std_collections",
+                        "function": "list_sort",
                         "input": {
                           "messageCreation": {
-                            "typeName": "",
                             "fields": [
                               {
-                                "name": "target",
+                                "name": "list",
                                 "value": {
                                   "call": {
                                     "module": "std_collections",
@@ -646,36 +581,6 @@
                                           }
                                         ]
                                       }
-                                    }
-                                  }
-                                }
-                              },
-                              {
-                                "name": "sections",
-                                "value": {
-                                  "literal": {
-                                    "listValue": {
-                                      "elements": [
-                                        {
-                                          "call": {
-                                            "function": "sort",
-                                            "input": {
-                                              "messageCreation": {
-                                                "fields": [
-                                                  {
-                                                    "name": "self",
-                                                    "value": {
-                                                      "reference": {
-                                                        "name": "__cascade_self__"
-                                                      }
-                                                    }
-                                                  }
-                                                ]
-                                              }
-                                            }
-                                          }
-                                        }
-                                      ]
                                     }
                                   }
                                 }
@@ -705,7 +610,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "concat",
+                                  "function": "add",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -768,7 +673,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "concat",
+                                  "function": "add",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -854,7 +759,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "concat",
+                                  "function": "add",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -940,7 +845,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "concat",
+                                  "function": "add",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -1005,9 +910,6 @@
       "moduleImports": [
         {
           "name": "std"
-        },
-        {
-          "name": "dart_std"
         }
       ]
     }

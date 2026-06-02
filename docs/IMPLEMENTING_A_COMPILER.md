@@ -61,10 +61,14 @@ Modules where **every** function has `isBase = true` are base modules.
 Your compiler must provide native implementations for these functions.
 
 Required base modules:
-- **`std`** — ~100 universal functions (arithmetic, comparison, logic, control flow, strings, math)
-- **`std_collections`** — list/map operations (optional — not all runtimes)
+- **`std`** — ~130 universal functions (arithmetic, comparison, logic, control flow, strings, math, cascade, spread, invoke, etc.)
+- **`std_collections`** — list/map/set operations (optional — not all runtimes)
 - **`std_io`** — console, process, time, random (optional — not all runtimes)
-- **`dart_std`** (or `<lang>_std`) — language-specific extensions
+
+> **Note:** Language-specific base modules (`dart_std`, `cpp_std`) have been eliminated.
+> All constructs now route through universal `std` operations. Encoders expand
+> language-specific constructs at encoding time rather than emitting language-specific
+> base function calls.
 
 ### 4. Generate Imports
 
@@ -155,7 +159,7 @@ The expression tree is the core of every Ball program. Every node is one of:
 
 A `FunctionCall` has `{module, function, input}`.
 
-**If the function is a base function** (from std/dart_std/std_io), emit
+**If the function is a base function** (from std/std_collections/std_io), emit
 the native language equivalent:
 
 ```

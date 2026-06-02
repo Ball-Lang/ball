@@ -231,11 +231,6 @@ class _Scope {
   final Map<String, Object?> _bindings = {};
   final _Scope? _parent;
 
-  /// Registered scope-exit cleanups added by `cpp_std.cpp_scope_exit`.
-  /// Each entry is an (expression, evalScope) pair executed in LIFO order
-  /// when the scope that owns this list is torn down.
-  final List<(Expression, _Scope)> _scopeExits = [];
-
   _Scope([this._parent]);
 
   Object? lookup(String name) {
@@ -263,12 +258,6 @@ class _Scope {
       return;
     }
     _bindings[name] = value;
-  }
-
-  /// Register a cleanup expression + its evaluation scope.
-  /// Executed in LIFO order when the owning block exits.
-  void registerScopeExit(Expression cleanup, _Scope evalScope) {
-    _scopeExits.add((cleanup, evalScope));
   }
 
   _Scope child() => _Scope(this);
@@ -447,7 +436,7 @@ abstract class BallModuleHandler {
   void init(BallEngine engine) {}
 }
 
-/// The built-in `std` / `dart_std` module handler.
+/// The built-in `std` module handler.
 ///
 /// Provides all 73+ standard ball functions. Can be customised before
 /// passing to [BallEngine]:
@@ -497,15 +486,13 @@ class StdModuleHandler extends BallModuleHandler {
   @override
   bool handles(String module) => switch (module) {
     'std' ||
-    'dart_std' ||
     'std_collections' ||
     'std_io' ||
     'std_memory' ||
     'std_convert' ||
     'std_fs' ||
     'std_time' ||
-    'std_concurrency' ||
-    'cpp_std' => true,
+    'std_concurrency' => true,
     _ => false,
   };
 

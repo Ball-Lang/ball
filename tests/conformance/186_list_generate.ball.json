@@ -1,13 +1,17 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "list_generate",
+  "name": "186_list_generate",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "multiply",
+          "isBase": true
+        },
+        {
+          "name": "for",
           "isBase": true
         },
         {
@@ -15,10 +19,11 @@
           "isBase": true
         },
         {
-          "name": "multiply",
+          "name": "print",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -33,15 +38,26 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "name": "dart_std",
-      "functions": [
+        },
         {
-          "name": "list_generate",
-          "isBase": true
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
         }
       ]
     },
@@ -59,13 +75,20 @@
                     "name": "values",
                     "value": {
                       "call": {
-                        "module": "dart_std",
-                        "function": "list_generate",
+                        "function": "generate",
                         "input": {
                           "messageCreation": {
                             "fields": [
                               {
-                                "name": "length",
+                                "name": "self",
+                                "value": {
+                                  "reference": {
+                                    "name": "List"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "arg0",
                                 "value": {
                                   "literal": {
                                     "intValue": "5"
@@ -73,15 +96,17 @@
                                 }
                               },
                               {
-                                "name": "generator",
+                                "name": "arg1",
                                 "value": {
                                   "lambda": {
+                                    "name": "",
                                     "body": {
                                       "call": {
                                         "module": "std",
                                         "function": "multiply",
                                         "input": {
                                           "messageCreation": {
+                                            "typeName": "",
                                             "fields": [
                                               {
                                                 "name": "left",
@@ -121,6 +146,9 @@
                           }
                         }
                       }
+                    },
+                    "metadata": {
+                      "keyword": "final"
                     }
                   }
                 },
@@ -131,12 +159,21 @@
                       "function": "for_in",
                       "input": {
                         "messageCreation": {
+                          "typeName": "",
                           "fields": [
                             {
                               "name": "variable",
                               "value": {
                                 "literal": {
                                   "stringValue": "value"
+                                }
+                              }
+                            },
+                            {
+                              "name": "variable_keyword",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "final"
                                 }
                               }
                             },
@@ -180,15 +217,15 @@
                 }
               ]
             }
+          },
+          "metadata": {
+            "kind": "function"
           }
         }
       ],
       "moduleImports": [
         {
           "name": "std"
-        },
-        {
-          "name": "dart_std"
         }
       ]
     }

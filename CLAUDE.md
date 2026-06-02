@@ -92,8 +92,8 @@ Every Ball computation is one of seven `Expression` node types: `call`, `literal
 Five packages resolved as a workspace:
 - `ball_base` (`shared/`) — protobuf types + std module builders; dependency for the rest.
 - `ball_compiler` — Ball → Dart via `code_builder` + `dart_style`. Base-function dispatch lives in `_compileBaseCall`; extract fields from the `MessageCreation` input.
-- `ball_encoder` — Dart → Ball via the `analyzer` package. Dart-specific constructs (cascade, null-aware access, spread, invoke) encode to the `dart_std` module, not `std`.
-- `ball_engine` — tree-walking interpreter. `StdModuleHandler` dispatches `std`/`dart_std`; custom modules implement `BallModuleHandler`.
+- `ball_encoder` — Dart → Ball via the `analyzer` package. All constructs (including cascade, null-aware access, spread, invoke) encode to the universal `std` module.
+- `ball_engine` — tree-walking interpreter. `StdModuleHandler` dispatches all universal `std` base functions; custom modules implement `BallModuleHandler`.
 - `ball_cli` — CLI entry point.
 
 Types are emitted from `typeDefs[]` only — each `TypeDefinition` carries the protobuf descriptor plus a cosmetic `metadata` bag. The former `Module.types` field (bare descriptors) and the `_meta_*` function hack were removed; `typeDefs[]` is the single type-declaration path.
@@ -109,7 +109,7 @@ Two additional (non-Ball-portable) Dart packages turn a user's `.proto` into typ
 ### C++ prototype (`cpp/`)
 - `BallValue = std::any`, `BallList = std::vector<BallValue>`, `BallMap = std::map<std::string, BallValue>` (ordered — **not** `unordered_map`).
 - Compiler emits C++ via string concatenation; blocks become immediately-invoked lambdas.
-- Encoder consumes Clang JSON AST (`clang -Xclang -ast-dump=json`), then a normalizer rewrites `cpp_std` pointer ops into safe references or `std_memory` unsafe ops.
+- Encoder consumes Clang JSON AST (`clang -Xclang -ast-dump=json`) and directly emits universal `std`/`std_memory` calls (C++ pointer ops are inlined during encoding).
 - Stack sizes are bumped for deep protobuf ASTs: compiler 128 MB, encoder 256 MB; engine has 65 KB linear memory.
 
 ### TypeScript workspace (`ts/`)
@@ -122,7 +122,7 @@ Four packages (no workspace manager — each has its own `node_modules`):
 - `@ball-lang/encoder` — TS -> Ball (stub).
 
 ### Standard library modules
-`std` (118 fns: arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops), `std_collections` (53 list/map fns), `std_io` (10 console/process/time/random), `std_memory` (38 linear-memory fns for C/C++ interop), `dart_std` (~18 Dart-specific: cascade, null_aware_access, invoke, spread, etc.).
+`std` (130+ fns: arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops, cascade, null_aware_access, invoke, spread, record, etc.), `std_collections` (53 list/map fns), `std_io` (10 console/process/time/random), `std_memory` (38 linear-memory fns for C/C++ interop). The `dart_std` module has been eliminated — all functions now route through universal `std`.
 
 ### Portable protobuf engine + Editions (`ball_protobuf` package — `dart/ball_protobuf/lib/`)
 A pure-Dart, descriptor-driven protobuf runtime (wire codecs, binary marshal/unmarshal, proto3-JSON codec, well-known types, gRPC framing) authored in **Ball-portable Dart** so it encodes to a Ball library and runs on every target. It lives in its **own publishable workspace package** `ball_protobuf` (re-exported by `ball_base.dart` for back-compat; the engine itself has zero package deps). It is **Editions-aware**: `edition.dart` + `editions.dart` implement the FeatureSet model and protoc's canonical resolution algorithm + proto2/proto3 legacy inference; `marshal.dart`/`unmarshal.dart`/`json_codec.dart` honor the resolved features (presence, open/closed enum, packed/expanded, DELIMITED groups, utf8_validation, json_format) when a field descriptor carries an optional `'features'` key (absent ⇒ proto3 defaults, zero regression).

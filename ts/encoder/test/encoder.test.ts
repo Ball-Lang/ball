@@ -62,7 +62,7 @@ describe("TsEncoder", () => {
     const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
     const lambda = mainFn.body!.block!.statements[0].let!.value!.lambda!;
     assert.ok(lambda);
-    assert.deepEqual(lambda.metadata?.params, ["x"]);
+    assert.deepEqual(lambda.metadata?.params, [{ name: "x", type: "number" }]);
   });
 
   test("encodes classes", () => {
@@ -179,12 +179,16 @@ describe("TsEncoder", () => {
   });
 
   test("encodes method calls", () => {
+    // arr.push(1) maps to std.list_add({ list: arr, value: 1 })
     const program = encode(`function main() { arr.push(1); }`);
     const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
     const call = mainFn.body!.block!.statements[0].expression!.call!;
-    assert.equal(call.function, "push");
-    const selfField = call.input!.messageCreation!.fields.find(f => f.name === "self");
-    assert.ok(selfField);
+    assert.equal(call.function, "list_add");
+    assert.equal(call.module, "std");
+    const listField = call.input!.messageCreation!.fields.find(f => f.name === "list");
+    assert.ok(listField);
+    const valueField = call.input!.messageCreation!.fields.find(f => f.name === "value");
+    assert.ok(valueField);
   });
 
   test("encodes array literals", () => {
@@ -234,7 +238,7 @@ describe("TsEncoder", () => {
     const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
     const val = mainFn.body!.block!.statements[0].let!.value!;
     assert.equal(val.call!.function, "optional_access");
-    assert.equal(val.call!.module, "ts_std");
+    assert.equal(val.call!.module, "std");
   });
 
   test("encodes optional chaining method call", () => {
@@ -242,22 +246,25 @@ describe("TsEncoder", () => {
     const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
     const val = mainFn.body!.block!.statements[0].let!.value!;
     assert.equal(val.call!.function, "optional_call");
-    assert.equal(val.call!.module, "ts_std");
+    assert.equal(val.call!.module, "std");
   });
 
   test("encodes rest parameters", () => {
     const program = encode(`function sum(...nums: number[]): number { return 0; }`);
     const userMod = program.modules.find(m => m.name === "main")!;
     const fn = userMod.functions.find(f => f.name === "sum")!;
-    assert.equal(fn.metadata!.rest_param, "nums");
+    const params = fn.metadata!.params as { name: string; is_rest?: boolean }[];
+    assert.equal(params[0].name, "nums");
+    assert.equal(params[0].is_rest, true);
   });
 
   test("encodes default parameter values", () => {
     const program = encode(`function greet(name: string = "world"): string { return name; }`);
     const userMod = program.modules.find(m => m.name === "main")!;
     const fn = userMod.functions.find(f => f.name === "greet")!;
-    assert.ok(fn.metadata!.param_defaults);
-    assert.equal((fn.metadata!.param_defaults as Record<string, string>).name, '"world"');
+    const params = fn.metadata!.params as { name: string; default?: string }[];
+    assert.equal(params[0].name, "name");
+    assert.equal(params[0].default, '"world"');
   });
 
   test("encodes computed property names", () => {
@@ -268,7 +275,7 @@ describe("TsEncoder", () => {
     const computedField = objVal.messageCreation!.fields.find(f => f.name === "__computed");
     assert.ok(computedField);
     assert.equal(computedField!.value.call!.function, "computed_property");
-    assert.equal(computedField!.value.call!.module, "ts_std");
+    assert.equal(computedField!.value.call!.module, "std");
   });
 
   test("encodes tagged template literals", () => {
@@ -276,7 +283,7 @@ describe("TsEncoder", () => {
     const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
     const val = mainFn.body!.block!.statements[0].let!.value!;
     assert.equal(val.call!.function, "tagged_template");
-    assert.equal(val.call!.module, "ts_std");
+    assert.equal(val.call!.module, "std");
   });
 
   test("encodes class field initializers", () => {
@@ -390,15 +397,18 @@ describe("TsEncoder", () => {
     const program = encode(`function main() { const f = (...args: number[]) => args; }`);
     const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
     const lambda = mainFn.body!.block!.statements[0].let!.value!.lambda!;
-    assert.equal(lambda.metadata!.rest_param, "args");
+    const params = lambda.metadata!.params as { name: string; is_rest?: boolean }[];
+    assert.equal(params[0].name, "args");
+    assert.equal(params[0].is_rest, true);
   });
 
   test("encodes lambda default parameters", () => {
     const program = encode(`function main() { const f = (x: number = 5) => x; }`);
     const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
     const lambda = mainFn.body!.block!.statements[0].let!.value!.lambda!;
-    assert.ok(lambda.metadata!.param_defaults);
-    assert.equal((lambda.metadata!.param_defaults as Record<string, string>).x, "5");
+    const params = lambda.metadata!.params as { name: string; default?: string }[];
+    assert.equal(params[0].name, "x");
+    assert.equal(params[0].default, "5");
   });
 
   test("encodes call of a non-identifier callee as __invoke", () => {
@@ -422,12 +432,13 @@ describe("TsEncoder", () => {
     const forCall = mainFn.body!.block!.statements[0].expression!.call!;
     assert.equal(forCall.function, "for");
     const fields = forCall.input!.messageCreation!.fields;
-    assert.equal(fields.find(f => f.name === "variable")!.value.literal!.stringValue, "i");
-    assert.ok(fields.find(f => f.name === "start"));
-    // condition/update/body are lazily-evaluated lambdas.
-    assert.ok(fields.find(f => f.name === "condition")!.value.lambda);
-    assert.ok(fields.find(f => f.name === "update")!.value.lambda);
-    assert.ok(fields.find(f => f.name === "body")!.value.lambda);
+    // init is a block with a let binding for the loop variable.
+    const initBlock = fields.find(f => f.name === "init")!.value.block!;
+    assert.equal(initBlock.statements[0].let!.name, "i");
+    // condition/update/body are direct expressions (engine evaluates lazily).
+    assert.ok(fields.find(f => f.name === "condition")!.value.call, "condition is a direct expression");
+    assert.ok(fields.find(f => f.name === "update")!.value.call, "update is a direct expression");
+    assert.ok(fields.find(f => f.name === "body")!.value.block, "body is a direct block");
   });
 
   test("encodes C-style for loop with expression initializer (non-decl)", () => {
@@ -436,8 +447,8 @@ describe("TsEncoder", () => {
     const forCall = mainFn.body!.block!.statements[1].expression!.call!;
     assert.equal(forCall.function, "for");
     const fields = forCall.input!.messageCreation!.fields;
-    // No variable declaration => `init` lambda instead of `variable`/`start`.
-    assert.ok(fields.find(f => f.name === "init")!.value.lambda);
+    // No variable declaration => `init` expression instead of `variable`/`start`.
+    assert.ok(fields.find(f => f.name === "init")!.value.call);
   });
 
   test("encodes do/while loop as do_while with lazy condition", () => {
@@ -446,8 +457,8 @@ describe("TsEncoder", () => {
     const doCall = mainFn.body!.block!.statements[0].expression!.call!;
     assert.equal(doCall.function, "do_while");
     const fields = doCall.input!.messageCreation!.fields;
-    assert.ok(fields.find(f => f.name === "condition")!.value.lambda, "condition is lazy");
-    assert.ok(fields.find(f => f.name === "body")!.value.lambda);
+    assert.ok(fields.find(f => f.name === "condition")!.value.reference, "condition is a direct expression");
+    assert.ok(fields.find(f => f.name === "body")!.value.block, "body is a direct block");
   });
 
   test("encodes labeled break and continue", () => {

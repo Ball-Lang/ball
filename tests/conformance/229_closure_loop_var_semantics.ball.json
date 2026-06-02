@@ -1,11 +1,15 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "229_closure_loop_var_semantics",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
+        {
+          "name": "typed_list",
+          "isBase": true
+        },
         {
           "name": "for",
           "isBase": true
@@ -19,15 +23,19 @@
           "isBase": true
         },
         {
-          "name": "add",
-          "isBase": true
-        },
-        {
           "name": "list_push",
           "isBase": true
         },
         {
+          "name": "add",
+          "isBase": true
+        },
+        {
           "name": "assign",
+          "isBase": true
+        },
+        {
+          "name": "invoke",
           "isBase": true
         },
         {
@@ -92,20 +100,6 @@
       ]
     },
     {
-      "name": "dart_std",
-      "functions": [
-        {
-          "name": "typed_list",
-          "isBase": true
-        },
-        {
-          "name": "invoke",
-          "isBase": true
-        }
-      ],
-      "description": "Dart-specific standard library base module"
-    },
-    {
       "name": "std_collections",
       "functions": [
         {
@@ -129,7 +123,7 @@
                     "name": "fns",
                     "value": {
                       "call": {
-                        "module": "dart_std",
+                        "module": "std",
                         "function": "typed_list",
                         "input": {
                           "messageCreation": {
@@ -162,6 +156,19 @@
                   }
                 },
                 {
+                  "let": {
+                    "name": "i",
+                    "value": {
+                      "literal": {
+                        "intValue": "0"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var"
+                    }
+                  }
+                },
+                {
                   "expression": {
                     "call": {
                       "module": "std",
@@ -170,28 +177,6 @@
                         "messageCreation": {
                           "typeName": "",
                           "fields": [
-                            {
-                              "name": "init",
-                              "value": {
-                                "block": {
-                                  "statements": [
-                                    {
-                                      "let": {
-                                        "name": "i",
-                                        "value": {
-                                          "literal": {
-                                            "intValue": "0"
-                                          }
-                                        },
-                                        "metadata": {
-                                          "keyword": "var"
-                                        }
-                                      }
-                                    }
-                                  ]
-                                }
-                              }
-                            },
                             {
                               "name": "condition",
                               "value": {
@@ -448,7 +433,7 @@
                                           "name": "message",
                                           "value": {
                                             "call": {
-                                              "module": "dart_std",
+                                              "module": "std",
                                               "function": "invoke",
                                               "input": {
                                                 "messageCreation": {
@@ -515,9 +500,6 @@
       "moduleImports": [
         {
           "name": "std"
-        },
-        {
-          "name": "dart_std"
         }
       ]
     }

@@ -1061,6 +1061,86 @@ const ModuleImport_Source = {
   });
 })();
 
+// ── Reified generics helpers ────────────────────────────────────────
+function __ball_with_type_args<T>(obj: T, args: string[]): T {
+  (obj as any).__type_args__ = args;
+  return obj;
+}
+
+// ── Generic type checking helper ────────────────────────────────────
+function __ball_split_type_args(s: string): string[] {
+  const result: string[] = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '<') depth++;
+    else if (s[i] === '>') depth--;
+    else if (s[i] === ',' && depth === 0) {
+      result.push(s.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  const last = s.slice(start).trim();
+  if (last) result.push(last);
+  return result;
+}
+function __ball_is_type(value: any, typeStr: string): boolean {
+  const t = typeStr.trim();
+  if (t.endsWith('?')) {
+    if (value == null) return true;
+    return __ball_is_type(value, t.slice(0, -1));
+  }
+  const ltIdx = t.indexOf('<');
+  if (ltIdx === -1) {
+    switch (t) {
+      case 'int': return typeof value === 'number' && Number.isInteger(value);
+      case 'double': return value instanceof BallDouble || (typeof value === 'number' && !Number.isInteger(value));
+      case 'num': case 'number': return typeof value === 'number' || value instanceof BallDouble;
+      case 'String': case 'string': return typeof value === 'string';
+      case 'bool': case 'boolean': return typeof value === 'boolean';
+      case 'List': case 'Iterable': return Array.isArray(value);
+      case 'Map': return typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof BallDouble) && !(value instanceof Set);
+      case 'Set': return value instanceof Set;
+      case 'Null': return value == null;
+      case 'Function': return typeof value === 'function';
+      case 'Object': case 'dynamic': return value != null;
+      default: {
+        const objType = value?.__type__ ?? value?.constructor?.name;
+        if (objType === t) return true;
+        return value != null;
+      }
+    }
+  }
+  const baseType = t.slice(0, ltIdx).trim();
+  const typeArgs = __ball_split_type_args(t.slice(ltIdx + 1, t.lastIndexOf('>')));
+  switch (baseType) {
+    case 'List': case 'Iterable':
+      if (!Array.isArray(value)) return false;
+      if (typeArgs.length === 0) return true;
+      return value.every((e: any) => __ball_is_type(e, typeArgs[0]));
+    case 'Map':
+      if (typeof value !== 'object' || value === null || Array.isArray(value) || value instanceof BallDouble || value instanceof Set) return false;
+      if (typeArgs.length < 2) return true;
+      return Object.keys(value).filter((k: string) => !k.startsWith('__')).every((k: string) => __ball_is_type(k, typeArgs[0]) && __ball_is_type(value[k], typeArgs[1]));
+    case 'Set':
+      if (!(value instanceof Set)) return false;
+      if (typeArgs.length === 0) return true;
+      for (const e of value) { if (!__ball_is_type(e, typeArgs[0])) return false; }
+      return true;
+    default: {
+      const objType = value?.__type__ ?? value?.constructor?.name;
+      if (objType === baseType) {
+        const objArgs = value.__type_args__;
+        if (Array.isArray(objArgs)) {
+          if (objArgs.length !== typeArgs.length) return false;
+          return objArgs.every((a: any, i: number) => String(a).trim() === typeArgs[i].trim());
+        }
+        return false;
+      }
+      return __ball_is_type(value, baseType);
+    }
+  }
+}
+
 // Minimal DateTime / Duration / Future polyfills used by std_time and
 // the round-tripped engine's sleep_ms helper. Wide enough for the
 // conformance suite, narrow enough to stay out of users' way.

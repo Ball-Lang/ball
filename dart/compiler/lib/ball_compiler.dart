@@ -16,7 +16,6 @@ export 'package:ball_base/ball_base.dart';
 export 'compiler.dart';
 export 'package:ball_encoder/encoder.dart';
 export 'package:ball_encoder/package_encoder.dart';
-export 'package:ball_engine/dart_std.dart' show buildDartStdModule;
 export 'package:ball_engine/engine.dart'
     show
         BallEngine,

@@ -74,7 +74,7 @@ toolchain (the engine itself is the self-hosted `engine_rt.cpp`, not native C++)
 - `BallValue` = `std::any` for runtime polymorphism
 - Maps use `std::map` (ordered), NOT `std::unordered_map`
 - Encoder uses Clang JSON AST (via `clang -Xclang -ast-dump=json`)
-- Normalizer converts `cpp_std` pointer ops to safe/unsafe memory ops
+- Encoder inlines C++ pointer ops to universal std/std_memory during encoding (no separate normalizer)
 - Compiler stack size: 128MB, Encoder: 256MB, Engine memory: 65KB
 - Memory.hpp: typed linear buffer for C/C++ interop
 - Ball files (`.ball.json`/`.ball.bin`) are self-describing `google.protobuf.Any`

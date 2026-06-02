@@ -49,7 +49,7 @@ Future<void> main() async {
 | Operators (`+`, `&`, `??`, ...) | `std.add`, `std.bitwise_and`, `std.null_coalesce`, ... |
 | Control flow (`if`, `for`, `while`, `try`, `switch`) | `std.if`, `std.for`, ... (lazy base functions) |
 | Type ops (`is`, `as`, `!`) | `std.is`, `std.as`, `std.null_check` |
-| Cascade, spread, null-aware, invoke, record | `dart_std.*` |
+| Cascade, spread, null-aware, invoke, record | `std.*` |
 | Classes | `DescriptorProto` + method `FunctionDefinition`s |
 | Lambdas / closures | Anonymous `FunctionDefinition` |
 

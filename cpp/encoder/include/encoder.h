@@ -5,12 +5,11 @@
 // Usage:
 //   1. Run `clang -Xclang -ast-dump=json <file.cpp>` to get the AST.
 //   2. Feed the JSON string into CppEncoder::encode_from_clang_ast().
-//   3. The resulting Program contains raw cpp_std nodes for normalization.
+//   3. The resulting Program uses only universal std/std_memory modules.
 //
 // Port of the Dart `encoder.dart` reference.
 
 #include "ball_shared.h"
-#include "cpp_std.h"
 
 #include <string>
 #include <vector>
@@ -102,9 +101,6 @@ private:
     std::string anon_name();
     ball::v1::Expression null_expr();
     ball::v1::Expression make_std_call(
-        const std::string& function,
-        std::vector<std::pair<std::string, ball::v1::Expression>> fields);
-    ball::v1::Expression make_cpp_std_call(
         const std::string& function,
         std::vector<std::pair<std::string, ball::v1::Expression>> fields);
 

@@ -180,7 +180,7 @@ Map<String, dynamic> stdCall(String function, Map<String, dynamic> input) =>
     call(function, module: 'std', input: input);
 
 Map<String, dynamic> dartStdCall(String function, Map<String, dynamic> input) =>
-    call(function, module: 'dart_std', input: input);
+    call(function, module: 'std', input: input);
 
 Map<String, dynamic> msg(
   List<Map<String, dynamic>> fields, {
@@ -1428,6 +1428,24 @@ void main() {
       await engine.run();
 
       expect(lines, ['safe']);
+    });
+
+    test('conformance 202: sandbox blocks file_read from ball.json', () async {
+      final program = loadProgram(
+        '../../tests/conformance/202_sandbox_mode.ball.json',
+      );
+      final engine = BallEngine(program, sandbox: true);
+
+      await expectLater(
+        engine.run(),
+        throwsA(
+          isA<BallRuntimeError>().having(
+            (error) => error.message,
+            'message',
+            equals('Sandbox violation: file_read is not allowed'),
+          ),
+        ),
+      );
     });
   });
 
@@ -6777,13 +6795,13 @@ void main() {
       ); // at minimum 3 print calls counted
     });
 
-    test('dart_std module also handled by StdModuleHandler', () async {
+    test('std module functions dispatched by StdModuleHandler', () async {
       final json = {
         'name': 'test',
         'version': '1.0.0',
         'modules': [
           {
-            'name': 'dart_std',
+            'name': 'std',
             'functions': [
               {'name': 'print', 'isBase': true},
               {'name': 'to_string', 'isBase': true},
@@ -6796,7 +6814,7 @@ void main() {
                 stmt(
                   dartStdCall(
                     'print',
-                    msg([field('message', literal('dart_std works!'))]),
+                    msg([field('message', literal('std works!'))]),
                   ),
                 ),
               ]),
@@ -6809,7 +6827,7 @@ void main() {
       final prog = Program()..mergeFromProto3Json(json);
       final lines = <String>[];
       await BallEngine(prog, stdout: lines.add).run();
-      expect(lines, ['dart_std works!']);
+      expect(lines, ['std works!']);
     });
   });
 
@@ -7821,110 +7839,6 @@ void main() {
       );
       final lines = await runAndCapture(program);
       expect(lines.first, equals('true'));
-    });
-  });
-
-  group('engine: cpp_std scope_exit cleanup', () {
-    test('runs cleanup when block exits', () async {
-      final json = {
-        'name': 'test',
-        'version': '1.0.0',
-        'modules': [
-          {
-            'name': 'std',
-            'functions': [
-              {'name': 'print', 'isBase': true},
-              {'name': 'assign', 'isBase': true},
-            ],
-          },
-          {
-            'name': 'cpp_std',
-            'functions': [
-              {'name': 'cpp_scope_exit', 'isBase': true},
-            ],
-          },
-          {
-            'name': 'main',
-            'functions': [
-              mainFn([
-                letStmt('x', literal(1), keyword: 'var'),
-                stmt(
-                  call(
-                    'cpp_scope_exit',
-                    module: 'cpp_std',
-                    input: msg([
-                      field('cleanup', printExpr(ref('x'))),
-                    ], typeName: 'ScopeExitInput'),
-                  ),
-                ),
-                stmt(
-                  stdCall(
-                    'assign',
-                    msg([
-                      field('target', ref('x')),
-                      field('value', literal(2)),
-                    ], typeName: 'AssignInput'),
-                  ),
-                ),
-              ]),
-            ],
-          },
-        ],
-        'entryModule': 'main',
-        'entryFunction': 'main',
-      };
-      final program = Program()..mergeFromProto3Json(json);
-      expect(await runAndCapture(program), ['2']);
-    });
-
-    test('runs multiple cleanups in LIFO order', () async {
-      final json = {
-        'name': 'test',
-        'version': '1.0.0',
-        'modules': [
-          {
-            'name': 'std',
-            'functions': [
-              {'name': 'print', 'isBase': true},
-            ],
-          },
-          {
-            'name': 'cpp_std',
-            'functions': [
-              {'name': 'cpp_scope_exit', 'isBase': true},
-            ],
-          },
-          {
-            'name': 'main',
-            'functions': [
-              mainFn([
-                stmt(
-                  call(
-                    'cpp_scope_exit',
-                    module: 'cpp_std',
-                    input: msg([
-                      field('cleanup', printStr('A')),
-                    ], typeName: 'ScopeExitInput'),
-                  ),
-                ),
-                stmt(
-                  call(
-                    'cpp_scope_exit',
-                    module: 'cpp_std',
-                    input: msg([
-                      field('cleanup', printStr('B')),
-                    ], typeName: 'ScopeExitInput'),
-                  ),
-                ),
-              ]),
-            ],
-          },
-        ],
-        'entryModule': 'main',
-        'entryFunction': 'main',
-      };
-      final program = Program()..mergeFromProto3Json(json);
-      expect(await runAndCapture(program), ['B', 'A']);
     });
   });
 

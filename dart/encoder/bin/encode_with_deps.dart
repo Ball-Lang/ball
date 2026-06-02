@@ -79,7 +79,7 @@ Future<void> main(List<String> args) async {
     stdout.writeln('   Total modules: ${stubModules.length}');
     stdout.writeln('   Total functions: $stubFnCount');
     stdout.writeln('   User modules (with code): ${userModuleNames.length}');
-    stdout.writeln('   Base modules (std/dart_std): ${baseModuleNames.length}');
+    stdout.writeln('   Base modules (std): ${baseModuleNames.length}');
     stdout.writeln(
       '   Stub modules (empty, external deps): ${stubModuleNames.length}',
     );

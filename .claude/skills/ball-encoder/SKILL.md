@@ -21,7 +21,7 @@ Source Code
   → Parse to language AST (analyzer for Dart, Clang for C++)
   → Walk AST nodes
   → Map each construct to Ball expressions
-  → Collect base function references (std, dart_std, etc.)
+  → Collect base function references (std, std_collections, etc.)
   → Build module structure (types, functions, imports)
   → Output Program protobuf message
 ```
@@ -57,9 +57,9 @@ Source Code
 | `&&` | `and` | std |
 | `\|\|` | `or` | std |
 | `!` | `not` | std |
-| `?.` | `null_aware_access` | dart_std |
-| `..` | `cascade` | dart_std |
-| `...` | `spread` | dart_std |
+| `?.` | `null_aware_access` | std |
+| `..` | `cascade` | std |
+| `...` | `spread` | std |
 
 ## Metadata Preservation
 
@@ -70,17 +70,16 @@ Encoders must capture cosmetic information as metadata for round-trip fidelity:
 - **LetBinding.metadata**: `type`, `is_final`, `is_const`, `is_late`, `is_var`
 - **Module.metadata**: `dart_imports`, `dart_exports`, platform-specific import info
 
-## Language-Specific Modules
+## Universal Module Architecture
 
-Language constructs that don't map to universal `std` go into language-specific modules:
-- `dart_std` — Dart: cascade, null_aware_access, spread, invoke, record, switch_expr
-- `cpp_std` — C++: deref, address_of, arrow, ptr_cast, cpp_new, cpp_delete, sizeof
+All language constructs route through universal modules (`std`, `std_collections`, `std_io`,
+`std_memory`). Language-specific base modules (`dart_std`, `cpp_std`) have been eliminated.
 
-## C++ Encoder Special: Normalizer
-
-The C++ encoder has a normalizer phase (`cpp/encoder/src/normalizer.cpp`) that converts `cpp_std` pointer operations into either:
-- **Safe projections**: variable references, field access (when pointer usage is safe)
-- **Unsafe lowerings**: `std_memory` operations (when actual pointer arithmetic is needed)
+Encoders expand language-specific constructs into universal `std` operations at encoding time:
+- Dart cascade (`..`) encodes as `std.cascade` (block expansion with target variable)
+- Dart null-aware access (`?.`) encodes as `std.null_aware_access` (conditional with null check)
+- Dart spread (`...`) encodes as `std.spread`
+- C++ pointer/reference ops inline into `std`/`std_memory` calls (field access, `std.as` for casts)
 
 ## Creating a New Encoder for a New Language
 

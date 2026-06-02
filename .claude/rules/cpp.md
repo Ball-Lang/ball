@@ -61,7 +61,7 @@ buf generate --template cpp/buf.gen.cpp.yaml -o cpp/shared/gen proto/
 
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)
-- Normalizer converts cpp_std pointer ops → safe refs or unsafe std_memory
+- C++ pointer/reference ops are inlined to universal std/std_memory during encoding (no separate normalizer)
 - Recursion limit: 512 for encoder, 10000 for protobuf
 
 ### Self-Hosted Engine (`dart/self_host/lib/engine_rt.cpp`)

@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "35_short_circuit",
   "version": "1.0.0",
   "modules": [
     {
@@ -8,6 +8,10 @@
       "functions": [
         {
           "name": "and",
+          "isBase": true
+        },
+        {
+          "name": "invoke",
           "isBase": true
         },
         {
@@ -80,16 +84,6 @@
       ]
     },
     {
-      "name": "dart_std",
-      "functions": [
-        {
-          "name": "invoke",
-          "isBase": true
-        }
-      ],
-      "description": "Dart-specific standard library base module"
-    },
-    {
       "name": "main",
       "functions": [
         {
@@ -134,7 +128,7 @@
                                 "name": "right",
                                 "value": {
                                   "call": {
-                                    "module": "dart_std",
+                                    "module": "std",
                                     "function": "invoke",
                                     "input": {
                                       "messageCreation": {
@@ -311,7 +305,7 @@
                                 "name": "right",
                                 "value": {
                                   "call": {
-                                    "module": "dart_std",
+                                    "module": "std",
                                     "function": "invoke",
                                     "input": {
                                       "messageCreation": {
@@ -476,9 +470,6 @@
       "moduleImports": [
         {
           "name": "std"
-        },
-        {
-          "name": "dart_std"
         }
       ]
     }

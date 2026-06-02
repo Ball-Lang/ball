@@ -26,7 +26,7 @@ Ball's Dart implementation is a workspace with 5 packages:
 - `DartEncoder.encode(String source)` → returns Ball `Program`
 - Uses `analyzer` package to parse Dart AST
 - Encodes ALL Dart expressions to Ball equivalents
-- Dart-specific constructs go to `dart_std` module (cascade, null_aware_access, spread, etc.)
+- All constructs (including cascade, null_aware_access, spread) route to universal `std` module
 - Build `std` modules from accumulated function references via `buildStdModules()`
 
 #### Syntactic-encoder gotchas (parseString — NO type resolution)
@@ -52,7 +52,7 @@ avoid constructs that need receiver-type info:
 ### Engine
 - `BallEngine.run(Program)` → executes, returns captured stdout
 - Scoping via linked `Scope` chain (lexical scoping with parent pointers)
-- `StdModuleHandler` dispatches std/dart_std base functions
+- `StdModuleHandler` dispatches all universal std base functions
 - Flow signals (break, continue, return) propagate via `FlowSignal` objects
 - Custom modules via `BallModuleHandler` abstract class
 

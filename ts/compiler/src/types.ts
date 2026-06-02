@@ -99,6 +99,7 @@ export interface Literal {
 export interface MessageCreation {
   typeName?: string;
   fields: FieldValuePair[];
+  metadata?: Struct;
 }
 
 export interface FieldValuePair {

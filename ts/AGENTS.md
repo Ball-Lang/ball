@@ -36,4 +36,4 @@ Commands: see CLAUDE.md → Build & Test (canonical) and `.claude/rules/ts.md` f
 - TS engine: single-threaded async (no isolates), browser-compatible
 - TS compiler: uses ts-morph in-process (no shell-out)
 - TS encoder: AST-based source transformation
-- No `dart_std` module — Dart-specific base functions (`cascade`, `nullAwareAccess`, `spread`) are not implemented
+- All base functions route through `std` — the `dart_std` module has been eliminated from encoders

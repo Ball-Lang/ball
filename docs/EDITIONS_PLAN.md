@@ -38,7 +38,7 @@ What we are NOT building: a new package, a new std module, or a protoc plugin. T
 - stays a single self-contained file (dependencies embedded inline),
 - preserves the internal multi-module structure,
 - uses Ball's native module system (`ModuleImport` + `InlineSource`) — **no schema change**, and
-- drops the bundled `std`/`dart_std`/`std_collections`/`proto` modules (a library does not bundle std; the consuming program/engine provides them).
+- drops the bundled `std`/`std_collections`/`proto` modules (a library does not bundle std; the consuming program/engine provides them).
 
 `gen_ball_protobuf.dart` changes from `Program()..modules.addAll([...])` to building a facade `Module` with `moduleImports` carrying each implementation module inline (`InlineSource(proto_bytes: module.writeToBuffer())`), wrapped in the existing `Any` envelope as `ball.v1.Module`.
 

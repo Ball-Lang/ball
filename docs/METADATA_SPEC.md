@@ -129,6 +129,85 @@ is semantically identical to the original.
 
 ---
 
+## MessageCreation.metadata
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `is_const` | `bool` | Const constructor call (`const Foo()`). |
+| `type_args` | `[{name, type_args?, nullable?}]` | Structured generic type arguments (e.g. `Box<int>` → `[{name: "int"}]`). |
+| `kind` | `string` | `"record"` for Dart record literals `(a, b, name: c)`. |
+
+---
+
+## Naming Conventions (Non-Metadata)
+
+These are naming conventions used in references, let-bindings, and function
+names. They are NOT metadata fields — they appear as string values within
+the expression tree. All are internal conventions; stripping them would
+change program semantics.
+
+### `__cascade_self__`
+
+A sentinel reference name for the cascade receiver. When encoding Dart
+cascade expressions (`target..a()..b()`), the encoder emits sections that
+reference `__cascade_self__` instead of re-evaluating the target. The
+compiler recognizes this sentinel and emits cascade syntax.
+
+### `__no_init__`
+
+A sentinel reference used as the initial value of `late` (uninitialized)
+variables. The engine treats `__no_init__` as a special marker; accessing
+a late variable before assignment throws a runtime error.
+
+### `__type_args__` (MessageCreation field)
+
+Legacy field in `MessageCreation.fields` carrying generic type arguments
+as a string (e.g. `"<int>"`). Used by the engine for reified generic type
+checks on objects. Being migrated to `MessageCreation.metadata.type_args`
+(structured TypeRef). Both formats are currently produced during transition.
+
+### Operator method names (`__op_*__`)
+
+Dart operator overloads are encoded as methods with dunder-wrapped names:
+
+| Operator | Method Name |
+|----------|-------------|
+| `+` | `__op_add__` |
+| `-` | `__op_sub__` |
+| `*` | `__op_mul__` |
+| `/` | `__op_div__` |
+| `~/` | `__op_truncate_div__` |
+| `%` | `__op_mod__` |
+| `==` | `__op_eq__` |
+| `<` | `__op_lt__` |
+| `>` | `__op_gt__` |
+| `<=` | `__op_lte__` |
+| `>=` | `__op_gte__` |
+| `-` (unary) | `__op_unary_minus__` |
+| `[]` | `__op_index__` |
+| `[]=` | `__op_index_set__` |
+| `~` | `__op_bitwise_not__` |
+| `<<` | `__op_shl__` |
+| `>>` | `__op_shr__` |
+| `>>>` | `__op_ushr__` |
+| `&` | `__op_bitwise_and__` |
+| `\|` | `__op_bitwise_or__` |
+| `^` | `__op_bitwise_xor__` |
+
+The engine's `StdModuleHandler` maps these back to operators for dispatch.
+Compilers targeting languages with operator overloading should emit the
+native operator syntax using `FunctionDefinition.metadata.is_operator`.
+
+### `__pattern_kind__`
+
+Discriminator field in MessageCreation for structured pattern types in
+switch cases. Values: `"record"`, `"var"`, `"type"`, `"wildcard"`,
+`"constant"`, `"list"`, `"map"`, `"object"`, `"logicalAnd"`,
+`"logicalOr"`. See `docs/PATTERN_DESIGN.md` for the full pattern encoding
+scheme.
+
+---
+
 ## Ball Scoping Model
 
 Ball uses dot-notation for scope:

@@ -7,7 +7,7 @@
 ///   - Operators       → std.add, std.subtract, std.bitwise_and, etc.
 ///   - Control flow    → std.if, std.for, std.while, std.try, etc.
 ///   - Type operations → std.is, std.as, std.null_check, etc.
-///   - Dart-specific   → dart_std.cascade, dart_std.spread, dart_std.record, etc.
+///   - Dart constructs → std.cascade, std.spread, std.record, etc. (universal std)
 ///   - Classes         → DescriptorProto (fields) + FunctionDefinition (methods)
 ///   - Lambdas/closures → FunctionDefinition with name = "" (anonymous)
 ///   - Everything else → FunctionCall to std module with MessageCreation input
@@ -37,35 +37,11 @@ class EncoderError implements Exception {
       'EncoderError: $message${source != null ? ' at $source' : ''}';
 }
 
-/// Functions that belong to the Dart-specific `dart_std` module rather than
-/// the universal `std` module.
-/// Functions that belong to the Dart-specific `dart_std` module because
-/// they have no universal analog (Dart syntax features like cascade,
-/// null-aware access, record literals, or collection elements that
-/// can't be represented as plain calls).
-///
-/// Operations with a universal std equivalent have been promoted out
-/// of this set so the encoded program uses the shared `std` module.
-/// This is the practical form of "per-language modules build on common
-/// modules": cross-language compilation only needs to handle `std.*`
-/// for these ops, not a parallel dart_std version.
-///
-/// Promoted to std: `labeled`, `switch_expr`, `yield_each`, `set_create`,
-/// `map_create` (all handled by every engine's std dispatch table).
-const _dartStdFunctions = {
-  'null_aware_access',
-  'null_aware_call',
-  'cascade',
-  'spread',
-  'null_spread',
-  'invoke',
-  'record',
-  'collection_if',
-  'collection_for',
-  'symbol',
-  'type_literal',
-  'typed_list',
-};
+/// All base functions route to the universal `std` module.
+/// Language-specific base modules have been eliminated — encoders emit only
+/// universal modules (`std`, `std_collections`, `std_io`, `std_memory`).
+/// Functions like cascade, null_aware_access, spread, invoke, and record
+/// are part of the `std` dispatch table.
 
 /// Encodes Dart source code into a ball [Program].
 class DartEncoder {
@@ -101,7 +77,11 @@ class DartEncoder {
   /// All user-defined type names are prefixed with `"$_moduleName:"`.
   String _moduleName = 'main';
 
-  /// True while encoding the sections of a [ast.CascadeExpression].
+  /// Counter for generating unique temporary variable names in expansions
+  /// (null_aware_access, null_aware_call). Reset in [encode]; intentionally
+  /// NOT reset in [encodeModule] so names stay unique across a package.
+  int _tempVarCounter = 0;
+
   /// Used to emit a `__cascade_self__` placeholder for null-target nodes
   /// (PropertyAccess, IndexExpression, MethodInvocation) that implicitly
   /// refer to the cascade receiver.
@@ -151,6 +131,7 @@ class DartEncoder {
     _exportDetails.clear();
     _partDetails.clear();
     _partOfUri = null;
+    _tempVarCounter = 0;
     warnings.clear();
     // The encoded output always uses a single module named 'main'.
     _moduleName = 'main';
@@ -195,7 +176,7 @@ class DartEncoder {
   ///
   /// Unlike [encode], this does **not** reset [_usedBaseFunctions], so you
   /// can call it for every file in a package and then call [buildStdModules]
-  /// once to obtain consolidated std/dart_std modules for the whole package.
+  /// once to obtain consolidated std modules for the whole package.
   ///
   /// [moduleName] is the ball module name to assign (e.g. `'lib.src.utils'`).
   ///
@@ -246,20 +227,18 @@ class DartEncoder {
     return _buildModule(unit, moduleName: moduleName);
   }
 
-  /// Build consolidated std and dart_std [Module]s from all base functions
+  /// Build consolidated std [Module]s from all base functions
   /// accumulated since the last [encode] call or manual [clearStdAccumulator].
   ///
   /// Use after a sequence of [encodeModule] calls to obtain the shared base
   /// modules for a whole package.
   ({
     Module stdModule,
-    Module? dartStdModule,
     Module? collectionsModule,
     Module? protoModule,
   })
   buildStdModules() => (
     stdModule: _buildStdModule(),
-    dartStdModule: _buildDartStdModule(),
     collectionsModule: _buildCollectionsModule(),
     protoModule: _buildProtoModule(),
   );
@@ -486,7 +465,6 @@ class DartEncoder {
       partUnits: partUnits,
     );
     final stdModule = _buildStdModule();
-    final dartStdModule = _buildDartStdModule();
     final collectionsModule = _buildCollectionsModule();
     final protoModule = _buildProtoModule();
 
@@ -497,7 +475,6 @@ class DartEncoder {
       ..entryFunction = 'main'
       ..modules.addAll([
         stdModule,
-        ?dartStdModule,
         ?collectionsModule,
         ?protoModule,
         ...importStubs,
@@ -510,8 +487,8 @@ class DartEncoder {
   /// [importStubs] are empty-body placeholder modules for external imports
   /// that were not resolved via [uriOverrides] in [_resolveImports].
   /// Base-function names used during encoding are **accumulated** into
-  /// [_usedBaseFunctions] — call [_buildStdModule] / [_buildDartStdModule]
-  /// afterwards to materialise them.
+  /// [_usedBaseFunctions] — call [_buildStdModule] afterwards to materialise
+  /// them.
   ({Module module, List<Module> importStubs}) _buildModule(
     ast.CompilationUnit unit, {
     required String moduleName,
@@ -572,7 +549,7 @@ class DartEncoder {
 
     // Stub modules for external imports (not overridden to an in-package module).
     final importStubs = <Module>[];
-    final knownModuleNames = {'std', 'dart_std', moduleName};
+    final knownModuleNames = {'std', moduleName};
     List<String>? libraryAnnotations;
     for (final directive in unit.directives) {
       if (directive is ast.LibraryDirective && directive.metadata.isNotEmpty) {
@@ -596,9 +573,6 @@ class DartEncoder {
     }
 
     final importNames = ['std'];
-    if (_usedBaseFunctions.any((f) => _dartStdFunctions.contains(f))) {
-      importNames.add('dart_std');
-    }
     importNames.addAll(_importedModules);
 
     // Wrap legacy bare descriptors as TypeDefinitions, deduping by name in
@@ -645,18 +619,14 @@ class DartEncoder {
   // Base module auto-discovery
   // ============================================================
 
-  /// Returns the module name for a base function ('std' or 'dart_std').
-  static String _moduleForFunction(String function) =>
-      _dartStdFunctions.contains(function) ? 'dart_std' : 'std';
+  /// Returns the module name for a base function (always 'std').
+  static String _moduleForFunction(String function) => 'std';
 
   Module _buildStdModule() {
     final types = <String, google.DescriptorProto>{};
     final functions = <FunctionDefinition>[];
 
-    // Only include functions that belong to the universal std module.
-    final stdFunctions = _usedBaseFunctions.where(
-      (f) => !_dartStdFunctions.contains(f),
-    );
+    final stdFunctions = _usedBaseFunctions;
 
     if (stdFunctions.contains('print')) {
       types['PrintInput'] = google.DescriptorProto()
@@ -760,29 +730,6 @@ class DartEncoder {
             ..descriptor = d,
         ),
       )
-      ..functions.addAll(functions);
-  }
-
-  /// Build the Dart-specific dart_std module, or null if nothing was used.
-  Module? _buildDartStdModule() {
-    final dartFunctions = _usedBaseFunctions
-        .where((f) => _dartStdFunctions.contains(f))
-        .toList();
-
-    if (dartFunctions.isEmpty) return null;
-
-    final functions = <FunctionDefinition>[];
-    for (final name in dartFunctions) {
-      functions.add(
-        FunctionDefinition()
-          ..name = name
-          ..isBase = true,
-      );
-    }
-
-    return Module()
-      ..name = 'dart_std'
-      ..description = 'Dart-specific standard library base module'
       ..functions.addAll(functions);
   }
 
@@ -2905,16 +2852,7 @@ class DartEncoder {
           : _encodeExpr(target);
 
       if (expr.operator.lexeme == '?.') {
-        _usedBaseFunctions.add('null_aware_access');
-        return _buildStdCall('null_aware_access', [
-          FieldValuePair()
-            ..name = 'target'
-            ..value = targetExpr,
-          FieldValuePair()
-            ..name = 'field'
-            ..value = (Expression()
-              ..literal = (Literal()..stringValue = field)),
-        ]);
+        return _buildNullAwareAccess(targetExpr, field);
       }
 
       if (target is ast.SimpleIdentifier &&
@@ -3287,16 +3225,6 @@ class DartEncoder {
         // Preserve type arguments (e.g. `CancelableCompleter<void>()`) as
         // structured TypeRef in metadata.
         _setTypeArgsMetadata(msg, typeArgSrc);
-        // Also store as `__type_args__` field for engine reified generics.
-        if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-          msg.fields.insert(
-            0,
-            FieldValuePair()
-              ..name = '__type_args__'
-              ..value = (Expression()
-                ..literal = (Literal()..stringValue = typeArgSrc)),
-          );
-        }
         return Expression()..messageCreation = msg;
       }
 
@@ -3424,30 +3352,14 @@ class DartEncoder {
       }
     }
 
-    // Null-aware method call: target?.method(args)
+    // Null-aware method call: target?.method(args) → expanded to Block+std.if
     if (isNullAware && realTarget != null) {
-      _usedBaseFunctions.add('null_aware_call');
-      final naFields = <FieldValuePair>[
-        FieldValuePair()
-          ..name = 'target'
-          ..value = _encodeExpr(realTarget),
-        FieldValuePair()
-          ..name = 'method'
-          ..value = (Expression()
-            ..literal = (Literal()..stringValue = methodName)),
-        ...args,
-      ];
-      // Structured type arguments on the FunctionCall (forwarded to the inner
-      // method by the engine's null_aware_call implementation).
-      final call = FunctionCall()
-        ..module = _moduleForFunction('null_aware_call')
-        ..function = 'null_aware_call'
-        ..input = (Expression()
-          ..messageCreation = (MessageCreation()
-            ..typeName = ''
-            ..fields.addAll(naFields)));
-      call.typeArgs.addAll(_parseTypeArgs(typeArgSrc));
-      return Expression()..call = call;
+      return _buildNullAwareCall(
+        _encodeExpr(realTarget),
+        methodName,
+        args,
+        _parseTypeArgs(typeArgSrc),
+      );
     }
 
     // Collection/built-in method calls route to std_collections or std
@@ -3678,20 +3590,9 @@ class DartEncoder {
       ..typeName = fullTypeName
       ..fields.addAll(args);
     _setTypeArgsMetadata(msg, typeArgSrc);
-    // Also store type args as a `__type_args__` field so the engine can use
-    // them for reified generic type checks (e.g. `Box<int>` vs `Box<String>`).
-    if (typeArgSrc != null && typeArgSrc.isNotEmpty) {
-      msg.fields.insert(
-        0,
-        FieldValuePair()
-          ..name = '__type_args__'
-          ..value = (Expression()
-            ..literal = (Literal()..stringValue = typeArgSrc)),
-      );
-    }
     // Preserve const keyword for const constructor calls in metadata.
     if (expr.keyword?.lexeme == 'const') {
-      msg.metadata.fields['is_const'] =
+      msg.ensureMetadata().fields['is_const'] =
           structpb.Value()..boolValue = true;
     }
 
@@ -3742,37 +3643,47 @@ class DartEncoder {
       if (result != null) return result;
     }
 
-    _usedBaseFunctions.add('cascade');
-    // Mark sections so null-target nodes (PropertyAccess, IndexExpression,
-    // MethodInvocation) emit __cascade_self__ instead of crashing.
+    // Expand cascade to Block: let __cascade_self__ = target; sections; result.
     final wasInCascade = _inCascadeSection;
     _inCascadeSection = true;
     final sections = expr.cascadeSections.map(_encodeExpr).toList();
     _inCascadeSection = wasInCascade;
-    final fields = <FieldValuePair>[
-      FieldValuePair()
-        ..name = 'target'
-        ..value = _encodeExpr(expr.target),
-      FieldValuePair()
-        ..name = 'sections'
-        ..value = (Expression()
-          ..literal = (Literal()
-            ..listValue = (ListLiteral()..elements.addAll(sections)))),
-    ];
-    // Preserve null-awareness: `scopeUser?..id = ...` uses `?..`
-    if (expr.cascadeSections.isNotEmpty &&
-        expr.target is ast.SimpleIdentifier) {
-      // The first cascade section's operator determines if it's null-aware.
-    }
-    // Use the isNullAware flag from the cascade expression (Dart 3 AST).
+
+    final targetExpr = _encodeExpr(expr.target);
+    final metaFields = <String, structpb.Value>{
+      'kind': structpb.Value()..stringValue = 'cascade',
+    };
     if (expr.isNullAware) {
-      fields.add(
-        FieldValuePair()
-          ..name = 'null_aware'
-          ..value = (Expression()..literal = (Literal()..boolValue = true)),
-      );
+      metaFields['null_aware'] = structpb.Value()..boolValue = true;
     }
-    return _buildStdCall('cascade', fields);
+    final letStmt = Statement()
+      ..let = (LetBinding()
+        ..name = '__cascade_self__'
+        ..value = targetExpr
+        ..metadata = (structpb.Struct()..fields.addAll(metaFields)));
+
+    final sectionStmts =
+        sections.map((s) => Statement()..expression = s).toList();
+
+    if (expr.isNullAware) {
+      _usedBaseFunctions.addAll(['if', 'equals']);
+      return Expression()
+        ..block = (Block()
+          ..statements.add(letStmt)
+          ..result = _buildNullGuard(
+            () => _refExpr('__cascade_self__'),
+            Expression()
+              ..block = (Block()
+                ..statements.addAll(sectionStmts)
+                ..result = _refExpr('__cascade_self__')),
+          ));
+    }
+
+    return Expression()
+      ..block = (Block()
+        ..statements.add(letStmt)
+        ..statements.addAll(sectionStmts)
+        ..result = _refExpr('__cascade_self__'));
   }
 
   /// Try to encode a single-section cascade as a collection/std call.
@@ -4678,8 +4589,133 @@ class DartEncoder {
       ..structValue = (structpb.Struct()..fields.addAll(fields));
   }
 
-  /// Build a base function call with named fields.
-  /// Automatically routes to 'std' or 'dart_std' based on the function name.
+  // ============================================================
+  // Syntax expansion helpers — expand Dart-specific constructs into
+  // universal expression trees (Block + std.if + std.equals).
+  // ============================================================
+
+  static Expression _refExpr(String name) =>
+      Expression()..reference = (Reference()..name = name);
+
+  static Expression _nullExpr() => Expression()..literal = Literal();
+
+  /// Build `std.if(condition: std.equals(ref, null), then: null, else: elseExpr)`.
+  /// Each protobuf node is a fresh instance (no aliasing).
+  Expression _buildNullGuard(
+    Expression Function() refBuilder,
+    Expression elseExpr,
+  ) {
+    return _buildStdCall('if', [
+      FieldValuePair()
+        ..name = 'condition'
+        ..value = _buildStdCall('equals', [
+          FieldValuePair()
+            ..name = 'left'
+            ..value = refBuilder(),
+          FieldValuePair()
+            ..name = 'right'
+            ..value = _nullExpr(),
+        ]),
+      FieldValuePair()
+        ..name = 'then'
+        ..value = _nullExpr(),
+      FieldValuePair()
+        ..name = 'else'
+        ..value = elseExpr,
+    ]);
+  }
+
+  /// Expand `target?.field` to `std.if(equals(target, null), null, target.field)`.
+  /// For simple Reference targets, emits the if directly (no temp variable).
+  /// For complex targets, wraps in a Block with a LetBinding to avoid
+  /// evaluating the target twice.
+  Expression _buildNullAwareAccess(Expression targetExpr, String field) {
+    _usedBaseFunctions.addAll(['if', 'equals']);
+
+    if (targetExpr.whichExpr() == Expression_Expr.reference) {
+      final name = targetExpr.reference.name;
+      return _buildNullGuard(
+        () => _refExpr(name),
+        Expression()
+          ..fieldAccess = (FieldAccess()
+            ..object = _refExpr(name)
+            ..field_2 = field),
+      );
+    }
+
+    final tempName = '__naa_${_tempVarCounter++}';
+    return Expression()
+      ..block = (Block()
+        ..statements.add(Statement()
+          ..let = (LetBinding()
+            ..name = tempName
+            ..value = targetExpr
+            ..metadata = (structpb.Struct()
+              ..fields['kind'] =
+                  (structpb.Value()..stringValue = 'null_aware_access')
+              ..fields['field'] =
+                  (structpb.Value()..stringValue = field))))
+        ..result = _buildNullGuard(
+          () => _refExpr(tempName),
+          Expression()
+            ..fieldAccess = (FieldAccess()
+              ..object = _refExpr(tempName)
+              ..field_2 = field),
+        ));
+  }
+
+  /// Expand `target?.method(args)` to `std.if(equals(target, null), null, target.method(args))`.
+  Expression _buildNullAwareCall(
+    Expression targetExpr,
+    String methodName,
+    List<FieldValuePair> args,
+    List<TypeRef> typeArgs,
+  ) {
+    _usedBaseFunctions.addAll(['if', 'equals']);
+
+    Expression buildInnerCall(Expression Function() selfBuilder) {
+      final call = FunctionCall()
+        ..function = methodName
+        ..input = (Expression()
+          ..messageCreation = (MessageCreation()
+            ..typeName = ''
+            ..fields.addAll([
+              FieldValuePair()
+                ..name = 'self'
+                ..value = selfBuilder(),
+              ...args,
+            ])));
+      call.typeArgs.addAll(typeArgs);
+      return Expression()..call = call;
+    }
+
+    if (targetExpr.whichExpr() == Expression_Expr.reference) {
+      final name = targetExpr.reference.name;
+      return _buildNullGuard(
+        () => _refExpr(name),
+        buildInnerCall(() => _refExpr(name)),
+      );
+    }
+
+    final tempName = '__nac_${_tempVarCounter++}';
+    return Expression()
+      ..block = (Block()
+        ..statements.add(Statement()
+          ..let = (LetBinding()
+            ..name = tempName
+            ..value = targetExpr
+            ..metadata = (structpb.Struct()
+              ..fields['kind'] =
+                  (structpb.Value()..stringValue = 'null_aware_call')
+              ..fields['method'] =
+                  (structpb.Value()..stringValue = methodName))))
+        ..result = _buildNullGuard(
+          () => _refExpr(tempName),
+          buildInnerCall(() => _refExpr(tempName)),
+        ));
+  }
+
+  /// Build a base function call with named fields in the 'std' module.
   Expression _buildStdCall(String function, List<FieldValuePair> fields) {
     return Expression()
       ..call = (FunctionCall()

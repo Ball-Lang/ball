@@ -1467,7 +1467,7 @@ inline bool handles(const BallDyn& handler, const BallDyn& module) {
     return mod == "std" || mod == "dart_std" || mod == "std_collections" ||
            mod == "std_io" || mod == "std_memory" || mod == "std_convert" ||
            mod == "std_fs" || mod == "std_time" || mod == "std_concurrency" ||
-           mod == "cpp_std" || mod.empty();
+           mod.empty();
 }
 template<typename E>
 inline BallDyn call(const BallDyn& handler, const BallDyn& function, const BallDyn& input, E&& engine_fn) {

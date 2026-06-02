@@ -42,7 +42,7 @@ const _stdFunctionToOperatorSymbol = <String, String>{
 
 extension BallEngineStd on BallEngine {
   // ============================================================
-  // Base Functions (std + dart_std modules)
+  // Base Functions (std module)
   // ============================================================
 
   /// Unwrap a value that may be a [BallMap] or a raw [Map<String, Object?>].
@@ -1217,75 +1217,6 @@ extension BallEngineStd on BallEngine {
       'atomic_store': (i) => null,
       'atomic_compare_exchange': (i) => true,
 
-      // ── cpp_std (no-op / passthrough in Dart engine) ──────────
-      // cpp_scope_exit is handled lazily in _evalCall; this entry handles
-      // the rare case of it reaching the dispatch table (already registered).
-      'cpp_scope_exit': (_) => null,
-      'cpp_destructor': (_) => null,
-      'cpp_move': (i) {
-        final im = _stdAsMap(i);
-        if (im != null) return im['value'];
-        return i;
-      },
-      'cpp_forward': (i) {
-        final im = _stdAsMap(i);
-        if (im != null) return im['value'];
-        return i;
-      },
-      'cpp_make_unique': (i) => i,
-      'cpp_make_shared': (i) => i,
-      'cpp_unique_ptr_get': (i) {
-        final im = _stdAsMap(i);
-        if (im != null) return im['value'];
-        return i;
-      },
-      'cpp_shared_ptr_get': (i) {
-        final im = _stdAsMap(i);
-        if (im != null) return im['value'];
-        return i;
-      },
-      'cpp_shared_ptr_use_count': (_) => 1,
-      'cpp_static_assert': (_) => null,
-      'cpp_decltype': (i) => i,
-      'cpp_auto': (i) => i,
-      'cpp_structured_binding': (i) => i,
-      'cpp_template_instantiate': (i) => i,
-      'cpp_new': (i) => i,
-      'cpp_delete': (_) => null,
-      'cpp_sizeof': (_) => 8,
-      'cpp_alignof': (_) => 8,
-      'ptr_cast': (i) {
-        final im = _stdAsMap(i);
-        if (im != null) return im['value'];
-        return i;
-      },
-      'arrow': (i) {
-        final im = _stdAsMap(i);
-        if (im != null) {
-          final target = im['target'];
-          final field = im['field'];
-          final targetMap = _stdAsMap(target);
-          if (targetMap != null && field is String) {
-            return targetMap[field];
-          }
-        }
-        return null;
-      },
-      'deref': (i) {
-        final im = _stdAsMap(i);
-        if (im != null) return im['value'];
-        return i;
-      },
-      'address_of': (i) => i,
-      'init_list': (i) => i,
-      'nullptr': (_) => null,
-      'cpp_ifdef': (i) {
-        // Runtime: just evaluate 'then' side (no compile-time symbols in engine)
-        final im = _stdAsMap(i);
-        if (im != null) return im['then_body'];
-        return null;
-      },
-      'cpp_defined': (_) => false,
       'goto': (i) {
         final im = _stdAsMap(i);
         if (im != null) {
@@ -1553,14 +1484,14 @@ extension BallEngineStd on BallEngine {
   FutureOr<Object?> _stdListGenerate(Object? input) async {
     final m = _stdAsMap(input);
     if (m == null) {
-      throw BallRuntimeError('dart_std.list_generate: expected message');
+      throw BallRuntimeError('std.list_generate: expected message');
     }
     final length = _toInt(m['length'] ?? m['count'] ?? m['arg0']);
     final generator =
         m['generator'] ?? m['callback'] ?? m['function'] ?? m['arg1'];
     if (generator is! Function) {
       throw BallRuntimeError(
-        'dart_std.list_generate: generator is not callable',
+        'std.list_generate: generator is not callable',
       );
     }
     _trackMemoryAllocation(length * _ballPointerBytes);
@@ -1576,7 +1507,7 @@ extension BallEngineStd on BallEngine {
   Object? _stdListFilled(Object? input) {
     final m = _stdAsMap(input);
     if (m == null) {
-      throw BallRuntimeError('dart_std.list_filled: expected message');
+      throw BallRuntimeError('std.list_filled: expected message');
     }
     final length = _toInt(m['length'] ?? m['count'] ?? m['arg0']);
     _trackMemoryAllocation(length * _ballPointerBytes);

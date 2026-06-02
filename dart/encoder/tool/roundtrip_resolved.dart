@@ -253,7 +253,6 @@ Future<Directory> _writePackage(
   // Write each compiled module.
   for (final MapEntry(key: moduleName, value: source) in modules.entries) {
     if (moduleName == 'std' ||
-        moduleName == 'dart_std' ||
         moduleName == '__assets__') {
       continue;
     }

@@ -68,6 +68,119 @@ void CppCompiler::build_lookup_tables() {
                 if (!params.empty()) param_cache_[key] = std::move(params);
             }
         }
+
+        // OOP class metadata: collect class names, superclasses, methods.
+        for (const auto& td : mod.type_defs()) {
+            if (!td.has_metadata()) continue;
+            auto tmeta = read_type_meta(td);
+            if (tmeta.count("kind") && tmeta["kind"] == "class") {
+                std::string cls_name = td.name();
+                auto bare_name = cls_name;
+                auto colon_pos = bare_name.find(':');
+                if (colon_pos != std::string::npos)
+                    bare_name = bare_name.substr(colon_pos + 1);
+                user_class_names_.insert(sanitize_name(bare_name));
+                class_typedefs_[cls_name] = &td;
+                if (tmeta.count("superclass"))
+                    class_superclass_[cls_name] = tmeta["superclass"];
+                else
+                    class_superclass_[cls_name] = "";
+                if (tmeta.count("is_abstract") && tmeta["is_abstract"] == "true")
+                    class_abstract_methods_[cls_name]; // ensure entry exists
+            }
+        }
+
+        // Map methods to their owning classes.
+        for (const auto& func : mod.functions()) {
+            if (func.is_base()) continue;
+            if (!func.has_metadata()) continue;
+            auto meta_map = read_meta(func);
+            auto kind = meta_map.count("kind") ? meta_map["kind"] : "";
+            if (kind != "method" && kind != "constructor" && kind != "static_field" &&
+                kind != "operator")
+                continue;
+
+            // Parse "module:Class.method" from func.name()
+            auto colon_pos = func.name().find(':');
+            if (colon_pos == std::string::npos) continue;
+            std::string after = func.name().substr(colon_pos + 1);
+            auto dot_pos = after.find('.');
+            if (dot_pos == std::string::npos) continue;
+            std::string class_part = func.name().substr(0, colon_pos + 1 + dot_pos);
+            std::string method_basename = after.substr(dot_pos + 1);
+            std::string smethod = sanitize_name(method_basename);
+
+            if (kind == "method") {
+                bool is_static = meta_map.count("is_static") && meta_map["is_static"] == "true";
+                bool is_getter = meta_map.count("is_getter") && meta_map["is_getter"] == "true";
+                bool is_setter = meta_map.count("is_setter") && meta_map["is_setter"] == "true";
+                bool is_abstract = meta_map.count("is_abstract") && meta_map["is_abstract"] == "true";
+
+                method_to_classes_[smethod].insert(class_part);
+
+                if (is_static) {
+                    class_static_methods_[class_part].insert(smethod);
+                }
+                if (is_getter) {
+                    class_getters_[class_part].insert(smethod);
+                }
+                if (is_setter) {
+                    class_setters_[class_part].insert(smethod);
+                }
+                if (is_abstract) {
+                    class_abstract_methods_[class_part].insert(smethod);
+                }
+            } else if (kind == "constructor") {
+                bool is_factory = meta_map.count("is_factory") && meta_map["is_factory"] == "true";
+                if (is_factory) {
+                    class_factory_ctors_[class_part].push_back(method_basename);
+                } else if (method_basename != "new" &&
+                           method_basename != sanitize_name(after.substr(0, dot_pos))) {
+                    class_named_ctors_[class_part].push_back(method_basename);
+                }
+            }
+        }
+    }
+
+    // Determine which methods are overridden (i.e., a subclass redefines a
+    // method that already exists in a parent class). This drives the `virtual`
+    // keyword emission.
+    for (const auto& [cls, super] : class_superclass_) {
+        if (super.empty()) continue;
+        // Find the full class name for the superclass.
+        std::string super_full;
+        for (const auto& [c, _] : class_superclass_) {
+            auto sc = c;
+            auto sc_colon = sc.find(':');
+            std::string sc_bare = sc_colon != std::string::npos ? sc.substr(sc_colon + 1) : sc;
+            if (sc_bare == super) { super_full = c; break; }
+        }
+        if (super_full.empty()) continue;
+        // For each method in this class, check if the super class also defines it.
+        for (const auto& [method_name, classes] : method_to_classes_) {
+            if (classes.count(cls) && classes.count(super_full)) {
+                overridden_methods_.insert(method_name);
+            }
+        }
+        // Also walk upward through the chain: if a grandparent defines the
+        // method, the parent's version needs virtual too.
+        std::string ancestor = super_full;
+        while (!ancestor.empty()) {
+            for (const auto& [method_name, classes] : method_to_classes_) {
+                if (classes.count(cls) && classes.count(ancestor)) {
+                    overridden_methods_.insert(method_name);
+                }
+            }
+            auto ait = class_superclass_.find(ancestor);
+            if (ait == class_superclass_.end() || ait->second.empty()) break;
+            std::string next_ancestor;
+            for (const auto& [c2, _] : class_superclass_) {
+                auto c2_colon = c2.find(':');
+                std::string c2_bare = c2_colon != std::string::npos ? c2.substr(c2_colon + 1) : c2;
+                if (c2_bare == ait->second) { next_ancestor = c2; break; }
+            }
+            ancestor = next_ancestor;
+        }
     }
 }
 
@@ -757,6 +870,38 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
         auto method_name = sanitize_name(access.object().reference().name());
         return "BallDyn(" + method_name + "())[\"" + field + "\"s]";
     }
+    // User-defined class getter dispatch: if the field name is a known getter
+    // for any user class, emit as a method call `obj.field()` instead of a
+    // map-style bracket access. Also check if it is a plain struct field
+    // (not a getter method) — emit `obj.field` for direct field access.
+    {
+        std::string sfield = sanitize_name(field);
+        bool is_getter = false;
+        bool is_plain_field = false;
+        for (const auto& [cls, getters] : class_getters_) {
+            if (getters.count(sfield)) { is_getter = true; break; }
+        }
+        if (!is_getter) {
+            // Check if field is a direct struct field on any user class.
+            for (const auto& [cls, td_ptr] : class_typedefs_) {
+                if (!td_ptr || !td_ptr->has_descriptor_()) continue;
+                for (const auto& fd : td_ptr->descriptor_().field()) {
+                    if (sanitize_name(fd.name()) == sfield) {
+                        is_plain_field = true;
+                        break;
+                    }
+                }
+                if (is_plain_field) break;
+            }
+        }
+        if (is_getter) {
+            return obj + "." + sfield + "()";
+        }
+        if (is_plain_field) {
+            return obj + "." + sfield;
+        }
+    }
+
     // Default: bracket-notation field access via BallDyn wrapper.
     // Wrapping in BallDyn ensures the access works on std::any values
     // (from map lookups) as well as BallDyn and std::map types.
@@ -957,6 +1102,31 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
     }
 
     if (all_positional) {
+        // Check if this class has a factory constructor for "new" — if so,
+        // route through the static factory method instead of direct construction.
+        bool has_factory_new = false;
+        for (const auto& [cls, factories] : class_factory_ctors_) {
+            auto cls_colon = cls.find(':');
+            std::string cls_bare = cls_colon != std::string::npos ? cls.substr(cls_colon + 1) : cls;
+            if (sanitize_name(cls_bare) == type) {
+                for (const auto& fname : factories) {
+                    if (fname == "new") { has_factory_new = true; break; }
+                }
+                break;
+            }
+        }
+        if (has_factory_new) {
+            // Call the factory constructor: ClassName::new_(args)
+            std::string result = type + "::" + sanitize_name("new") + "(";
+            bool first = true;
+            for (const auto& f : msg.fields()) {
+                if (!first) result += ", ";
+                result += compile_expr(f.value());
+                first = false;
+            }
+            result += ")";
+            return result;
+        }
         // Emit as constructor call with positional args
         std::string result = type + "(";
         bool first = true;
@@ -1610,6 +1780,14 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
         }
     }
 
+    // Dart top-level function: identical(a, b) → pointer equality.
+    // For C++ structs, compare addresses; for BallDyn, compare identity.
+    if (fn == "identical") {
+        auto a = get_message_field(call, "arg0");
+        auto b = get_message_field(call, "arg1");
+        return "(&(" + a + ") == &(" + b + "))";
+    }
+
     // User-defined function call
     std::string func_name = sanitize_name(fn);
     std::string result = func_name + "(";
@@ -1732,6 +1910,32 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             if (target_expr->expr_case() == ball::v1::Expression::kFieldAccess) {
                 auto obj = compile_expr(target_expr->field_access().object());
                 auto field = target_expr->field_access().field();
+                std::string sfield = sanitize_name(field);
+                // Check if this field has a setter method on a user class.
+                bool has_setter = false;
+                for (const auto& [cls, setters] : class_setters_) {
+                    if (setters.count(sfield)) { has_setter = true; break; }
+                }
+                if (has_setter) {
+                    // Call setter: obj.field(value)
+                    // Setter return is void; the assign expression evaluates to the value.
+                    return "(" + obj + "." + sfield + "(" + val + "), " + val + ")";
+                }
+                // Check if this is a direct struct field on a user class.
+                bool is_plain_field = false;
+                for (const auto& [cls, td_ptr] : class_typedefs_) {
+                    if (!td_ptr || !td_ptr->has_descriptor_()) continue;
+                    for (const auto& fd : td_ptr->descriptor_().field()) {
+                        if (sanitize_name(fd.name()) == sfield) {
+                            is_plain_field = true;
+                            break;
+                        }
+                    }
+                    if (is_plain_field) break;
+                }
+                if (is_plain_field) {
+                    return "(" + obj + "." + sfield + " = " + val + ")";
+                }
                 return "(ball_set(" + obj + ", std::string(\"" + field + "\"), std::any(" + val + ")), " + val + ")";
             }
             // Index expression: std.index(target, index) in the target
@@ -3003,6 +3207,91 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
         std::string valArg = arg1;
         if (valArg.empty()) valArg = get_message_field(call, "value");
         return "ball_scope_bind(" + self + ", " + nameArg + ", BallDyn(" + valArg + "))";
+    }
+
+    // ── User-defined class method dispatch ──
+    // If `fn` is a known user-class method, emit as `self.fn(args)`.
+    // For super calls (self == "super" reference), emit `SuperClass::fn(args)`.
+    // For static calls (self is a class name reference), emit `ClassName::fn(args)`.
+    {
+        std::string func_name = sanitize_name(fn);
+        bool is_user_method = method_to_classes_.count(func_name) > 0;
+
+        if (is_user_method) {
+            // Check if this is a super call.
+            bool is_super = false;
+            if (call.has_input() &&
+                call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+                for (const auto& f : call.input().message_creation().fields()) {
+                    if (f.name() == "self" &&
+                        f.value().expr_case() == ball::v1::Expression::kReference &&
+                        f.value().reference().name() == "super") {
+                        is_super = true;
+                        break;
+                    }
+                }
+            }
+
+            // Check if this is a static call (self is a class name).
+            bool is_static_call = false;
+            std::string static_class_name;
+            if (!is_super && call.has_input() &&
+                call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+                for (const auto& f : call.input().message_creation().fields()) {
+                    if (f.name() == "self" &&
+                        f.value().expr_case() == ball::v1::Expression::kReference) {
+                        std::string ref_name = f.value().reference().name();
+                        if (user_class_names_.count(sanitize_name(ref_name)) > 0) {
+                            is_static_call = true;
+                            static_class_name = sanitize_name(ref_name);
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Collect non-self args.
+            std::vector<std::string> args;
+            if (call.has_input() &&
+                call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+                for (const auto& f : call.input().message_creation().fields()) {
+                    if (f.name() == "self") continue;
+                    args.push_back(compile_expr(f.value()));
+                }
+            }
+            auto join_args = [&]() {
+                std::string r;
+                for (size_t i = 0; i < args.size(); i++) {
+                    if (i > 0) r += ", ";
+                    r += args[i];
+                }
+                return r;
+            };
+
+            if (is_super) {
+                // Super call: find the parent class of the current class.
+                std::string super_class;
+                // Look up current class's superclass.
+                for (const auto& [cls, sup] : class_superclass_) {
+                    auto cls_colon = cls.find(':');
+                    std::string cls_bare = cls_colon != std::string::npos ? cls.substr(cls_colon + 1) : cls;
+                    if (sanitize_name(cls_bare) == current_class_name_) {
+                        super_class = sanitize_name(sup);
+                        break;
+                    }
+                }
+                if (!super_class.empty()) {
+                    return super_class + "::" + func_name + "(" + join_args() + ")";
+                }
+            }
+
+            if (is_static_call) {
+                return static_class_name + "::" + func_name + "(" + join_args() + ")";
+            }
+
+            // Regular instance method call: self.method(args)
+            return self + "." + func_name + "(" + join_args() + ")";
+        }
     }
 
     // Fallback: treat as a user-defined function call passing self + args
@@ -4426,30 +4715,141 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
     // and wrap it in a lambda (member function pointers can't be stored
     // directly as std::any values).
     current_class_methods_.clear();
+    current_class_name_ = name;
     for (const auto* func : methods) {
         auto dot = func->name().rfind('.');
         std::string basename = dot != std::string::npos ? func->name().substr(dot + 1) : func->name();
         current_class_methods_.insert(sanitize_name(basename));
     }
 
+    // Helper: extract is_this flags from constructor metadata params.
+    auto extract_is_this = [](const google::protobuf::Struct& metadata)
+        -> std::vector<bool> {
+        std::vector<bool> result;
+        auto it = metadata.fields().find("params");
+        if (it == metadata.fields().end()) return result;
+        if (it->second.kind_case() != google::protobuf::Value::kListValue) return result;
+        for (const auto& elem : it->second.list_value().values()) {
+            if (elem.kind_case() != google::protobuf::Value::kStructValue) {
+                result.push_back(false);
+                continue;
+            }
+            auto is_this_it = elem.struct_value().fields().find("is_this");
+            bool is_this = is_this_it != elem.struct_value().fields().end() &&
+                           is_this_it->second.kind_case() == google::protobuf::Value::kBoolValue &&
+                           is_this_it->second.bool_value();
+            result.push_back(is_this);
+        }
+        return result;
+    };
+
+    // Helper: extract initializers from constructor metadata.
+    auto extract_initializers = [](const google::protobuf::Struct& metadata)
+        -> std::vector<std::pair<std::string, std::string>> {
+        std::vector<std::pair<std::string, std::string>> result;
+        auto it = metadata.fields().find("initializers");
+        if (it == metadata.fields().end()) return result;
+        if (it->second.kind_case() != google::protobuf::Value::kListValue) return result;
+        for (const auto& elem : it->second.list_value().values()) {
+            if (elem.kind_case() != google::protobuf::Value::kStructValue) continue;
+            std::string init_kind, init_args;
+            auto kit = elem.struct_value().fields().find("kind");
+            if (kit != elem.struct_value().fields().end())
+                init_kind = kit->second.string_value();
+            auto ait = elem.struct_value().fields().find("args");
+            if (ait != elem.struct_value().fields().end())
+                init_args = ait->second.string_value();
+            result.push_back({init_kind, init_args});
+        }
+        return result;
+    };
+
     // Methods
     for (const auto* func : methods) {
         auto meta = read_meta(*func);
         auto kind = meta.count("kind") ? meta["kind"] : "method";
         if (kind == "constructor") {
+            bool is_factory = meta.count("is_factory") && meta["is_factory"] == "true";
             // Extract method name from full qualified name
             auto dot = func->name().rfind('.');
             std::string ctor_name = dot != std::string::npos ? func->name().substr(dot + 1) : func->name();
-            if (ctor_name == name || ctor_name.empty()) {
-                // Default constructor
+            bool is_default = (ctor_name == "new" || ctor_name == name || ctor_name.empty());
+
+            if (is_factory) {
+                // Factory constructor → static method returning the class type.
+                auto params = func->has_metadata() ? extract_params(func->metadata()) : std::vector<std::string>{};
+                emit_indent();
+                out_ << "static " << name << " " << sanitize_name(ctor_name) << "(";
+                for (size_t i = 0; i < params.size(); i++) {
+                    if (i > 0) out_ << ", ";
+                    out_ << "auto " << sanitize_name(params[i]);
+                }
+                out_ << ") {\n";
+                indent_++;
+                if (func->has_body()) {
+                    if (func->body().expr_case() == ball::v1::Expression::kBlock) {
+                        for (const auto& s : func->body().block().statements())
+                            compile_statement(s);
+                        if (func->body().block().has_result()) {
+                            emit_line("return " + compile_expr(func->body().block().result()) + ";");
+                        }
+                    } else {
+                        emit_line("return " + compile_expr(func->body()) + ";");
+                    }
+                }
+                emit_line("return " + name + "();");
+                indent_--;
+                emit_line("}");
+                continue;
+            }
+
+            if (is_default) {
+                // Default constructor (named "new" or matching class name)
                 emit_indent();
                 out_ << name << "(";
                 auto params = func->has_metadata() ? extract_params(func->metadata()) : std::vector<std::string>{};
+                auto is_this_flags = func->has_metadata() ? extract_is_this(func->metadata()) : std::vector<bool>{};
+                auto initializers = func->has_metadata() ? extract_initializers(func->metadata()) : std::vector<std::pair<std::string, std::string>>{};
                 for (size_t i = 0; i < params.size(); i++) {
                     if (i > 0) out_ << ", ";
                     out_ << "auto " << sanitize_name(params[i]);
                 }
                 out_ << ")";
+
+                // Emit member initializer list for is_this params and super calls.
+                bool has_inits = false;
+                for (size_t i = 0; i < params.size(); i++) {
+                    bool is_this = i < is_this_flags.size() && is_this_flags[i];
+                    if (is_this) {
+                        out_ << (has_inits ? ", " : " : ");
+                        has_inits = true;
+                        out_ << sanitize_name(params[i]) << "(" << sanitize_name(params[i]) << ")";
+                    }
+                }
+                // Super call from initializers metadata.
+                for (const auto& [init_kind, init_args] : initializers) {
+                    if (init_kind == "super" && !bases.empty()) {
+                        // Extract the superclass name from the bases string.
+                        auto spos = bases.find("public ");
+                        std::string super_name;
+                        if (spos != std::string::npos) {
+                            super_name = bases.substr(spos + 7);
+                            auto space = super_name.find_first_of(" ,{");
+                            if (space != std::string::npos) super_name = super_name.substr(0, space);
+                        }
+                        if (!super_name.empty()) {
+                            out_ << (has_inits ? ", " : " : ");
+                            has_inits = true;
+                            // init_args is like "(name)" — extract the arg names.
+                            std::string args = init_args;
+                            // Strip parens.
+                            if (!args.empty() && args.front() == '(') args = args.substr(1);
+                            if (!args.empty() && args.back() == ')') args.pop_back();
+                            out_ << super_name << "(" << args << ")";
+                        }
+                    }
+                }
+
                 if (split_mode_ && func->has_body()) {
                     out_ << ";\n";
                     std::ostringstream saved;
@@ -4486,24 +4886,76 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                 } else {
                     out_ << " {}\n";
                 }
+            } else {
+                // Named constructor (not "new") → emit as a named static factory.
+                auto params = func->has_metadata() ? extract_params(func->metadata()) : std::vector<std::string>{};
+                auto is_this_flags = func->has_metadata() ? extract_is_this(func->metadata()) : std::vector<bool>{};
+                emit_indent();
+                out_ << "static " << name << " " << sanitize_name(ctor_name) << "(";
+                for (size_t i = 0; i < params.size(); i++) {
+                    if (i > 0) out_ << ", ";
+                    out_ << "auto " << sanitize_name(params[i]);
+                }
+                out_ << ") {\n";
+                indent_++;
+                // Create instance and set is_this fields.
+                emit_line(name + " __obj;");
+                for (size_t i = 0; i < params.size(); i++) {
+                    bool is_this = i < is_this_flags.size() && is_this_flags[i];
+                    if (is_this) {
+                        emit_line("__obj." + sanitize_name(params[i]) + " = " + sanitize_name(params[i]) + ";");
+                    }
+                }
+                if (func->has_body()) {
+                    // Named constructors with a body are rare; emit the body.
+                    if (func->body().expr_case() == ball::v1::Expression::kBlock) {
+                        for (const auto& s : func->body().block().statements())
+                            compile_statement(s);
+                    }
+                }
+                emit_line("return __obj;");
+                indent_--;
+                emit_line("}");
             }
+            continue;
+        }
+
+        if (kind == "static_field") {
+            // Static field: emit as inline static member.
+            auto dot2 = func->name().rfind('.');
+            std::string field_name = dot2 != std::string::npos ? func->name().substr(dot2 + 1) : func->name();
+            emit_indent();
+            out_ << "static inline " << map_return_type(*func) << " " << sanitize_name(field_name);
+            if (func->has_body()) {
+                out_ << " = " << compile_expr(func->body());
+            }
+            out_ << ";\n";
             continue;
         }
 
         // Regular method
         auto dot = func->name().rfind('.');
         std::string method_name = dot != std::string::npos ? func->name().substr(dot + 1) : func->name();
+        std::string smethod_name = sanitize_name(method_name);
+
+        // Determine method properties
+        bool is_static = meta.count("is_static") && meta["is_static"] == "true";
+        bool is_abstract = meta.count("is_abstract") && meta["is_abstract"] == "true";
+        bool is_getter = meta.count("is_getter") && meta["is_getter"] == "true";
+        bool is_setter = meta.count("is_setter") && meta["is_setter"] == "true";
+        bool is_operator = meta.count("is_operator") && meta["is_operator"] == "true";
+        bool is_conv = meta.count("is_conversion_operator") &&
+                       meta["is_conversion_operator"] == "true";
+        bool needs_virtual = !is_static && !is_conv &&
+                             (overridden_methods_.count(smethod_name) > 0 || is_abstract);
 
         // Template prefix for generic methods
         if (func->has_metadata())
             emit_template_prefix_from_meta(func->metadata());
 
         emit_indent();
-        bool is_static = meta.count("is_static") && meta["is_static"] == "true";
-        bool is_operator = meta.count("is_operator") && meta["is_operator"] == "true";
-        bool is_conv = meta.count("is_conversion_operator") &&
-                       meta["is_conversion_operator"] == "true";
         if (is_static) out_ << "static ";
+        if (needs_virtual) out_ << "virtual ";
 
         if (is_conv) {
             std::string conv_type = map_return_type(*func);
@@ -4517,7 +4969,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             // method. We no longer try to fabricate a real `operator+` /
             // `operator []=` overload, since the IR no longer carries Dart
             // operator syntax.
-            out_ << map_return_type(*func) << " " << sanitize_name(method_name) << "(";
+            out_ << map_return_type(*func) << " " << smethod_name << "(";
         }
         auto params = func->has_metadata() ? extract_params(func->metadata()) : std::vector<std::string>{};
         auto param_specs = func->has_metadata()
@@ -4548,6 +5000,12 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             emit_method_param(i, /*with_default=*/true);
         }
 
+        // Abstract methods → pure virtual with no body.
+        if (is_abstract) {
+            out_ << ") = 0;\n";
+            continue;
+        }
+
         if (split_mode_ && func->has_body()) {
             out_ << ");\n";
             std::ostringstream saved;
@@ -4563,7 +5021,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                 out_ << conv_type << " " << name << "::operator " << conv_type << "(";
             } else {
                 out_ << map_return_type(*func) << " " << name << "::"
-                     << sanitize_name(method_name) << "(";
+                     << smethod_name << "(";
             }
             for (size_t i = 0; i < params.size(); i++) {
                 if (i > 0) out_ << ", ";
@@ -4612,6 +5070,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
     }
 
     current_class_methods_.clear();
+    current_class_name_.clear();
 
     indent_--;
     emit_line("};");

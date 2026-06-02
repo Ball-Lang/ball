@@ -144,7 +144,6 @@ class PackageEncoder {
     // Internal module names already known (avoid duplicating in-package stubs).
     final inPackageModules = <String>{
       'std',
-      'dart_std',
       ..._fileToModule.values,
     };
 
@@ -183,7 +182,7 @@ class PackageEncoder {
       }
     }
 
-    final (:stdModule, :dartStdModule, :collectionsModule, :protoModule) =
+    final (:stdModule, :collectionsModule, :protoModule) =
         encoder.buildStdModules();
 
     // Sort user modules so the entry module is last (conventional positioning).
@@ -204,7 +203,6 @@ class PackageEncoder {
       ..entryFunction = entryFunction
       ..modules.addAll([
         stdModule,
-        ?dartStdModule,
         ?collectionsModule,
         ?protoModule,
         ...externalStubs.values,

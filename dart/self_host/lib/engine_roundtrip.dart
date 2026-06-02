@@ -49,14 +49,14 @@ class BallEngine {
     if (enableProfiling) {
       _callCounts = {};
     }
-    for (final handler in this.moduleHandlers) {
-      handler.init(this);
+    for (final handler in self.moduleHandlers) {
+      handler.init(self);
     }
     _buildLookupTables();
     _initialized = _initTopLevelVariables();
   }
 
-  final Program program;
+  late final Program program;
 
   final Map<String, google.DescriptorProto> _types = {};
 
@@ -68,7 +68,7 @@ class BallEngine {
 
   final _Scope _globalScope = _Scope();
 
-  void Function(String) stdout;
+  late void Function(String) stdout;
 
   String _currentModule = '';
 
@@ -97,19 +97,19 @@ class BallEngine {
 
   Map<String, int>? _callCounts;
 
-  final int maxRecursionDepth;
+  late final int maxRecursionDepth;
 
   final int? timeoutMs;
 
   final int? maxMemoryBytes;
 
-  final int maxModules;
+  late final int maxModules;
 
-  final int maxExpressionDepth;
+  late final int maxExpressionDepth;
 
   final int? maxProgramSizeBytes;
 
-  final bool sandbox;
+  late final bool sandbox;
 
   int _memoryUsedBytes = 0;
 
@@ -119,17 +119,17 @@ class BallEngine {
 
   int _recursionDepth = 0;
 
-  final List<BallModuleHandler> moduleHandlers;
+  late final List<BallModuleHandler> moduleHandlers;
 
   final math.Random _random = math.Random();
 
-  void Function(String) stderr;
+  late void Function(String) stderr;
 
   String Function()? stdinReader;
 
-  String Function(String) _envGet;
+  late String Function(String) _envGet;
 
-  List<String> _args;
+  late List<String> _args;
 
   int _nextMutexId = 0;
 
@@ -352,7 +352,8 @@ class BallEngine {
             _paramCache[key] = params;
           }
           final kindField = func.metadata.fields['kind'];
-          if ((kindField?.stringValue == 'constructor')) {
+          if ((((kindField == null) ? null : kindField.stringValue) ==
+              'constructor')) {
             final entry = (module: module.name, func: func);
             final dotIdx = func.name.indexOf('.');
             if ((dotIdx >= 0)) {
@@ -381,7 +382,10 @@ class BallEngine {
       return;
     }
     if (func.hasMetadata()) {
-      final kind = func.metadata.fields['kind']?.stringValue;
+      final kind = (() {
+        final __naa_0 = func.metadata.fields['kind'];
+        return ((__naa_0 == null) ? null : __naa_0.stringValue);
+      })();
       if (((kind == 'top_level_variable') || (kind == 'function'))) {
         _topLevelRefs.putIfAbsent(
           func.name,
@@ -414,7 +418,8 @@ class BallEngine {
     final kindField = (func.hasMetadata()
         ? func.metadata.fields['kind']
         : null);
-    if ((kindField?.stringValue == 'constructor')) {
+    if ((((kindField == null) ? null : kindField.stringValue) ==
+        'constructor')) {
       return;
     }
     final entry = (module: module.name, func: func);
@@ -501,7 +506,7 @@ class BallEngine {
 
   Future<void> _initTopLevelVariables() async {
     for (final module in program.modules) {
-      if (((module.name == 'std') || (module.name == 'dart_std'))) {
+      if ((module.name == 'std')) {
         continue;
       }
       for (final func in module.functions) {
@@ -509,7 +514,7 @@ class BallEngine {
           continue;
         }
         final kindValue = func.metadata.fields['kind'];
-        final kindStr = kindValue?.stringValue;
+        final kindStr = ((kindValue == null) ? null : kindValue.stringValue);
         if (((kindStr != 'top_level_variable') &&
             (kindStr != 'static_field'))) {
           continue;
@@ -529,6 +534,7 @@ class BallEngine {
         _globalScope.bind(func.name, value);
       }
     }
+    return null as dynamic;
   }
 
   Future<Object?> run() async {
@@ -547,6 +553,7 @@ class BallEngine {
     }
     _currentModule = program.entryModule;
     return _callFunction(program.entryModule, entryFunc, null);
+    return null as dynamic;
   }
 
   void _checkExecutionTimeout() {
@@ -605,7 +612,10 @@ class BallEngine {
     Object? input,
   ) async {
     final kind = (func.hasMetadata()
-        ? func.metadata.fields['kind']?.stringValue
+        ? (() {
+            final __naa_1 = func.metadata.fields['kind'];
+            return ((__naa_1 == null) ? null : __naa_1.stringValue);
+          })()
         : null);
     if (func.isBase) {
       return _callBaseFunction(moduleName, func.name, input);
@@ -681,8 +691,8 @@ class BallEngine {
       }
       if (((inputMap != null) && inputMap.containsKey('self'))) {
         final self = inputMap['self'];
-        scope.bind('self', self);
-        final selfMap = _asMap(self);
+        scope.bind('self', this);
+        final selfMap = _asMap(this);
         if ((selfMap != null)) {
           for (final entry in selfMap.entries) {
             if (!entry.key.startsWith('__')) {
@@ -743,7 +753,7 @@ class BallEngine {
             finalResult = result;
           }
         } catch (__ball_e) {
-          final e = __ball_e;
+          final dynamic e = __ball_e;
           _currentModule = prevModule;
           return _ballFutureError(e);
         }
@@ -794,6 +804,7 @@ class BallEngine {
       _activeGeneratorScope = prevGeneratorScope;
       _recursionDepth--;
     }
+    return null as dynamic;
   }
 
   Future<Object?> _callObjectConstructor(
@@ -861,16 +872,20 @@ class BallEngine {
       fields: instanceFields,
       methods: methods.cast<String, Object?>(),
     );
-    final ctorInput = (<String, Object?>{}
-      ..addAll(inputMap)
-      ..addAll(resolvedParams)
-      ..['self'] = instance);
+    final ctorInput = (() {
+      final __cascade_self__ = <String, Object?>{};
+      __cascade_self__.addAll(inputMap);
+      __cascade_self__.addAll(resolvedParams);
+      __cascade_self__['self'] = instance;
+      return __cascade_self__;
+    })();
     final constructed = await _callFunction(moduleName, func, ctorInput);
     final constructedMap = _asMap(constructed);
     if (((constructedMap != null) && constructedMap.containsKey('__type__'))) {
       return constructed;
     }
     return instance;
+    return null as dynamic;
   }
 
   void _applyConstructorInitializers(
@@ -891,8 +906,14 @@ class BallEngine {
       if ((init.whichKind() != structpb.Value_Kind.structValue)) {
         continue;
       }
-      final kind = init.structValue.fields['kind']?.stringValue;
-      final name = init.structValue.fields['name']?.stringValue;
+      final kind = (() {
+        final __naa_2 = init.structValue.fields['kind'];
+        return ((__naa_2 == null) ? null : __naa_2.stringValue);
+      })();
+      final name = (() {
+        final __naa_3 = init.structValue.fields['name'];
+        return ((__naa_3 == null) ? null : __naa_3.stringValue);
+      })();
       if (((kind != 'field') || (name == null))) {
         continue;
       }
@@ -1018,6 +1039,7 @@ class BallEngine {
       fields: fields,
       methods: (((instance['__methods__'] as Map<String, Object?>?)) ?? {}),
     );
+    return null as dynamic;
   }
 
   Future<Object?> _invokeSuperConstructor(
@@ -1033,10 +1055,17 @@ class BallEngine {
           if ((init.whichKind() != structpb.Value_Kind.structValue)) {
             continue;
           }
-          final kind = init.structValue.fields['kind']?.stringValue;
+          final kind = (() {
+            final __naa_4 = init.structValue.fields['kind'];
+            return ((__naa_4 == null) ? null : __naa_4.stringValue);
+          })();
           if ((kind == 'super')) {
             final argsStr =
-                (init.structValue.fields['args']?.stringValue ?? '');
+                ((() {
+                  final __naa_5 = init.structValue.fields['args'];
+                  return ((__naa_5 == null) ? null : __naa_5.stringValue);
+                })() ??
+                '');
             final argNames = _parseSuperArgs(argsStr);
             final superInput = <String, Object?>{};
             for (var i = 0; (i < argNames.length); i++) {
@@ -1085,6 +1114,7 @@ class BallEngine {
       );
     }
     return null;
+    return null as dynamic;
   }
 
   ({String module, FunctionDefinition func})? _lookupConstructor(String input) {
@@ -1180,7 +1210,7 @@ class BallEngine {
         .toList()
         .map((v) {
           final nameField = v.structValue.fields['name'];
-          return (nameField?.stringValue ?? '');
+          return (((nameField == null) ? null : nameField.stringValue) ?? '');
         })
         .toList()
         .where((n) => n.isNotEmpty)
@@ -1233,6 +1263,7 @@ class BallEngine {
       }
     }
     throw BallRuntimeError((('Function "' + key.toString()) + '" not found'));
+    return null as dynamic;
   }
 
   Future<Module?> _tryLazyResolve(String input) async {
@@ -1244,12 +1275,13 @@ class BallEngine {
           try {
             return await _resolver!.resolve(import_);
           } catch (__ball_e) {
-            final _ = __ball_e;
+            final dynamic _ = __ball_e;
           }
         }
       }
     }
     return null;
+    return null as dynamic;
   }
 
   void _indexModule(Module input) {
@@ -1269,7 +1301,8 @@ class BallEngine {
           _paramCache[key] = params;
         }
         final kindField = func.metadata.fields['kind'];
-        if ((kindField?.stringValue == 'constructor')) {
+        if ((((kindField == null) ? null : kindField.stringValue) ==
+            'constructor')) {
           final entry = (module: module.name, func: func);
           final dotIdx = func.name.indexOf('.');
           if ((dotIdx >= 0)) {
@@ -1300,6 +1333,17 @@ class BallEngine {
     return null;
   }
 
+  static List<String>? _extractMetadataTypeArgs(MessageCreation input) {
+    MessageCreation msg = input;
+    if ((!msg.hasMetadata() || !msg.metadata.fields.containsKey('type_args'))) {
+      return null;
+    }
+    return msg.metadata.fields['type_args']!.listValue.values
+        .map((v) => v.structValue.fields['name']!.stringValue)
+        .toList()
+        .toList();
+  }
+
   Future<Object?> _evalExpression(Expression expr, _Scope scope) async {
     _checkExecutionTimeout();
     _checkExpressionDepth();
@@ -1322,11 +1366,13 @@ class BallEngine {
         Expression_Expr.block => await _evalBlock(expr.block, scope),
         Expression_Expr.lambda => _evalLambda(expr.lambda, scope),
         Expression_Expr.notSet => null,
+        _ => throw StateError('non-exhaustive'),
       };
       return _consumeGeneratorFlow(result);
     } finally {
       _exitExpression();
     }
+    return null as dynamic;
   }
 
   Object? _unwrapFuture(Object? input) {
@@ -1336,7 +1382,7 @@ class BallEngine {
 
   Future<Object?> _evalCall(FunctionCall call, _Scope scope) async {
     final moduleName = (call.module.isEmpty ? _currentModule : call.module);
-    if (((moduleName == 'std') || (moduleName == 'dart_std'))) {
+    if ((moduleName == 'std')) {
       switch (call.function) {
         case 'if':
           return _evalLazyIf(call, scope);
@@ -1388,9 +1434,6 @@ class BallEngine {
           return _evalYieldEach(call, scope);
       }
     }
-    if (((moduleName == 'cpp_std') && (call.function == 'cpp_scope_exit'))) {
-      return _evalCppScopeExit(call, scope);
-    }
     final input = (call.hasInput()
         ? await _evalExpression(call.input, scope)
         : null);
@@ -1406,8 +1449,7 @@ class BallEngine {
           return false;
       }
     }
-    if ((((call.module == 'std') || (call.module == 'dart_std')) ||
-        (call.module == 'std_collections'))) {
+    if (((call.module == 'std') || (call.module == 'std_collections'))) {
       return _unwrapFuture(
         await _callBaseFunction(call.module, call.function, input),
       );
@@ -1432,12 +1474,15 @@ class BallEngine {
     final inputMap = _asMap(input);
     if (((inputMap != null) && inputMap.containsKey('self'))) {
       final self = inputMap['self'];
-      final selfMap = _asMap(self);
+      final selfMap = _asMap(this);
       if ((selfMap != null)) {
         if ((selfMap['__type__'] == '__builtin_class__')) {
           final className = ((selfMap['__class_ref__'] as String));
-          final argInput = (Map<String, Object?>.from(inputMap)
-            ..remove('self'));
+          final argInput = (() {
+            final __cascade_self__ = Map<String, Object?>.from(inputMap);
+            __cascade_self__.remove('self');
+            return __cascade_self__;
+          })();
           final builtinResult = await _dispatchBuiltinClassMethod(
             className,
             call.function,
@@ -1462,8 +1507,11 @@ class BallEngine {
               call.function.toString());
           final staticFunc = _functions[staticKey];
           if ((staticFunc != null)) {
-            final staticInput = (Map<String, Object?>.from(inputMap)
-              ..remove('self'));
+            final staticInput = (() {
+              final __cascade_self__ = Map<String, Object?>.from(inputMap);
+              __cascade_self__.remove('self');
+              return __cascade_self__;
+            })();
             return _unwrapFuture(
               await _callFunction(modPart2, staticFunc, staticInput),
             );
@@ -1496,7 +1544,7 @@ class BallEngine {
         }
       }
       final builtinResult = await _dispatchBuiltinInstanceMethod(
-        self,
+        this,
         call.function,
         input,
       );
@@ -1526,6 +1574,7 @@ class BallEngine {
     return _unwrapFuture(
       await _resolveAndCallFunction(call.module, call.function, input),
     );
+    return null as dynamic;
   }
 
   Future<Object?> _evalLiteral(Literal lit, _Scope scope) async {
@@ -1539,7 +1588,9 @@ class BallEngine {
       ),
       Literal_Value.listValue => await _evalListLiteral(lit.listValue, scope),
       Literal_Value.notSet => null,
+      _ => throw StateError('non-exhaustive'),
     };
+    return null as dynamic;
   }
 
   Future<BallList> _evalListLiteral(ListLiteral listVal, _Scope scope) async {
@@ -1549,13 +1600,11 @@ class BallEngine {
       if (element.hasCall()) {
         final call = element.call;
         final fn = call.function;
-        if ((((call.module == 'dart_std') || (call.module == 'std')) &&
-            (fn == 'collection_if'))) {
+        if (((call.module == 'std') && (fn == 'collection_if'))) {
           await _evalCollectionIf(call, scope, result);
           continue;
         }
-        if ((((call.module == 'dart_std') || (call.module == 'std')) &&
-            (fn == 'collection_for'))) {
+        if (((call.module == 'std') && (fn == 'collection_for'))) {
           await _evalCollectionFor(call, scope, result);
           continue;
         }
@@ -1563,6 +1612,7 @@ class BallEngine {
       result..add(await _evalExpression(element, scope));
     }
     return BallList(result);
+    return null as dynamic;
   }
 
   Future<void> _evalCollectionIf(
@@ -1589,6 +1639,7 @@ class BallEngine {
         await _addCollectionElement(elseExpr, scope, result);
       }
     }
+    return null as dynamic;
   }
 
   Future<void> _evalCollectionFor(
@@ -1614,6 +1665,7 @@ class BallEngine {
       loopScope.bind(((variable ?? '').isEmpty ? 'item' : variable!), item);
       await _addCollectionElement(bodyExpr, loopScope, result);
     }
+    return null as dynamic;
   }
 
   Future<void> _addCollectionElement(
@@ -1624,19 +1676,18 @@ class BallEngine {
     if (expr.hasCall()) {
       final call = expr.call;
       final fn = call.function;
-      if ((((call.module == 'dart_std') || (call.module == 'std')) &&
-          (fn == 'collection_if'))) {
+      if (((call.module == 'std') && (fn == 'collection_if'))) {
         await _evalCollectionIf(call, scope, result);
         return;
       }
-      if ((((call.module == 'dart_std') || (call.module == 'std')) &&
-          (fn == 'collection_for'))) {
+      if (((call.module == 'std') && (fn == 'collection_for'))) {
         await _evalCollectionFor(call, scope, result);
         return;
       }
     }
     _trackMemoryAllocation(_ballPointerBytes);
     result..add(await _evalExpression(expr, scope));
+    return null as dynamic;
   }
 
   Future<Object?> _evalReference(Reference ref, _Scope scope) async {
@@ -1646,7 +1697,7 @@ class BallEngine {
       try {
         selfRef = scope.lookup('self');
       } catch (__ball_e) {
-        final _ = __ball_e;
+        final dynamic _ = __ball_e;
         selfRef = null;
       }
       if ((selfRef != null)) {
@@ -1714,7 +1765,7 @@ class BallEngine {
     try {
       selfForGetter = scope.lookup('self');
     } catch (__ball_e) {
-      final _ = __ball_e;
+      final dynamic _ = __ball_e;
       selfForGetter = null;
     }
     if ((selfForGetter != null)) {
@@ -1779,6 +1830,7 @@ class BallEngine {
       return value;
     }
     return scope.lookup(name);
+    return null as dynamic;
   }
 
   Future<Object?> _evalFieldAccess(FieldAccess access, _Scope scope) async {
@@ -2057,8 +2109,10 @@ class BallEngine {
     }
     throw BallRuntimeError(
       ((('Cannot access field "' + fieldName.toString()) + '" on ') +
-          ((object?.runtimeType ?? 'null')).toString()),
+          ((((object == null) ? null : object.runtimeType) ?? 'null'))
+              .toString()),
     );
+    return null as dynamic;
   }
 
   Future<Object?> _tryGetterDispatch(
@@ -2109,6 +2163,7 @@ class BallEngine {
       superMap = _asMap(superObj);
     }
     return _sentinel;
+    return null as dynamic;
   }
 
   bool _isGetter(FunctionDefinition input) {
@@ -2207,6 +2262,7 @@ class BallEngine {
       superMap = _asMap(superObj);
     }
     return _sentinel;
+    return null as dynamic;
   }
 
   void _writeBackingField(
@@ -2214,6 +2270,9 @@ class BallEngine {
     String fieldName,
     Object? assignedValue,
   ) {
+    if ((assignedValue == null)) {
+      return;
+    }
     final backing = ('_' + fieldName.toString());
     if (object.containsKey(backing)) {
       ballObjectSetField(object, backing, assignedValue);
@@ -2227,8 +2286,8 @@ class BallEngine {
   void _syncFieldToSelf(_Scope scope, String fieldName, Object? val) {
     try {
       final self = scope.lookup('self');
-      ballObjectSetField(self, fieldName, val);
-      final selfMap = _asMap(self);
+      ballObjectSetField(this, fieldName, val);
+      final selfMap = _asMap(this);
       if ((selfMap == null)) {
         return;
       }
@@ -2242,7 +2301,7 @@ class BallEngine {
         superMap = _asMap(superObj);
       }
     } catch (__ball_e) {
-      final _ = __ball_e;
+      final dynamic _ = __ball_e;
     }
   }
 
@@ -2272,9 +2331,9 @@ class BallEngine {
         if ((scope.has('self') && scope.has('__constructor_type__'))) {
           final self = scope.lookup('self');
           final constructorType = scope.lookup('__constructor_type__');
-          final selfMap = _asMap(self);
+          final selfMap = _asMap(this);
           if (((selfMap != null) && (constructorType == msg.typeName))) {
-            return self;
+            return this;
           }
         }
         final instanceFields = <String, Object?>{};
@@ -2336,6 +2395,10 @@ class BallEngine {
                 ));
           superObject ??= _buildSuperObject(superclass, instanceFields);
         }
+        final metaTypeArgs = _extractMetadataTypeArgs(msg);
+        if ((metaTypeArgs != null)) {
+          instanceFields['__type_args__'] = metaTypeArgs;
+        }
         final methods = _resolveTypeMethodsWithInheritance(msg.typeName);
         final instance = BallObject(
           typeName: msg.typeName,
@@ -2348,15 +2411,21 @@ class BallEngine {
               (ctorEntry.func.hasMetadata() &&
               _metadataBool(ctorEntry.func.metadata.fields['is_factory']));
           if (isFactory) {
-            final ctorInput = (<String, Object?>{}
-              ..addAll(fields)
-              ..addAll(resolvedParams));
+            final ctorInput = (() {
+              final __cascade_self__ = <String, Object?>{};
+              __cascade_self__.addAll(fields);
+              __cascade_self__.addAll(resolvedParams);
+              return __cascade_self__;
+            })();
             return _callFunction(ctorEntry.module, ctorEntry.func, ctorInput);
           }
-          final ctorInput = (<String, Object?>{}
-            ..addAll(fields)
-            ..addAll(resolvedParams)
-            ..['self'] = instance);
+          final ctorInput = (() {
+            final __cascade_self__ = <String, Object?>{};
+            __cascade_self__.addAll(fields);
+            __cascade_self__.addAll(resolvedParams);
+            __cascade_self__['self'] = instance;
+            return __cascade_self__;
+          })();
           final constructed = await _callFunction(
             ctorEntry.module,
             ctorEntry.func,
@@ -2371,15 +2440,60 @@ class BallEngine {
         }
         return instance;
       } else {
+        if (((scope.has('self') && scope.has('__constructor_type__')) &&
+            (scope.lookup('__constructor_type__') == msg.typeName))) {
+          final self = scope.lookup('self');
+          if ((_asMap(this) != null)) {
+            return this;
+          }
+        }
         final ctorEntry = _constructors[msg.typeName];
         if ((ctorEntry != null)) {
-          return _callFunction(ctorEntry.module, ctorEntry.func, fields);
+          final instanceFields = <String, Object?>{};
+          for (final entry in fields.entries) {
+            if (!entry.key.startsWith('arg')) {
+              instanceFields[entry.key] = entry.value;
+            }
+          }
+          final metaTA = _extractMetadataTypeArgs(msg);
+          if ((metaTA != null)) {
+            instanceFields['__type_args__'] = metaTA;
+          }
+          final methods = _resolveTypeMethodsWithInheritance(msg.typeName);
+          final instance = BallObject(
+            typeName: msg.typeName,
+            superObject: null,
+            fields: instanceFields,
+            methods: methods.cast<String, Object?>(),
+          );
+          final ctorInput = (() {
+            final __cascade_self__ = <String, Object?>{};
+            __cascade_self__.addAll(fields);
+            __cascade_self__['self'] = instance;
+            return __cascade_self__;
+          })();
+          final constructed = await _callFunction(
+            ctorEntry.module,
+            ctorEntry.func,
+            ctorInput,
+          );
+          final constructedMap = _asMap(constructed);
+          if (((constructedMap != null) &&
+              constructedMap.containsKey('__type__'))) {
+            return constructed;
+          }
+          return instance;
         }
         fields['__type__'] = msg.typeName;
-        final genMatch = RegExp('^(\\w+)<(.+)>\$').firstMatch(msg.typeName);
-        if ((genMatch != null)) {
-          fields['__type__'] = genMatch.group(1)!;
-          fields['__type_args__'] = _splitTypeArgs(genMatch.group(2)!);
+        final metaTA2 = _extractMetadataTypeArgs(msg);
+        if ((metaTA2 != null)) {
+          fields['__type_args__'] = metaTA2;
+        } else {
+          final genMatch = RegExp('^(\\w+)<(.+)>\$').firstMatch(msg.typeName);
+          if ((genMatch != null)) {
+            fields['__type__'] = genMatch.group(1)!;
+            fields['__type_args__'] = _splitTypeArgs(genMatch.group(2)!);
+          }
         }
         final fnKey = (('$_currentModule' + '.') + msg.typeName.toString());
         final fnMatch = _functions[fnKey];
@@ -2388,7 +2502,8 @@ class BallEngine {
             final kindField = (fnMatch.hasMetadata()
                 ? fnMatch.metadata.fields['kind']
                 : null);
-            if ((kindField?.stringValue == 'method')) {
+            if ((((kindField == null) ? null : kindField.stringValue) ==
+                'method')) {
               final selfObj = scope.lookup('self');
               fields['self'] = selfObj;
             }
@@ -2417,7 +2532,10 @@ class BallEngine {
           for (final f in m.functions) {
             if ((((f.name == msg.typeName) && !f.isBase) && f.hasBody())) {
               if (f.hasMetadata()) {
-                final k = f.metadata.fields['kind']?.stringValue;
+                final k = (() {
+                  final __naa_6 = f.metadata.fields['kind'];
+                  return ((__naa_6 == null) ? null : __naa_6.stringValue);
+                })();
                 if ((((k == 'constructor') || (k == 'top_level_variable')) ||
                     (k == 'static_field'))) {
                   continue;
@@ -2430,8 +2548,9 @@ class BallEngine {
       }
     }
     _trackMemoryAllocation((fields.length * _ballMapEntryBytes));
-    final instanceMap = (_ballUserMap()..addAll(fields));
+    final instanceMap = [..._ballUserMap(), ...fields];
     return BallMap(instanceMap.cast<String, Object?>());
+    return null as dynamic;
   }
 
   ({String? superclass, List<String> fieldNames})? _findTypeDef(String input) {
@@ -2459,7 +2578,10 @@ class BallEngine {
                 (fieldsMetaVal.whichKind() == structpb.Value_Kind.listValue))) {
               for (final fv in fieldsMetaVal.listValue.values) {
                 if ((fv.whichKind() == structpb.Value_Kind.structValue)) {
-                  final fname = fv.structValue.fields['name']?.stringValue;
+                  final fname = (() {
+                    final __naa_7 = fv.structValue.fields['name'];
+                    return ((__naa_7 == null) ? null : __naa_7.stringValue);
+                  })();
                   if (((fname != null) && !fieldNames.contains(fname))) {
                     fieldNames..add(fname);
                   }
@@ -2487,11 +2609,17 @@ class BallEngine {
                 if ((fv.whichKind() != structpb.Value_Kind.structValue)) {
                   continue;
                 }
-                final fname = fv.structValue.fields['name']?.stringValue;
+                final fname = (() {
+                  final __naa_8 = fv.structValue.fields['name'];
+                  return ((__naa_8 == null) ? null : __naa_8.stringValue);
+                })();
                 if (((fname == null) || fields.containsKey(fname))) {
                   continue;
                 }
-                final init = fv.structValue.fields['initializer']?.stringValue;
+                final init = (() {
+                  final __naa_9 = fv.structValue.fields['initializer'];
+                  return ((__naa_9 == null) ? null : __naa_9.stringValue);
+                })();
                 if ((init != null)) {
                   fields[fname] = _parseInitializer(init);
                 }
@@ -2647,7 +2775,8 @@ class BallEngine {
           final kindField2 = (func.hasMetadata()
               ? func.metadata.fields['kind']
               : null);
-          if ((kindField2?.stringValue == 'constructor')) {
+          if ((((kindField2 == null) ? null : kindField2.stringValue) ==
+              'constructor')) {
             continue;
           }
           if ((_isGetter(func) || _isSetter(func))) {
@@ -2699,7 +2828,6 @@ class BallEngine {
     for (final stmt in block.statements) {
       final result = await _evalStatement(stmt, blockScope);
       if ((result is _FlowSignal)) {
-        await _runScopeExits(blockScope);
         return result;
       }
     }
@@ -2708,22 +2836,8 @@ class BallEngine {
     } else {
       flowResult = null;
     }
-    await _runScopeExits(blockScope);
     return flowResult;
-  }
-
-  Future<void> _runScopeExits(_Scope input) async {
-    _Scope blockScope = input;
-    if (blockScope._scopeExits.isEmpty) {
-      return;
-    }
-    for (final (expr, evalScope) in blockScope._scopeExits.reversed) {
-      try {
-        await _evalExpression(expr, evalScope);
-      } catch (__ball_e) {
-        final _ = __ball_e;
-      }
-    }
+    return null as dynamic;
   }
 
   Future<Object?> _evalStatement(Statement stmt, _Scope scope) async {
@@ -2734,7 +2848,10 @@ class BallEngine {
           return value;
         }
         if (stmt.let.hasMetadata()) {
-          final letType = stmt.let.metadata.fields['type']?.stringValue;
+          final letType = (() {
+            final __naa_10 = stmt.let.metadata.fields['type'];
+            return ((__naa_10 == null) ? null : __naa_10.stringValue);
+          })();
           if (((letType != null) && letType.startsWith('Map'))) {
             if (((value is Set) && value.isEmpty)) {
               value = _ballUserMap();
@@ -2751,6 +2868,7 @@ class BallEngine {
       case Statement_Stmt.notSet:
         return null;
     }
+    return null as dynamic;
   }
 
   Object? _evalLambda(FunctionDefinition func, _Scope scope) {
@@ -2836,6 +2954,7 @@ class BallEngine {
       return await _evalExpression(elseBranch, scope);
     }
     return null;
+    return null as dynamic;
   }
 
   Future<Object?> _evalLazyFor(FunctionCall call, _Scope scope) async {
@@ -2907,6 +3026,7 @@ class BallEngine {
       }
     }
     return null;
+    return null as dynamic;
   }
 
   Object? _evalSimpleInitExpr(String rawVal, _Scope scope) {
@@ -3050,6 +3170,7 @@ class BallEngine {
       }
     }
     return null;
+    return null as dynamic;
   }
 
   Future<Object?> _evalLazyWhile(FunctionCall call, _Scope scope) async {
@@ -3079,6 +3200,7 @@ class BallEngine {
       }
     }
     return null;
+    return null as dynamic;
   }
 
   Future<Object?> _evalLazyDoWhile(FunctionCall call, _Scope scope) async {
@@ -3110,6 +3232,7 @@ class BallEngine {
       }
     } while (true);
     return null;
+    return null as dynamic;
   }
 
   Future<Object?> _evalLazySwitch(FunctionCall call, _Scope scope) async {
@@ -3183,6 +3306,7 @@ class BallEngine {
       return result;
     }
     return null;
+    return null as dynamic;
   }
 
   Future<Object?> _evalLazySwitchExpr(FunctionCall call, _Scope scope) async {
@@ -3230,6 +3354,7 @@ class BallEngine {
       return _evalExpression(defaultBody, scope);
     }
     throw BallRuntimeError('Non-exhaustive switch expression');
+    return null as dynamic;
   }
 
   bool _caseIsDefault(Map<String, Expression> input) {
@@ -3292,6 +3417,7 @@ class BallEngine {
       return _matchPattern(subjectVal, pattern, bindings);
     }
     return false;
+    return null as dynamic;
   }
 
   String? _stringLiteral(Expression input) {
@@ -3374,7 +3500,7 @@ class BallEngine {
     if (_matchesTypePattern(subject, pattern)) {
       return true;
     }
-    return (pattern == subject?.toString());
+    return (pattern == ((subject == null) ? null : subject.toString()));
   }
 
   Future<Object?> _evalLazyTry(FunctionCall call, _Scope scope) async {
@@ -3386,7 +3512,7 @@ class BallEngine {
     try {
       result = ((body != null) ? await _evalExpression(body, scope) : null);
     } catch (__ball_e, __ball_st) {
-      final e = __ball_e;
+      final dynamic e = __ball_e;
       final stackTrace = __ball_st;
       result = null;
       if ((((catches != null) &&
@@ -3405,7 +3531,7 @@ class BallEngine {
           if (((catchType != null) && catchType.isNotEmpty)) {
             bool matches;
             if ((e is BallException)) {
-              final eType = e.typeName;
+              final eType = e['typeName'];
               final eColonIdx = eType.indexOf(':');
               final eBare = ((eColonIdx >= 0)
                   ? eType.substring((eColonIdx + 1))
@@ -3419,7 +3545,7 @@ class BallEngine {
                   : eType);
               matches = ((eType == catchType) || (eBare == catchType));
             } else {
-              matches = (e.runtimeType.toString() == catchType);
+              matches = (e['runtimeType'].toString() == catchType);
             }
             if (!matches) {
               continue;
@@ -3432,7 +3558,7 @@ class BallEngine {
             final catchScope = scope.child();
             catchScope.bind(
               variable,
-              ((e is BallException) ? e.value : e.toString()),
+              ((e is BallException) ? e['value'] : e.toString()),
             );
             if (((stackVariable != null) && stackVariable.isNotEmpty)) {
               catchScope.bind(stackVariable, stackTrace);
@@ -3460,6 +3586,7 @@ class BallEngine {
       }
     }
     return result;
+    return null as dynamic;
   }
 
   Future<Object?> _evalShortCircuitAnd(FunctionCall call, _Scope scope) async {
@@ -3474,6 +3601,7 @@ class BallEngine {
       return false;
     }
     return _toBool(await _evalExpression(right, scope));
+    return null as dynamic;
   }
 
   Future<Object?> _evalShortCircuitOr(FunctionCall call, _Scope scope) async {
@@ -3488,6 +3616,7 @@ class BallEngine {
       return true;
     }
     return _toBool(await _evalExpression(right, scope));
+    return null as dynamic;
   }
 
   Future<Object?> _evalReturn(FunctionCall call, _Scope scope) async {
@@ -3495,18 +3624,21 @@ class BallEngine {
     final value = fields['value'];
     final val = ((value != null) ? await _evalExpression(value, scope) : null);
     return _FlowSignal('return', value: val);
+    return null as dynamic;
   }
 
   Future<Object?> _evalBreak(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'label');
     return _FlowSignal('break', label: label);
+    return null as dynamic;
   }
 
   Future<Object?> _evalContinue(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'label');
     return _FlowSignal('continue', label: label);
+    return null as dynamic;
   }
 
   void _cfWritebackInstance(
@@ -3670,6 +3802,7 @@ class BallEngine {
       }
     }
     return val;
+    return null as dynamic;
   }
 
   Future<Object?> _evalNullAwareAssign(
@@ -3749,6 +3882,7 @@ class BallEngine {
       }
     }
     return _evalExpression(value, scope);
+    return null as dynamic;
   }
 
   Future<Object?> _evalIncDec(FunctionCall call, _Scope scope) async {
@@ -3827,6 +3961,7 @@ class BallEngine {
     } else {
       return (val - 1);
     }
+    return null as dynamic;
   }
 
   Object? _applyCompoundOp(String op, Object? current, Object? val) {
@@ -3882,6 +4017,7 @@ class BallEngine {
       return null;
     }
     return result;
+    return null as dynamic;
   }
 
   FunctionCall? _extractLoopFromBody(Expression input) {
@@ -3918,8 +4054,16 @@ class BallEngine {
       'for_in' => _evalLabeledForIn(loopCall, label, scope),
       'while' => _evalLabeledWhile(loopCall, label, scope),
       'do_while' => _evalLabeledDoWhile(loopCall, label, scope),
-      _ => _evalExpression((Expression()..call = loopCall), scope),
+      _ => _evalExpression(
+        (() {
+          final __cascade_self__ = Expression();
+          call = loopCall;
+          return __cascade_self__;
+        })(),
+        scope,
+      ),
     };
+    return null as dynamic;
   }
 
   Future<Object?> _evalLabeledFor(
@@ -3995,6 +4139,7 @@ class BallEngine {
       }
     }
     return null;
+    return null as dynamic;
   }
 
   Future<Object?> _evalLabeledForIn(
@@ -4036,6 +4181,7 @@ class BallEngine {
       }
     }
     return null;
+    return null as dynamic;
   }
 
   Future<Object?> _evalLabeledWhile(
@@ -4077,6 +4223,7 @@ class BallEngine {
       }
     }
     return null;
+    return null as dynamic;
   }
 
   Future<Object?> _evalLabeledDoWhile(
@@ -4126,12 +4273,14 @@ class BallEngine {
       }
     } while (true);
     return null;
+    return null as dynamic;
   }
 
   Future<Object?> _evalGoto(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'label');
     throw _FlowSignal('goto', label: label);
+    return null as dynamic;
   }
 
   Future<Object?> _evalLabel(FunctionCall call, _Scope scope) async {
@@ -4151,6 +4300,7 @@ class BallEngine {
       break;
     } while (true);
     return result;
+    return null as dynamic;
   }
 
   Future<Object?> _evalLazyCascade(FunctionCall call, _Scope scope) async {
@@ -4177,6 +4327,7 @@ class BallEngine {
       }
     }
     return target;
+    return null as dynamic;
   }
 
   Future<Object?> _evalAwaitFor(FunctionCall call, _Scope scope) {
@@ -4197,6 +4348,7 @@ class BallEngine {
       }
     }
     return val;
+    return null as dynamic;
   }
 
   Future<Object?> _evalYieldEach(FunctionCall call, _Scope scope) async {
@@ -4219,6 +4371,7 @@ class BallEngine {
       }
     }
     return iterable;
+    return null as dynamic;
   }
 
   Future<Object?> _dispatchBuiltinInstanceMethod(
@@ -4229,16 +4382,16 @@ class BallEngine {
     final inputMap = _cfAsMap(input);
     final args = (inputMap ?? <String, Object?>{});
     final arg0 = (args['arg0'] ?? args['value']);
-    final wasBallList = (self is BallList);
+    final wasBallList = (this is BallList);
     final Object? unwrappedSelf;
-    if ((self is BallList)) {
-      unwrappedSelf = self.items;
-    } else if ((self is BallString)) {
-      unwrappedSelf = self.value;
-    } else if ((self is BallMap)) {
-      unwrappedSelf = self.entries;
+    if ((this is BallList)) {
+      unwrappedSelf = this.items;
+    } else if ((this is BallString)) {
+      unwrappedSelf = this.value;
+    } else if ((this is BallMap)) {
+      unwrappedSelf = this.entries;
     } else {
-      unwrappedSelf = self;
+      unwrappedSelf = this;
     }
     if ((unwrappedSelf is List)) {
       final self = unwrappedSelf;
@@ -4246,37 +4399,37 @@ class BallEngine {
           (wasBallList ? BallList(result) : result);
       switch (method) {
         case 'add':
-          self..add(arg0);
+          this..add(arg0);
           return null;
         case 'removeLast':
-          return self.removeLast();
+          return this.removeLast();
         case 'removeAt':
-          return self.removeAt(_toInt(arg0));
+          return this.removeAt(_toInt(arg0));
         case 'insert':
-          self..insert(_toInt(arg0), args['arg1']);
+          this..insert(_toInt(arg0), args['arg1']);
           return null;
         case 'clear':
-          self..clear();
+          this..clear();
           return null;
         case 'contains':
-          return self.contains(arg0);
+          return this.contains(arg0);
         case 'indexOf':
-          return self.indexOf(arg0);
+          return this.indexOf(arg0);
         case 'join':
-          return self
+          return this
               .map((e) => _ballToString(e))
               .toList()
               .join(((arg0 != null) ? arg0.toString() : ', '));
         case 'sublist':
           final end = args['arg1'];
           return _wrapList(
-            self.sublist(_toInt(arg0), ((end != null) ? _toInt(end) : null)),
+            this.sublist(_toInt(arg0), ((end != null) ? _toInt(end) : null)),
           );
         case 'reversed':
-          return _wrapList(self.reversed.toList());
+          return _wrapList(this.reversed.toList());
         case 'sort':
           if ((arg0 is Function)) {
-            final sorted = self.toList();
+            final sorted = this.toList();
             for (var j = 1; (j < sorted.length); j++) {
               final key = sorted[j];
               var k = (j - 1);
@@ -4301,17 +4454,17 @@ class BallEngine {
               }
               sorted[(k + 1)] = key;
             }
-            self.setAll(0, sorted);
+            this.setAll(0, sorted);
             return null;
           }
-          final defaultSorted = self.toList();
+          final defaultSorted = this.toList();
           (defaultSorted..sort((a, b) => ((a as Comparable)).compareTo(b)));
-          self.setAll(0, defaultSorted);
+          this.setAll(0, defaultSorted);
           return null;
         case 'map':
           if ((arg0 is Function)) {
             final result = <Object?>[];
-            for (final item in self) {
+            for (final item in this) {
               var r = arg0(item);
               if ((r is Future)) {
                 r = await r;
@@ -4320,12 +4473,12 @@ class BallEngine {
             }
             return _wrapList(result);
           }
-          return (wasBallList ? BallList(self) : self);
+          return (wasBallList ? BallList(this) : this);
         case 'where':
         case 'filter':
           if ((arg0 is Function)) {
             final result = <Object?>[];
-            for (final item in self) {
+            for (final item in this) {
               var r = arg0(item);
               if ((r is Future)) {
                 r = await r;
@@ -4336,10 +4489,10 @@ class BallEngine {
             }
             return _wrapList(result);
           }
-          return (wasBallList ? BallList(self) : self);
+          return (wasBallList ? BallList(this) : this);
         case 'forEach':
           if ((arg0 is Function)) {
-            for (final item in self) {
+            for (final item in this) {
               var r = arg0(item);
               if ((r is Future)) {
                 await r;
@@ -4349,7 +4502,7 @@ class BallEngine {
           return null;
         case 'any':
           if ((arg0 is Function)) {
-            for (final item in self) {
+            for (final item in this) {
               var r = arg0(item);
               if ((r is Future)) {
                 r = await r;
@@ -4363,7 +4516,7 @@ class BallEngine {
           return false;
         case 'every':
           if ((arg0 is Function)) {
-            for (final item in self) {
+            for (final item in this) {
               var r = arg0(item);
               if ((r is Future)) {
                 r = await r;
@@ -4379,7 +4532,7 @@ class BallEngine {
           if ((arg0 is Function)) {
             final init = args['arg1'];
             var acc = init;
-            for (final item in self) {
+            for (final item in this) {
               var r = arg0(<String, Object?>{'arg0': acc, 'arg1': item});
               if ((r is Future)) {
                 r = await r;
@@ -4393,7 +4546,7 @@ class BallEngine {
           if ((args['arg1'] is Function)) {
             final fn = ((args['arg1'] as Function));
             var acc = arg0;
-            for (final item in self) {
+            for (final item in this) {
               var r = fn(<String, Object?>{'arg0': acc, 'arg1': item});
               if ((r is Future)) {
                 r = await r;
@@ -4404,12 +4557,12 @@ class BallEngine {
           }
           return arg0;
         case 'toList':
-          return _wrapList(self.toList());
+          return _wrapList(this.toList());
         case 'toSet':
-          return _wrapList(self.toSet().toList());
+          return _wrapList(this.toSet().toList());
         case 'toString':
           return (('[' +
-                  self.map(_ballToString).toList().join(', ').toString()) +
+                  this.map(_ballToString).toList().join(', ').toString()) +
               ']');
         case 'filled':
           return _wrapList(List.filled(_toInt(arg0), args['arg1']));
@@ -4419,7 +4572,7 @@ class BallEngine {
               : (((arg0 is List) ? arg0 : <Object?>[])));
           final seen = <Object?, Object?>{};
           final result = <Object?>[];
-          for (final item in self) {
+          for (final item in this) {
             if (!seen.containsKey(item)) {
               seen[item] = item;
               result..add(item);
@@ -4439,7 +4592,7 @@ class BallEngine {
                       : (((arg0 is List) ? arg0 : <Object?>[]))))
                   .toSet();
           return _wrapList(
-            self.where((x) => otherSet.contains(x)).toList().toList(),
+            this.where((x) => otherSet.contains(x)).toList().toList(),
           );
         case 'difference':
           final otherSet2 =
@@ -4448,22 +4601,22 @@ class BallEngine {
                       : (((arg0 is List) ? arg0 : <Object?>[]))))
                   .toSet();
           return _wrapList(
-            self.where((x) => !otherSet2.contains(x)).toList().toList(),
+            this.where((x) => !otherSet2.contains(x)).toList().toList(),
           );
         case 'addAll':
           final other2 = ((arg0 is BallList)
               ? arg0.items
               : (((arg0 is List) ? arg0 : <Object?>[])));
           for (final item in other2) {
-            if (!self.contains(item)) {
-              self..add(item);
+            if (!this.contains(item)) {
+              this..add(item);
             }
           }
           return null;
         case 'expand':
           if ((arg0 is Function)) {
             final result = <Object?>[];
-            for (final item in self) {
+            for (final item in this) {
               var r = arg0(item);
               if ((r is Future)) {
                 r = await r;
@@ -4478,63 +4631,63 @@ class BallEngine {
             }
             return _wrapList(result);
           }
-          return (wasBallList ? BallList(self) : self);
+          return (wasBallList ? BallList(this) : this);
         case 'take':
-          return _wrapList(self.take(_toInt(arg0)).toList());
+          return _wrapList(this.take(_toInt(arg0)).toList());
         case 'skip':
-          return _wrapList(self.skip(_toInt(arg0)).toList());
+          return _wrapList(this.skip(_toInt(arg0)).toList());
         case 'followedBy':
           final other3 = ((arg0 is BallList)
               ? arg0.items
               : (((arg0 is List) ? arg0 : <Object?>[])));
-          return _wrapList([...self, ...other3]);
+          return _wrapList([...this, ...other3]);
       }
     }
     if ((unwrappedSelf is Set)) {
       final self = unwrappedSelf;
-      final selfList = self.toList();
+      final selfList = this.toList();
       switch (method) {
         case 'union':
           final otherU = ((arg0 is Set)
               ? arg0
               : (((arg0 is List) ? arg0.toSet() : <Object?>{})));
-          return self.union(otherU);
+          return this.union(otherU);
         case 'intersection':
           final otherI = ((arg0 is Set)
               ? arg0
               : (((arg0 is List) ? arg0.toSet() : <Object?>{})));
-          return self.intersection(otherI);
+          return this.intersection(otherI);
         case 'difference':
           final otherD = ((arg0 is Set)
               ? arg0
               : (((arg0 is List) ? arg0.toSet() : <Object?>{})));
-          return self.difference(otherD);
+          return this.difference(otherD);
         case 'add':
-          self..add(arg0);
+          this..add(arg0);
           return null;
         case 'addAll':
           if ((arg0 is Iterable)) {
-            self.addAll(arg0);
+            this.addAll(arg0);
           }
           return null;
         case 'remove':
-          self.remove(arg0);
+          this.remove(arg0);
           return null;
         case 'contains':
-          return self.contains(arg0);
+          return this.contains(arg0);
         case 'toList':
           return selfList;
         case 'toSet':
-          return self;
+          return this;
         case 'length':
-          return self.length;
+          return this.length;
         case 'isEmpty':
-          return self.isEmpty;
+          return this.isEmpty;
         case 'isNotEmpty':
-          return self.isNotEmpty;
+          return this.isNotEmpty;
         case 'forEach':
           if ((arg0 is Function)) {
-            for (final item in self) {
+            for (final item in this) {
               var r = arg0(item);
               if ((r is Future)) {
                 await r;
@@ -4545,7 +4698,7 @@ class BallEngine {
         case 'map':
           if ((arg0 is Function)) {
             final result = <Object?>[];
-            for (final item in self) {
+            for (final item in this) {
               var r = arg0(item);
               if ((r is Future)) {
                 r = await r;
@@ -4559,7 +4712,7 @@ class BallEngine {
         case 'filter':
           if ((arg0 is Function)) {
             final result = <Object?>{};
-            for (final item in self) {
+            for (final item in this) {
               var r = arg0(item);
               if ((r is Future)) {
                 r = await r;
@@ -4570,81 +4723,95 @@ class BallEngine {
             }
             return result;
           }
-          return self;
+          return this;
       }
     }
     if ((unwrappedSelf is String)) {
       final self = unwrappedSelf;
       switch (method) {
         case 'contains':
-          return self.contains(arg0.toString());
+          return this.contains(arg0.toString());
         case 'substring':
           final end = args['arg1'];
-          return self.substring(
+          return this.substring(
             _toInt(arg0),
             ((end != null) ? _toInt(end) : null),
           );
         case 'indexOf':
-          return self.indexOf(arg0.toString());
+          return this.indexOf(arg0.toString());
         case 'split':
-          return self.split(arg0.toString());
+          return this.split(arg0.toString());
         case 'trim':
-          return self.trim();
+          return this.trim();
         case 'toUpperCase':
-          return self.toUpperCase();
+          return this.toUpperCase();
         case 'toLowerCase':
-          return self.toLowerCase();
+          return this.toLowerCase();
         case 'replaceAll':
-          return self.replaceAll(
+          return this.replaceAll(
             arg0.toString(),
             ((args['arg1'] ?? '')).toString(),
           );
         case 'startsWith':
-          return self.startsWith(arg0.toString());
+          return this.startsWith(arg0.toString());
         case 'endsWith':
-          return self.endsWith(arg0.toString());
+          return this.endsWith(arg0.toString());
         case 'padLeft':
-          return self.padLeft(_toInt(arg0), (args['arg1']?.toString() ?? ' '));
+          return this.padLeft(
+            _toInt(arg0),
+            ((() {
+                  final __nac_11 = args['arg1'];
+                  return ((__nac_11 == null) ? null : __nac_11.toString());
+                })() ??
+                ' '),
+          );
         case 'padRight':
-          return self.padRight(_toInt(arg0), (args['arg1']?.toString() ?? ' '));
+          return this.padRight(
+            _toInt(arg0),
+            ((() {
+                  final __nac_12 = args['arg1'];
+                  return ((__nac_12 == null) ? null : __nac_12.toString());
+                })() ??
+                ' '),
+          );
         case 'toString':
-          return self;
+          return this;
         case 'codeUnitAt':
-          return _ballCodeUnitAt(self, _toInt(arg0));
+          return _ballCodeUnitAt(this, _toInt(arg0));
         case 'compareTo':
-          return self.compareTo(arg0.toString());
+          return this.compareTo(arg0.toString());
       }
     }
     if ((unwrappedSelf is num)) {
       final self = unwrappedSelf;
       switch (method) {
         case 'toDouble':
-          return _ballToDouble(self);
+          return _ballToDouble(this);
         case 'toInt':
-          return _ballDoubleToInt64(self);
+          return _ballDoubleToInt64(this);
         case 'toString':
-          return _ballToString(self);
+          return _ballToString(this);
         case 'toStringAsFixed':
-          return self.toStringAsFixed(_toInt(arg0));
+          return this.toStringAsFixed(_toInt(arg0));
         case 'abs':
-          return self.abs();
+          return this.abs();
         case 'round':
-          return self.round();
+          return this.round();
         case 'floor':
-          return self.floor();
+          return this.floor();
         case 'ceil':
-          return self.ceil();
+          return this.ceil();
         case 'compareTo':
-          return self.compareTo(_toNum(arg0));
+          return this.compareTo(_toNum(arg0));
         case 'clamp':
-          return self.clamp(_toNum(arg0), _toNum((args['arg1'] ?? self)));
+          return this.clamp(_toNum(arg0), _toNum((args['arg1'] ?? this)));
         case 'truncate':
-          return _ballDoubleToInt64(self.truncate());
+          return _ballDoubleToInt64(this.truncate());
         case 'remainder':
-          return self.remainder(_toNum(arg0));
+          return this.remainder(_toNum(arg0));
       }
     }
-    final selfMap = _cfAsMap(self);
+    final selfMap = _cfAsMap(this);
     if (((selfMap != null) && selfMap.containsKey('__type__'))) {
       final typeName = ((selfMap['__type__'] as String?));
       if (((typeName != null) &&
@@ -4677,29 +4844,11 @@ class BallEngine {
         }
       }
       if ((method == 'toString')) {
-        return _ballToString(self);
+        return _ballToString(this);
       }
     }
     return _sentinel;
-  }
-
-  Object? _evalCppScopeExit(FunctionCall call, _Scope scope) {
-    if (!call.hasInput()) {
-      return null;
-    }
-    final input = call.input;
-    if ((input.whichExpr() != Expression_Expr.messageCreation)) {
-      return null;
-    }
-    final cleanupEntry = input.messageCreation.fields
-        .where((f) => (f.name == 'cleanup'))
-        .toList()
-        .firstOrNull;
-    if ((cleanupEntry == null)) {
-      return null;
-    }
-    scope.registerScopeExit(cleanupEntry.value, scope);
-    return null;
+    return null as dynamic;
   }
 
   Map<String, Object?>? _stdAsMap(Object? input) {
@@ -4801,6 +4950,7 @@ class BallEngine {
       current = _stdAsMap(current['__super__']);
     }
     return null;
+    return null as dynamic;
   }
 
   Future<Object?> _dispatchBuiltinClassMethod(
@@ -4849,6 +4999,7 @@ class BallEngine {
       default:
         return _sentinel;
     }
+    return null as dynamic;
   }
 
   Future<Object?> _callBaseFunction(
@@ -4862,9 +5013,10 @@ class BallEngine {
         return _consumeGeneratorFlow(override);
       }
     }
+    final handlerInput = ((input is BallMap) ? input.entries : input);
     for (final handler in moduleHandlers) {
       if (handler.handles(module)) {
-        final result = await handler.call(function, input, callFunction);
+        final result = await handler.call(function, handlerInput, callFunction);
         _callCounts?[function] = ((_callCounts![function] ?? 0) + 1);
         return _consumeGeneratorFlow(result);
       }
@@ -4872,6 +5024,7 @@ class BallEngine {
     throw BallRuntimeError(
       (('Unknown base module: "' + module.toString()) + '"'),
     );
+    return null as dynamic;
   }
 
   Map<String, FutureOr<Object?> Function(Object?)> _buildStdDispatch() {
@@ -5387,7 +5540,12 @@ class BallEngine {
       'list_join': (i) {
         final m = _stdAsMap(i)!;
         final list = _stdAsList(m['list'])!;
-        final sep = (m['separator']?.toString() ?? ',');
+        final sep =
+            ((() {
+              final __nac_13 = m['separator'];
+              return ((__nac_13 == null) ? null : __nac_13.toString());
+            })() ??
+            ',');
         return list.map((e) => _ballToString(e)).toList().join(sep);
       },
       'map_get': (i) {
@@ -5700,7 +5858,10 @@ class BallEngine {
       ),
       'regex_find': (i) => _stdBinaryAny(
         i,
-        (a, b) => RegExp(((b as String))).firstMatch(((a as String)))?.group(0),
+        (a, b) => (() {
+          final __nac_14 = RegExp(((b as String))).firstMatch(((a as String)));
+          return ((__nac_14 == null) ? null : __nac_14.group(0));
+        })(),
       ),
       'regex_find_all': (i) => _stdBinaryAny(
         i,
@@ -5710,11 +5871,11 @@ class BallEngine {
       ),
       'regex_replace': (i) => _stdRegexReplace(i, false),
       'regex_replace_all': (i) => _stdRegexReplace(i, true),
-      'math_abs': (i) => _stdConvert(i, (v) => ((v as num)).abs()),
-      'math_floor': (i) => _stdConvert(i, (v) => ((v as num)).floor()),
-      'math_ceil': (i) => _stdConvert(i, (v) => ((v as num)).ceil()),
-      'math_round': (i) => _stdConvert(i, (v) => ((v as num)).round()),
-      'math_trunc': (i) => _stdConvert(i, (v) => ((v as num)).truncate()),
+      'math_abs': (i) => _stdConvert(i, (v) => _toNum(v).abs()),
+      'math_floor': (i) => _stdConvert(i, (v) => _toNum(v).floor()),
+      'math_ceil': (i) => _stdConvert(i, (v) => _toNum(v).ceil()),
+      'math_round': (i) => _stdConvert(i, (v) => _toNum(v).round()),
+      'math_trunc': (i) => _stdConvert(i, (v) => _toNum(v).truncate()),
       'math_sqrt': (i) => _stdMathUnary(i, _mathSqrt),
       'math_pow': (i) => _stdMathBinary(i, _mathPow),
       'math_log': (i) => _stdMathUnary(i, _mathLog),
@@ -5746,12 +5907,17 @@ class BallEngine {
       'print_error': (i) {
         final im = _stdAsMap(i);
         final msg = ((im != null)
-            ? (im['message']?.toString() ?? '')
+            ? ((() {
+                    final __nac_15 = im['message'];
+                    return ((__nac_15 == null) ? null : __nac_15.toString());
+                  })() ??
+                  '')
             : i.toString());
         stderr(msg);
         return null;
       },
-      'read_line': (_) => (stdinReader?.call() ?? ''),
+      'read_line': (_) =>
+          (((stdinReader == null) ? null : stdinReader.call()) ?? ''),
       'exit': (i) {
         _checkSandbox('exit');
         final im = _stdAsMap(i);
@@ -5762,7 +5928,11 @@ class BallEngine {
         _checkSandbox('panic');
         final im = _stdAsMap(i);
         final msg = ((im != null)
-            ? (im['message']?.toString() ?? '')
+            ? ((() {
+                    final __nac_16 = im['message'];
+                    return ((__nac_16 == null) ? null : __nac_16.toString());
+                  })() ??
+                  '')
             : i.toString());
         stderr(msg);
         throw _ExitSignal(1);
@@ -5777,8 +5947,18 @@ class BallEngine {
       'timestamp_ms': (_) => DateTime.now().millisecondsSinceEpoch,
       'random_int': (i) {
         final m = _stdAsMap(i)!;
-        final min = (((m['min'] as num?))?.toInt() ?? 0);
-        final max = (((m['max'] as num?))?.toInt() ?? 100);
+        final min =
+            ((() {
+              final __nac_17 = ((m['min'] as num?));
+              return ((__nac_17 == null) ? null : __nac_17.toInt());
+            })() ??
+            0);
+        final max =
+            ((() {
+              final __nac_18 = ((m['max'] as num?));
+              return ((__nac_18 == null) ? null : __nac_18.toInt());
+            })() ??
+            100);
         return (min + _random.nextInt(((max - min) + 1)));
       },
       'random_double': (_) => _random.nextDouble(),
@@ -5835,7 +6015,12 @@ class BallEngine {
       'now_micros': (_) => DateTime.now().microsecondsSinceEpoch,
       'format_timestamp': (i) {
         final m = _stdAsMap(i)!;
-        final ms = (((m['timestamp_ms'] as num?))?.toInt() ?? 0);
+        final ms =
+            ((() {
+              final __nac_19 = ((m['timestamp_ms'] as num?));
+              return ((__nac_19 == null) ? null : __nac_19.toInt());
+            })() ??
+            0);
         final dt = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
         return dt.toIso8601String();
       },
@@ -5895,85 +6080,6 @@ class BallEngine {
       },
       'atomic_store': (i) => null,
       'atomic_compare_exchange': (i) => true,
-      'cpp_scope_exit': (_) => null,
-      'cpp_destructor': (_) => null,
-      'cpp_move': (i) {
-        final im = _stdAsMap(i);
-        if ((im != null)) {
-          return im['value'];
-        }
-        return i;
-      },
-      'cpp_forward': (i) {
-        final im = _stdAsMap(i);
-        if ((im != null)) {
-          return im['value'];
-        }
-        return i;
-      },
-      'cpp_make_unique': (i) => i,
-      'cpp_make_shared': (i) => i,
-      'cpp_unique_ptr_get': (i) {
-        final im = _stdAsMap(i);
-        if ((im != null)) {
-          return im['value'];
-        }
-        return i;
-      },
-      'cpp_shared_ptr_get': (i) {
-        final im = _stdAsMap(i);
-        if ((im != null)) {
-          return im['value'];
-        }
-        return i;
-      },
-      'cpp_shared_ptr_use_count': (_) => 1,
-      'cpp_static_assert': (_) => null,
-      'cpp_decltype': (i) => i,
-      'cpp_auto': (i) => i,
-      'cpp_structured_binding': (i) => i,
-      'cpp_template_instantiate': (i) => i,
-      'cpp_new': (i) => i,
-      'cpp_delete': (_) => null,
-      'cpp_sizeof': (_) => 8,
-      'cpp_alignof': (_) => 8,
-      'ptr_cast': (i) {
-        final im = _stdAsMap(i);
-        if ((im != null)) {
-          return im['value'];
-        }
-        return i;
-      },
-      'arrow': (i) {
-        final im = _stdAsMap(i);
-        if ((im != null)) {
-          final target = im['target'];
-          final field = im['field'];
-          final targetMap = _stdAsMap(target);
-          if (((targetMap != null) && (field is String))) {
-            return targetMap[field];
-          }
-        }
-        return null;
-      },
-      'deref': (i) {
-        final im = _stdAsMap(i);
-        if ((im != null)) {
-          return im['value'];
-        }
-        return i;
-      },
-      'address_of': (i) => i,
-      'init_list': (i) => i,
-      'nullptr': (_) => null,
-      'cpp_ifdef': (i) {
-        final im = _stdAsMap(i);
-        if ((im != null)) {
-          return im['then_body'];
-        }
-        return null;
-      },
-      'cpp_defined': (_) => false,
       'goto': (i) {
         final im = _stdAsMap(i);
         if ((im != null)) {
@@ -6073,11 +6179,12 @@ class BallEngine {
               done = true;
             });
             if (done) {
-              return (syncResult?.toString() ?? 'null');
+              return (((syncResult == null) ? null : syncResult.toString()) ??
+                  'null');
             }
             return map.toString();
           } catch (__ball_e) {
-            final _ = __ball_e;
+            final dynamic _ = __ball_e;
           }
         }
       }
@@ -6151,7 +6258,7 @@ class BallEngine {
     return [];
   }
 
-  FutureOr<Object?> _stdPrint(Object? input) async {
+  Future<FutureOr<Object?>> _stdPrint(Object? input) async {
     final m = _stdAsMap(input);
     if ((m != null)) {
       final message = ((m['message'] ?? m['arg0']) ?? m['value']);
@@ -6162,6 +6269,7 @@ class BallEngine {
     }
     stdout(await _ballToStringAsync(input));
     return null;
+    return null as dynamic;
   }
 
   Future<String> _ballToStringAsync(Object? input) async {
@@ -6224,14 +6332,15 @@ class BallEngine {
               resolved.func,
               <String, Object?>{'self': map},
             );
-            return (result?.toString() ?? 'null');
+            return (((result == null) ? null : result.toString()) ?? 'null');
           } catch (__ball_e) {
-            final _ = __ball_e;
+            final dynamic _ = __ball_e;
           }
         }
       }
     }
     return v.toString();
+    return null as dynamic;
   }
 
   Object? _stdIf(Object? input) {
@@ -6289,18 +6398,16 @@ class BallEngine {
     return target;
   }
 
-  FutureOr<Object?> _stdListGenerate(Object? input) async {
+  Future<FutureOr<Object?>> _stdListGenerate(Object? input) async {
     final m = _stdAsMap(input);
     if ((m == null)) {
-      throw BallRuntimeError('dart_std.list_generate: expected message');
+      throw BallRuntimeError('std.list_generate: expected message');
     }
     final length = _toInt(((m['length'] ?? m['count']) ?? m['arg0']));
     final generator =
         (((m['generator'] ?? m['callback']) ?? m['function']) ?? m['arg1']);
     if ((generator is! Function)) {
-      throw BallRuntimeError(
-        'dart_std.list_generate: generator is not callable',
-      );
+      throw BallRuntimeError('std.list_generate: generator is not callable');
     }
     _trackMemoryAllocation((length * _ballPointerBytes));
     final result = <Object?>[];
@@ -6312,19 +6419,20 @@ class BallEngine {
       result..add(value);
     }
     return result;
+    return null as dynamic;
   }
 
   Object? _stdListFilled(Object? input) {
     final m = _stdAsMap(input);
     if ((m == null)) {
-      throw BallRuntimeError('dart_std.list_filled: expected message');
+      throw BallRuntimeError('std.list_filled: expected message');
     }
     final length = _toInt(((m['length'] ?? m['count']) ?? m['arg0']));
     _trackMemoryAllocation((length * _ballPointerBytes));
     return List<Object?>.filled(length, (m['value'] ?? m['arg1']));
   }
 
-  FutureOr<Object?> _stdInvoke(Object? input) async {
+  Future<FutureOr<Object?>> _stdInvoke(Object? input) async {
     final m = _stdAsMap(input);
     if ((m == null)) {
       throw BallRuntimeError('std.invoke: expected message');
@@ -6333,9 +6441,12 @@ class BallEngine {
     if ((callee is! Function)) {
       throw BallRuntimeError('std.invoke: callee is not callable');
     }
-    final args = (Map<String, Object?>.from(m)
-      ..remove('callee')
-      ..remove('__type__'));
+    final args = (() {
+      final __cascade_self__ = Map<String, Object?>.from(m);
+      __cascade_self__.remove('callee');
+      __cascade_self__.remove('__type__');
+      return __cascade_self__;
+    })();
     Object? result;
     if ((args.length == 1)) {
       result = Function.apply(callee, [args.values.first]);
@@ -6348,6 +6459,7 @@ class BallEngine {
       result = await result;
     }
     return result;
+    return null as dynamic;
   }
 
   Object? _stdNullAwareAccess(Object? input) {
@@ -6407,7 +6519,9 @@ class BallEngine {
       }
       final mapVal = _stdAsMap(value);
       if (((baseType == 'Map') && ((mapVal != null) || (value is Map)))) {
-        final entries = (mapVal?.entries ?? ((value as Map)).entries);
+        final entries =
+            (((mapVal == null) ? null : mapVal.entries) ??
+            ((value as Map)).entries);
         if ((typeArgs.length == 2)) {
           return entries.every(
             (e) =>
@@ -6578,7 +6692,11 @@ class BallEngine {
     if ((entriesMap != null)) {
       _trackMemoryAllocation(_ballMapEntryBytes);
       final key = _ballToString((entriesMap['key'] ?? entriesMap['name']));
-      return (_ballUserMap()..[key] = entriesMap['value']);
+      return (() {
+        final __cascade_self__ = _ballUserMap();
+        __cascade_self__[key] = entriesMap['value'];
+        return __cascade_self__;
+      })();
     }
     return _ballUserMap();
   }
@@ -6605,7 +6723,7 @@ class BallEngine {
     return (m['fields'] ?? m);
   }
 
-  FutureOr<Object?> _stdSwitchExpr(Object? input) async {
+  Future<FutureOr<Object?>> _stdSwitchExpr(Object? input) async {
     final im = _stdAsMap(input);
     if ((im == null)) {
       return null;
@@ -6655,6 +6773,7 @@ class BallEngine {
       return defaultBody;
     }
     throw BallRuntimeError('Non-exhaustive switch expression');
+    return null as dynamic;
   }
 
   bool _matchPattern(
@@ -6672,7 +6791,8 @@ class BallEngine {
     if ((patternMap != null)) {
       return _matchStructuredPattern(value, patternMap, bindings);
     }
-    return ((pattern == value) || (pattern.toString() == value?.toString()));
+    return ((pattern == value) ||
+        (pattern.toString() == ((value == null) ? null : value.toString())));
   }
 
   bool _matchStringPattern(
@@ -6723,7 +6843,7 @@ class BallEngine {
     if (_matchesTypePattern(value, trimmed)) {
       return true;
     }
-    if ((trimmed == value?.toString())) {
+    if ((trimmed == ((value == null) ? null : value.toString()))) {
       return true;
     }
     return false;
@@ -6987,7 +7107,10 @@ class BallEngine {
   }
 
   bool _matchesObjectType(Map<String, Object?> value, String patternType) {
-    final actual = value['__type__']?.toString();
+    final actual = (() {
+      final __nac_20 = value['__type__'];
+      return ((__nac_20 == null) ? null : __nac_20.toString());
+    })();
     if ((actual == null)) {
       return false;
     }
@@ -7612,7 +7735,7 @@ class BallEngine {
 class _FlowSignal extends BallValue {
   _FlowSignal(this.kind, {this.label, this.value});
 
-  final String kind;
+  late final String kind;
 
   final String? label;
 
@@ -7631,22 +7754,23 @@ class BallObject extends BallMap {
     _refreshEntries();
   }
 
-  final String typeName;
+  late final String typeName;
 
   Object? superObject;
 
-  final Map<String, Object?> fields;
+  late final Map<String, Object?> fields;
 
-  final Map<String, Object?> methods;
+  late final Map<String, Object?> methods;
 
   void _refreshEntries() {
-    (entries
-      ..clear()
-      ..addAll(fields)
-      ..['__type__'] = typeName
-      ..['__super__'] = superObject
-      ..['__fields__'] = fields
-      ..['__methods__'] = methods);
+    final __cascade_self__ = entries;
+    __cascade_self__.clear();
+    __cascade_self__.addAll(fields);
+    __cascade_self__['__type__'] = typeName;
+    __cascade_self__['__super__'] = superObject;
+    __cascade_self__['__fields__'] = fields;
+    __cascade_self__['__methods__'] = methods;
+    __cascade_self__;
   }
 
   void setField(String name, Object? value) {
@@ -7662,11 +7786,14 @@ class BallObject extends BallMap {
       return;
     }
     if ((key == '__methods__')) {
-      (methods
-        ..clear()
-        ..addAll(
+      (() {
+        final __cascade_self__ = methods;
+        __cascade_self__.clear();
+        __cascade_self__.addAll(
           ((value is Map<String, Object?>) ? value : <String, Object?>{}),
-        ));
+        );
+        return __cascade_self__;
+      })();
       entries[key] = methods;
       return;
     }
@@ -7683,8 +7810,6 @@ class _Scope {
   final Map<String, Object?> _bindings = {};
 
   final _Scope? _parent;
-
-  final List<(Expression, _Scope)> _scopeExits = [];
 
   Object? lookup(String input) {
     String name = input;
@@ -7706,7 +7831,7 @@ class _Scope {
     if (_bindings.containsKey(name)) {
       return true;
     }
-    return (_parent?.has(name) ?? false);
+    return (((_parent == null) ? null : _parent.has(name)) ?? false);
   }
 
   void set(String name, Object? value) {
@@ -7721,17 +7846,13 @@ class _Scope {
     _bindings[name] = value;
   }
 
-  void registerScopeExit(Expression cleanup, _Scope evalScope) {
-    _scopeExits..add((cleanup, evalScope));
-  }
-
   _Scope child() => _Scope(this);
 }
 
 class BallRuntimeError implements Exception {
   BallRuntimeError(this.message);
 
-  final String message;
+  late final String message;
 
   @override
   String toString() => ('BallRuntimeError: ' + message.toString());
@@ -7760,18 +7881,19 @@ class BallGenerator extends BallValue {
 class BallException extends BallValue implements Exception {
   BallException(this.typeName, this.value);
 
-  final String typeName;
+  late final String typeName;
 
   final Object? value;
 
   @override
-  String toString() => (value?.toString() ?? typeName);
+  String toString() =>
+      (((value == null) ? null : value.toString()) ?? typeName);
 }
 
 class _ExitSignal extends BallValue implements Exception {
   _ExitSignal(this.code);
 
-  final int code;
+  late final int code;
 }
 
 abstract class BallModuleHandler {
@@ -7804,15 +7926,13 @@ class StdModuleHandler extends BallModuleHandler {
     String module = input;
     return switch (module) {
       'std' ||
-      'dart_std' ||
       'std_collections' ||
       'std_io' ||
       'std_memory' ||
       'std_convert' ||
       'std_fs' ||
       'std_time' ||
-      'std_concurrency' ||
-      'cpp_std' => true,
+      'std_concurrency' => true,
       _ => false,
     };
   }
@@ -8200,7 +8320,9 @@ Object? _unwrapBallFuture(Object? input) {
       if ((error is BallRuntimeError)) {
         throw error;
       }
-      throw BallRuntimeError((error?.toString() ?? 'Unknown async error'));
+      throw BallRuntimeError(
+        (((error == null) ? null : error.toString()) ?? 'Unknown async error'),
+      );
     }
     return map['value'];
   }

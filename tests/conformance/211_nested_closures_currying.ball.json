@@ -7,11 +7,7 @@
       "name": "std",
       "functions": [
         {
-          "name": "print",
-          "isBase": true
-        },
-        {
-          "name": "to_string",
+          "name": "return",
           "isBase": true
         },
         {
@@ -19,10 +15,15 @@
           "isBase": true
         },
         {
-          "name": "return",
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -37,15 +38,40 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "name": "dart_std",
-      "functions": [
+        },
         {
-          "name": "invoke",
-          "isBase": true
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         }
       ]
     },
@@ -56,108 +82,133 @@
           "name": "adder",
           "inputType": "int",
           "body": {
-            "call": {
-              "module": "std",
-              "function": "return",
-              "input": {
-                "messageCreation": {
-                  "fields": [
-                    {
-                      "name": "value",
-                      "value": {
-                        "lambda": {
-                          "name": "",
-                          "body": {
-                            "lambda": {
-                              "name": "",
-                              "body": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "add",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "left",
-                                          "value": {
-                                            "call": {
-                                              "module": "std",
-                                              "function": "add",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "fields": [
-                                                    {
-                                                      "name": "left",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "a"
-                                                        }
-                                                      }
-                                                    },
-                                                    {
-                                                      "name": "right",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "b"
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "a",
+                    "value": {
+                      "reference": {
+                        "name": "input"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "int"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "return",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "value",
+                              "value": {
+                                "lambda": {
+                                  "name": "",
+                                  "body": {
+                                    "lambda": {
+                                      "name": "",
+                                      "body": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "add",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "left",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "add",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "left",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "a"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "right",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "b"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
                                                         }
                                                       }
                                                     }
-                                                  ]
+                                                  }
+                                                },
+                                                {
+                                                  "name": "right",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "c"
+                                                    }
+                                                  }
                                                 }
-                                              }
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "right",
-                                          "value": {
-                                            "reference": {
-                                              "name": "c"
+                                              ]
                                             }
                                           }
                                         }
-                                      ]
+                                      },
+                                      "metadata": {
+                                        "kind": "lambda",
+                                        "expression_body": true,
+                                        "has_return": true,
+                                        "params": [
+                                          {
+                                            "name": "c",
+                                            "type": "int"
+                                          }
+                                        ]
+                                      }
                                     }
+                                  },
+                                  "metadata": {
+                                    "kind": "lambda",
+                                    "expression_body": true,
+                                    "has_return": true,
+                                    "params": [
+                                      {
+                                        "name": "b",
+                                        "type": "int"
+                                      }
+                                    ]
                                   }
                                 }
-                              },
-                              "metadata": {
-                                "kind": "lambda",
-                                "expression_body": true,
-                                "has_return": true,
-                                "params": [
-                                  {
-                                    "name": "c",
-                                    "type": "int"
-                                  }
-                                ]
                               }
                             }
-                          },
-                          "metadata": {
-                            "kind": "lambda",
-                            "expression_body": true,
-                            "has_return": true,
-                            "params": [
-                              {
-                                "name": "b",
-                                "type": "int"
-                              }
-                            ]
-                          }
+                          ]
                         }
                       }
                     }
-                  ]
+                  }
                 }
-              }
+              ]
             }
           },
           "metadata": {
             "kind": "function",
             "params": [
               {
-                "name": "a",
+                "name": "input",
                 "type": "int"
               }
             ]
@@ -165,6 +216,7 @@
         },
         {
           "name": "main",
+          "outputType": "void",
           "body": {
             "block": {
               "statements": [
@@ -175,17 +227,8 @@
                       "call": {
                         "function": "adder",
                         "input": {
-                          "messageCreation": {
-                            "fields": [
-                              {
-                                "name": "arg0",
-                                "value": {
-                                  "literal": {
-                                    "intValue": "10"
-                                  }
-                                }
-                              }
-                            ]
+                          "literal": {
+                            "intValue": "10"
                           }
                         }
                       }
@@ -200,28 +243,10 @@
                     "name": "add10_20",
                     "value": {
                       "call": {
-                        "module": "dart_std",
-                        "function": "invoke",
+                        "function": "add10",
                         "input": {
-                          "messageCreation": {
-                            "fields": [
-                              {
-                                "name": "callee",
-                                "value": {
-                                  "reference": {
-                                    "name": "add10"
-                                  }
-                                }
-                              },
-                              {
-                                "name": "arg0",
-                                "value": {
-                                  "literal": {
-                                    "intValue": "20"
-                                  }
-                                }
-                              }
-                            ]
+                          "literal": {
+                            "intValue": "20"
                           }
                         }
                       }
@@ -248,33 +273,16 @@
                                   "function": "to_string",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
                                           "value": {
                                             "call": {
-                                              "module": "dart_std",
-                                              "function": "invoke",
+                                              "function": "add10_20",
                                               "input": {
-                                                "messageCreation": {
-                                                  "fields": [
-                                                    {
-                                                      "name": "callee",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "add10_20"
-                                                        }
-                                                      }
-                                                    },
-                                                    {
-                                                      "name": "arg0",
-                                                      "value": {
-                                                        "literal": {
-                                                          "intValue": "30"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
+                                                "literal": {
+                                                  "intValue": "30"
                                                 }
                                               }
                                             }
@@ -303,9 +311,6 @@
       "moduleImports": [
         {
           "name": "std"
-        },
-        {
-          "name": "dart_std"
         }
       ]
     }

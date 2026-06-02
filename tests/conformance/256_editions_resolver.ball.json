@@ -109,6 +109,10 @@
         {
           "name": "print",
           "isBase": true
+        },
+        {
+          "name": "typed_list",
+          "isBase": true
         }
       ],
       "description": "Universal standard library base module",
@@ -162,16 +166,6 @@
           }
         }
       ]
-    },
-    {
-      "name": "dart_std",
-      "functions": [
-        {
-          "name": "typed_list",
-          "isBase": true
-        }
-      ],
-      "description": "Dart-specific standard library base module"
     },
     {
       "name": "std_collections",
@@ -2980,7 +2974,7 @@
                     "name": "table",
                     "value": {
                       "call": {
-                        "module": "dart_std",
+                        "module": "std",
                         "function": "typed_list",
                         "input": {
                           "messageCreation": {
@@ -7816,9 +7810,6 @@
           "name": "std"
         },
         {
-          "name": "dart_std"
-        },
-        {
           "name": "edition"
         }
       ],
@@ -8659,9 +8650,6 @@
       "moduleImports": [
         {
           "name": "std"
-        },
-        {
-          "name": "dart_std"
         },
         {
           "name": "editions"

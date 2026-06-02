@@ -19,7 +19,7 @@ A Ball compiler reads a `Program` protobuf message and generates source code for
 ```
 Program (protobuf)
   → Build lookup tables (types, functions by name)
-  → Identify base modules (std, std_collections, std_io, dart_std)
+  → Identify base modules (std, std_collections, std_io, std_memory)
   → Generate imports from module metadata
   → Generate types from typeDefs[]
   → Generate functions (walk expression trees)

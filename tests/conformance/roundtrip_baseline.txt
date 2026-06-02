@@ -3,6 +3,4 @@
 # current toolchain cannot yet reproduce. Mirrors the upstream
 # protobuf failure_list discipline. Regenerate after deliberate
 # compiler/encoder changes.
-167_generics_reified:ts-compiled
-180_generic_list_ops:ts-compiled
-181_generic_map_ops:ts-compiled
+

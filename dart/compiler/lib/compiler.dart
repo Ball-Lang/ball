@@ -245,7 +245,7 @@ class DartCompiler {
   /// of `moduleName → dartSource`.
   ///
   /// Use for library packages that have no entry point.  Base modules
-  /// (std, dart_std, etc.) are skipped.  Each module is compiled
+  /// (std, std_collections, etc.) are skipped.  Each module is compiled
   /// independently, so the result can be written to separate files.
   ///
   /// Modules that fail to compile (even after the raw fallback) are omitted
@@ -2042,7 +2042,6 @@ class DartCompiler {
 
   static bool _isBaseModule(String module) =>
       module == 'std' ||
-      module == 'dart_std' ||
       module == 'std_memory' ||
       module == 'std_collections' ||
       module == 'std_io' ||
@@ -2851,8 +2850,11 @@ class DartCompiler {
   cb.Expression _compileFieldAccess(FieldAccess fa) {
     final obj = _compileExpression(fa.object);
     // __cascade_self__ is a sentinel that means "no explicit receiver" inside
-    // a cascade section — emit just the field name.
-    if (_emit(obj) == '__cascade_self__') return cb.refer(fa.field_2);
+    // a cascade section — emit just the field name. Only applies in old-format
+    // cascade compilation; in Block-based expansions it's a real variable.
+    if (_inCascadeCompilation && _emit(obj) == '__cascade_self__') {
+      return cb.refer(fa.field_2);
+    }
     // When the receiver is a catch-bound variable from a Ball tag-typed catch,
     // the caught value is a Map. Dart Maps don't support dotted access so we
     // emit `e['field']` instead of `e.field`.
@@ -2879,10 +2881,7 @@ class DartCompiler {
             .where((f) => f.name != 'self' && f.name != '__type_args__')
             .toList();
         final selfStr = _e(selfField.value);
-        // __cascade_self__ is a sentinel for "no explicit receiver" inside
-        // a cascade section — emit just the method call without a target so
-        // the outer `..` prefix is sufficient.
-        if (selfStr == '__cascade_self__') {
+        if (_inCascadeCompilation && selfStr == '__cascade_self__') {
           return remaining.isEmpty
               ? '${call.function}$typeArgs()'
               : '${call.function}$typeArgs(${_compileArgs(remaining)})';
@@ -2956,6 +2955,7 @@ class DartCompiler {
   /// `async*`). Generators cannot `return <value>;` in Dart — only bare
   /// `return;` — so the compiler drops the value from `std.return`.
   bool _inGenerator = false;
+  bool _inCascadeCompilation = false;
   bool _insideInstanceMethod = false;
 
   /// True when we're inside a `std.await(value: ...)` expression. Suppresses
@@ -3940,24 +3940,21 @@ class DartCompiler {
     final buf = StringBuffer(_e(t));
     final nullAware = _boolFieldValue(f, 'null_aware');
     final sections = f['sections'];
+    final savedCascade = _inCascadeCompilation;
+    _inCascadeCompilation = true;
     if (sections != null &&
         sections.whichExpr() == Expression_Expr.literal &&
         sections.literal.whichValue() == Literal_Value.listValue) {
       var isFirst = true;
       for (final s in sections.literal.listValue.elements) {
-        // The `?..` null-aware operator is only valid for the first section;
-        // subsequent sections always use `..`.
         final prefix = (nullAware && isFirst) ? '?..' : '..';
         isFirst = false;
-        // Compile the section, then strip the __cascade_self__ placeholder
-        // that the encoder inserts so that cascade receiver is represented.
         final raw = _e(s);
         final section = _stripCascadeSelf(raw);
         buf.write('$prefix$section');
       }
     }
-    // Wrap cascades in parentheses so they can safely appear as sub-
-    // expressions (e.g. `(completer..complete(v)).operation`).
+    _inCascadeCompilation = savedCascade;
     return '(${buf.toString()})';
   }
 
@@ -4493,23 +4490,27 @@ class DartCompiler {
         ? 'const $moduleOrClass.$afterColon'
         : _dartType(rawTypeName);
 
-    // Check for instance type arguments stored as `__type_args__` field.
-    // e.g. `Map<String,String>.from(...)` → typeName='module:Map.from',
-    //       fields: [{name:'__type_args__', value:'<String,String>'}, ...]
-    final typeArgsField = msg.fields
-        .where((f) => f.name == '__type_args__')
-        .firstOrNull;
-    final typeArgs = typeArgsField != null
-        ? typeArgsField.value.literal.stringValue
-        : '';
-    // Check for __const__ flag stored by the encoder.
-    final constField = msg.fields
-        .where((f) => f.name == '__const__')
-        .firstOrNull;
-    final isConst =
-        constField != null &&
-        constField.value.whichExpr() == Expression_Expr.literal &&
-        constField.value.literal.boolValue == true;
+    // Type arguments: prefer structured metadata.type_args, fall back to
+    // legacy __type_args__ field.
+    String typeArgs = '';
+    if (msg.hasMetadata() && msg.metadata.fields.containsKey('type_args')) {
+      final refs = msg.metadata.fields['type_args']!.listValue.values;
+      typeArgs = '<${refs.map(_metadataTypeArgToStr).join(', ')}>';
+    } else {
+      final typeArgsField = msg.fields
+          .where((f) => f.name == '__type_args__')
+          .firstOrNull;
+      typeArgs = typeArgsField?.value.literal.stringValue ?? '';
+    }
+    // Const: prefer metadata.is_const, fall back to legacy __const__ field.
+    final isConst = (msg.hasMetadata() &&
+            msg.metadata.fields['is_const']?.boolValue == true) ||
+        msg.fields.any(
+          (f) =>
+              f.name == '__const__' &&
+              f.value.whichExpr() == Expression_Expr.literal &&
+              f.value.literal.boolValue == true,
+        );
     final actualFields = msg.fields
         .where((f) => f.name != '__type_args__' && f.name != '__const__')
         .toList();
@@ -4755,6 +4756,21 @@ class DartCompiler {
     if (optional.isNotEmpty) out.add('[${optional.join(', ')}]');
     if (named.isNotEmpty) out.add('{${named.join(', ')}}');
     return out.join(', ');
+  }
+
+  String _metadataTypeArgToStr(structpb.Value v) {
+    final s = v.structValue;
+    final name = s.fields['name']?.stringValue ?? '';
+    final args = s.fields['type_args']?.listValue.values;
+    final nullable = s.fields['nullable']?.boolValue ?? false;
+    final buf = StringBuffer(name);
+    if (args != null && args.isNotEmpty) {
+      buf.write('<');
+      buf.write(args.map((a) => _metadataTypeArgToStr(a)).join(', '));
+      buf.write('>');
+    }
+    if (nullable) buf.write('?');
+    return buf.toString();
   }
 
   String _typeRefToStr(TypeRef ref) {

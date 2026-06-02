@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "85_closure_counter",
   "version": "1.0.0",
   "modules": [
     {
@@ -28,6 +28,10 @@
         },
         {
           "name": "assign",
+          "isBase": true
+        },
+        {
+          "name": "invoke",
           "isBase": true
         },
         {
@@ -90,16 +94,6 @@
           }
         }
       ]
-    },
-    {
-      "name": "dart_std",
-      "functions": [
-        {
-          "name": "invoke",
-          "isBase": true
-        }
-      ],
-      "description": "Dart-specific standard library base module"
     },
     {
       "name": "std_collections",
@@ -411,7 +405,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "module": "dart_std",
+                                  "module": "std",
                                   "function": "invoke",
                                   "input": {
                                     "messageCreation": {
@@ -474,7 +468,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "module": "dart_std",
+                                  "module": "std",
                                   "function": "invoke",
                                   "input": {
                                     "messageCreation": {
@@ -537,7 +531,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "module": "dart_std",
+                                  "module": "std",
                                   "function": "invoke",
                                   "input": {
                                     "messageCreation": {
@@ -600,7 +594,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "module": "dart_std",
+                                  "module": "std",
                                   "function": "invoke",
                                   "input": {
                                     "messageCreation": {
@@ -663,7 +657,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "module": "dart_std",
+                                  "module": "std",
                                   "function": "invoke",
                                   "input": {
                                     "messageCreation": {
@@ -724,9 +718,6 @@
       "moduleImports": [
         {
           "name": "std"
-        },
-        {
-          "name": "dart_std"
         }
       ],
       "typeAliases": [

@@ -30,8 +30,6 @@ ball::v1::Program CppEncoder::encode_from_clang_ast(const std::string& json_str)
     std_mod.set_description("Universal std base module reference.");
     modules_.push_back(std_mod);
 
-    modules_.push_back(build_cpp_std_module());
-
     ball::v1::Module mem_mod;
     mem_mod.set_name("std_memory");
     mem_mod.set_description("Linear memory simulation module reference.");
@@ -817,7 +815,10 @@ ball::v1::Expression CppEncoder::encode_expression(const json& node) {
         return e;
     }
     if (kind == "CXXNullPtrLiteralExpr") {
-        return make_cpp_std_call("nullptr", {});
+        // Emit a literal with no value set (empty oneof = null semantics).
+        ball::v1::Expression e;
+        e.mutable_literal();
+        return e;
     }
     if (kind == "DeclRefExpr") {
         std::string ref_name;
@@ -896,12 +897,12 @@ ball::v1::Expression CppEncoder::encode_member_expr(const json& node) {
         object_expr.mutable_reference()->set_name("this");
 
     if (is_arrow) {
-        ball::v1::Expression mn;
-        mn.mutable_literal()->set_string_value(member_name);
-        return make_cpp_std_call("arrow", {
-            {"pointer", std::move(object_expr)},
-            {"member", std::move(mn)},
-        });
+        // Safe projection: arrow(pointer, member) → field_access(pointer, member)
+        ball::v1::Expression e;
+        auto* fa = e.mutable_field_access();
+        *fa->mutable_object() = std::move(object_expr);
+        fa->set_field(member_name);
+        return e;
     }
 
     ball::v1::Expression e;
@@ -1037,9 +1038,9 @@ ball::v1::Expression CppEncoder::encode_unary_op(const json& node) {
     auto operand = encode_expression(inner[0]);
 
     if (opcode == "*")
-        return make_cpp_std_call("deref", {{"pointer", std::move(operand)}});
+        return operand;  // Safe projection: deref(pointer) → pointer expression directly
     if (opcode == "&")
-        return make_cpp_std_call("address_of", {{"value", std::move(operand)}});
+        return operand;  // Safe projection: address_of(value) → value expression directly
     if (opcode == "-")
         return make_std_call("negate", {{"value", std::move(operand)}});
     if (opcode == "!")
@@ -1088,28 +1089,27 @@ ball::v1::Expression CppEncoder::encode_new_expr(const json& node) {
     std::string type = "void";
     if (node.contains("type") && node["type"].contains("qualType"))
         type = node["type"]["qualType"].get<std::string>();
-    bool is_array = node.value("isArray", false);
 
-    ball::v1::Expression t_expr, a_expr;
-    t_expr.mutable_literal()->set_string_value(type);
-    a_expr.mutable_literal()->set_bool_value(is_array);
-    return make_cpp_std_call("cpp_new", {
-        {"type", std::move(t_expr)},
-        {"is_array", std::move(a_expr)},
-    });
+    // Safe projection: cpp_new(type, args) → message_creation(type, args)
+    ball::v1::Expression e;
+    auto* mc = e.mutable_message_creation();
+    mc->set_type_name(type);
+
+    auto inner = node.value("inner", json::array());
+    for (size_t i = 0; i < inner.size(); ++i) {
+        if (!inner[i].is_object()) continue;
+        auto* f = mc->add_fields();
+        f->set_name("arg" + std::to_string(i));
+        *f->mutable_value() = encode_expression(inner[i]);
+    }
+    return e;
 }
 
-ball::v1::Expression CppEncoder::encode_delete_expr(const json& node) {
-    auto inner = node.value("inner", json::array());
-    bool is_array = node.value("isArrayAsWritten", false);
-    auto pointer = (!inner.empty() && inner[0].is_object())
-        ? encode_expression(inner[0]) : null_expr();
-    ball::v1::Expression a_expr;
-    a_expr.mutable_literal()->set_bool_value(is_array);
-    return make_cpp_std_call("cpp_delete", {
-        {"pointer", std::move(pointer)},
-        {"is_array", std::move(a_expr)},
-    });
+ball::v1::Expression CppEncoder::encode_delete_expr(const json& /*node*/) {
+    // Safe projection: cpp_delete → noop (GC managed in Ball)
+    ball::v1::Expression e;
+    e.mutable_literal()->set_string_value("/* delete (GC managed) */");
+    return e;
 }
 
 ball::v1::Expression CppEncoder::encode_cpp_cast(const json& node,
@@ -1119,23 +1119,33 @@ ball::v1::Expression CppEncoder::encode_cpp_cast(const json& node,
     if (node.contains("type") && node["type"].contains("qualType"))
         target_type = node["type"]["qualType"].get<std::string>();
 
-    std::string cast_kind = "static_cast";
-    if (kind == "CXXStaticCastExpr") cast_kind = "static_cast";
-    else if (kind == "CXXDynamicCastExpr") cast_kind = "dynamic_cast";
-    else if (kind == "CXXReinterpretCastExpr") cast_kind = "reinterpret_cast";
-    else if (kind == "CXXConstCastExpr") cast_kind = "const_cast";
-
     auto val = (!inner.empty() && inner[0].is_object())
         ? encode_expression(inner[0]) : null_expr();
 
-    ball::v1::Expression tt, ck;
-    tt.mutable_literal()->set_string_value(target_type);
-    ck.mutable_literal()->set_string_value(cast_kind);
-    return make_cpp_std_call("ptr_cast", {
-        {"value", std::move(val)},
-        {"target_type", std::move(tt)},
-        {"cast_kind", std::move(ck)},
-    });
+    if (kind == "CXXStaticCastExpr" || kind == "CXXDynamicCastExpr") {
+        // Safe projection: static/dynamic cast → std.as(value, type)
+        ball::v1::Expression tt;
+        tt.mutable_literal()->set_string_value(target_type);
+        return make_std_call("as", {
+            {"value", std::move(val)},
+            {"type", std::move(tt)},
+        });
+    }
+    if (kind == "CXXReinterpretCastExpr") {
+        // Unsafe: reinterpret_cast → std_memory.memory_read_i64
+        ball::v1::Expression e;
+        auto* c = e.mutable_call();
+        c->set_module("std_memory");
+        c->set_function("memory_read_i64");
+        auto* mc = c->mutable_input()->mutable_message_creation();
+        mc->set_type_name("MemReadInput");
+        auto* f = mc->add_fields();
+        f->set_name("address");
+        *f->mutable_value() = std::move(val);
+        return e;
+    }
+    // const_cast — pass through the value unchanged
+    return val;
 }
 
 ball::v1::Expression CppEncoder::encode_c_style_cast(const json& node) {
@@ -1172,18 +1182,21 @@ ball::v1::Expression CppEncoder::encode_array_subscript(const json& node) {
 }
 
 ball::v1::Expression CppEncoder::encode_sizeof_alignof(const json& node) {
-    auto name = node.value("name", "sizeof");
     std::string arg_type = "int";
     if (node.contains("argType") && node["argType"].contains("qualType"))
         arg_type = node["argType"]["qualType"].get<std::string>();
 
-    ball::v1::Expression t;
-    if (name == "sizeof") {
-        t.mutable_literal()->set_string_value(arg_type);
-        return make_cpp_std_call("cpp_sizeof", {{"type_or_expr", std::move(t)}});
-    }
-    t.mutable_literal()->set_string_value(arg_type);
-    return make_cpp_std_call("cpp_alignof", {{"type", std::move(t)}});
+    // Both sizeof and alignof → std_memory.memory_sizeof
+    ball::v1::Expression e;
+    auto* c = e.mutable_call();
+    c->set_module("std_memory");
+    c->set_function("memory_sizeof");
+    auto* mc = c->mutable_input()->mutable_message_creation();
+    mc->set_type_name("SizeofInput");
+    auto* f = mc->add_fields();
+    f->set_name("type_name");
+    f->mutable_value()->mutable_literal()->set_string_value(arg_type);
+    return e;
 }
 
 ball::v1::Expression CppEncoder::encode_construct_expr(const json& node) {
@@ -1206,13 +1219,14 @@ ball::v1::Expression CppEncoder::encode_construct_expr(const json& node) {
 
 ball::v1::Expression CppEncoder::encode_init_list_expr(const json& node) {
     auto inner = node.value("inner", json::array());
-    ball::v1::Expression elements_expr;
-    auto* lv = elements_expr.mutable_literal()->mutable_list_value();
+    // Safe projection: init_list(elements) → list literal with the elements
+    ball::v1::Expression e;
+    auto* lv = e.mutable_literal()->mutable_list_value();
     for (const auto& child : inner) {
         if (child.is_object())
             *lv->add_elements() = encode_expression(child);
     }
-    return make_cpp_std_call("init_list", {{"elements", std::move(elements_expr)}});
+    return e;
 }
 
 ball::v1::Expression CppEncoder::encode_lambda_expr(const json& node) {
@@ -1253,25 +1267,6 @@ ball::v1::Expression CppEncoder::make_std_call(
     ball::v1::Expression e;
     auto* call = e.mutable_call();
     call->set_module("std");
-    call->set_function(function);
-
-    if (!fields.empty()) {
-        auto* mc = call->mutable_input()->mutable_message_creation();
-        for (auto& [name, val] : fields) {
-            auto* f = mc->add_fields();
-            f->set_name(name);
-            *f->mutable_value() = std::move(val);
-        }
-    }
-    return e;
-}
-
-ball::v1::Expression CppEncoder::make_cpp_std_call(
-    const std::string& function,
-    std::vector<std::pair<std::string, ball::v1::Expression>> fields) {
-    ball::v1::Expression e;
-    auto* call = e.mutable_call();
-    call->set_module("cpp_std");
     call->set_function(function);
 
     if (!fields.empty()) {

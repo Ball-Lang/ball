@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "encoded",
+  "name": "223_closure_loop_capture",
   "version": "1.0.0",
   "modules": [
     {
@@ -8,6 +8,10 @@
       "functions": [
         {
           "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "typed_list",
           "isBase": true
         },
         {
@@ -28,6 +32,10 @@
         },
         {
           "name": "assign",
+          "isBase": true
+        },
+        {
+          "name": "invoke",
           "isBase": true
         },
         {
@@ -92,20 +100,6 @@
       ]
     },
     {
-      "name": "dart_std",
-      "functions": [
-        {
-          "name": "typed_list",
-          "isBase": true
-        },
-        {
-          "name": "invoke",
-          "isBase": true
-        }
-      ],
-      "description": "Dart-specific standard library base module"
-    },
-    {
       "name": "std_collections",
       "functions": [
         {
@@ -123,41 +117,61 @@
           "inputType": "int",
           "outputType": "int Function()",
           "body": {
-            "lambda": {
-              "name": "",
-              "body": {
-                "call": {
-                  "module": "std",
-                  "function": "add",
-                  "input": {
-                    "messageCreation": {
-                      "typeName": "",
-                      "fields": [
-                        {
-                          "name": "left",
-                          "value": {
-                            "reference": {
-                              "name": "base"
-                            }
-                          }
-                        },
-                        {
-                          "name": "right",
-                          "value": {
-                            "literal": {
-                              "intValue": "1"
-                            }
-                          }
-                        }
-                      ]
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "base",
+                    "value": {
+                      "reference": {
+                        "name": "input"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "int"
                     }
                   }
                 }
-              },
-              "metadata": {
-                "kind": "lambda",
-                "expression_body": true,
-                "has_return": true
+              ],
+              "result": {
+                "lambda": {
+                  "name": "",
+                  "body": {
+                    "call": {
+                      "module": "std",
+                      "function": "add",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "left",
+                              "value": {
+                                "reference": {
+                                  "name": "base"
+                                }
+                              }
+                            },
+                            {
+                              "name": "right",
+                              "value": {
+                                "literal": {
+                                  "intValue": "1"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "metadata": {
+                    "kind": "lambda",
+                    "expression_body": true,
+                    "has_return": true
+                  }
+                }
               }
             }
           },
@@ -165,7 +179,7 @@
             "kind": "function",
             "params": [
               {
-                "name": "base",
+                "name": "input",
                 "type": "int"
               }
             ]
@@ -182,7 +196,7 @@
                     "name": "adders",
                     "value": {
                       "call": {
-                        "module": "dart_std",
+                        "module": "std",
                         "function": "typed_list",
                         "input": {
                           "messageCreation": {
@@ -472,7 +486,7 @@
                                           "name": "message",
                                           "value": {
                                             "call": {
-                                              "module": "dart_std",
+                                              "module": "std",
                                               "function": "invoke",
                                               "input": {
                                                 "messageCreation": {
@@ -539,9 +553,6 @@
       "moduleImports": [
         {
           "name": "std"
-        },
-        {
-          "name": "dart_std"
         }
       ]
     }

@@ -95,12 +95,12 @@ instance state.
 
 ## Priority Order for Clean-up
 
-1. **`__type_args__`** — IN PROGRESS (TypeRef migration)
-2. **`__const__`** → `MessageCreation.metadata` (smallest change, high impact)
-3. **`__cascade_self__`** → structured reference flag (medium change)
-4. **`__pattern_kind__`** → `Pattern` proto message (larger change, big win)
-5. **`__no_init__`** → `LetBinding` metadata (small change)
-6. **Operator names** → document in METADATA_SPEC.md (no code change needed)
+1. **`__type_args__`** — DONE: FunctionCall.typeArgs uses TypeRef; MessageCreation uses metadata.type_args (structured). Engine reads from metadata; encoder no longer produces `__type_args__` field. Legacy fallback in compiler for old programs.
+2. **`__const__`** — DONE: Migrated to `MessageCreation.metadata.is_const`.
+3. **`__cascade_self__`** — DOCUMENTED in METADATA_SPEC.md. Stays as a naming convention (the encoder uses it as a sentinel reference in cascade sections). Future: expand cascades to Block expressions to eliminate it entirely.
+4. **`__pattern_kind__`** — DOCUMENTED in METADATA_SPEC.md. Stays as a function-call convention per `docs/PATTERN_DESIGN.md`. Future: dedicated `Pattern` proto message.
+5. **`__no_init__`** — DOCUMENTED in METADATA_SPEC.md. Stays as a naming convention. Future: `LetBinding.is_late` proto field.
+6. **Operator names** — DONE: Documented in METADATA_SPEC.md (full operator→method name table).
 7. **`__builtin_class__`/`__class_ref__`** → engine-internal, low priority
 
 ## Recommended Proto Changes

@@ -75,6 +75,38 @@ private:
     // can't be stored directly as std::any/std::function values).
     std::unordered_set<std::string> current_class_methods_;
 
+    // OOP class support — populated in build_lookup_tables():
+    // Maps a method basename (e.g. "describe") to the set of class names
+    // that define it (e.g. {"main:Point"}). Used by compile_method_call
+    // to detect user-class methods and emit obj.method() instead of
+    // method(obj, ...).
+    std::unordered_map<std::string, std::unordered_set<std::string>> method_to_classes_;
+    // Maps a class name (e.g. "main:Point") to its superclass name
+    // (e.g. "" for no superclass, "Animal" for Dog extends Animal).
+    std::unordered_map<std::string, std::string> class_superclass_;
+    // Set of method basenames that are overridden by a subclass — these
+    // need the `virtual` keyword on the base declaration.
+    std::unordered_set<std::string> overridden_methods_;
+    // Maps class name to the set of static method basenames.
+    std::unordered_map<std::string, std::unordered_set<std::string>> class_static_methods_;
+    // Maps class name to the set of getter basenames.
+    std::unordered_map<std::string, std::unordered_set<std::string>> class_getters_;
+    // Maps class name to the set of setter basenames.
+    std::unordered_map<std::string, std::unordered_set<std::string>> class_setters_;
+    // Set of all user-defined class names (sanitized, e.g. "Point").
+    std::unordered_set<std::string> user_class_names_;
+    // Maps class name to its TypeDefinition for field lookups.
+    std::unordered_map<std::string, const ball::v1::TypeDefinition*> class_typedefs_;
+    // The sanitized name of the class currently being emitted (empty outside
+    // emit_struct). Used for super call resolution.
+    std::string current_class_name_;
+    // Maps class name to the set of abstract method basenames.
+    std::unordered_map<std::string, std::unordered_set<std::string>> class_abstract_methods_;
+    // Maps class name to factory constructor function names.
+    std::unordered_map<std::string, std::vector<std::string>> class_factory_ctors_;
+    // Maps class name to named (non-default, non-factory) constructor basenames.
+    std::unordered_map<std::string, std::vector<std::string>> class_named_ctors_;
+
     // Sanitized names of locals/parameters declared in the function body
     // currently being emitted. A reference to one of these resolves to the
     // variable, shadowing the Dart type-object names (`num`, `int`, `String`,

@@ -53,7 +53,7 @@ const json = toJson(ProgramSchema, program);
 - `compiled_engine.ts` — auto-generated, NEVER edit
 - `index.ts` wraps it with proto3 JSON normalization (`protoWrap`) and method dispatch
 - `run()` is async — returns `Promise<string[]>` (captured stdout lines)
-- No `dart_std` module support — Dart-specific functions not implemented
+- All base functions route through `std` — the `dart_std` module has been eliminated
 
 ### Encoder
 

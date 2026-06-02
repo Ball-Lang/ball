@@ -28,7 +28,7 @@ Future<void> main() async {
 | Feature | Status |
 |---------|--------|
 | All 73 `std` base functions | Supported |
-| `std_collections`, `std_io`, `std_memory`, `dart_std` | Supported |
+| `std_collections`, `std_io`, `std_memory` | Supported |
 | Lexical scoping, closures, lambdas | Supported |
 | Object-oriented dispatch (getters, setters, operator overloading) | Supported |
 | Native `async` / `await` via Dart `Future` | Supported |

@@ -89,7 +89,6 @@ void main() {
     ..entryFunction = 'main'
     ..modules.addAll([
       std.stdModule,
-      if (std.dartStdModule != null) std.dartStdModule!,
       if (std.collectionsModule != null) std.collectionsModule!,
       if (std.protoModule != null) std.protoModule!,
       editionMod,

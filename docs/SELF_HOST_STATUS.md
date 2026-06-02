@@ -31,7 +31,7 @@ Last refreshed: 2026-05-25 (C++ self-host 144 — dynamic-invoke callee/arg unwr
 - `cf2ca4b` — typed-throw lowering extracts class names from `ClassName.new(...)` so typed catches dispatch correctly.
 - `c0cad5e` — `list_filled` dispatch added (was crashing every `List.filled(...)` fixture).
 - `83abf4f` — `format_timestamp` emits the trailing `.millisZ` suffix to match Dart's `DateTime.toIso8601String()`.
-- `f5b14ce` — std/dart_std flat namespace now routes std_time / std_convert helpers through `eval_time` / `eval_convert` so fixtures that call `std.year`, `std.json_encode`, etc. don't trip 'Unknown std_collections function'.
+- `f5b14ce` — std flat namespace now routes std_time / std_convert helpers through `eval_time` / `eval_convert` so fixtures that call `std.year`, `std.json_encode`, etc. don't trip 'Unknown std_collections function'.
 - `6d22688` — `list_generate` accepts Dart's `length`/`generator` field names alongside the legacy `count`/`function`.
 
 ### C++ self-host (compiled engine_rt.cpp)

@@ -153,7 +153,7 @@ extension BallEngineInvocation on BallEngine {
 
       // Generator support: sync* and async* functions collect yielded values
       // into a BallGenerator. Create one and bind it in scope so std.yield
-      // and dart_std.yield_each can add values to it.
+      // and std.yield_each can add values to it.
       final isSyncStar =
           func.hasMetadata() &&
           _metadataBool(func.metadata.fields['is_sync_star']);

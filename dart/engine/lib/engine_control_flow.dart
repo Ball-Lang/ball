@@ -1407,8 +1407,8 @@ extension BallEngineControlFlow on BallEngine {
     return val;
   }
 
-  /// `dart_std.yield_each` / `std.yield_each` — delegates to another generator
-  /// or flattens an iterable into the current generator's values list.
+  /// `std.yield_each` — delegates to another generator or flattens an
+  /// iterable into the current generator's values list.
   ///
   /// In a sync*/async* function, adds all elements to the current generator.
   /// Outside a generator context, just returns the iterable.
@@ -1876,29 +1876,5 @@ extension BallEngineControlFlow on BallEngine {
     }
 
     return _sentinel;
-  }
-
-  /// `cpp_std.cpp_scope_exit` — register a cleanup expression to run when
-  /// the nearest enclosing block scope exits (LIFO / RAII semantics).
-  ///
-  /// The cleanup expression is stored *unevaluated* alongside the current
-  /// scope so that it can close over variables in its lexical context, even
-  /// if those variables change before the scope exits.
-  Object? _evalCppScopeExit(FunctionCall call, _Scope scope) {
-    if (!call.hasInput()) return null;
-    final input = call.input;
-    if (input.whichExpr() != Expression_Expr.messageCreation) return null;
-
-    // Find the `cleanup` field expression without evaluating it.
-    final cleanupEntry = input.messageCreation.fields
-        .where((f) => f.name == 'cleanup')
-        .firstOrNull;
-    if (cleanupEntry == null) return null;
-
-    // Walk up the scope chain to find the nearest block scope (the one
-    // created by _evalBlock for the enclosing block).  We register on the
-    // *caller* scope, which is the child scope created by the enclosing block.
-    scope.registerScopeExit(cleanupEntry.value, scope);
-    return null;
   }
 }

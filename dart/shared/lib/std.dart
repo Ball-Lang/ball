@@ -6,7 +6,7 @@
 ///
 /// This file is the single source of truth for the universal base. Each
 /// language-specific compiler (Dart, Go, Python, …) adds its own extension
-/// module (e.g. `dart_std`, `go_std`) on top of `std`.
+/// module on top of `std`.
 library;
 
 import 'gen/google/protobuf/descriptor.pb.dart' as google;

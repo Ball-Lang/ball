@@ -88,7 +88,6 @@ Future<void> main(List<String> args) async {
       for (final MapEntry(key: moduleName, value: source) in modules.entries) {
         // Skip special modules that don't map to files.
         if (moduleName == 'std' ||
-            moduleName == 'dart_std' ||
             moduleName == '__assets__') {
           continue;
         }

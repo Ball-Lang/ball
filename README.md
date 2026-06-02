@@ -144,11 +144,10 @@ Every Ball computation is exactly one of these nodes:
 
 Every function takes **one input message** and returns **one output message** (gRPC-style). Base functions have no body — their implementation is provided per-platform:
 
-- **`std`** — ~73 functions: arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops
-- **`std_collections`** — ~43 functions: list/map operations
+- **`std`** — ~130 functions: arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops, cascade, null-aware access, spread, invoke, record
+- **`std_collections`** — ~53 functions: list/map/set operations
 - **`std_io`** — ~10 functions: console, process, time, random
-- **`std_memory`** — ~30 functions: linear memory for C/C++ interop
-- **`dart_std`** — ~18 functions: Dart-specific (cascade, null-aware access, spread)
+- **`std_memory`** — ~38 functions: linear memory for C/C++ interop
 
 Control flow (`if`, `for`, `while`, `for_each`) is implemented as base function calls with lazy evaluation — keeping the language completely uniform.
 

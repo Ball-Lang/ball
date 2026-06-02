@@ -455,10 +455,10 @@ class DocsPage extends StatelessComponent {
         tbody([
           tr([
             td([code([Component.text('std')])]),
-            td([Component.text('~120')]),
+            td([Component.text('~130')]),
             td([
               Component.text(
-                  'Arithmetic, comparison, logic, bitwise, string, math, control flow, type ops'),
+                  'Arithmetic, comparison, logic, bitwise, string, math, control flow, type ops, cascade, spread, invoke'),
             ]),
           ]),
           tr([
@@ -476,14 +476,7 @@ class DocsPage extends StatelessComponent {
             td([Component.text('~30')]),
             td([Component.text('Linear memory (C/C++ interop)')]),
           ]),
-          tr([
-            td([code([Component.text('dart_std')])]),
-            td([Component.text('~18')]),
-            td([
-              Component.text(
-                  'Dart-specific: cascade, null_aware_access, invoke, spread'),
-            ]),
-          ]),
+          // Note: dart_std has been eliminated — all functions now in std
         ]),
       ]),
     ]);

@@ -11,6 +11,10 @@
           "isBase": true
         },
         {
+          "name": "typed_list",
+          "isBase": true
+        },
+        {
           "name": "is",
           "isBase": true
         }
@@ -34,16 +38,6 @@
       ]
     },
     {
-      "name": "dart_std",
-      "functions": [
-        {
-          "name": "typed_list",
-          "isBase": true
-        }
-      ],
-      "description": "Dart-specific standard library base module"
-    },
-    {
       "name": "main",
       "functions": [
         {
@@ -63,7 +57,7 @@
                     },
                     "metadata": {
                       "keyword": "var",
-                      "type": "List<Object>"
+                      "type": "List<dynamic>"
                     }
                   }
                 },
@@ -197,7 +191,7 @@
                     "name": "nums",
                     "value": {
                       "call": {
-                        "module": "dart_std",
+                        "module": "std",
                         "function": "typed_list",
                         "input": {
                           "messageCreation": {
@@ -279,13 +273,7 @@
                                         "literal": {
                                           "intValue": "42"
                                         }
-                                      },
-                                      "typeArgs": [
-                                        {
-                                          "name": "Object",
-                                          "nullable": false
-                                        }
-                                      ]
+                                      }
                                     }
                                   },
                                   "field": "first"
@@ -318,13 +306,7 @@
                                         "literal": {
                                           "stringValue": "x"
                                         }
-                                      },
-                                      "typeArgs": [
-                                        {
-                                          "name": "String",
-                                          "nullable": false
-                                        }
-                                      ]
+                                      }
                                     }
                                   },
                                   "field": "first"
@@ -367,13 +349,7 @@
                                                     "literal": {
                                                       "doubleValue": 3.5
                                                     }
-                                                  },
-                                                  "typeArgs": [
-                                                    {
-                                                      "name": "num",
-                                                      "nullable": false
-                                                    }
-                                                  ]
+                                                  }
                                                 }
                                               },
                                               "field": "first"
@@ -411,9 +387,6 @@
       "moduleImports": [
         {
           "name": "std"
-        },
-        {
-          "name": "dart_std"
         }
       ]
     }

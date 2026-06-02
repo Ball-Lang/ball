@@ -64,7 +64,7 @@ void main() {
         // The import alias matches the embedded module's own name.
         expect(Module.fromBuffer(imp.inline.protoBytes).name, imp.name);
       }
-      // A library does not ship std / dart_std / std_collections / proto.
+      // A library does not ship std / std_collections / proto.
       for (final name in inlineModules.keys) {
         expect(name, startsWith('ball_protobuf.'));
       }

@@ -145,7 +145,7 @@ This spec costs nothing to add to the repo and immediately makes every new compi
 
 - Proto schema: `Program → Module → FunctionDefinition → Expression` tree, using `google.protobuf.DescriptorProto` for language-agnostic types. Smart.  
 - `std` module: 73 universal base functions, well categorized.  
-- `dart_std` module: proof of the language-specific extension pattern.  
+- Universal `std` module: all constructs (including former `dart_std` ops like cascade, spread, invoke) route through `std`.  
 - Dart compiler/encoder/engine: clean reference implementation, all three programs working.  
 - Module import system with 4 source types and integrity hashing.
 
@@ -236,13 +236,13 @@ This is the single highest-impact schema change.
 
 `sizeof(T)`, `typeof(x)`, `decltype(expr)`, `nameof(x)` all look like they need special treatment because their primary operand is a *type*, not a value. But in Ball's model, a type name is just a string, and strings can be passed to base functions. All of these reduce to ordinary function calls:
 
-- `sizeof(int)` → `cpp_std.sizeof(SizeofInput { type_name: "int" })` — returns a number
+- `sizeof(int)` → `std_memory.sizeof(SizeofInput { type_name: "int" })` — returns a number
 - `typeof(x)` → `std.type_name(x)` — already in the std gaps list
 - `nameof(x)` → a string literal; the encoder knows the name at parse time
 - `decltype(expr)` → only used in type annotation context, which is cosmetic metadata
-- `alignof(T)` → `cpp_std.alignof(AlignofInput { type_name: "T" })`
+- `alignof(T)` → `std_memory.alignof(AlignofInput { type_name: "T" })`
 
-Each variant either already has a `std.*` equivalent or is a language-specific base function whose input happens to be a type-name string. No new `Expression.oneof` variant needed. These belong in `cpp_std`, `csharp_std`, etc. as base functions with string inputs.
+Each variant either already has a `std.*` equivalent or can be expressed as a universal base function whose input happens to be a type-name string. No new `Expression.oneof` variant needed. Where possible, these should be encoded into universal modules (`std`, `std_memory`) rather than language-specific base modules.
 
 ---
 
@@ -376,7 +376,7 @@ Excluded from `std_io` — per-language `x_std`:
 
 Define these before writing each compiler. They isolate language-specific constructs, preventing them from bleeding into `std` and documenting the full surface area a compiler writer needs to handle.
 
-Each of these modules follows the exact same pattern as `dart_std`: base functions with `is_base: true`, input types defined as `DescriptorProto`, no bodies.
+Each of these modules follows the base-function pattern: functions with `is_base: true`, input types defined as `DescriptorProto`, no bodies. However, the preferred approach (as demonstrated by the elimination of `dart_std` and `cpp_std`) is to have encoders expand language-specific constructs into universal `std` expression trees at encoding time, rather than creating language-specific base modules that every target must implement.
 
 ### `csharp_std`
 
@@ -432,7 +432,11 @@ is_pattern            → val is Type name  (positional/property/recursive patte
 configure_await       → awaitable.ConfigureAwait(false)
 ```
 
-### `cpp_std`
+### `cpp_std` (ELIMINATED — historical reference only)
+
+> **Note:** `cpp_std` has been eliminated. The C++ encoder now inlines all pointer/reference
+> operations into universal `std`/`std_memory` calls during encoding. The listing below is
+> kept for historical reference to show what constructs were considered C++-specific.
 
 ```
 // Pointer / reference
@@ -656,11 +660,11 @@ CompileExpression(expr: Expression) → string
     call          → route to MapStdFunction(module, name, input) or user function call
     literal       → emit language-native literal
     reference     → emit variable name
-    field_access  → emit obj.field (or obj->field in cpp_std context)
+    field_access  → emit obj.field (or obj->field for C++ pointer members)
     message_creation → emit constructor call or struct literal
     block         → emit { stmts...; result }
     lambda        → emit anonymous function / closure / lambda
-    // spread, ternary, sizeof, typeof etc. are cosmetic — stored in metadata or emitted via language_std base functions
+    // spread, ternary, sizeof, typeof etc. are cosmetic — stored in metadata or emitted via std base functions
 
 MapStdFunction(module, function, compiledInput) → string
   ← THE ONLY function you MUST implement per language.
@@ -702,7 +706,7 @@ Run(program: Program) → BallValue
 | 3 | Extend `std` — strings and math | Std module | Only what every language in every environment has; no I/O, no collections |
 | 4 | `std_collections` module | Std module | List/map operations; separate because not universal across all runtimes |
 | 5 | `std_io` module | Std module | I/O, time, random, env; separate because unavailable in browser/WASM/embedded |
-| 6 | Define `csharp_std`, `cpp_std`, `rust_std`, `java_std` | Language modules | sizeof, typeof, alignof, type_name etc. live here; prevents std pollution |
+| 6 | ~~Define language-specific modules~~ | ~~Language modules~~ | **Eliminated.** `dart_std` and `cpp_std` were removed; encoders expand language-specific constructs into universal `std` operations. Future languages should follow this pattern. |
 | 7 | `TypeAlias` + `Constant` in `Module` | Schema | Rust `type`, C++ `using`, module-level constants — currently inexpressible |
 | 8 | `ball.schema.json` + `BALL_JSON_SPEC.md` | Documentation | Required for non-protobuf language participation |
 | 9 | `IMPLEMENTING_A_COMPILER.md` contract | Documentation | Next compiler writer should not need to read Dart source code |

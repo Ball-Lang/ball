@@ -106,16 +106,16 @@ static const ball::v1::FunctionDefinition* find_fn(
 }
 
 // ================================================================
-// Smoke: the encoder always emits the std + cpp_std + std_memory
-// + main modules, plus source_language metadata.
+// Smoke: the encoder always emits the std + std_memory + main
+// modules, plus source_language metadata. No cpp_std module.
 // ================================================================
 
 TEST(empty_translation_unit) {
     auto prog = run_encoder(R"JSON({"kind": "TranslationUnitDecl", "inner": []})JSON");
     ASSERT_EQ(prog.entry_module(), "main");
     ASSERT_EQ(prog.entry_function(), "main");
-    // std, cpp_std, std_memory, main = 4 modules minimum.
-    ASSERT_TRUE(prog.modules_size() >= 4);
+    // std, std_memory, main = 3 modules minimum.
+    ASSERT_TRUE(prog.modules_size() >= 3);
     bool has_main = false, has_std = false, has_cpp_std = false;
     for (int i = 0; i < prog.modules_size(); i++) {
         auto& n = prog.modules(i).name();
@@ -125,7 +125,7 @@ TEST(empty_translation_unit) {
     }
     ASSERT_TRUE(has_main);
     ASSERT_TRUE(has_std);
-    ASSERT_TRUE(has_cpp_std);
+    ASSERT_TRUE(!has_cpp_std);  // cpp_std module eliminated
     // source_language metadata must be "cpp".
     ASSERT_TRUE(prog.has_metadata());
     auto it = prog.metadata().fields().find("source_language");

@@ -126,8 +126,8 @@ export class TsEncoder {
       }
     }
 
-    const stdModule = this.buildStdModule();
-    const modules: Module[] = [stdModule];
+    const baseModules = this.buildBaseModules();
+    const modules: Module[] = [...baseModules];
 
     const userModule: Module = {
       name: modName,
@@ -1152,14 +1152,23 @@ export class TsEncoder {
     };
   }
 
-  private buildStdModule(): Module {
-    const functions: FunctionDef[] = [];
+  private buildBaseModules(): Module[] {
+    const byModule = new Map<string, string[]>();
     for (const ref of this.stdFunctions) {
-      const [, fn] = ref.split(":");
-      functions.push({ name: fn, isBase: true });
+      const [mod, fn] = ref.split(":");
+      if (!byModule.has(mod)) byModule.set(mod, []);
+      byModule.get(mod)!.push(fn);
     }
-    functions.sort((a, b) => a.name.localeCompare(b.name));
-    return { name: "std", functions };
+    const modules: Module[] = [];
+    for (const [mod, fns] of byModule) {
+      fns.sort();
+      modules.push({
+        name: mod,
+        functions: fns.map(fn => ({ name: fn, isBase: true })),
+      });
+    }
+    modules.sort((a, b) => a.name === "std" ? -1 : b.name === "std" ? 1 : a.name.localeCompare(b.name));
+    return modules;
   }
 
   /// The canonical encoding of `null`/`undefined`/`void`.

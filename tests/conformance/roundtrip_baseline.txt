@@ -6,4 +6,3 @@
 167_generics_reified:ts-compiled
 180_generic_list_ops:ts-compiled
 181_generic_map_ops:ts-compiled
-242_generic_fn_chains:dart-roundtrip

@@ -2871,13 +2871,10 @@ class DartCompiler {
       final fields = call.input.messageCreation.fields;
       final selfField = fields.where((f) => f.name == 'self').firstOrNull;
       if (selfField != null) {
-        // Extract __type_args__ if present (e.g. results.whereType<Future>()).
-        final typeArgsField = fields
-            .where((f) => f.name == '__type_args__')
-            .firstOrNull;
-        final typeArgs = typeArgsField != null
-            ? typeArgsField.value.literal.stringValue
-            : '';
+        final typeArgs = _callTypeArgsStr(call).isNotEmpty
+            ? _callTypeArgsStr(call)
+            : (fields.where((f) => f.name == '__type_args__').firstOrNull
+                    ?.value.literal.stringValue ?? '');
         final remaining = fields
             .where((f) => f.name != 'self' && f.name != '__type_args__')
             .toList();
@@ -2923,14 +2920,11 @@ class DartCompiler {
       if (inp.whichExpr() == Expression_Expr.messageCreation &&
           inp.messageCreation.typeName.isEmpty) {
         // Argument-list message: emit named / positional args properly.
-        // Extract __type_args__ if present (e.g. registerCallback<OnBeforeCaptureLog>(...)).
         final allFields = inp.messageCreation.fields;
-        final typeArgsField = allFields
-            .where((f) => f.name == '__type_args__')
-            .firstOrNull;
-        final typeArgs = typeArgsField != null
-            ? typeArgsField.value.literal.stringValue
-            : '';
+        final typeArgs = _callTypeArgsStr(call).isNotEmpty
+            ? _callTypeArgsStr(call)
+            : (allFields.where((f) => f.name == '__type_args__').firstOrNull
+                    ?.value.literal.stringValue ?? '');
         final args = allFields.where((f) => f.name != '__type_args__').toList();
         result = args.isEmpty
             ? '$modulePrefix$fnName$typeArgs()'
@@ -4761,6 +4755,22 @@ class DartCompiler {
     if (optional.isNotEmpty) out.add('[${optional.join(', ')}]');
     if (named.isNotEmpty) out.add('{${named.join(', ')}}');
     return out.join(', ');
+  }
+
+  String _typeRefToStr(TypeRef ref) {
+    final buf = StringBuffer(ref.name);
+    if (ref.typeArgs.isNotEmpty) {
+      buf.write('<');
+      buf.write(ref.typeArgs.map(_typeRefToStr).join(', '));
+      buf.write('>');
+    }
+    if (ref.nullable) buf.write('?');
+    return buf.toString();
+  }
+
+  String _callTypeArgsStr(FunctionCall call) {
+    if (call.typeArgs.isEmpty) return '';
+    return '<${call.typeArgs.map(_typeRefToStr).join(', ')}>';
   }
 
   String _typeParamsStr(Map<String, Object?> meta) {

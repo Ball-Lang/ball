@@ -1102,25 +1102,16 @@ public:
     }
 
     // ── Scope member methods (compiled from Dart _Scope.has / _Scope.lookup) ──
-    // The free-standing has()/lookup() walk the parent chain; these member
-    // methods delegate to them. Forward-declared here; the free functions are
-    // defined later in ball_dyn.h (after the class).
+#ifdef BALL_SELFHOST
     bool has(const BallDyn& key) const;
     bool has(const std::string& key) const;
     BallDyn lookup(const BallDyn& key) const;
     BallDyn lookup(const std::string& key) const;
-
-    // ── Generator member methods (compiled from Dart BallGenerator.yield_ / yieldAll) ──
-    // Delegate to the free yield_/yieldAll functions defined after the class.
     BallDyn yield_(const BallDyn& val) const;
     BallDyn yieldAll(const BallDyn& items) const;
-
-    // ── Module handler init (compiled from Dart BallModuleHandler.init) ──
-    // No-op: module handlers in the self-hosted engine are initialized via the
-    // free-standing call() dispatch, not per-instance state. Templated so it
-    // accepts BallEngine (which isn't a BallDyn) in the self-hosted engine.
     template<typename T>
     void init(const T&) const {}
+#endif // BALL_SELFHOST
 };
 
 inline BallDyn ball_dispatch_not_found() {
@@ -1271,6 +1262,9 @@ inline BallDyn yieldAll(const BallDyn& gen, const BallDyn& items) {
 // These are defined here (after the free functions and scope helpers they
 // depend on) because the class body can only forward-declare them.
 
+// Self-hosted engine methods — only compiled when building the self-hosted engine.
+// Standalone compiled programs (e2e tests) don't need these.
+#ifdef BALL_SELFHOST
 // BallDyn::has — scope has-key check with parent chain walk.
 inline bool BallDyn::has(const BallDyn& key) const {
     return has(static_cast<std::string>(key));
@@ -1344,6 +1338,7 @@ inline BallDyn BallDyn::yield_(const BallDyn& val) const {
 inline BallDyn BallDyn::yieldAll(const BallDyn& items) const {
     return ::yieldAll(*this, items);
 }
+#endif // BALL_SELFHOST
 
 // Dart's Iterable.indexWhere(test) — first index where test(el) is truthy, else -1.
 template <typename Fn>

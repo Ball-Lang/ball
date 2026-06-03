@@ -883,6 +883,14 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     if (field == "isInfinite") return "ball_isInfinite(" + obj + ")";
     if (field == "isFinite") return "ball_isFinite(" + obj + ")";
     if (field == "isNegative") return "ball_isNegative(" + obj + ")";
+    // BallDyn property accessors emitted as member function calls. These
+    // correspond to Dart getters on FlowSignal (.kind, .value), protobuf
+    // Struct (.fields), ListValue (.values), and map-entry (.value). The
+    // BallDyn class defines matching member functions that delegate to
+    // operator[] on the underlying map.
+    if (field == "kind") return obj + ".kind()";
+    if (field == "value") return obj + ".value()";
+    if (field == "fields") return obj + ".fields()";
     // Dart `someMap.values.first` / `.values.last`: the `.values` getter yields
     // the map's value collection, and `.first`/`.last` take an element. A bare
     // `.values` deliberately falls through to a key lookup (`obj["values"]`,
@@ -916,11 +924,13 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     if (field == "keys") {
         return "ball_map_keys(BallDyn(" + obj + "))";
     }
-    // NOTE: do NOT blindly map `.values` here — `.values` is overloaded
-    // (BallGenerator.values, enum .values, proto reflection) and a blanket
-    // dispatch to ball_map_values regressed conformance 72->40. The engine's
-    // own _evalFieldAccess already handles Map.keys/.values for program maps;
-    // ball_map_keys/ball_map_values remain available as runtime helpers.
+    // `.values` is overloaded (BallGenerator.values, enum .values, protobuf
+    // ListValue, Map.values). The BallDyn::values() member function handles
+    // all cases: BallGenerator returns the accumulated list, maps with a
+    // "values" key return that entry (ListValue), lists return self, and the
+    // fallback is operator["values"]. The `.values.first`/`.values.last`
+    // chained case is handled above with ball_map_values for map receivers.
+    if (field == "values") return obj + ".values()";
     // Dart positional record field access: `.$1`, `.$2`, ... Lower to
     // `std::get<0>(...)` / `std::get<1>(...)` since records emit as
     // std::tuple<...> (see compile_message_creation below).

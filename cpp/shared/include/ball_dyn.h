@@ -1061,6 +1061,66 @@ public:
         }
         return BallDyn();
     }
+
+    // ── Property-like accessors for compiled self-hosted engine ──
+    // The C++ compiler emits `.kind()`, `.value()`, `.fields()`, `.values()`
+    // as member function calls on BallDyn (and BALL_DYN_STUB derivatives).
+    // These delegate to operator[] on the underlying map, matching the Dart
+    // engine's property getter semantics on FlowSignal, protobuf
+    // Value/Struct/ListValue, and map-entry iteration variables.
+
+    // FlowSignal.kind — the signal type ("return", "break", "continue", "yield", etc.)
+    BallDyn kind() const { return (*this)[std::string("kind")]; }
+
+    // Protobuf Value-like / map-entry .value — the raw value
+    BallDyn value() const { return (*this)[std::string("value")]; }
+
+    // Protobuf Struct-like .fields — access the fields map. For a BallDyn
+    // wrapping a map, the fields ARE the map, so return self. For a map with
+    // a "fields" key (actual protobuf Struct JSON shape), return that entry.
+    BallDyn fields() const {
+        // If the underlying map has an explicit "fields" key, return it (protobuf
+        // Struct JSON: {"fields": {"key": {...}, ...}}).
+        BallDyn f = (*this)[std::string("fields")];
+        if (f.has_value()) return f;
+        // Otherwise the BallDyn itself IS the fields map (e.g. metadata).
+        return *this;
+    }
+
+    // BallGenerator.values / protobuf ListValue.values — access the values list.
+    BallDyn values() const {
+        // BallGenerator: return a copy of the accumulated values list.
+        if (_val.type() == typeid(BallGenerator)) {
+            return BallDyn(BallList(*std::any_cast<const BallGenerator&>(_val).values));
+        }
+        // Protobuf ListValue JSON shape: {"values": [...]}
+        BallDyn v = (*this)[std::string("values")];
+        if (v.has_value()) return v;
+        // If this IS a list, return self.
+        if (_isList()) return *this;
+        return BallDyn();
+    }
+
+    // ── Scope member methods (compiled from Dart _Scope.has / _Scope.lookup) ──
+    // The free-standing has()/lookup() walk the parent chain; these member
+    // methods delegate to them. Forward-declared here; the free functions are
+    // defined later in ball_dyn.h (after the class).
+    bool has(const BallDyn& key) const;
+    bool has(const std::string& key) const;
+    BallDyn lookup(const BallDyn& key) const;
+    BallDyn lookup(const std::string& key) const;
+
+    // ── Generator member methods (compiled from Dart BallGenerator.yield_ / yieldAll) ──
+    // Delegate to the free yield_/yieldAll functions defined after the class.
+    BallDyn yield_(const BallDyn& val) const;
+    BallDyn yieldAll(const BallDyn& items) const;
+
+    // ── Module handler init (compiled from Dart BallModuleHandler.init) ──
+    // No-op: module handlers in the self-hosted engine are initialized via the
+    // free-standing call() dispatch, not per-instance state. Templated so it
+    // accepts BallEngine (which isn't a BallDyn) in the self-hosted engine.
+    template<typename T>
+    void init(const T&) const {}
 };
 
 inline BallDyn ball_dispatch_not_found() {
@@ -1205,6 +1265,84 @@ inline BallDyn yieldAll(const BallDyn& gen, const BallDyn& items) {
         for (const auto& it : items) vals.push_back(static_cast<std::any>(it));
     }
     return BallDyn();
+}
+
+// ── Out-of-class definitions for BallDyn member methods ──
+// These are defined here (after the free functions and scope helpers they
+// depend on) because the class body can only forward-declare them.
+
+// BallDyn::has — scope has-key check with parent chain walk.
+inline bool BallDyn::has(const BallDyn& key) const {
+    return has(static_cast<std::string>(key));
+}
+inline bool BallDyn::has(const std::string& key) const {
+    // Check current scope
+    if (_ball_scope_has_key(*this, key)) return true;
+    // Check _bindings sub-map
+    auto bindings = (*this)[std::string("_bindings")];
+    if (bindings.has_value() && BallDyn(bindings)[key].has_value()) return true;
+    // Walk parent chain via BallScope shared_ptr
+    BallScope parent = _ball_get_parent_scope(*this);
+    while (parent) {
+        if (parent->count(key) > 0) return true;
+        auto it = parent->find("__parent__");
+        if (it != parent->end() && it->second.type() == typeid(BallScope)) {
+            parent = std::any_cast<const BallScope&>(it->second);
+        } else {
+            break;
+        }
+    }
+    // Legacy fallback: __parent__ stored as value copy
+    if (!parent) {
+        auto parentVal = (*this)[std::string("__parent__")];
+        if (!parentVal.has_value()) parentVal = (*this)[std::string("_parent")];
+        if (parentVal.has_value()) return parentVal.has(key);
+    }
+    return false;
+}
+
+// BallDyn::lookup — scope key lookup with parent chain walk.
+inline BallDyn BallDyn::lookup(const BallDyn& key) const {
+    return lookup(static_cast<std::string>(key));
+}
+inline BallDyn BallDyn::lookup(const std::string& key) const {
+    // Check direct binding
+    if (_ball_scope_has_key(*this, key)) return (*this)[key];
+    // Check _bindings sub-map
+    auto bindings = (*this)[std::string("_bindings")];
+    if (bindings.has_value()) {
+        auto val = BallDyn(bindings)[key];
+        if (val.has_value()) return val;
+    }
+    // Walk parent chain via BallScope shared_ptr
+    BallScope parent = _ball_get_parent_scope(*this);
+    while (parent) {
+        auto it = parent->find(key);
+        if (it != parent->end()) return BallDyn(it->second);
+        auto pit = parent->find("__parent__");
+        if (pit != parent->end() && pit->second.type() == typeid(BallScope)) {
+            parent = std::any_cast<const BallScope&>(pit->second);
+        } else {
+            break;
+        }
+    }
+    // Legacy fallback
+    if (!parent) {
+        auto parentVal = (*this)[std::string("__parent__")];
+        if (!parentVal.has_value()) parentVal = (*this)[std::string("_parent")];
+        if (parentVal.has_value()) return parentVal.lookup(key);
+    }
+    return BallDyn();
+}
+
+// BallDyn::yield_ — delegate to the free yield_(gen, val).
+inline BallDyn BallDyn::yield_(const BallDyn& val) const {
+    return ::yield_(*this, val);
+}
+
+// BallDyn::yieldAll — delegate to the free yieldAll(gen, items).
+inline BallDyn BallDyn::yieldAll(const BallDyn& items) const {
+    return ::yieldAll(*this, items);
 }
 
 // Dart's Iterable.indexWhere(test) — first index where test(el) is truthy, else -1.

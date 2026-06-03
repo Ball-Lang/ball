@@ -3222,9 +3222,8 @@ class DartEncoder {
         final msg = MessageCreation()
           ..typeName = fullTypeName
           ..fields.addAll(args);
-        // Preserve type arguments (e.g. `CancelableCompleter<void>()`) as
-        // structured TypeRef in metadata.
         _setTypeArgsMetadata(msg, typeArgSrc);
+        _setTypeArgsField(msg, typeArgSrc);
         return Expression()..messageCreation = msg;
       }
 
@@ -3590,6 +3589,7 @@ class DartEncoder {
       ..typeName = fullTypeName
       ..fields.addAll(args);
     _setTypeArgsMetadata(msg, typeArgSrc);
+    _setTypeArgsField(msg, typeArgSrc);
     // Preserve const keyword for const constructor calls in metadata.
     if (expr.keyword?.lexeme == 'const') {
       msg.ensureMetadata().fields['is_const'] =
@@ -4569,6 +4569,21 @@ class DartEncoder {
     msg.metadata.fields['type_args'] = structpb.Value()
       ..listValue = (structpb.ListValue()
         ..values.addAll(refs.map(_typeRefToStructValue)));
+  }
+
+  /// Redundant __type_args__ field for compiled engine compatibility.
+  /// The compiled engine's proto3 JSON wrapper cannot resolve the
+  /// metadata.type_args structValue chain, so we also store type args
+  /// as an evaluated field that ends up in the runtime object's map.
+  static void _setTypeArgsField(MessageCreation msg, String? typeArgsSrc) {
+    if (typeArgsSrc == null || typeArgsSrc.isEmpty) return;
+    msg.fields.insert(
+      0,
+      FieldValuePair()
+        ..name = '__type_args__'
+        ..value = (Expression()
+          ..literal = (Literal()..stringValue = typeArgsSrc)),
+    );
   }
 
   /// Convert a [TypeRef] into a [structpb.Value] (Struct representation) for

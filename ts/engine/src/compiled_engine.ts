@@ -3649,9 +3649,11 @@ export class BallEngine {
           superObject = (__ball_eq(ctorEntry, null) ? null : await this._invokeSuperConstructor(ctorEntry.func, superclass, resolvedParams));
           superObject ??= this._buildSuperObject(superclass, instanceFields);
         }
-        let metaTypeArgs = BallEngine._extractMetadataTypeArgs(msg);
-        if (!__ball_eq(metaTypeArgs, null)) {
-          instanceFields['__type_args__'] = metaTypeArgs;
+        if (!('__type_args__' in instanceFields)) {
+          let metaTypeArgs = BallEngine._extractMetadataTypeArgs(msg);
+          if (!__ball_eq(metaTypeArgs, null)) {
+            instanceFields['__type_args__'] = metaTypeArgs;
+          }
         }
         // Initialize descriptor fields with defaults
         if (typeDef.fieldNames && typeDef.fieldNames.length > 0) {
@@ -3706,9 +3708,11 @@ export class BallEngine {
               instanceFields[entry.key] = entry.value;
             }
           }
-          let metaTA = BallEngine._extractMetadataTypeArgs(msg);
-          if (!__ball_eq(metaTA, null)) {
-            instanceFields['__type_args__'] = metaTA;
+          if (!('__type_args__' in instanceFields)) {
+            let metaTA = BallEngine._extractMetadataTypeArgs(msg);
+            if (!__ball_eq(metaTA, null)) {
+              instanceFields['__type_args__'] = metaTA;
+            }
           }
           let methods = this._resolveTypeMethodsWithInheritance(msg.typeName);
           let instance = new BallObject({ typeName: msg.typeName, superObject: null, fields: instanceFields, methods: methods.cast() });
@@ -3726,14 +3730,16 @@ export class BallEngine {
           return instance;
         }
         fields['__type__'] = msg.typeName;
-        let metaTA2 = BallEngine._extractMetadataTypeArgs(msg);
-        if (!__ball_eq(metaTA2, null)) {
-          fields['__type_args__'] = metaTA2;
-        } else {
-          let genMatch = new RegExp('^(\\w+)<(.+)>$').firstMatch(msg.typeName);
-          if (!__ball_eq(genMatch, null)) {
-            fields['__type__'] = genMatch.group(1);
-            fields['__type_args__'] = this._splitTypeArgs(genMatch.group(2));
+        if (!('__type_args__' in fields)) {
+          let metaTA2 = BallEngine._extractMetadataTypeArgs(msg);
+          if (!__ball_eq(metaTA2, null)) {
+            fields['__type_args__'] = metaTA2;
+          } else {
+            let genMatch = new RegExp('^(\\w+)<(.+)>$').firstMatch(msg.typeName);
+            if (!__ball_eq(genMatch, null)) {
+              fields['__type__'] = genMatch.group(1);
+              fields['__type_args__'] = this._splitTypeArgs(genMatch.group(2));
+            }
           }
         }
         let fnKey = ((__ball_to_string(this._currentModule) + '.') + __ball_to_string(msg.typeName));
@@ -7736,7 +7742,7 @@ export class BallEngine {
     }
     let length = this._toInt(((__ball_index(m, 'length') ?? __ball_index(m, 'count')) ?? __ball_index(m, 'arg0')));
     this._trackMemoryAllocation(__ball_mul(length, _ballPointerBytes));
-    return { '__type': 'main:List.filled', 'arg0': length, 'arg1': (__ball_index(m, 'value') ?? __ball_index(m, 'arg1')) };
+    return { '__type': 'main:List.filled', '__type_args__': '<Object?>', 'arg0': length, 'arg1': (__ball_index(m, 'value') ?? __ball_index(m, 'arg1')) };
   }
 
   async _stdInvoke(input: any): Promise<any> {

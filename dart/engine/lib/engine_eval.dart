@@ -1097,8 +1097,10 @@ extension BallEngineEval on BallEngine {
           superObject ??= _buildSuperObject(superclass, instanceFields);
         }
 
-        final metaTypeArgs = _extractMetadataTypeArgs(msg);
-        if (metaTypeArgs != null) instanceFields['__type_args__'] = metaTypeArgs;
+        if (!instanceFields.containsKey('__type_args__')) {
+          final metaTypeArgs = _extractMetadataTypeArgs(msg);
+          if (metaTypeArgs != null) instanceFields['__type_args__'] = metaTypeArgs;
+        }
 
         final methods = _resolveTypeMethodsWithInheritance(msg.typeName);
         final instance = BallObject(
@@ -1167,8 +1169,10 @@ extension BallEngineEval on BallEngine {
               instanceFields[entry.key] = entry.value;
             }
           }
-          final metaTA = _extractMetadataTypeArgs(msg);
-          if (metaTA != null) instanceFields['__type_args__'] = metaTA;
+          if (!instanceFields.containsKey('__type_args__')) {
+            final metaTA = _extractMetadataTypeArgs(msg);
+            if (metaTA != null) instanceFields['__type_args__'] = metaTA;
+          }
           final methods = _resolveTypeMethodsWithInheritance(msg.typeName);
           final instance = BallObject(
             typeName: msg.typeName,
@@ -1194,17 +1198,19 @@ extension BallEngineEval on BallEngine {
 
         fields['__type__'] = msg.typeName;
 
-        // Extract type arguments: prefer structured metadata.type_args,
-        // fall back to parsing angle brackets from typeName (legacy format).
-        final metaTA2 = _extractMetadataTypeArgs(msg);
-        if (metaTA2 != null) {
-          fields['__type_args__'] = metaTA2;
-        } else {
-          final genMatch =
-              RegExp(r'^(\w+)<(.+)>$').firstMatch(msg.typeName);
-          if (genMatch != null) {
-            fields['__type__'] = genMatch.group(1)!;
-            fields['__type_args__'] = _splitTypeArgs(genMatch.group(2)!);
+        // Extract type arguments: prefer __type_args__ field (evaluated from
+        // MessageCreation.fields), then metadata.type_args, then typeName parsing.
+        if (!fields.containsKey('__type_args__')) {
+          final metaTA2 = _extractMetadataTypeArgs(msg);
+          if (metaTA2 != null) {
+            fields['__type_args__'] = metaTA2;
+          } else {
+            final genMatch =
+                RegExp(r'^(\w+)<(.+)>$').firstMatch(msg.typeName);
+            if (genMatch != null) {
+              fields['__type__'] = genMatch.group(1)!;
+              fields['__type_args__'] = _splitTypeArgs(genMatch.group(2)!);
+            }
           }
         }
 

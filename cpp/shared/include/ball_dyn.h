@@ -1101,8 +1101,6 @@ public:
         return BallDyn();
     }
 
-    // ── Scope member methods (compiled from Dart _Scope.has / _Scope.lookup) ──
-#ifdef BALL_SELFHOST
     bool has(const BallDyn& key) const;
     bool has(const std::string& key) const;
     BallDyn lookup(const BallDyn& key) const;
@@ -1111,7 +1109,6 @@ public:
     BallDyn yieldAll(const BallDyn& items) const;
     template<typename T>
     void init(const T&) const {}
-#endif // BALL_SELFHOST
 };
 
 inline BallDyn ball_dispatch_not_found() {
@@ -1262,9 +1259,10 @@ inline BallDyn yieldAll(const BallDyn& gen, const BallDyn& items) {
 // These are defined here (after the free functions and scope helpers they
 // depend on) because the class body can only forward-declare them.
 
-// Self-hosted engine methods — only compiled when building the self-hosted engine.
-// Standalone compiled programs (e2e tests) don't need these.
-#ifdef BALL_SELFHOST
+// Forward declarations for scope helpers (defined later in this file).
+inline bool _ball_scope_has_key(const BallDyn& scope, const std::string& key);
+inline BallScope _ball_get_parent_scope(const BallDyn& scope);
+
 // BallDyn::has — scope has-key check with parent chain walk.
 inline bool BallDyn::has(const BallDyn& key) const {
     return has(static_cast<std::string>(key));
@@ -1338,7 +1336,6 @@ inline BallDyn BallDyn::yield_(const BallDyn& val) const {
 inline BallDyn BallDyn::yieldAll(const BallDyn& items) const {
     return ::yieldAll(*this, items);
 }
-#endif // BALL_SELFHOST
 
 // Dart's Iterable.indexWhere(test) — first index where test(el) is truthy, else -1.
 template <typename Fn>

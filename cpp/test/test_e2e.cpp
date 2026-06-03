@@ -12,6 +12,7 @@
 // INCLUDE/LIB environment that a standalone cl.exe invocation lacks.
 
 #include "compiler.h"
+#include "absl/synchronization/mutex.h"
 
 #include <array>
 #include <cstdio>
@@ -274,6 +275,11 @@ static bool run_and_check(const Program& p, const fs::path& build_dir,
 }
 
 int main() {
+    // Disable abseil mutex deadlock detection — protobuf v34.1's internal
+    // descriptor pool initialization triggers a false-positive cycle.
+    // Long-term fix: replace Google protobuf with Ball-compiled ball_protobuf.
+    absl::SetMutexDeadlockDetectionMode(absl::OnDeadlockCycle::kIgnore);
+
     std::cout << "Ball C++ End-to-End Tests\n"
               << "=========================\n"
               << "Using CMake: " << BALL_E2E_CMAKE << "\n"

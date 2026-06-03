@@ -164,6 +164,18 @@ inline int64_t ball_double_to_int64(double d) {
     return r;
 }
 
+// ── Dart double property helpers (isNaN, isInfinite, isFinite, isNegative) ──
+// These accept double/int64_t directly. BallDyn overloads are in ball_dyn.h.
+inline bool ball_isNaN(double d) { return d != d; }
+inline bool ball_isInfinite(double d) { return !ball_isNaN(d) && (d > 1e308 || d < -1e308); }
+inline bool ball_isFinite(double d) { return !ball_isNaN(d) && !ball_isInfinite(d); }
+inline bool ball_isNegative(double d) { return std::signbit(d) != 0; }
+// int overloads (Dart: int is never NaN/Infinite)
+inline bool ball_isNaN(int64_t) { return false; }
+inline bool ball_isInfinite(int64_t) { return false; }
+inline bool ball_isFinite(int64_t) { return true; }
+inline bool ball_isNegative(int64_t v) { return v < 0; }
+
 // Forward declare for vector recursion before the template catch-all.
 template<typename T> inline std::string ball_to_string(const std::vector<T>& v);
 
@@ -547,6 +559,123 @@ inline bool ball_object_type_matches(const std::any& value, const std::string& t
         super_obj = (ss != sm.end()) ? ss->second : std::any{};
     }
     return false;
+}
+
+// ── Reified generics: check __type_args__ on a map-backed object ──
+inline bool ball_type_args_match(const std::any& value, const std::string& expected) {
+    const auto& u = _BallDynUnwrapper::unwrap(value);
+    const BallMap_RT* mptr = nullptr;
+    if (u.type() == typeid(BallMap_RT)) {
+        mptr = &std::any_cast<const BallMap_RT&>(u);
+    } else {
+        mptr = _ball_object_base_map(u);
+    }
+    if (!mptr) return false;
+    auto it = mptr->find("__type_args__");
+    if (it == mptr->end()) return false;
+    const auto& tav = _BallDynUnwrapper::unwrap(it->second);
+    if (tav.type() == typeid(std::string)) {
+        return std::any_cast<const std::string&>(tav) == expected;
+    }
+    return false;
+}
+
+// ── Dart `identical(a, b)` — identity check, NOT equality ──
+// For doubles: identical(NaN, NaN) is true, identical(-0.0, 0.0) is false.
+// For ints/strings/bools: value equality. For objects: reference equality.
+inline bool ball_identical(const std::any& a, const std::any& b) {
+    const auto& ua = _BallDynUnwrapper::unwrap(a);
+    const auto& ub = _BallDynUnwrapper::unwrap(b);
+    if (!ua.has_value() && !ub.has_value()) return true;
+    if (!ua.has_value() || !ub.has_value()) return false;
+    // doubles: bitwise identity (NaN == NaN, -0.0 != 0.0)
+    if (ua.type() == typeid(double) && ub.type() == typeid(double)) {
+        double da = std::any_cast<double>(ua);
+        double db = std::any_cast<double>(ub);
+        // Use memcmp for bitwise comparison: NaN == NaN, -0.0 != 0.0
+        return std::memcmp(&da, &db, sizeof(double)) == 0;
+    }
+    // int: value equality
+    if (ua.type() == typeid(int64_t) && ub.type() == typeid(int64_t))
+        return std::any_cast<int64_t>(ua) == std::any_cast<int64_t>(ub);
+    // bool: value equality
+    if (ua.type() == typeid(bool) && ub.type() == typeid(bool))
+        return std::any_cast<bool>(ua) == std::any_cast<bool>(ub);
+    // string: value equality
+    if (ua.type() == typeid(std::string) && ub.type() == typeid(std::string))
+        return std::any_cast<const std::string&>(ua) == std::any_cast<const std::string&>(ub);
+    // Different types → not identical
+    if (ua.type() != ub.type()) return false;
+    // For objects, fall back to pointer identity
+    return false;
+}
+
+// ── Reified generics: typed map check ──
+// Check if value is a map whose values match the given type name.
+// Checks the first entry's value type. Empty maps match any type.
+inline bool ball_is_typed_map(const std::any& value, const std::string& val_type) {
+    const auto& u = _BallDynUnwrapper::unwrap(value);
+    if (!u.has_value()) return false;
+    // Must be a map first
+    const BallMap_RT* mptr = nullptr;
+    if (u.type() == typeid(BallMap_RT)) {
+        mptr = &std::any_cast<const BallMap_RT&>(u);
+    } else {
+        mptr = _ball_object_base_map(u);
+    }
+    // Also check BallOrderedMap via the extension point
+    if (!mptr) {
+        if (_ball_is_map_ext && _ball_is_map_ext(u)) {
+            // BallOrderedMap — accept for now (can't easily inspect element types)
+            return true;
+        }
+        return false;
+    }
+    if (mptr->empty()) return true;  // empty map matches any type
+    // Check the first value's type
+    const auto& first_val = _BallDynUnwrapper::unwrap(mptr->begin()->second);
+    if (val_type == "int") return first_val.type() == typeid(int64_t);
+    if (val_type == "double") return first_val.type() == typeid(double);
+    if (val_type == "num") return first_val.type() == typeid(int64_t) || first_val.type() == typeid(double);
+    if (val_type == "String") return first_val.type() == typeid(std::string);
+    if (val_type == "bool") return first_val.type() == typeid(bool);
+    return ball_object_type_matches(first_val, val_type);
+}
+
+// ── Reified generics: typed list check ──
+// Check if value is a list whose elements match the given type name.
+// For homogeneous typed vectors (std::vector<int64_t>, etc.) check the C++
+// element type; for heterogeneous BallList (std::vector<std::any>) check the
+// first element's runtime type. Empty lists match any type.
+inline bool ball_is_typed_list(const std::any& value, const std::string& elem_type) {
+    const auto& u = _BallDynUnwrapper::unwrap(value);
+    if (!u.has_value()) return false;
+    // Homogeneous typed vectors
+    if (u.type() == typeid(std::vector<int64_t>))
+        return elem_type == "int" || elem_type == "num";
+    if (u.type() == typeid(std::vector<double>))
+        return elem_type == "double" || elem_type == "num";
+    if (u.type() == typeid(std::vector<std::string>))
+        return elem_type == "String";
+    if (u.type() == typeid(std::vector<bool>))
+        return elem_type == "bool";
+    // Heterogeneous BallList — check first element
+    const BallList_RT* lp = nullptr;
+    if (u.type() == typeid(BallList_RT)) {
+        lp = &std::any_cast<const BallList_RT&>(u);
+    } else {
+        lp = _BallRefDeref::list(u);
+    }
+    if (!lp) return false;
+    if (lp->empty()) return true;  // empty list matches any type
+    const auto& first = _BallDynUnwrapper::unwrap((*lp)[0]);
+    if (elem_type == "int") return first.type() == typeid(int64_t);
+    if (elem_type == "double") return first.type() == typeid(double);
+    if (elem_type == "num") return first.type() == typeid(int64_t) || first.type() == typeid(double);
+    if (elem_type == "String") return first.type() == typeid(std::string);
+    if (elem_type == "bool") return first.type() == typeid(bool);
+    // For object types, check __type__ on the first element
+    return ball_object_type_matches(first, elem_type);
 }
 
 // ================================================================

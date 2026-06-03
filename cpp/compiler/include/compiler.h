@@ -95,6 +95,8 @@ private:
     std::unordered_map<std::string, std::unordered_set<std::string>> class_setters_;
     // Set of all user-defined class names (sanitized, e.g. "Point").
     std::unordered_set<std::string> user_class_names_;
+    // Set of all enum type names (sanitized, e.g. "Color").
+    std::unordered_set<std::string> enum_names_;
     // Maps class name to its TypeDefinition for field lookups.
     std::unordered_map<std::string, const ball::v1::TypeDefinition*> class_typedefs_;
     // The sanitized name of the class currently being emitted (empty outside
@@ -113,6 +115,11 @@ private:
     // …) that otherwise compile to a type-name string literal. Without this a
     // common local named `num` would emit `"num"s` instead of the variable.
     std::unordered_set<std::string> declared_locals_;
+
+    // Variables whose let-binding value is a generic (map-backed) construction
+    // (messageCreation with __type_args__). Field access on these must use
+    // bracket notation, not struct member syntax.
+    std::unordered_set<std::string> generic_locals_;
 
     // True when compiling a sync*/async* generator function body.
     // yield/yield_each emit __gen.yield_/__gen.yieldAll calls instead of

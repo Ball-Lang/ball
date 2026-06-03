@@ -901,9 +901,21 @@ public:
         if (_val.type() == typeid(int64_t)) return BallDyn(std::any_cast<int64_t>(_val) % v);
         return BallDyn(static_cast<int64_t>(static_cast<double>(*this)) % v);
     }
+    BallDyn operator+(double v) const {
+        return BallDyn(static_cast<double>(*this) + v);
+    }
+    BallDyn operator-(double v) const {
+        return BallDyn(static_cast<double>(*this) - v);
+    }
+    BallDyn operator*(double v) const {
+        return BallDyn(static_cast<double>(*this) * v);
+    }
     BallDyn operator/(double v) const {
         return BallDyn(static_cast<double>(*this) / v);
     }
+    friend BallDyn operator+(double v, const BallDyn& d) { return BallDyn(v + static_cast<double>(d)); }
+    friend BallDyn operator-(double v, const BallDyn& d) { return BallDyn(v - static_cast<double>(d)); }
+    friend BallDyn operator*(double v, const BallDyn& d) { return BallDyn(v * static_cast<double>(d)); }
     // Arithmetic with any other integral type — notably a `long long` literal
     // (`10LL`) on platforms where int64_t is `long` (gcc/Linux). Without these
     // the call is ambiguous between the int64_t and double overloads (both are
@@ -1580,6 +1592,36 @@ inline std::string ball_string_substring(const BallDyn& v, int64_t start, const 
 }
 inline int64_t ball_code_unit_at(const BallDyn& v, int64_t i) {
     return ball_u16_code_unit_at(static_cast<std::string>(v), i);
+}
+
+// ── Dart double property helpers (BallDyn overloads) ──
+inline bool ball_isNaN(const BallDyn& v) {
+    if (v._val.type() == typeid(double)) return ball_isNaN(std::any_cast<double>(v._val));
+    return false;
+}
+inline bool ball_isInfinite(const BallDyn& v) {
+    if (v._val.type() == typeid(double)) return ball_isInfinite(std::any_cast<double>(v._val));
+    return false;
+}
+inline bool ball_isFinite(const BallDyn& v) {
+    if (v._val.type() == typeid(double)) return ball_isFinite(std::any_cast<double>(v._val));
+    if (v._val.type() == typeid(int64_t)) return true;
+    return false;
+}
+inline bool ball_isNegative(const BallDyn& v) {
+    if (v._val.type() == typeid(double)) return ball_isNegative(std::any_cast<double>(v._val));
+    if (v._val.type() == typeid(int64_t)) return std::any_cast<int64_t>(v._val) < 0;
+    return false;
+}
+
+// ── Dart `identical(a, b)` — BallDyn overload ──
+inline bool ball_identical(const BallDyn& a, const BallDyn& b) {
+    return ball_identical(a._val, b._val);
+}
+
+// ── Reified generics: BallDyn overload ──
+inline bool ball_type_args_match(const BallDyn& value, const std::string& expected) {
+    return ball_type_args_match(value._val, expected);
 }
 
 // String concatenation

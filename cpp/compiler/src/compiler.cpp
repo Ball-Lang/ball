@@ -9,6 +9,8 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <optional>
 #include <set>
 
 namespace ball {
@@ -60,6 +62,19 @@ void CppCompiler::build_lookup_tables() {
                     types_[td.name().substr(colon + 1)] = td.descriptor_();
             }
         }
+        // Collect enum type names for field-access dispatch (Color.red → Color::red).
+        for (const auto& ed : mod.enums()) {
+            enum_names_.insert(sanitize_name(ed.name()));
+        }
+        // Also collect from typeDefs with kind=enum metadata.
+        for (const auto& td : mod.type_defs()) {
+            if (!td.has_metadata()) continue;
+            auto tmeta = read_type_meta(td);
+            if (tmeta.count("kind") && tmeta["kind"] == "enum") {
+                enum_names_.insert(sanitize_name(td.name()));
+            }
+        }
+
         for (const auto& func : mod.functions()) {
             std::string key = mod.name() + "." + func.name();
             functions_[key] = &func;
@@ -70,10 +85,12 @@ void CppCompiler::build_lookup_tables() {
         }
 
         // OOP class metadata: collect class names, superclasses, methods.
+        // Also treat mixins as class-like types for method dispatch.
         for (const auto& td : mod.type_defs()) {
             if (!td.has_metadata()) continue;
             auto tmeta = read_type_meta(td);
-            if (tmeta.count("kind") && tmeta["kind"] == "class") {
+            std::string kind = tmeta.count("kind") ? tmeta["kind"] : "";
+            if (kind == "class" || kind == "mixin") {
                 std::string cls_name = td.name();
                 auto bare_name = cls_name;
                 auto colon_pos = bare_name.find(':');
@@ -522,11 +539,25 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     }
     if (ball_type == "Function") return "std::function<std::any(std::any)>";
     if (ball_type == "Future" || ball_type.find("Future<") == 0) return "BallDyn /* future */";
+    // Enum types → BallDyn so enum instances flow through BallDyn-based
+    // dispatch (for-in iteration, switch comparison, function params).
+    // The enum struct is still used for static member access (Color::red).
+    if (enum_names_.count(sanitize_name(ball_type)) > 0) return "BallDyn";
     // User-defined type
     return sanitize_name(ball_type);
 }
 
 std::string CppCompiler::map_return_type(const ball::v1::FunctionDefinition& func) {
+    // If the output type is a known user class (NOT enum), return the actual
+    // type so struct-returning methods (e.g. simplify() -> Fraction) compile
+    // without needing an implicit Fraction->BallDyn conversion.
+    // Enum types stay as BallDyn since they flow through BallDyn dispatch.
+    if (!func.output_type().empty()) {
+        std::string stype = sanitize_name(func.output_type());
+        if (user_class_names_.count(stype) > 0 && enum_names_.count(stype) == 0)
+            return stype;
+        if (func.output_type() == "void") return "void";
+    }
     return "BallDyn";
 }
 
@@ -741,6 +772,13 @@ static void _collect_declared_locals(const ball::v1::Expression& e,
 std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
     // Dart's `this` → C++ `(*this)` (dereference the pointer for value semantics)
     if (ref.name() == "this") return "(*this)";
+    // `self` inside a class method body → `(*this)` (the Ball IR uses `self`
+    // as the implicit receiver in instance method bodies, equivalent to `this`).
+    if (ref.name() == "self" && !current_class_name_.empty()) return "(*this)";
+    // `super` inside a class method body → `(*this)` (in C++, base class
+    // fields/methods are directly accessible on `this`; the parent class
+    // qualification is added at the call site for method dispatch).
+    if (ref.name() == "super" && !current_class_name_.empty()) return "(*this)";
     // Dart uninitialized sentinel → C++ default-initialized BallDyn
     if (ref.name() == "__no_init__") return "BallDyn()";
     // Dart sentinel object → unique dispatch-not-found marker (not null BallDyn)
@@ -751,6 +789,12 @@ std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
     // `num`, less so for the others — so skip this when the name is a declared
     // local in the current function (otherwise `num` would emit `"num"s`).
     if (declared_locals_.count(ref.name()) == 0) {
+        // Enum type references are used for static member access (Color.red)
+        // and for iteration (Color.values). Emit the bare type name so
+        // compile_field_access can resolve `Color::red`, `Color::values`, etc.
+        if (enum_names_.count(sanitize_name(ref.name())) > 0) {
+            return sanitize_name(ref.name());
+        }
         if (ref.name() == "int") return "\"int\"s";
         if (ref.name() == "double") return "\"double\"s";
         if (ref.name() == "num") return "\"num\"s";
@@ -761,12 +805,27 @@ std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
         if (ref.name() == "List") return "\"List\"s";
         if (ref.name() == "Set") return "\"Set\"s";
     }
-    // If the reference is to a sibling method in the current class,
-    // wrap it in a lambda to bind `this`. Bare member function names
-    // can't be stored as std::any / passed as values in C++.
+    // If the reference is to a sibling method in the current class:
+    // - Getters: emit as a direct call `getter()` since they take no args
+    //   and the reference is used as a value (e.g., `ball_to_string(label)`).
+    // - Other methods: wrap in a lambda to bind `this`. Bare member function
+    //   names can't be stored as std::any / passed as values in C++.
     auto sname = sanitize_name(ref.name());
     if (!current_class_methods_.empty() &&
         current_class_methods_.count(sname) > 0) {
+        // Check if it's a getter in the current class
+        bool is_getter_ref = false;
+        for (const auto& [cls, getters] : class_getters_) {
+            auto cc = cls.find(':');
+            std::string cls_bare = cc != std::string::npos ? cls.substr(cc + 1) : cls;
+            if (sanitize_name(cls_bare) == current_class_name_ && getters.count(sname)) {
+                is_getter_ref = true;
+                break;
+            }
+        }
+        if (is_getter_ref) {
+            return sname + "()";
+        }
         return "[this](auto __arg) mutable { return " + sname + "(__arg); }";
     }
     return ball_local_var_name(sname);
@@ -781,6 +840,15 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     // is the schema name `field`, so map the renamed getter back to the
     // canonical JSON key. (field_2 is the only such rename in ball.proto.)
     if (field == "field_2") field = "field";
+    // Enum static member access: `Color.red` → `Color::red`, `Color.values` → `Color::values`.
+    if (access.object().expr_case() == ball::v1::Expression::kReference) {
+        const auto& ref_name = access.object().reference().name();
+        if (enum_names_.count(sanitize_name(ref_name)) > 0) {
+            std::string enum_type = sanitize_name(ref_name);
+            // For .values and named members, use static access
+            return enum_type + "::" + sanitize_name(field);
+        }
+    }
     // Catch-bound variables hold a `const BallException&`. Their
     // original throw-site field values live in `.fields` (std::map), so
     // rewrite `e.detail` as `e.fields.at("detail")` to read them back.
@@ -807,6 +875,11 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     if (field == "length") return "ball_length(" + obj + ")";
     if (field == "isEmpty") return obj + ".empty()";
     if (field == "isNotEmpty") return "!" + obj + ".empty()";
+    // Dart double properties: .isNaN, .isInfinite, .isFinite, .isNegative
+    if (field == "isNaN") return "ball_isNaN(" + obj + ")";
+    if (field == "isInfinite") return "ball_isInfinite(" + obj + ")";
+    if (field == "isFinite") return "ball_isFinite(" + obj + ")";
+    if (field == "isNegative") return "ball_isNegative(" + obj + ")";
     // Dart `someMap.values.first` / `.values.last`: the `.values` getter yields
     // the map's value collection, and `.first`/`.last` take an element. A bare
     // `.values` deliberately falls through to a key lookup (`obj["values"]`,
@@ -874,31 +947,40 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     // for any user class, emit as a method call `obj.field()` instead of a
     // map-style bracket access. Also check if it is a plain struct field
     // (not a getter method) — emit `obj.field` for direct field access.
+    // GUARD: skip struct-member dispatch when the object is a reference to a
+    // generic (map-backed) local — those use bracket notation.
     {
-        std::string sfield = sanitize_name(field);
-        bool is_getter = false;
-        bool is_plain_field = false;
-        for (const auto& [cls, getters] : class_getters_) {
-            if (getters.count(sfield)) { is_getter = true; break; }
+        bool skip_struct = false;
+        if (access.object().expr_case() == ball::v1::Expression::kReference) {
+            if (generic_locals_.count(access.object().reference().name()) > 0)
+                skip_struct = true;
         }
-        if (!is_getter) {
-            // Check if field is a direct struct field on any user class.
-            for (const auto& [cls, td_ptr] : class_typedefs_) {
-                if (!td_ptr || !td_ptr->has_descriptor_()) continue;
-                for (const auto& fd : td_ptr->descriptor_().field()) {
-                    if (sanitize_name(fd.name()) == sfield) {
-                        is_plain_field = true;
-                        break;
-                    }
-                }
-                if (is_plain_field) break;
+        if (!skip_struct) {
+            std::string sfield = sanitize_name(field);
+            bool is_getter = false;
+            bool is_plain_field = false;
+            for (const auto& [cls, getters] : class_getters_) {
+                if (getters.count(sfield)) { is_getter = true; break; }
             }
-        }
-        if (is_getter) {
-            return obj + "." + sfield + "()";
-        }
-        if (is_plain_field) {
-            return obj + "." + sfield;
+            if (!is_getter) {
+                // Check if field is a direct struct field on any user class.
+                for (const auto& [cls, td_ptr] : class_typedefs_) {
+                    if (!td_ptr || !td_ptr->has_descriptor_()) continue;
+                    for (const auto& fd : td_ptr->descriptor_().field()) {
+                        if (sanitize_name(fd.name()) == sfield) {
+                            is_plain_field = true;
+                            break;
+                        }
+                    }
+                    if (is_plain_field) break;
+                }
+            }
+            if (is_getter) {
+                return obj + "." + sfield + "()";
+            }
+            if (is_plain_field) {
+                return obj + "." + sfield;
+            }
         }
     }
 
@@ -1081,6 +1163,45 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
             }
             // _Scope() — a fresh root scope.
             return "child(BallDyn())";
+        }
+    }
+
+    // ── Reified generics: when the MessageCreation carries a __type_args__
+    // field, emit as a dynamic map that stores __type__, __type_args__, and all
+    // constructor fields (resolved from argN to real param names). This lets
+    // `x is Box<int>` check both the base type and the generic args at runtime.
+    {
+        bool has_type_args = false;
+        std::string type_args_expr;
+        for (const auto& f : msg.fields()) {
+            if (f.name() == "__type_args__") {
+                has_type_args = true;
+                type_args_expr = compile_expr(f.value());
+                break;
+            }
+        }
+        if (has_type_args) {
+            // Resolve argN field names to constructor parameter names.
+            std::vector<std::string> ctor_params = lookup_ctor_params(msg.type_name());
+            auto colon = msg.type_name().find(':');
+            auto bare = colon != std::string::npos ? msg.type_name().substr(colon + 1) : msg.type_name();
+            std::string result = "[&]() { std::map<std::string,std::any> __m;";
+            result += " __m[\"__type__\"s] = std::any(\"" + bare + "\"s);";
+            result += " __m[\"__type_args__\"s] = std::any(" + type_args_expr + ");";
+            for (const auto& f : msg.fields()) {
+                if (f.name() == "__type_args__" || f.name() == "__const__") continue;
+                std::string field_name = f.name();
+                if (field_name.size() >= 4 && field_name.substr(0, 3) == "arg") {
+                    try {
+                        int idx = std::stoi(field_name.substr(3));
+                        if (idx >= 0 && idx < static_cast<int>(ctor_params.size()))
+                            field_name = ctor_params[idx];
+                    } catch (...) {}
+                }
+                result += " __m[\"" + field_name + "\"s] = std::any(" + compile_expr(f.value()) + ");";
+            }
+            result += " return __m; }()";
+            return result;
         }
     }
 
@@ -1272,6 +1393,14 @@ std::string CppCompiler::compile_block(const ball::v1::Block& block) {
         const auto& s = block.statements(si);
         bool is_last = (si == stmt_count - 1) && !block.has_result();
         if (s.has_let()) {
+            if (s.let().value().expr_case() == ball::v1::Expression::kMessageCreation) {
+                for (const auto& f : s.let().value().message_creation().fields()) {
+                    if (f.name() == "__type_args__") {
+                        generic_locals_.insert(s.let().name());
+                        break;
+                    }
+                }
+            }
             result += indent_str() + "auto " + ball_local_var_name(sanitize_name(s.let().name())) +
                       " = " + compile_expr(s.let().value()) + ";\n";
         } else if (s.has_expression()) {
@@ -1316,13 +1445,12 @@ std::string CppCompiler::compile_block_statements(const ball::v1::Block& block) 
 }
 
 std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func) {
-    // Capture by value by default. Lambdas that escape the enclosing
-    // function (returned as std::function, stored in a variable, etc.)
-    // need to own their captured state — `[&]` would dangle when the
-    // outer stack frame tears down. Lambdas used only synchronously
-    // (inside an immediately-invoked IIFE or a loop body) work fine
-    // under either capture mode, so `[=]` is the safe default.
-    std::string result = "[=](";
+    // Dart closures capture by reference: all closures sharing a variable
+    // see the same value, including mutations. Use `[&]` to match Dart
+    // semantics. This is safe as long as closures don't outlive the
+    // enclosing stack frame; compiled Ball programs keep all relevant
+    // locals alive through the program's single main() or function scope.
+    std::string result = "[&](";
     // Parameters
     if (func.has_metadata()) {
         auto params = extract_params(func.metadata());
@@ -1416,6 +1544,333 @@ static void _collectOrPatternValues(const ball::v1::Expression& expr,
             }
         }
     }
+}
+
+// ================================================================
+// Structured pattern matching helpers
+// ================================================================
+
+// Determine the kind of a structured pattern_expr. Returns the typeName
+// or __pattern_kind__ value (e.g. "ConstPattern", "VarPattern", "ListPattern",
+// "MapPattern", "RestPattern", "record", "var", "wildcard", "_").
+static std::string _patternExprKind(const ball::v1::Expression& expr) {
+    if (expr.expr_case() != ball::v1::Expression::kMessageCreation) return "";
+    const auto& mc = expr.message_creation();
+    const std::string& tn = mc.type_name();
+    if (!tn.empty()) return tn;
+    for (const auto& f : mc.fields()) {
+        if (f.name() == "__pattern_kind__" &&
+            f.value().expr_case() == ball::v1::Expression::kLiteral &&
+            f.value().literal().value_case() == ball::v1::Literal::kStringValue) {
+            return f.value().literal().string_value();
+        }
+    }
+    return "";
+}
+
+// Helper to get a named field from a MessageCreation expression.
+static const ball::v1::Expression* _patternField(
+    const ball::v1::Expression& expr, const std::string& name) {
+    if (expr.expr_case() != ball::v1::Expression::kMessageCreation) return nullptr;
+    for (const auto& f : expr.message_creation().fields()) {
+        if (f.name() == name) return &f.value();
+    }
+    return nullptr;
+}
+
+// Helper to get a string literal from a pattern field.
+static std::string _patternStringField(
+    const ball::v1::Expression& expr, const std::string& name) {
+    auto* f = _patternField(expr, name);
+    if (f && f->expr_case() == ball::v1::Expression::kLiteral &&
+        f->literal().value_case() == ball::v1::Literal::kStringValue) {
+        return f->literal().string_value();
+    }
+    return "";
+}
+
+struct StructuredPatternResult {
+    std::string condition;
+    std::vector<std::pair<std::string, std::string>> bindings; // (varName, expr)
+};
+
+// Generate a C++ type-check condition for a given type name against a subject.
+static std::string _typeCheckCondition(const std::string& typeName, const std::string& subject) {
+    if (typeName == "int") {
+        return "(ball_is_int(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallInt\"s))";
+    }
+    if (typeName == "double") {
+        return "(ball_is_double(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallDouble\"s))";
+    }
+    if (typeName == "num" || typeName == "number") {
+        return "((ball_is_int(" + subject + ") || ball_is_double(" + subject + ")) || ball_object_type_matches(" + subject + ", \"BallInt\"s) || ball_object_type_matches(" + subject + ", \"BallDouble\"s))";
+    }
+    if (typeName == "String" || typeName == "string") {
+        return "(ball_is_string(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallString\"s))";
+    }
+    if (typeName == "bool" || typeName == "boolean") {
+        return "(ball_is_bool(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallBool\"s))";
+    }
+    if (typeName == "List") {
+        return "(ball_is_list(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallList\"s))";
+    }
+    if (typeName == "Map") {
+        return "(ball_is_map_dyn(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallMap\"s))";
+    }
+    return "ball_object_type_matches(" + subject + ", \"" + typeName + "\"s)";
+}
+
+// Forward declaration — recursive for nested patterns.
+static std::optional<StructuredPatternResult> _compileStructuredPattern(
+    const ball::v1::Expression& patternExpr,
+    const std::string& subject,
+    std::function<std::string(const ball::v1::Expression&)> exprFn);
+
+static std::optional<StructuredPatternResult> _compileStructuredPattern(
+    const ball::v1::Expression& patternExpr,
+    const std::string& subject,
+    std::function<std::string(const ball::v1::Expression&)> exprFn) {
+
+    const std::string kind = _patternExprKind(patternExpr);
+    if (kind.empty()) return std::nullopt;
+
+    // ConstPattern: compare subject to a literal value
+    if (kind == "ConstPattern") {
+        auto* val = _patternField(patternExpr, "value");
+        if (val) {
+            // Null literal: empty literal (VALUE_NOT_SET)
+            if (val->expr_case() == ball::v1::Expression::kLiteral &&
+                val->literal().value_case() == ball::v1::Literal::VALUE_NOT_SET) {
+                return StructuredPatternResult{"!" + subject + ".has_value()", {}};
+            }
+            return StructuredPatternResult{
+                "BallDyn(" + subject + ") == BallDyn(" + exprFn(*val) + ")", {}};
+        }
+        return StructuredPatternResult{"true", {}};
+    }
+
+    // VarPattern / var: bind subject to a variable, optionally with type check
+    if (kind == "VarPattern" || kind == "var") {
+        std::string name = _patternStringField(patternExpr, "name");
+        std::string typeName = _patternStringField(patternExpr, "type");
+        std::string cond = "true";
+        if (!typeName.empty()) {
+            cond = _typeCheckCondition(typeName, subject);
+        }
+        std::vector<std::pair<std::string, std::string>> binds;
+        if (!name.empty()) {
+            binds.push_back({name, subject});
+        }
+        return StructuredPatternResult{cond, binds};
+    }
+
+    // WildcardPattern / wildcard / _: always matches, no bindings
+    if (kind == "WildcardPattern" || kind == "wildcard" || kind == "_") {
+        return StructuredPatternResult{"true", {}};
+    }
+
+    // ListPattern: check list type, length, and recursively match elements.
+    // Uses BallDyn's .length() and operator[](int64_t) for element access,
+    // and ball_to_list() for sublist construction in rest patterns.
+    if (kind == "ListPattern") {
+        auto* elementsExpr = _patternField(patternExpr, "elements");
+        std::vector<const ball::v1::Expression*> elements;
+        if (elementsExpr &&
+            elementsExpr->expr_case() == ball::v1::Expression::kLiteral &&
+            elementsExpr->literal().value_case() == ball::v1::Literal::kListValue) {
+            for (const auto& e : elementsExpr->literal().list_value().elements()) {
+                elements.push_back(&e);
+            }
+        }
+
+        // Check for RestPattern
+        int restIndex = -1;
+        for (int i = 0; i < (int)elements.size(); i++) {
+            std::string ek = _patternExprKind(*elements[i]);
+            if (ek == "RestPattern" || ek == "rest") {
+                restIndex = i;
+                break;
+            }
+        }
+
+        // Helper: access element i of subject via BallDyn operator[]
+        auto elemAccess = [&](const std::string& subj, const std::string& idx) -> std::string {
+            return "static_cast<BallDyn>(BallDyn(" + subj + "))[int64_t(" + idx + ")]";
+        };
+
+        std::vector<std::string> conds;
+        std::vector<std::pair<std::string, std::string>> binds;
+
+        if (restIndex >= 0) {
+            // With rest pattern: [fixed..., ...rest, fixed...]
+            int beforeCount = restIndex;
+            int afterCount = (int)elements.size() - restIndex - 1;
+            int minLen = beforeCount + afterCount;
+            conds.push_back("ball_is_list(BallDyn(" + subject + "))");
+            conds.push_back("static_cast<int64_t>(ball_length(BallDyn(" + subject + "))) >= " + std::to_string(minLen));
+
+            // Elements before rest
+            for (int i = 0; i < beforeCount; i++) {
+                auto sub = _compileStructuredPattern(
+                    *elements[i],
+                    elemAccess(subject, std::to_string(i)),
+                    exprFn);
+                if (sub) {
+                    if (sub->condition != "true") conds.push_back(sub->condition);
+                    binds.insert(binds.end(), sub->bindings.begin(), sub->bindings.end());
+                }
+            }
+
+            // Rest pattern itself — build a sublist via ball_to_list + vector range ctor
+            auto* restSubpattern = _patternField(*elements[restIndex], "subpattern");
+            if (restSubpattern) {
+                // Build sublist: [&]{ auto __l = ball_to_list(static_cast<std::any>(subj));
+                //   return BallDyn(BallList(__l.begin()+before, __l.end()-after)); }()
+                std::string restSlice = "[&]{ auto __l = ball_to_list(static_cast<std::any>(BallDyn(" +
+                    subject + "))); return BallDyn(BallList(__l.begin() + " +
+                    std::to_string(beforeCount);
+                if (afterCount > 0) {
+                    restSlice += ", __l.end() - " + std::to_string(afterCount);
+                } else {
+                    restSlice += ", __l.end()";
+                }
+                restSlice += ")); }()";
+                auto sub = _compileStructuredPattern(*restSubpattern, restSlice, exprFn);
+                if (sub) {
+                    if (sub->condition != "true") conds.push_back(sub->condition);
+                    binds.insert(binds.end(), sub->bindings.begin(), sub->bindings.end());
+                }
+            }
+
+            // Elements after rest
+            for (int i = 0; i < afterCount; i++) {
+                int elemIdx = restIndex + 1 + i;
+                // Index from end: length - (afterCount - i)
+                std::string idx = "ball_length(BallDyn(" + subject + ")) - " + std::to_string(afterCount - i);
+                auto sub = _compileStructuredPattern(
+                    *elements[elemIdx],
+                    elemAccess(subject, idx),
+                    exprFn);
+                if (sub) {
+                    if (sub->condition != "true") conds.push_back(sub->condition);
+                    binds.insert(binds.end(), sub->bindings.begin(), sub->bindings.end());
+                }
+            }
+        } else {
+            // Exact-length list pattern
+            conds.push_back("ball_is_list(BallDyn(" + subject + "))");
+            conds.push_back("static_cast<int64_t>(ball_length(BallDyn(" + subject + "))) == " +
+                std::to_string(elements.size()));
+            for (int i = 0; i < (int)elements.size(); i++) {
+                auto sub = _compileStructuredPattern(
+                    *elements[i],
+                    elemAccess(subject, std::to_string(i)),
+                    exprFn);
+                if (sub) {
+                    if (sub->condition != "true") conds.push_back(sub->condition);
+                    binds.insert(binds.end(), sub->bindings.begin(), sub->bindings.end());
+                }
+            }
+        }
+
+        std::string combined;
+        for (size_t i = 0; i < conds.size(); i++) {
+            if (i > 0) combined += " && ";
+            combined += conds[i];
+        }
+        return StructuredPatternResult{combined.empty() ? "true" : combined, binds};
+    }
+
+    // MapPattern: check that map contains required keys and bind values
+    if (kind == "MapPattern") {
+        auto* entriesExpr = _patternField(patternExpr, "entries");
+        std::vector<const ball::v1::Expression*> entries;
+        if (entriesExpr &&
+            entriesExpr->expr_case() == ball::v1::Expression::kLiteral &&
+            entriesExpr->literal().value_case() == ball::v1::Literal::kListValue) {
+            for (const auto& e : entriesExpr->literal().list_value().elements()) {
+                entries.push_back(&e);
+            }
+        }
+
+        std::vector<std::string> conds;
+        std::vector<std::pair<std::string, std::string>> binds;
+        conds.push_back("ball_is_map_dyn(BallDyn(" + subject + "))");
+
+        for (auto* entry : entries) {
+            std::string key = _patternStringField(*entry, "key");
+            auto* valPattern = _patternField(*entry, "value");
+            if (key.empty() || !valPattern) continue;
+
+            // Check containsKey
+            conds.push_back("BallDyn(" + subject + ").containsKey(\"" + key + "\"s)");
+
+            // Recurse into value pattern
+            std::string valueAccess = "static_cast<BallDyn>(BallDyn(" + subject + "))[\"" + key + "\"s]";
+            auto sub = _compileStructuredPattern(*valPattern, valueAccess, exprFn);
+            if (sub) {
+                if (sub->condition != "true") conds.push_back(sub->condition);
+                binds.insert(binds.end(), sub->bindings.begin(), sub->bindings.end());
+            }
+        }
+
+        std::string combined;
+        for (size_t i = 0; i < conds.size(); i++) {
+            if (i > 0) combined += " && ";
+            combined += conds[i];
+        }
+        return StructuredPatternResult{combined.empty() ? "true" : combined, binds};
+    }
+
+    // Record pattern: extract named fields from a record (map or tuple)
+    if (kind == "record") {
+        auto* fieldsExpr = _patternField(patternExpr, "fields");
+        std::vector<const ball::v1::Expression*> fields;
+        if (fieldsExpr &&
+            fieldsExpr->expr_case() == ball::v1::Expression::kLiteral &&
+            fieldsExpr->literal().value_case() == ball::v1::Literal::kListValue) {
+            for (const auto& e : fieldsExpr->literal().list_value().elements()) {
+                fields.push_back(&e);
+            }
+        }
+
+        std::vector<std::string> conds;
+        std::vector<std::pair<std::string, std::string>> binds;
+
+        for (auto* field : fields) {
+            std::string name = _patternStringField(*field, "name");
+            auto* pattern = _patternField(*field, "pattern");
+            if (name.empty() || !pattern) continue;
+
+            // Access via operator[] with string key (works for map-backed records)
+            std::string fieldAccess = "static_cast<BallDyn>(BallDyn(" + subject + "))[\"" + name + "\"s]";
+            auto sub = _compileStructuredPattern(*pattern, fieldAccess, exprFn);
+            if (sub) {
+                if (sub->condition != "true") conds.push_back(sub->condition);
+                binds.insert(binds.end(), sub->bindings.begin(), sub->bindings.end());
+            }
+        }
+
+        std::string combined;
+        for (size_t i = 0; i < conds.size(); i++) {
+            if (i > 0) combined += " && ";
+            combined += conds[i];
+        }
+        return StructuredPatternResult{combined.empty() ? "true" : combined, binds};
+    }
+
+    // RestPattern standalone (shouldn't occur outside ListPattern)
+    if (kind == "RestPattern" || kind == "rest") {
+        auto* subpattern = _patternField(patternExpr, "subpattern");
+        if (subpattern) {
+            return _compileStructuredPattern(*subpattern, subject, exprFn);
+        }
+        return StructuredPatternResult{"true", {}};
+    }
+
+    // LogicalOrPattern: handled separately via _collectOrPatternValues
+    // Unknown kind: return nullopt to fall through to text-based handling
+    return std::nullopt;
 }
 
 // Returns true when the expression is a MessageCreation with empty typeName
@@ -1804,12 +2259,42 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
         }
     }
 
-    // Dart top-level function: identical(a, b) → pointer equality.
-    // For C++ structs, compare addresses; for BallDyn, compare identity.
+    // Dart top-level function: identical(a, b) → identity check.
+    // For doubles: identical(NaN, NaN) is true, identical(-0.0, 0.0) is false.
+    // For ints/strings/bools: value equality. For objects: reference equality.
     if (fn == "identical") {
         auto a = get_message_field(call, "arg0");
         auto b = get_message_field(call, "arg1");
-        return "(&(" + a + ") == &(" + b + "))";
+        return "ball_identical(BallDyn(" + a + "), BallDyn(" + b + "))";
+    }
+
+    // Constructor call: `main:ClassName.new` or `module:Class.new`
+    // Emit as `ClassName(args)` instead of `ClassName_new(args)`.
+    {
+        auto dot_new = fn.rfind(".new");
+        if (dot_new != std::string::npos && dot_new + 4 == fn.size()) {
+            // Extract the class name part before ".new"
+            std::string class_part = fn.substr(0, dot_new);
+            std::string class_name = sanitize_name(class_part);
+            // Verify it's a known user class
+            if (user_class_names_.count(class_name) > 0) {
+                std::string result = class_name + "(";
+                if (call.has_input()) {
+                    if (call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+                        bool first = true;
+                        for (const auto& f : call.input().message_creation().fields()) {
+                            if (!first) result += ", ";
+                            result += compile_expr(f.value());
+                            first = false;
+                        }
+                    } else {
+                        result += compile_expr(call.input());
+                    }
+                }
+                result += ")";
+                return result;
+            }
+        }
     }
 
     // User-defined function call
@@ -1839,8 +2324,11 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "multiply") return compile_binary_op("*", call);
     if (fn == "divide") return compile_binary_op("/", call);
     if (fn == "divide_double") {
-        return "(static_cast<double>(" + get_message_field(call, "left") +
-               ") / static_cast<double>(" + get_message_field(call, "right") + "))";
+        // Use [&] lambda to prevent MSVC from constant-folding 0.0/0.0
+        // (which triggers compile-time error C2124 "divide or mod by zero").
+        return "[&]{ double _l = static_cast<double>(" + get_message_field(call, "left") +
+               "); double _r = static_cast<double>(" + get_message_field(call, "right") +
+               "); return _l / _r; }()";
     }
     if (fn == "modulo") {
         auto l = get_message_field(call, "left");
@@ -2288,13 +2776,50 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         auto val = get_message_field(call, "value");
         // Use get_string_field to extract the raw type name string,
         // not the compiled C++ literal (which would be e.g. "Map"s).
-        std::string tn = get_string_field(call, "type");
-        auto lt = tn.find('<'); if (lt != std::string::npos) tn = tn.substr(0, lt);
+        std::string full_tn = get_string_field(call, "type");
+        // Extract base type and generic type args (e.g. "Box<int>" → "Box", "<int>")
+        std::string type_args;
+        std::string tn = full_tn;
+        auto lt = tn.find('<');
+        if (lt != std::string::npos) {
+            type_args = tn.substr(lt);  // e.g. "<int>"
+            tn = tn.substr(0, lt);
+        }
         if (!tn.empty() && tn.back() == '?') tn.pop_back();
         auto col = tn.find(':'); if (col != std::string::npos) tn = tn.substr(col + 1);
         std::string ck;
-        if (tn == "Map" || tn == "HashMap") ck = "ball_is_map_dyn(BallDyn(" + val + "))";
-        else if (tn == "List" || tn == "Iterable") ck = "ball_is_list(" + val + ")";
+        if (tn == "Map" || tn == "HashMap") {
+            if (!type_args.empty()) {
+                // Reified Map<K,V>: check value type of first entry.
+                // Extract V from "<K, V>" — take the part after the first comma.
+                std::string inner = type_args.substr(1, type_args.size() - 2); // strip < >
+                std::string val_type;
+                auto comma = inner.find(',');
+                if (comma != std::string::npos) {
+                    val_type = inner.substr(comma + 1);
+                    // Trim leading whitespace
+                    auto ws = val_type.find_first_not_of(" \t");
+                    if (ws != std::string::npos) val_type = val_type.substr(ws);
+                }
+                if (!val_type.empty()) {
+                    ck = "ball_is_typed_map(" + val + ", \"" + val_type + "\"s)";
+                } else {
+                    ck = "ball_is_map_dyn(BallDyn(" + val + "))";
+                }
+            } else {
+                ck = "ball_is_map_dyn(BallDyn(" + val + "))";
+            }
+        }
+        else if (tn == "List" || tn == "Iterable") {
+            if (!type_args.empty()) {
+                // Reified List<T>: check element type of first element.
+                // Extract T from "<T>" (strip angle brackets).
+                std::string inner = type_args.substr(1, type_args.size() - 2);
+                ck = "ball_is_typed_list(" + val + ", \"" + inner + "\"s)";
+            } else {
+                ck = "ball_is_list(" + val + ")";
+            }
+        }
         else if (tn == "String") ck = "ball_is_string(" + val + ")";
         else if (tn == "int") ck = "ball_is_int(" + val + ")";
         else if (tn == "double" || tn == "num") ck = "(ball_is_int(" + val + ") || ball_is_double(" + val + "))";
@@ -2302,6 +2827,12 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         else if (tn == "Function") ck = "ball_is_function(" + val + ")";
         else if (tn == "_FlowSignal" || tn == "FlowSignal") ck = "ball_is_flow_signal(" + val + ")";
         else ck = "ball_object_type_matches(" + val + ", \"" + tn + "\"s)";
+        // For reified generics on user types (e.g. `x is Box<int>`), also check
+        // that the object's __type_args__ field matches the expected type args.
+        if (!type_args.empty() && tn != "Map" && tn != "HashMap" &&
+            tn != "List" && tn != "Iterable" && tn != "Set") {
+            ck = "(" + ck + " && ball_type_args_match(" + val + ", \"" + type_args + "\"s))";
+        }
         return fn == "is" ? ck : ("!(" + ck + ")");
     }
     if (fn == "as") return get_message_field(call, "value");
@@ -2432,40 +2963,86 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         return "assert(" + cond + ")";
     }
     if (fn == "switch_expr") {
-        // Switch expression: evaluate subject, match against cases
+        // Switch expression: evaluate subject, match against cases.
+        // Supports ConstPattern, LogicalOrPattern, VarPattern (with type),
+        // ListPattern, RestPattern, MapPattern, record patterns.
         auto subject = get_message_field(call, "subject");
         auto* cases_expr = get_message_field_expr(call, "cases");
         if (!cases_expr || cases_expr->expr_case() != ball::v1::Expression::kLiteral ||
             cases_expr->literal().value_case() != ball::v1::Literal::kListValue) {
             return "BallDyn()";
         }
+        auto compileExprLambda = [this](const ball::v1::Expression& e) -> std::string {
+            return compile_expr(e);
+        };
         // Build if-else chain as IIFE
         std::string result = "[&]() -> BallDyn {\n";
-        result += indent_str() + "  auto __subj = " + subject + ";\n";
+        result += indent_str() + "  auto __subj = BallDyn(" + subject + ");\n";
         for (const auto& case_expr : cases_expr->literal().list_value().elements()) {
             if (case_expr.expr_case() != ball::v1::Expression::kMessageCreation) continue;
-            std::string pattern, body;
+            std::string pattern;
+            const ball::v1::Expression* body_expr = nullptr;
             const ball::v1::Expression* pattern_expr_ptr = nullptr;
+            bool is_default = false;
             for (const auto& f : case_expr.message_creation().fields()) {
                 if (f.name() == "pattern") pattern = compile_expr(f.value());
-                if (f.name() == "body") body = compile_expr(f.value());
+                if (f.name() == "body") body_expr = &f.value();
                 if (f.name() == "pattern_expr") pattern_expr_ptr = &f.value();
+                if (f.name() == "is_default" &&
+                    f.value().expr_case() == ball::v1::Expression::kLiteral &&
+                    f.value().literal().bool_value()) is_default = true;
             }
-            if (!pattern.empty() && !body.empty()) {
-                // Check for or-pattern via pattern_expr (LogicalOrPattern)
-                if (pattern_expr_ptr) {
-                    std::vector<const ball::v1::Expression*> or_vals;
-                    _collectOrPatternValues(*pattern_expr_ptr, or_vals);
-                    if (!or_vals.empty()) {
-                        std::string cond;
-                        for (size_t oi = 0; oi < or_vals.size(); oi++) {
-                            if (oi > 0) cond += " || ";
-                            cond += "BallDyn(__subj) == BallDyn(" + compile_expr(*or_vals[oi]) + ")";
-                        }
-                        result += indent_str() + "  if (" + cond + ") return " + body + ";\n";
-                        continue;
+            if (is_default && body_expr) {
+                result += indent_str() + "  return " + compile_expr(*body_expr) + ";\n";
+                break;
+            }
+            if (!body_expr) continue;
+            std::string body = compile_expr(*body_expr);
+
+            // Try structured pattern_expr first
+            if (pattern_expr_ptr) {
+                // Try structured pattern (VarPattern, ListPattern, MapPattern, record, etc.)
+                auto structured = _compileStructuredPattern(*pattern_expr_ptr, "__subj", compileExprLambda);
+                if (structured) {
+                    if (structured->condition == "true" && structured->bindings.empty()) {
+                        // Wildcard / catch-all
+                        result += indent_str() + "  return " + body + ";\n";
+                        break;
                     }
+                    std::string bodyStr;
+                    if (!structured->bindings.empty()) {
+                        // Wrap body in an IIFE that binds pattern variables
+                        std::string params, args;
+                        for (size_t bi = 0; bi < structured->bindings.size(); bi++) {
+                            if (bi > 0) { params += ", "; args += ", "; }
+                            params += "BallDyn " + structured->bindings[bi].first;
+                            args += "BallDyn(" + structured->bindings[bi].second + ")";
+                        }
+                        bodyStr = "[&](" + params + ") -> BallDyn { return " + body + "; }(" + args + ")";
+                    } else {
+                        bodyStr = body;
+                    }
+                    result += indent_str() + "  if (" + structured->condition + ") return " + bodyStr + ";\n";
+                    if (structured->condition == "true") break;
+                    continue;
                 }
+
+                // Try or-pattern (LogicalOrPattern)
+                std::vector<const ball::v1::Expression*> or_vals;
+                _collectOrPatternValues(*pattern_expr_ptr, or_vals);
+                if (!or_vals.empty()) {
+                    std::string cond;
+                    for (size_t oi = 0; oi < or_vals.size(); oi++) {
+                        if (oi > 0) cond += " || ";
+                        cond += "BallDyn(__subj) == BallDyn(" + compile_expr(*or_vals[oi]) + ")";
+                    }
+                    result += indent_str() + "  if (" + cond + ") return " + body + ";\n";
+                    continue;
+                }
+            }
+
+            // Fall back to text-based pattern matching
+            if (!pattern.empty()) {
                 // Normalize pattern (strip quotes and enum prefixes)
                 auto sp = pattern;
                 if (sp.size() >= 3 && sp[0] == '"' && sp.back() == 's' && sp[sp.size()-2] == '"') {
@@ -2480,16 +3057,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 if (sp == "\"_\"s" || sp == "\"default\"s") {
                     result += indent_str() + "  return " + body + ";\n";
                 } else {
-                    // Also check for ConstPattern in pattern_expr for exact-value matching
-                    if (pattern_expr_ptr) {
-                        std::vector<const ball::v1::Expression*> vals;
-                        _collectOrPatternValues(*pattern_expr_ptr, vals);
-                        if (vals.size() == 1) {
-                            result += indent_str() + "  if (BallDyn(__subj) == BallDyn(" + compile_expr(*vals[0]) + ")) return " + body + ";\n";
-                            continue;
-                        }
-                    }
-                    result += indent_str() + "  if (__subj == " + sp + ") return " + body + ";\n";
+                    result += indent_str() + "  if (BallDyn(__subj) == BallDyn(" + sp + ")) return " + body + ";\n";
                 }
             }
         }
@@ -2729,8 +3297,16 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     }
 
     // ── Typed list ──
-    // `typed_list` creates an empty list of a specific type → empty vector
+    // `typed_list` creates a list of a specific type. If it carries an
+    // `elements` field, emit those elements; otherwise emit an empty vector.
     if (fn == "typed_list") {
+        auto* elems_expr = get_message_field_expr(call, "elements");
+        if (elems_expr &&
+            elems_expr->expr_case() == ball::v1::Expression::kLiteral &&
+            elems_expr->literal().value_case() == ball::v1::Literal::kListValue &&
+            elems_expr->literal().list_value().elements_size() > 0) {
+            return compile_expr(*elems_expr);
+        }
         return "std::vector<std::any>{}";
     }
 
@@ -2829,8 +3405,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                v + "), static_cast<int64_t>(" + w + "), ball_to_string(" + f + "), " + left + ")";
     }
     if (fn == "string_code_unit_at") {
-        return "[](const std::string& s, int64_t i){ return (i >= 0 && (size_t)i < s.size()) ? "
-               "static_cast<int64_t>(static_cast<unsigned char>(s[(size_t)i])) : (int64_t)0; }(ball_to_string(" +
+        return "ball_u16_code_unit_at(ball_to_string(" +
                get_message_field(call, "value") + "), static_cast<int64_t>(" + get_message_field(call, "index") + "))";
     }
     if (fn == "to_string_as_fixed") {
@@ -3417,27 +3992,53 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
         bool is_user_class = false;
         std::string class_type;
         if (stmt.let().value().expr_case() == ball::v1::Expression::kMessageCreation) {
-            const auto& tn = stmt.let().value().message_creation().type_name();
+            const auto& mc = stmt.let().value().message_creation();
+            const auto& tn = mc.type_name();
             if (!tn.empty()) {
-                // Check if the sanitized bare name is a user class.
-                auto colon = tn.find(':');
-                auto bare = colon != std::string::npos ? tn.substr(colon + 1) : tn;
-                auto sbare = sanitize_name(bare);
-                if (user_class_names_.count(sbare) > 0) {
-                    is_user_class = true;
-                    class_type = sbare;
+                // If the messageCreation carries __type_args__, the value is
+                // emitted as a dynamic map (reified generics), not a struct.
+                bool has_type_args = false;
+                for (const auto& f : mc.fields()) {
+                    if (f.name() == "__type_args__") { has_type_args = true; break; }
+                }
+                if (!has_type_args) {
+                    // Check if the sanitized bare name is a user class.
+                    auto colon = tn.find(':');
+                    auto bare = colon != std::string::npos ? tn.substr(colon + 1) : tn;
+                    auto sbare = sanitize_name(bare);
+                    if (user_class_names_.count(sbare) > 0) {
+                        is_user_class = true;
+                        class_type = sbare;
+                    }
                 }
             }
         }
         // Also check the let metadata for a type hint matching a user class.
+        // Skip when the type has angle brackets (generic type) — the value
+        // was emitted as a dynamic map for reified generics.
         if (!is_user_class && stmt.let().has_metadata()) {
             auto it = stmt.let().metadata().fields().find("type");
             if (it != stmt.let().metadata().fields().end() &&
                 it->second.kind_case() == google::protobuf::Value::kStringValue) {
-                auto stype = sanitize_name(it->second.string_value());
-                if (user_class_names_.count(stype) > 0) {
-                    is_user_class = true;
-                    class_type = stype;
+                std::string raw_type = it->second.string_value();
+                if (raw_type.find('<') == std::string::npos) {
+                    auto stype = sanitize_name(raw_type);
+                    if (user_class_names_.count(stype) > 0) {
+                        is_user_class = true;
+                        class_type = stype;
+                    }
+                }
+            }
+        }
+
+        // Track variables bound to generic (map-backed) constructions so
+        // field access knows to use bracket notation instead of `.field`.
+        if (!is_user_class &&
+            stmt.let().value().expr_case() == ball::v1::Expression::kMessageCreation) {
+            for (const auto& f : stmt.let().value().message_creation().fields()) {
+                if (f.name() == "__type_args__") {
+                    generic_locals_.insert(stmt.let().name());
+                    break;
                 }
             }
         }
@@ -3792,7 +4393,10 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                 auto subj = get_message_field(call, "subject");
                 emit_line("{");
                 indent_++;
-                emit_line("auto __switch_subj = " + subj + ";");
+                emit_line("auto __switch_subj = BallDyn(" + subj + ");");
+                auto compileExprLambda = [this](const ball::v1::Expression& e) -> std::string {
+                    return compile_expr(e);
+                };
                 auto* cases_expr = get_message_field_expr(call, "cases");
                 bool first_case = true;
                 if (cases_expr && cases_expr->expr_case() == ball::v1::Expression::kLiteral &&
@@ -3808,6 +4412,26 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                         if (dot != std::string::npos && inner.find('_') < dot)
                             inner = inner.substr(dot + 1);
                         return "\"" + inner + "\"s";
+                    };
+                    // Emit case body helper (shared between structured and legacy paths)
+                    auto emit_case_body = [&](const ball::v1::Expression* case_body) {
+                        if (!case_body) return;
+                        if (case_body->expr_case() == ball::v1::Expression::kBlock) {
+                            for (const auto& s : case_body->block().statements()) {
+                                compile_statement(s);
+                            }
+                            if (case_body->block().has_result()) {
+                                emit_line("return " + compile_expr(case_body->block().result()) + ";");
+                            }
+                        } else {
+                            auto body_code = compile_expr(*case_body);
+                            auto pos = body_code.find("/* return */ ");
+                            if (pos == 0) {
+                                emit_line("return " + body_code.substr(12) + ";");
+                            } else {
+                                emit_line("return " + body_code + ";");
+                            }
+                        }
                     };
                     // Collect fall-through patterns (empty body cases grouped with next non-empty case)
                     std::vector<std::string> pending_patterns;
@@ -3853,31 +4477,71 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                             if (first_case) emit_line("{");
                             else emit_line("else {");
                             pending_patterns.clear();
-                        } else if (case_val) {
+                            first_case = false;
+                            indent_++;
+                            emit_case_body(case_body);
+                            indent_--;
+                            emit_line("}");
+                            continue;
+                        }
+                        if (case_val || case_pattern_expr) {
                             std::string cond;
-                            // Check for or-pattern via pattern_expr (LogicalOrPattern / ConstPattern)
+                            bool used_structured = false;
+
+                            // Try structured pattern_expr first
                             if (case_pattern_expr) {
+                                auto structured = _compileStructuredPattern(
+                                    *case_pattern_expr, "__switch_subj", compileExprLambda);
+                                if (structured) {
+                                    used_structured = true;
+                                    cond = structured->condition;
+                                    pending_patterns.clear();
+
+                                    if (cond == "true" && structured->bindings.empty()) {
+                                        // Wildcard / catch-all — treat as default
+                                        if (first_case) emit_line("{");
+                                        else emit_line("else {");
+                                    } else {
+                                        // Include any fall-through patterns
+                                        for (auto& pp : pending_patterns) {
+                                            cond += " || BallDyn(__switch_subj) == BallDyn(" + pp + ")";
+                                        }
+                                        pending_patterns.clear();
+                                        if (first_case) emit_line("if (" + cond + ") {");
+                                        else emit_line("else if (" + cond + ") {");
+                                    }
+                                    first_case = false;
+                                    indent_++;
+                                    // Emit variable bindings
+                                    for (auto& [varName, varExpr] : structured->bindings) {
+                                        emit_line("auto " + varName + " = BallDyn(" + varExpr + ");");
+                                    }
+                                    emit_case_body(case_body);
+                                    indent_--;
+                                    emit_line("}");
+                                    continue;
+                                }
+                            }
+
+                            // Try or-pattern via pattern_expr (LogicalOrPattern / ConstPattern)
+                            if (!used_structured && case_pattern_expr) {
                                 std::vector<const ball::v1::Expression*> or_vals;
                                 _collectOrPatternValues(*case_pattern_expr, or_vals);
                                 if (or_vals.size() > 1) {
-                                    // Multi-value or-pattern — supersedes any string-based
-                                    // fall-through pending_patterns (which are the same
-                                    // alternatives but typed as strings).
                                     pending_patterns.clear();
                                     for (size_t oi = 0; oi < or_vals.size(); oi++) {
                                         if (oi > 0) cond += " || ";
                                         cond += "BallDyn(__switch_subj) == BallDyn(" + compile_expr(*or_vals[oi]) + ")";
                                     }
                                 } else if (or_vals.size() == 1) {
-                                    // Single ConstPattern — use its typed value for the
-                                    // comparison (e.g. int 0 instead of string "0").
                                     cond = "BallDyn(__switch_subj) == BallDyn(" + compile_expr(*or_vals[0]) + ")";
                                 }
                             }
-                            if (cond.empty()) {
+                            if (cond.empty() && case_val) {
                                 auto cv = normalize_pattern(compile_expr(*case_val));
                                 cond = "BallDyn(__switch_subj) == BallDyn(" + cv + ")";
                             }
+                            if (cond.empty()) continue;
                             // Include any fall-through patterns
                             for (auto& pp : pending_patterns) {
                                 cond += " || BallDyn(__switch_subj) == BallDyn(" + pp + ")";
@@ -3890,25 +4554,7 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                         }
                         first_case = false;
                         indent_++;
-                        if (case_body) {
-                            if (case_body->expr_case() == ball::v1::Expression::kBlock) {
-                                for (const auto& s : case_body->block().statements()) {
-                                    compile_statement(s);
-                                }
-                                if (case_body->block().has_result()) {
-                                    emit_line("return " + compile_expr(case_body->block().result()) + ";");
-                                }
-                            } else {
-                                auto body_code = compile_expr(*case_body);
-                                // Replace /* return */ comment with actual return
-                                auto pos = body_code.find("/* return */ ");
-                                if (pos == 0) {
-                                    emit_line("return " + body_code.substr(12) + ";");
-                                } else {
-                                    emit_line("return " + body_code + ";");
-                                }
-                            }
-                        }
+                        emit_case_body(case_body);
                         indent_--;
                         emit_line("}");
                     }
@@ -4172,9 +4818,7 @@ void CppCompiler::emit_includes() {
     emit_line("#include <regex>");
     emit_line("#include <fstream>");
     emit_line("#include <iomanip>");
-    if (base_modules_.count("std_memory")) {
-        emit_line("#include <cstring>");
-    }
+    emit_line("#include <cstring>");
     emit_line("#include <cstdlib>");
     emit_line("#include <memory>");
     emit_line("#include <thread>");
@@ -4692,13 +5336,60 @@ void CppCompiler::emit_forward_decls(const ball::v1::Module& module) {
 }
 
 void CppCompiler::emit_enum(const google::protobuf::EnumDescriptorProto& ed) {
-    emit_line("enum class " + sanitize_name(ed.name()) + " {");
+    // Emit Dart-style enums as a struct with static const instances,
+    // an `.index` field, a `.values` list, and string conversion.
+    // This allows `Color.red`, `Color.values`, `c.index`, and
+    // `ball_to_string(c)` to work like Dart.
+    std::string name = sanitize_name(ed.name());
+    emit_line("struct " + name + " {");
     indent_++;
+    emit_line("int64_t index;");
+    emit_line("std::string _name;");
+    // Constructor
+    emit_line(name + "(int64_t idx, std::string n) : index(idx), _name(std::move(n)) {}");
+    emit_line(name + "() : index(0), _name() {}");
+    // Comparison operators for switch/equality
+    emit_line("bool operator==(const " + name + "& o) const { return index == o.index; }");
+    emit_line("bool operator!=(const " + name + "& o) const { return index != o.index; }");
+    // BallDyn interop: allow wrapping in BallDyn for switch/iteration
+    emit_line("operator BallDyn() const;");
+    // Static instances
     for (const auto& val : ed.value()) {
-        emit_line(sanitize_name(val.name()) + ",");
+        emit_line("static const " + name + " " + sanitize_name(val.name()) + ";");
     }
+    // Static values list (BallList for BallDyn iteration compatibility)
+    emit_line("static const BallList values;");
     indent_--;
     emit_line("};");
+    // Out-of-line definitions
+    for (const auto& val : ed.value()) {
+        emit_line("const " + name + " " + name + "::" + sanitize_name(val.name()) +
+                  " = " + name + "(" + std::to_string(val.number()) +
+                  ", \"" + name + "." + val.name() + "\");");
+    }
+    // Values list (BallList for BallDyn iteration)
+    emit_indent();
+    out_ << "const BallList " << name << "::values = {";
+    bool first = true;
+    for (const auto& val : ed.value()) {
+        if (!first) out_ << ", ";
+        out_ << "std::any(BallDyn(" << name << "::" << sanitize_name(val.name()) << "))";
+        first = false;
+    }
+    out_ << "};\n";
+    // BallDyn conversion operator: wraps the enum as a map-like BallDyn
+    // with "index" and "_name" fields so field access (c.index) and
+    // comparisons (BallDyn(a) == BallDyn(b)) work through the BallDyn layer.
+    emit_line("inline " + name + "::operator BallDyn() const {");
+    indent_++;
+    emit_line("std::map<std::string,std::any> m;");
+    emit_line("m[\"index\"] = std::any(index);");
+    emit_line("m[\"_name\"] = std::any(_name);");
+    emit_line("return BallDyn(m);");
+    indent_--;
+    emit_line("}");
+    // ball_to_string overload
+    emit_line("inline std::string ball_to_string(const " + name + "& e) { return e._name; }");
     emit_newline();
 }
 
@@ -4812,6 +5503,14 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             } else {
                 bases += "public " + sanitize_name(iface);
             }
+        }
+        // Mixin inheritance: C++ has no mixins, so inherit from them.
+        // The mixin methods are defined in the mixin struct; inheriting
+        // gives the consuming class access to them.
+        auto mixins = read_meta_list(td.metadata(), "mixins");
+        for (const auto& mx : mixins) {
+            bases += bases.empty() ? " : " : ", ";
+            bases += "public " + sanitize_name(mx);
         }
         // Virtual bases
         auto vbases = read_meta_list(td.metadata(), "virtual_bases");
@@ -4931,6 +5630,24 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         return result;
     };
 
+    // Emit a defaulted default constructor so `return ClassName()` compiles
+    // as a fallthrough in methods returning this type. Only needed when the
+    // class also has user-defined constructors (which suppress the implicit
+    // default constructor).
+    {
+        bool has_user_ctor = false;
+        for (const auto* func : methods) {
+            auto m = read_meta(*func);
+            if ((m.count("kind") ? m["kind"] : "") == "constructor") {
+                has_user_ctor = true;
+                break;
+            }
+        }
+        if (has_user_ctor) {
+            emit_line(name + "() = default;");
+        }
+    }
+
     // Methods
     for (const auto* func : methods) {
         auto meta = read_meta(*func);
@@ -4985,12 +5702,34 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
 
                 // Emit member initializer list for is_this params and super calls.
                 bool has_inits = false;
+                bool any_is_this = false;
                 for (size_t i = 0; i < params.size(); i++) {
                     bool is_this = i < is_this_flags.size() && is_this_flags[i];
+                    if (is_this) any_is_this = true;
                     if (is_this) {
                         out_ << (has_inits ? ", " : " : ");
                         has_inits = true;
                         out_ << sanitize_name(params[i]) << "(" << sanitize_name(params[i]) << ")";
+                    }
+                }
+                // Auto-assign: when no is_this flags are set and no super
+                // initializers exist, but the class has fields matching the
+                // param count, map params positionally to fields as member
+                // initializers. This handles `Grandparent(name)` encoded as
+                // a single param "input" with a field "name". Skip when there
+                // are super initializers (params may be forwarded to parent).
+                bool has_super_init = false;
+                for (const auto& [ik, _] : initializers)
+                    if (ik == "super") { has_super_init = true; break; }
+                if (!any_is_this && !has_super_init && !params.empty() && td.has_descriptor_()) {
+                    const auto& fields = td.descriptor_().field();
+                    if (fields.size() == static_cast<int>(params.size())) {
+                        for (int fi = 0; fi < fields.size(); fi++) {
+                            out_ << (has_inits ? ", " : " : ");
+                            has_inits = true;
+                            out_ << sanitize_name(fields[fi].name())
+                                 << "(" << sanitize_name(params[fi]) << ")";
+                        }
                     }
                 }
                 // Super call from initializers metadata.
@@ -5012,7 +5751,23 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                             // Strip parens.
                             if (!args.empty() && args.front() == '(') args = args.substr(1);
                             if (!args.empty() && args.back() == ')') args.pop_back();
-                            out_ << super_name << "(" << args << ")";
+                            // Convert Dart single-quoted string literals to C++
+                            // double-quoted string literals with s suffix.
+                            // e.g. 'Car' → "Car"s
+                            std::string fixed_args;
+                            for (size_t ci = 0; ci < args.size(); ci++) {
+                                if (args[ci] == '\'') {
+                                    // Find matching closing quote
+                                    auto end = args.find('\'', ci + 1);
+                                    if (end != std::string::npos) {
+                                        fixed_args += "\"" + args.substr(ci + 1, end - ci - 1) + "\"s";
+                                        ci = end;
+                                        continue;
+                                    }
+                                }
+                                fixed_args += args[ci];
+                            }
+                            out_ << super_name << "(" << fixed_args << ")";
                         }
                     }
                 }
@@ -5045,8 +5800,17 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                     out_ << " {\n";
                     indent_++;
                     if (func->body().expr_case() == ball::v1::Expression::kBlock) {
-                        for (const auto& s : func->body().block().statements())
+                        for (const auto& s : func->body().block().statements()) {
+                            // Skip encoder-generated `let self = ClassName{}`
+                            // and `return self` patterns in constructor bodies.
+                            // These are artifacts of the encoder's self-variable
+                            // pattern; the C++ constructor IS `self`.
+                            if (s.has_let() && s.let().name() == "self") continue;
+                            if (s.has_expression() &&
+                                s.expression().expr_case() == ball::v1::Expression::kCall &&
+                                s.expression().call().function() == "return") continue;
                             compile_statement(s);
+                        }
                     }
                     indent_--;
                     emit_line("}");
@@ -5130,12 +5894,42 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                 conv_type = map_type(meta["conversion_type"]);
             }
             out_ << "operator " << conv_type << "(";
+        } else if (is_operator && !smethod_name.empty()) {
+            // Dart operator methods: the IR carries the raw operator symbol
+            // as the method basename (e.g. "+", "-", "*", "==", "[]", "[]=").
+            // Map to valid C++ operator overloads when possible.
+            static const std::map<std::string, std::string> op_map = {
+                {"+", "operator+"}, {"-", "operator-"}, {"_", "operator-"},
+                {"*", "operator*"}, {"/", "operator/"},
+                {"%", "operator%"}, {"==", "operator=="},
+                {"!=", "operator!="}, {"<", "operator<"},
+                {">", "operator>"}, {"<=", "operator<="},
+                {">=", "operator>="}, {"^", "operator^"},
+                {"&", "operator&"}, {"|", "operator|"},
+                {"~", "operator~"}, {"<<", "operator<<"},
+                {">>", "operator>>"},
+            };
+            // Also map __op_*__ canonical Ball names
+            static const std::map<std::string, std::string> ball_op_map = {
+                {"__op_add__", "operator+"}, {"__op_sub__", "operator-"},
+                {"__op_mul__", "operator*"}, {"__op_div__", "operator/"},
+                {"__op_mod__", "operator%"}, {"__op_eq__", "operator=="},
+                {"__op_ne__", "operator!="}, {"__op_lt__", "operator<"},
+                {"__op_gt__", "operator>"}, {"__op_lte__", "operator<="},
+                {"__op_gte__", "operator>="}, {"__op_xor__", "operator^"},
+                {"__op_bitor__", "operator|"}, {"__op_bitand__", "operator&"},
+                {"__op_lshift__", "operator<<"}, {"__op_rshift__", "operator>>"},
+                {"__op_bitnot__", "operator~"},
+            };
+            auto oit = op_map.find(smethod_name);
+            if (oit == op_map.end()) oit = op_map.find(method_name);
+            auto boit = ball_op_map.find(smethod_name);
+            std::string cpp_op;
+            if (oit != op_map.end()) cpp_op = oit->second;
+            else if (boit != ball_op_map.end()) cpp_op = boit->second;
+            else cpp_op = smethod_name; // fallback: emit as-is
+            out_ << map_return_type(*func) << " " << cpp_op << "(";
         } else {
-            // Operator methods now arrive with canonical Ball names
-            // (`__op_set_index__`, `__op_eq__`, …) — emit as a plain C++
-            // method. We no longer try to fabricate a real `operator+` /
-            // `operator []=` overload, since the IR no longer carries Dart
-            // operator syntax.
             out_ << map_return_type(*func) << " " << smethod_name << "(";
         }
         auto params = func->has_metadata() ? extract_params(func->metadata()) : std::vector<std::string>{};
@@ -5147,11 +5941,22 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         // pinned to a concrete type and — on its declaration — given its Dart
         // default so call sites that omit it compile. `with_default` is false
         // for the out-of-line definition (C++ forbids repeating the default).
+        // EXCEPTION: virtual methods cannot use `auto&&` (template) params in
+        // C++. Pin them to BallDyn (or mapped type if available).
         auto emit_method_param = [&](size_t i, bool with_default) {
             std::string pname = sanitize_name(params[i]);
             const bool optional = i < param_specs.size() && param_specs[i].optional;
             if (!optional) {
-                out_ << "auto&& " << pname;
+                if (needs_virtual) {
+                    // Virtual methods can't be templates. Use BallDyn or mapped type.
+                    std::string t = (i < param_specs.size() && !param_specs[i].type.empty())
+                                        ? map_type(param_specs[i].type)
+                                        : "BallDyn";
+                    if (t == "auto&&" || t == "auto") t = "BallDyn";
+                    out_ << t << " " << pname;
+                } else {
+                    out_ << "auto&& " << pname;
+                }
                 return;
             }
             std::string t = (!param_specs[i].type.empty())
@@ -5196,17 +6001,25 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             }
             out_ << ") {\n";
             indent_++;
-            if (func->body().expr_case() == ball::v1::Expression::kBlock) {
-                for (const auto& s : func->body().block().statements())
-                    compile_statement(s);
-                if (func->body().block().has_result()) {
-                    emit_line("return " + compile_expr(func->body().block().result()) + ";");
+            {
+                auto mrt = map_return_type(*func);
+                if (func->body().expr_case() == ball::v1::Expression::kBlock) {
+                    for (const auto& s : func->body().block().statements())
+                        compile_statement(s);
+                    if (func->body().block().has_result()) {
+                        if (mrt == "void")
+                            emit_line(compile_expr(func->body().block().result()) + ";");
+                        else
+                            emit_line("return " + compile_expr(func->body().block().result()) + ";");
+                    }
+                } else {
+                    if (mrt == "void")
+                        emit_line(compile_expr(func->body()) + ";");
+                    else
+                        emit_line("return " + compile_expr(func->body()) + ";");
                 }
-            } else {
-                emit_line("return " + compile_expr(func->body()) + ";");
+                if (mrt != "void") emit_line("return " + mrt + "();");
             }
-            auto mrt = map_return_type(*func);
-            if (mrt != "void") emit_line("return BallDyn();");
             indent_--;
             emit_line("}");
             queue_split_definition(out_.str());
@@ -5218,22 +6031,44 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             out_ << ") {\n";
             indent_++;
             if (func->has_body()) {
+                auto mrt = map_return_type(*func);
                 if (func->body().expr_case() == ball::v1::Expression::kBlock) {
                     for (const auto& s : func->body().block().statements())
                         compile_statement(s);
                     if (func->body().block().has_result()) {
-                        emit_line("return " +
-                                   compile_expr(func->body().block().result()) + ";");
+                        if (mrt == "void")
+                            emit_line(compile_expr(func->body().block().result()) + ";");
+                        else
+                            emit_line("return " +
+                                       compile_expr(func->body().block().result()) + ";");
                     }
                 } else {
-                    emit_line("return " + compile_expr(func->body()) + ";");
+                    if (mrt == "void")
+                        emit_line(compile_expr(func->body()) + ";");
+                    else
+                        emit_line("return " + compile_expr(func->body()) + ";");
                 }
             }
-            auto mrt = map_return_type(*func);
-            if (mrt != "void") emit_line("return BallDyn();");
+            {
+                auto mrt = map_return_type(*func);
+                if (mrt != "void") emit_line("return " + mrt + "();");
+            }
             indent_--;
             emit_line("}");
         }
+    }
+
+    // Check if any method is named "toString" (non-static, non-abstract).
+    bool has_to_string = false;
+    for (const auto* func : methods) {
+        auto m = read_meta(*func);
+        auto mk = m.count("kind") ? m["kind"] : "method";
+        if (mk != "method") continue;
+        if (m.count("is_static") && m["is_static"] == "true") continue;
+        if (m.count("is_abstract") && m["is_abstract"] == "true") continue;
+        auto d = func->name().rfind('.');
+        std::string mn = d != std::string::npos ? func->name().substr(d + 1) : func->name();
+        if (mn == "toString") { has_to_string = true; break; }
     }
 
     current_class_methods_.clear();
@@ -5241,6 +6076,14 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
 
     indent_--;
     emit_line("};");
+
+    // Emit ball_to_string overload for user classes with a toString method,
+    // so `ball_to_string(obj)` calls `obj.toString()` (Dart behavior).
+    if (has_to_string) {
+        emit_line("inline std::string ball_to_string(const " + name +
+                  "& obj) { return ball_to_string(const_cast<" + name +
+                  "&>(obj).toString()); }");
+    }
     emit_newline();
 }
 
@@ -5566,6 +6409,7 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     // local named `num`/`int`/`String`/… resolve to the variable rather than
     // the Dart type-object string literal.
     declared_locals_.clear();
+    generic_locals_.clear();
     for (const auto& p : params) declared_locals_.insert(p);
     if (func.has_body()) _collect_declared_locals(func.body(), declared_locals_);
 
@@ -5603,10 +6447,11 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     if (is_generator) {
         emit_line("return BallDyn(*__gen.values);");
     } else if (return_type != "void") {
-        emit_line("return BallDyn();");
+        emit_line("return " + return_type + "();");
     }
     in_generator_ = prev_in_generator;
     declared_locals_.clear();
+    generic_locals_.clear();
 
     indent_--;
     emit_line("}");
@@ -5627,9 +6472,11 @@ void CppCompiler::emit_top_level_var(const ball::v1::FunctionDefinition& func) {
 
     const std::string name = sanitize_name(func.name());
     declared_locals_.clear();
+    generic_locals_.clear();
     if (func.has_body()) _collect_declared_locals(func.body(), declared_locals_);
     const std::string init = func.has_body() ? compile_expr(func.body()) : "0";
     declared_locals_.clear();
+    generic_locals_.clear();
     emit_indent();
     // A namespace-scope (non-local) lambda may not carry a [&]/[=] capture
     // default under gcc/clang. When a top-level initializer is such an IIFE
@@ -5653,6 +6500,7 @@ void CppCompiler::emit_main(const ball::v1::FunctionDefinition& entry) {
     // Record main's locals so a `let num` (etc.) shadows the Dart type-object
     // string-literal special-casing in compile_reference.
     declared_locals_.clear();
+    generic_locals_.clear();
     if (entry.has_body()) _collect_declared_locals(entry.body(), declared_locals_);
 
     if (entry.has_body()) {
@@ -5726,6 +6574,12 @@ std::string CppCompiler::compile() {
     emit_namespace_open();
     emit_newline();
 
+    // Enums — emit before forward declarations so function signatures
+    // that reference enum types (e.g. `colorName(Color c)`) can resolve.
+    for (const auto& ed : main_module->enums()) {
+        emit_enum(ed);
+    }
+
     // Forward declarations
     emit_forward_decls(*main_module);
 
@@ -5758,11 +6612,6 @@ std::string CppCompiler::compile() {
         standalone.push_back(&func);
     }
 
-    // Enums
-    for (const auto& ed : main_module->enums()) {
-        emit_enum(ed);
-    }
-
     // Top-level variables — emit BEFORE classes so class methods that
     // reference them (e.g. `value.size() * _ballPointerBytes`) resolve
     // the identifier without a forward-declaration round.
@@ -5793,7 +6642,8 @@ std::string CppCompiler::compile() {
             if (runtime_types.count(sanitize_name(td.name())) > 0) continue;
             sorted_tds.push_back(&td);
         }
-        // Compute inheritance depth for each type (0 = no superclass).
+        // Compute inheritance depth for each type (0 = no superclass/mixins).
+        // Types with mixins must sort after the mixin types they depend on.
         auto depth_of = [&](const ball::v1::TypeDefinition* td) -> int {
             int d = 0;
             std::string cur = td->name();
@@ -5813,6 +6663,12 @@ std::string CppCompiler::compile() {
                 if (next.empty()) { d++; break; }
                 cur = next;
                 d++;
+            }
+            // Also account for mixin dependencies: a class using mixins must
+            // sort after the mixin type definitions.
+            if (td->has_metadata()) {
+                auto mixins = read_meta_list(td->metadata(), "mixins");
+                if (!mixins.empty() && d == 0) d = 1;
             }
             return d;
         };
@@ -5968,6 +6824,10 @@ CompileSplitResult CppCompiler::compile_split(const std::string& output_dir,
                 cur = next;
                 d++;
             }
+            if (td->has_metadata()) {
+                auto mixins = read_meta_list(td->metadata(), "mixins");
+                if (!mixins.empty() && d == 0) d = 1;
+            }
             return d;
         };
         std::stable_sort(sorted_tds.begin(), sorted_tds.end(),
@@ -6095,11 +6955,12 @@ std::string CppCompiler::compile_module(const std::string& module_name) {
 
 std::string CppCompiler::compile_collections_call(const std::string& fn,
                                                    const ball::v1::FunctionCall& call) {
-    // List operations
+    // List operations — all use BallDyn to handle both raw vectors and
+    // reference-semantic BallListRef transparently.
     if (fn == "list_push") {
         auto list = get_message_field(call, "list");
         auto val = get_message_field(call, "value");
-        return "[](auto v, auto e){v.push_back(std::any(e));return v;}(" + list + "," + val + ")";
+        return "[](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(" + list + "," + val + ")";
     }
     if (fn == "list_pop") {
         auto list = get_message_field(call, "list");
@@ -6108,27 +6969,27 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "list_get") {
         auto list = get_message_field(call, "list");
         auto idx = get_message_field(call, "index");
-        return list + ".at(" + idx + ")";
+        return "BallDyn(" + list + ")[static_cast<int64_t>(" + idx + ")]";
     }
     if (fn == "list_set") {
         auto list = get_message_field(call, "list");
         auto idx = get_message_field(call, "index");
         auto val = get_message_field(call, "value");
-        return "[](auto v, auto i, auto e){v[i]=e;return v;}(" + list + "," + idx + "," + val + ")";
+        return "[](BallDyn v, int64_t i, BallDyn e){v.set(i,e._val);return v;}(" + list + "," + idx + "," + val + ")";
     }
     if (fn == "list_length") {
         auto list = get_message_field(call, "list");
-        return "static_cast<int64_t>(" + list + ".size())";
+        return "static_cast<int64_t>(BallDyn(" + list + ").size())";
     }
     if (fn == "list_is_empty") {
         auto list = get_message_field(call, "list");
-        return list + ".empty()";
+        return "BallDyn(" + list + ").empty()";
     }
     if (fn == "list_first") {
-        return get_message_field(call, "list") + ".front()";
+        return "BallDyn(" + get_message_field(call, "list") + ").front()";
     }
     if (fn == "list_last") {
-        return get_message_field(call, "list") + ".back()";
+        return "BallDyn(" + get_message_field(call, "list") + ").back()";
     }
     if (fn == "list_contains") {
         auto list = get_message_field(call, "list");
@@ -6143,7 +7004,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "list_reverse") {
         auto list = get_message_field(call, "list");
-        return "[](auto v){std::reverse(v.begin(),v.end());return v;}(" + list + ")";
+        return "[](BallDyn v){if(BallList* l=v._listPtr()){std::reverse(l->begin(),l->end());}return v;}(" + list + ")";
     }
     if (fn == "list_insert") {
         auto list = get_message_field(call, "list");
@@ -6158,7 +7019,7 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         return "ball_list_remove_at(" + list + "," + idx + ")";
     }
     if (fn == "list_single") {
-        return get_message_field(call, "list") + ".at(0)";
+        return "BallDyn(" + get_message_field(call, "list") + ")[static_cast<int64_t>(0)]";
     }
     if (fn == "list_map") {
         auto list = get_message_field(call, "list");
@@ -6182,11 +7043,11 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         auto list = get_message_field(call, "list");
         auto callback = get_callback_field(call);
         auto initial = get_message_field(call, "initial");
-        return "[](const BallDyn& v, auto fn, auto init){"
-               "auto acc=init;for(size_t i=0;i<v.size();i++){"
+        return "[](const BallDyn& v, auto fn, BallDyn init){"
+               "BallDyn acc=init;for(size_t i=0;i<v.size();i++){"
                "BallDyn __e(v[static_cast<int64_t>(i)]);"
-               "std::map<std::string,std::any> p;p[\"accumulator\"]=acc;p[\"element\"]=std::any(__e);"
-               "acc=fn(std::any(p));}return acc;}("
+               "BallDyn p(BallOrderedMap{});p.set(\"accumulator\"s,acc._val);p.set(\"element\"s,__e._val);"
+               "acc=BallDyn(fn(p));}return acc;}("
                + list + "," + callback + "," + initial + ")";
     }
     if (fn == "list_find") {
@@ -6228,8 +7089,8 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         auto callback = get_callback_field(call);
         return "[](BallDyn v, auto fn){if(BallList* l=v._listPtr()){std::sort(l->begin(),l->end(),"
                "[&](const std::any& a, const std::any& b){"
-               "return BallDyn(fn(BallDyn(std::map<std::string,std::any>"
-               "{{\"left\",a},{\"right\",b}})));});}return v;}("
+               "BallDyn p(BallOrderedMap{});p.set(\"left\"s,a);p.set(\"right\"s,b);"
+               "return static_cast<bool>(BallDyn(fn(p)));});}return v;}("
                + list + "," + callback + ")";
     }
     if (fn == "list_concat") {
@@ -6253,14 +7114,17 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "string_join") {
         auto list = get_message_field(call, "list");
         auto sep = get_message_field(call, "separator");
-        return "[](const auto& v, const std::string& s){"
+        return "[](const BallDyn& v, const std::string& s){"
                "std::string r;for(size_t i=0;i<v.size();i++){"
-               "if(i>0)r+=s;r+=v[i];}return r;}(" + list + "," + sep + ")";
+               "if(i>0)r+=s;r+=ball_to_string(v[static_cast<int64_t>(i)]);}return r;}(" + list + "," + sep + ")";
     }
     if (fn == "list_take") {
         auto list = get_message_field(call, "list");
         auto count = get_message_field(call, "count");
-        return "[](const auto& v, int64_t n){return decltype(v)(v.begin(),v.begin()+std::min(n,static_cast<int64_t>(v.size())));}("
+        return "[](const BallDyn& v, int64_t n) -> BallDyn {"
+               "BallList r;int64_t len=std::min(n,static_cast<int64_t>(v.size()));"
+               "for(int64_t i=0;i<len;i++)r.push_back(std::any(v[i]));"
+               "return BallDyn(r);}("
                + list + "," + count + ")";
     }
     if (fn == "list_drop") {
@@ -6287,15 +7151,17 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "list_zip") {
         auto left = get_message_field(call, "left");
         auto right = get_message_field(call, "right");
-        return "[](const auto& a, const auto& b){"
-               "std::vector<std::any> r;auto n=std::min(a.size(),b.size());"
-               "for(size_t i=0;i<n;i++){std::map<std::string,std::any> p;"
-               "p[\"first\"]=a[i];p[\"second\"]=b[i];r.push_back(std::any(p));}"
-               "return r;}(" + left + "," + right + ")";
+        return "[](const BallDyn& a, const BallDyn& b) -> BallDyn {"
+               "BallList r;int64_t n=std::min(a.size(),b.size());"
+               "for(int64_t i=0;i<n;i++){BallDyn p(BallOrderedMap{});"
+               "p.set(\"first\"s,std::any(a[i]));p.set(\"second\"s,std::any(b[i]));"
+               "r.push_back(std::any(p));}return BallDyn(r);}(" + left + "," + right + ")";
     }
 
-    // Map operations
-    if (fn == "map_create") return "std::map<std::string,std::any>{}";
+    // Map operations — all use BallDyn to handle BallOrderedMap/BallMap/BallScope
+    // transparently. map_create returns BallOrderedMap (insertion-ordered, Dart
+    // LinkedHashMap semantics).
+    if (fn == "map_create") return "BallDyn(BallOrderedMap{})";
     if (fn == "map_get") {
         auto map = get_message_field(call, "map");
         auto key = get_message_field(call, "key");
@@ -6306,105 +7172,103 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         auto map = get_message_field(call, "map");
         auto key = get_message_field(call, "key");
         auto val = get_message_field(call, "value");
-        return "[](auto m, const auto& k, auto v){m[k]=v;return m;}(" + map + "," + key + "," + val + ")";
+        return "[](BallDyn m, const BallDyn& k, BallDyn v){m.set(static_cast<std::string>(k),v._val);return m;}(" + map + "," + key + "," + val + ")";
     }
     if (fn == "map_delete") {
         auto map = get_message_field(call, "map");
         auto key = get_message_field(call, "key");
-        return "[](auto m, const auto& k){m.erase(k);return m;}(" + map + "," + key + ")";
+        return "[](BallDyn m, const BallDyn& k){m.erase(static_cast<std::string>(k));return m;}(" + map + "," + key + ")";
     }
     if (fn == "map_contains_key") {
         auto map = get_message_field(call, "map");
         auto key = get_message_field(call, "key");
-        return "(" + map + ".count(" + key + ")>0)";
+        return "(BallDyn(" + map + ").count(" + key + ")>0)";
     }
     if (fn == "map_is_empty") {
-        return get_message_field(call, "map") + ".empty()";
+        return "BallDyn(" + get_message_field(call, "map") + ").empty()";
     }
     if (fn == "map_length") {
-        return "static_cast<int64_t>(" + get_message_field(call, "map") + ".size())";
+        return "static_cast<int64_t>(BallDyn(" + get_message_field(call, "map") + ").size())";
     }
     if (fn == "map_keys") {
         auto map = get_message_field(call, "map");
-        return "[](const auto& m){std::vector<std::any> r;"
-               "for(const auto& [k,v]:m)r.push_back(std::any(k));return r;}(" + map + ")";
+        return "ball_map_keys(BallDyn(" + map + "))";
     }
     if (fn == "map_values") {
         auto map = get_message_field(call, "map");
-        return "[](const auto& m){std::vector<std::any> r;"
-               "for(const auto& [k,v]:m)r.push_back(v);return r;}(" + map + ")";
+        return "ball_map_values(BallDyn(" + map + "))";
     }
     if (fn == "map_entries") {
         auto map = get_message_field(call, "map");
-        return "[](const auto& m){std::vector<std::any> r;"
-               "for(const auto& [k,v]:m){std::map<std::string,std::any> e;"
-               "e[\"key\"]=std::any(k);e[\"value\"]=v;r.push_back(std::any(e));}return r;}(" + map + ")";
+        return "ball_map_entries(BallDyn(" + map + "))";
     }
     if (fn == "map_from_entries") {
         auto entries = get_message_field(call, "entries");
-        return "[](const auto& v){std::map<std::string,std::any> r;"
-               "for(const auto& e:v){auto m=std::any_cast<std::map<std::string,std::any>>(e);"
-               "r[std::any_cast<std::string>(m[\"key\"])]=m[\"value\"];}return r;}(" + entries + ")";
+        return "[](const BallDyn& v) -> BallDyn {"
+               "BallDyn r(BallOrderedMap{});"
+               "for(int64_t i=0;i<v.size();i++){BallDyn e(v[i]);"
+               "r.set(static_cast<std::string>(e[\"key\"s]),e[\"value\"s]._val);}return r;}(" + entries + ")";
     }
     if (fn == "map_merge") {
         auto left = get_message_field(call, "left");
         auto right = get_message_field(call, "right");
-        return "[](auto a, const auto& b){for(const auto& [k,v]:b)a[k]=v;return a;}("
+        return "[](BallDyn a, const BallDyn& b){"
+               "auto entries=ball_map_entries(b);"
+               "for(const auto& e:entries){BallDyn entry(e);"
+               "a.set(static_cast<std::string>(entry[\"key\"s]),entry[\"value\"s]._val);}return a;}("
                + left + "," + right + ")";
     }
     if (fn == "map_map") {
         auto map = get_message_field(call, "map");
         auto callback = get_callback_field(call);
-        return "[](const auto& m, auto fn){std::map<std::string,std::any> r;"
-               "for(const auto& [k,v]:m){std::map<std::string,std::any> e;"
-               "e[\"key\"]=std::any(k);e[\"value\"]=v;"
-               "auto res=std::any_cast<std::map<std::string,std::any>>(fn(std::any(e)));"
-               "r[std::any_cast<std::string>(res[\"key\"])]=res[\"value\"];}return r;}("
+        return "[](const BallDyn& m, auto fn) -> BallDyn {"
+               "BallDyn r(BallOrderedMap{});"
+               "auto entries=ball_map_entries(m);"
+               "for(const auto& raw_e:entries){BallDyn e(raw_e);"
+               "BallDyn res(fn(e));"
+               "r.set(static_cast<std::string>(res[\"key\"s]),res[\"value\"s]._val);}return r;}("
                + map + "," + callback + ")";
     }
     if (fn == "map_filter") {
         auto map = get_message_field(call, "map");
         auto callback = get_callback_field(call);
-        return "[](const auto& m, auto fn){std::map<std::string,std::any> r;"
-               "for(const auto& [k,v]:m){std::map<std::string,std::any> e;"
-               "e[\"key\"]=std::any(k);e[\"value\"]=v;"
-               "if(_ball_pred_true(fn(std::any(e))))r[k]=v;}return r;}("
+        return "[](const BallDyn& m, auto fn) -> BallDyn {"
+               "BallDyn r(BallOrderedMap{});"
+               "auto entries=ball_map_entries(m);"
+               "for(const auto& raw_e:entries){BallDyn e(raw_e);"
+               "if(_ball_pred_true(fn(e)))r.set(static_cast<std::string>(e[\"key\"s]),e[\"value\"s]._val);}return r;}("
                + map + "," + callback + ")";
     }
 
-    // Set operations
-    if (fn == "set_create") return "std::vector<std::any>{}";
+    // Set operations — use BallDyn for element equality (handles all types).
+    // Sets are represented as BallDyn lists with uniqueness enforced at add time.
+    if (fn == "set_create") return "BallDyn(BallList{})";
     if (fn == "set_add") {
         auto set = get_message_field(call, "set");
         auto val = get_message_field(call, "value");
-        return "[](auto v, auto e){for(const auto& x:v)if(x.type()==e.type()){"
-               "if(x.type()==typeid(int64_t)&&std::any_cast<int64_t>(x)==std::any_cast<int64_t>(e))return v;"
-               "if(x.type()==typeid(std::string)&&std::any_cast<std::string>(x)==std::any_cast<std::string>(e))return v;"
-               "}v.push_back(e);return v;}(" + set + "," + val + ")";
+        return "[](BallDyn v, BallDyn e) -> BallDyn {"
+               "for(int64_t i=0;i<v.size();i++){if(BallDyn(v[i])==e)return v;}"
+               "v.push_back(e._val);return v;}(" + set + "," + val + ")";
     }
     if (fn == "set_remove") {
         auto set = get_message_field(call, "set");
         auto val = get_message_field(call, "value");
-        return "[](auto v, const auto& e){v.erase(std::remove_if(v.begin(),v.end(),"
-               "[&](const auto& x){if(x.type()!=e.type())return false;"
-               "if(x.type()==typeid(int64_t))return std::any_cast<int64_t>(x)==std::any_cast<int64_t>(e);"
-               "if(x.type()==typeid(std::string))return std::any_cast<std::string>(x)==std::any_cast<std::string>(e);"
-               "return false;}),v.end());return v;}(" + set + "," + val + ")";
+        return "[](BallDyn v, const BallDyn& e) -> BallDyn {"
+               "if(BallList* l=v._listPtr()){l->erase(std::remove_if(l->begin(),l->end(),"
+               "[&](const std::any& x){return BallDyn(x)==e;}),l->end());}return v;}(" + set + "," + val + ")";
     }
     if (fn == "set_contains") {
         auto set = get_message_field(call, "set");
         auto val = get_message_field(call, "value");
-        return "[](const auto& v, const auto& e){"
-               "for(const auto& x:v)if(x.type()==e.type()){"
-               "if(x.type()==typeid(int64_t)&&std::any_cast<int64_t>(x)==std::any_cast<int64_t>(e))return true;"
-               "if(x.type()==typeid(std::string)&&std::any_cast<std::string>(x)==std::any_cast<std::string>(e))return true;"
-               "}return false;}(" + set + "," + val + ")";
+        return "[](const BallDyn& v, const BallDyn& e){"
+               "for(int64_t i=0;i<v.size();i++){if(BallDyn(v[i])==e)return true;}"
+               "return false;}(" + set + "," + val + ")";
     }
     if (fn == "set_length") {
-        return "static_cast<int64_t>(" + get_message_field(call, "set") + ".size())";
+        return "static_cast<int64_t>(BallDyn(" + get_message_field(call, "set") + ").size())";
     }
     if (fn == "set_is_empty") {
-        return get_message_field(call, "set") + ".empty()";
+        return "BallDyn(" + get_message_field(call, "set") + ").empty()";
     }
     if (fn == "set_to_list") {
         return get_message_field(call, "set");
@@ -6412,33 +7276,28 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "set_union") {
         auto left = get_message_field(call, "left");
         auto right = get_message_field(call, "right");
-        return "[](auto a, const auto& b){"
-               "for(const auto& e:b){bool found=false;"
-               "for(const auto& x:a)if(x.type()==e.type()){"
-               "if(x.type()==typeid(int64_t)&&std::any_cast<int64_t>(x)==std::any_cast<int64_t>(e)){found=true;break;}"
-               "if(x.type()==typeid(std::string)&&std::any_cast<std::string>(x)==std::any_cast<std::string>(e)){found=true;break;}"
-               "}if(!found)a.push_back(e);}return a;}("
+        return "[](BallDyn a, const BallDyn& b) -> BallDyn {"
+               "for(int64_t i=0;i<b.size();i++){BallDyn e(b[i]);bool found=false;"
+               "for(int64_t j=0;j<a.size();j++){if(BallDyn(a[j])==e){found=true;break;}}"
+               "if(!found)a.push_back(e._val);}return a;}("
                + left + "," + right + ")";
     }
     if (fn == "set_intersection") {
         auto left = get_message_field(call, "left");
         auto right = get_message_field(call, "right");
-        return "[](const auto& a, const auto& b){std::vector<std::any> r;"
-               "for(const auto& e:a){for(const auto& x:b)if(x.type()==e.type()){"
-               "if(x.type()==typeid(int64_t)&&std::any_cast<int64_t>(x)==std::any_cast<int64_t>(e)){r.push_back(e);break;}"
-               "if(x.type()==typeid(std::string)&&std::any_cast<std::string>(x)==std::any_cast<std::string>(e)){r.push_back(e);break;}"
-               "}}return r;}("
+        return "[](const BallDyn& a, const BallDyn& b) -> BallDyn {BallList r;"
+               "for(int64_t i=0;i<a.size();i++){BallDyn e(a[i]);"
+               "for(int64_t j=0;j<b.size();j++){if(BallDyn(b[j])==e){r.push_back(e._val);break;}}}"
+               "return BallDyn(r);}("
                + left + "," + right + ")";
     }
     if (fn == "set_difference") {
         auto left = get_message_field(call, "left");
         auto right = get_message_field(call, "right");
-        return "[](const auto& a, const auto& b){std::vector<std::any> r;"
-               "for(const auto& e:a){bool found=false;"
-               "for(const auto& x:b)if(x.type()==e.type()){"
-               "if(x.type()==typeid(int64_t)&&std::any_cast<int64_t>(x)==std::any_cast<int64_t>(e)){found=true;break;}"
-               "if(x.type()==typeid(std::string)&&std::any_cast<std::string>(x)==std::any_cast<std::string>(e)){found=true;break;}"
-               "}if(!found)r.push_back(e);}return r;}("
+        return "[](const BallDyn& a, const BallDyn& b) -> BallDyn {BallList r;"
+               "for(int64_t i=0;i<a.size();i++){BallDyn e(a[i]);bool found=false;"
+               "for(int64_t j=0;j<b.size();j++){if(BallDyn(b[j])==e){found=true;break;}}"
+               "if(!found)r.push_back(e._val);}return BallDyn(r);}("
                + left + "," + right + ")";
     }
 

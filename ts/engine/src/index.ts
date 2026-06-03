@@ -38,6 +38,20 @@ const patchScopeBindings = _setup.patchScopeBindings;
 export interface BallEngineOptions {
   stdout?: (msg: string) => void;
   stderr?: (msg: string) => void;
+  /** Maximum execution time in milliseconds (null = unbounded). */
+  timeoutMs?: number | null;
+  /** Maximum memory usage in bytes (null = unbounded). */
+  maxMemoryBytes?: number | null;
+  /** Maximum number of modules allowed in the program (default: 1000000). */
+  maxModules?: number;
+  /** Maximum expression nesting depth (default: 1000000). */
+  maxExpressionDepth?: number;
+  /** Maximum program JSON size in bytes (null = skip check). */
+  maxProgramSizeBytes?: number | null;
+  /** Whether to run in sandbox mode (blocks file I/O, env access, etc.). */
+  sandbox?: boolean;
+  /** Maximum recursion depth (default: 100000). */
+  maxRecursionDepth?: number;
 }
 
 export class BallEngine {
@@ -65,9 +79,8 @@ export class BallEngine {
     //   maxRecursionDepth, timeoutMs, maxMemoryBytes, maxModules,
     //   maxExpressionDepth, maxProgramSizeBytes, sandbox, moduleHandlers,
     //   resolver
-    // (older IR revisions only had 9). We pass the security knobs as their
-    // permissive defaults — these are host-only and not expressible through
-    // the round-tripped IR — and put our handler list in slot 15.
+    // (older IR revisions only had 9). Options default to permissive values
+    // unless the caller explicitly sets them.
     this._compiledEngine = new CompiledEngine(
       normalized,
       stdoutFn,
@@ -75,14 +88,14 @@ export class BallEngine {
       null,        // stdinReader
       null,        // envGet
       [],          // args
-      false,             // enableProfiling
-      100000,            // maxRecursionDepth
-      null,              // timeoutMs (null = unbounded)
-      null,              // maxMemoryBytes (null = unbounded)
-      1000000,           // maxModules (effectively unbounded)
-      1000000,           // maxExpressionDepth (effectively unbounded)
-      null,              // maxProgramSizeBytes (null = skip size check)
-      false,             // sandbox
+      false,                                       // enableProfiling
+      options.maxRecursionDepth ?? 100000,          // maxRecursionDepth
+      options.timeoutMs ?? null,                    // timeoutMs (null = unbounded)
+      options.maxMemoryBytes ?? null,               // maxMemoryBytes (null = unbounded)
+      options.maxModules ?? 1000000,                // maxModules
+      options.maxExpressionDepth ?? 1000000,        // maxExpressionDepth
+      options.maxProgramSizeBytes ?? null,          // maxProgramSizeBytes (null = skip)
+      options.sandbox ?? false,                     // sandbox
       [methodHandler as any, stdHandler],  // moduleHandlers
       null,              // resolver
     );

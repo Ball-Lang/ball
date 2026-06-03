@@ -114,6 +114,11 @@ private:
     // common local named `num` would emit `"num"s` instead of the variable.
     std::unordered_set<std::string> declared_locals_;
 
+    // True when compiling a sync*/async* generator function body.
+    // yield/yield_each emit __gen.yield_/__gen.yieldAll calls instead of
+    // passthrough, and the function returns the collected generator values.
+    bool in_generator_ = false;
+
     // Multi-TU emission state (compile_split only)
     bool split_mode_ = false;
     int split_shards_ = 8;

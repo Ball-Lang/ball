@@ -1394,6 +1394,30 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
 // Map entry sentinel detection helpers
 // ================================================================
 
+// Flatten a LogicalOrPattern tree into a list of leaf ConstPattern value
+// expressions. Used by switch_expr and switch to compile or-patterns like
+// `1 || 2 || 3` into compound conditions.
+static void _collectOrPatternValues(const ball::v1::Expression& expr,
+                                     std::vector<const ball::v1::Expression*>& out) {
+    if (expr.expr_case() != ball::v1::Expression::kMessageCreation) return;
+    const auto& mc = expr.message_creation();
+    const std::string& tn = mc.type_name();
+    if (tn == "LogicalOrPattern") {
+        for (const auto& f : mc.fields()) {
+            if (f.name() == "left" || f.name() == "right") {
+                _collectOrPatternValues(f.value(), out);
+            }
+        }
+    } else if (tn == "ConstPattern") {
+        for (const auto& f : mc.fields()) {
+            if (f.name() == "value") {
+                out.push_back(&f.value());
+                return;
+            }
+        }
+    }
+}
+
 // Returns true when the expression is a MessageCreation with empty typeName
 // and exactly two fields named "key" and "value" — the Ball IR encoding of
 // a Dart map literal entry (e.g. `k: v`).
@@ -2061,6 +2085,15 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                "s.replace(p,f.size(),t);p+=t.size();}return s;"
                "}(" + str + "," + from + "," + to + ")";
     }
+    // string_join can come from either std or std_collections
+    if (fn == "string_join") {
+        auto list = get_message_field(call, "list");
+        auto sep = get_optional_field(call, "separator");
+        if (sep.empty()) sep = "\" \"s";
+        return "[](const BallDyn& v, const std::string& s){"
+               "std::string r;for(size_t i=0;i<v.size();i++){"
+               "if(i>0)r+=s;r+=ball_to_string(std::any(v[static_cast<int64_t>(i)]));}return r;}(" + list + "," + sep + ")";
+    }
     // ── Regex ──
     if (fn == "regex_match") {
         auto input = get_message_field(call, "left");
@@ -2186,6 +2219,10 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         return "([&](){\n" + indent_str() + "    // while loop\n" + indent_str() + "}(), BallDyn())";
     }
     if (fn == "return") {
+        if (in_generator_) {
+            // In a generator, return stops yielding and returns the collected values.
+            return "/* return */ BallDyn(*__gen.values)";
+        }
         auto val = get_message_field(call, "value");
         // This will be handled as a statement when used in statement context
         return "/* return */ " + val;
@@ -2415,6 +2452,20 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 if (f.name() == "pattern_expr") pattern_expr_ptr = &f.value();
             }
             if (!pattern.empty() && !body.empty()) {
+                // Check for or-pattern via pattern_expr (LogicalOrPattern)
+                if (pattern_expr_ptr) {
+                    std::vector<const ball::v1::Expression*> or_vals;
+                    _collectOrPatternValues(*pattern_expr_ptr, or_vals);
+                    if (!or_vals.empty()) {
+                        std::string cond;
+                        for (size_t oi = 0; oi < or_vals.size(); oi++) {
+                            if (oi > 0) cond += " || ";
+                            cond += "BallDyn(__subj) == BallDyn(" + compile_expr(*or_vals[oi]) + ")";
+                        }
+                        result += indent_str() + "  if (" + cond + ") return " + body + ";\n";
+                        continue;
+                    }
+                }
                 // Normalize pattern (strip quotes and enum prefixes)
                 auto sp = pattern;
                 if (sp.size() >= 3 && sp[0] == '"' && sp.back() == 's' && sp[sp.size()-2] == '"') {
@@ -2429,6 +2480,15 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 if (sp == "\"_\"s" || sp == "\"default\"s") {
                     result += indent_str() + "  return " + body + ";\n";
                 } else {
+                    // Also check for ConstPattern in pattern_expr for exact-value matching
+                    if (pattern_expr_ptr) {
+                        std::vector<const ball::v1::Expression*> vals;
+                        _collectOrPatternValues(*pattern_expr_ptr, vals);
+                        if (vals.size() == 1) {
+                            result += indent_str() + "  if (BallDyn(__subj) == BallDyn(" + compile_expr(*vals[0]) + ")) return " + body + ";\n";
+                            continue;
+                        }
+                    }
                     result += indent_str() + "  if (__subj == " + sp + ") return " + body + ";\n";
                 }
             }
@@ -2463,9 +2523,22 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         return callee + "(" + args_str + ")";
     }
 
-    // ── Async (no-op wrappers) ──
-    if (fn == "await" || fn == "yield" || fn == "yield_each") {
+    // ── Async: await is always a no-op passthrough ──
+    if (fn == "await") {
         return get_message_field(call, "value");
+    }
+    // ── Generators: yield / yield_each ──
+    if (fn == "yield" || fn == "yield_each") {
+        auto val = get_message_field(call, "value");
+        if (in_generator_) {
+            if (fn == "yield") {
+                return "yield_(BallDyn(__gen), BallDyn(" + val + "))";
+            } else {
+                return "yieldAll(BallDyn(__gen), BallDyn(" + val + "))";
+            }
+        }
+        // Outside a generator, passthrough (legacy behavior)
+        return val;
     }
 
     // ── Record literal ──
@@ -3209,6 +3282,23 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
         return "ball_scope_bind(" + self + ", " + nameArg + ", BallDyn(" + valArg + "))";
     }
 
+    // ── Async as synchronous passthrough ──
+    // In C++ we simulate async: Future.value(x) → x, future.then(cb) → cb(future),
+    // Future.wait(list) → list.
+    if (fn == "value" && (self == "\"Future\"s" || self == "\"FutureOr\"s" ||
+                          self == "Future" || self == "FutureOr")) {
+        // Future.value(x) → just x
+        return arg0.empty() ? "BallDyn()" : arg0;
+    }
+    if (fn == "then") {
+        // future.then(callback) → callback(future)
+        return "(" + arg0 + ")(" + self + ")";
+    }
+    if (fn == "wait" || fn == "wait_") {
+        // Future.wait(list) → just the list (already evaluated synchronously)
+        return arg0.empty() ? self : arg0;
+    }
+
     // ── User-defined class method dispatch ──
     // If `fn` is a known user-class method, emit as `self.fn(args)`.
     // For super calls (self == "super" reference), emit `SuperClass::fn(args)`.
@@ -3439,6 +3529,12 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
             }
             if (std_like &&
                 call.function() == "return") {
+                if (in_generator_) {
+                    // In a generator, return stops yielding and returns the
+                    // collected values (ignoring the return expression).
+                    emit_line("return BallDyn(*__gen.values);");
+                    return;
+                }
                 // Wrap in BallDyn so a function/lambda with multiple `return`
                 // statements (and a possibly differently-typed block result)
                 // deduces a single, consistent return type. All compiled engine
@@ -3719,10 +3815,12 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                         if (cx.expr_case() != ball::v1::Expression::kMessageCreation) continue;
                         const ball::v1::Expression* case_val = nullptr;
                         const ball::v1::Expression* case_body = nullptr;
+                        const ball::v1::Expression* case_pattern_expr = nullptr;
                         bool is_default = false;
                         for (const auto& f : cx.message_creation().fields()) {
                             if (f.name() == "value" || f.name() == "pattern") case_val = &f.value();
                             else if (f.name() == "body") case_body = &f.value();
+                            else if (f.name() == "pattern_expr") case_pattern_expr = &f.value();
                             else if (f.name() == "is_default" &&
                                      f.value().expr_case() == ball::v1::Expression::kLiteral &&
                                      f.value().literal().bool_value()) is_default = true;
@@ -3739,7 +3837,16 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                         }
                         if (!case_body) is_empty_body = true;
                         if (is_empty_body && case_val && !is_default) {
-                            pending_patterns.push_back(normalize_pattern(compile_expr(*case_val)));
+                            // Use pattern_expr for typed value when available
+                            if (case_pattern_expr) {
+                                std::vector<const ball::v1::Expression*> vals;
+                                _collectOrPatternValues(*case_pattern_expr, vals);
+                                for (auto* v : vals) {
+                                    pending_patterns.push_back(compile_expr(*v));
+                                }
+                            } else {
+                                pending_patterns.push_back(normalize_pattern(compile_expr(*case_val)));
+                            }
                             continue;
                         }
                         if (is_default) {
@@ -3747,9 +3854,31 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                             else emit_line("else {");
                             pending_patterns.clear();
                         } else if (case_val) {
-                            auto cv = normalize_pattern(compile_expr(*case_val));
-                            // Build condition including any fall-through patterns
-                            std::string cond = "BallDyn(__switch_subj) == BallDyn(" + cv + ")";
+                            std::string cond;
+                            // Check for or-pattern via pattern_expr (LogicalOrPattern / ConstPattern)
+                            if (case_pattern_expr) {
+                                std::vector<const ball::v1::Expression*> or_vals;
+                                _collectOrPatternValues(*case_pattern_expr, or_vals);
+                                if (or_vals.size() > 1) {
+                                    // Multi-value or-pattern — supersedes any string-based
+                                    // fall-through pending_patterns (which are the same
+                                    // alternatives but typed as strings).
+                                    pending_patterns.clear();
+                                    for (size_t oi = 0; oi < or_vals.size(); oi++) {
+                                        if (oi > 0) cond += " || ";
+                                        cond += "BallDyn(__switch_subj) == BallDyn(" + compile_expr(*or_vals[oi]) + ")";
+                                    }
+                                } else if (or_vals.size() == 1) {
+                                    // Single ConstPattern — use its typed value for the
+                                    // comparison (e.g. int 0 instead of string "0").
+                                    cond = "BallDyn(__switch_subj) == BallDyn(" + compile_expr(*or_vals[0]) + ")";
+                                }
+                            }
+                            if (cond.empty()) {
+                                auto cv = normalize_pattern(compile_expr(*case_val));
+                                cond = "BallDyn(__switch_subj) == BallDyn(" + cv + ")";
+                            }
+                            // Include any fall-through patterns
                             for (auto& pp : pending_patterns) {
                                 cond += " || BallDyn(__switch_subj) == BallDyn(" + pp + ")";
                             }
@@ -5440,20 +5569,43 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     for (const auto& p : params) declared_locals_.insert(p);
     if (func.has_body()) _collect_declared_locals(func.body(), declared_locals_);
 
+    // Detect sync*/async* generator functions from metadata.
+    bool is_generator = false;
+    if (meta.count("is_sync_star") && meta["is_sync_star"] == "true") is_generator = true;
+    if (meta.count("is_async_star") && meta["is_async_star"] == "true") is_generator = true;
+    bool prev_in_generator = in_generator_;
+    if (is_generator) {
+        in_generator_ = true;
+        emit_line("BallGenerator __gen;");
+    }
+
     if (func.has_body()) {
         if (func.body().expr_case() == ball::v1::Expression::kBlock) {
             for (const auto& s : func.body().block().statements())
                 compile_statement(s);
             if (func.body().block().has_result()) {
-                emit_line("return " + compile_expr(func.body().block().result()) + ";");
+                if (is_generator) {
+                    // For generators, the result expression is typically unused;
+                    // the collected values are returned instead.
+                    emit_line(compile_expr(func.body().block().result()) + ";");
+                } else {
+                    emit_line("return " + compile_expr(func.body().block().result()) + ";");
+                }
             }
         } else {
-            emit_line("return " + compile_expr(func.body()) + ";");
+            if (is_generator) {
+                emit_line(compile_expr(func.body()) + ";");
+            } else {
+                emit_line("return " + compile_expr(func.body()) + ";");
+            }
         }
     }
-    if (return_type != "void") {
+    if (is_generator) {
+        emit_line("return BallDyn(*__gen.values);");
+    } else if (return_type != "void") {
         emit_line("return BallDyn();");
     }
+    in_generator_ = prev_in_generator;
     declared_locals_.clear();
 
     indent_--;
@@ -5631,12 +5783,48 @@ std::string CppCompiler::compile() {
         // Self-hosted engine types provided by ball_emit_runtime.h
         "BallObject", "List_filled",
     };
-    for (const auto& td : main_module->type_defs()) {
-        if (!td.has_descriptor_()) continue;
-        if (runtime_types.count(sanitize_name(td.name())) > 0) continue;
-        auto it = class_methods.find(td.name());
-        auto methods = it != class_methods.end() ? it->second : std::vector<const ball::v1::FunctionDefinition*>{};
-        emit_struct(td, methods);
+    // Topological sort: emit parent types before child types so
+    // superclass structs are fully defined before subclasses reference them.
+    {
+        // Collect non-skipped type_defs as pointers.
+        std::vector<const ball::v1::TypeDefinition*> sorted_tds;
+        for (const auto& td : main_module->type_defs()) {
+            if (!td.has_descriptor_()) continue;
+            if (runtime_types.count(sanitize_name(td.name())) > 0) continue;
+            sorted_tds.push_back(&td);
+        }
+        // Compute inheritance depth for each type (0 = no superclass).
+        auto depth_of = [&](const ball::v1::TypeDefinition* td) -> int {
+            int d = 0;
+            std::string cur = td->name();
+            std::set<std::string> visited;
+            while (true) {
+                auto sit = class_superclass_.find(cur);
+                if (sit == class_superclass_.end() || sit->second.empty()) break;
+                if (visited.count(cur)) break; // cycle guard
+                visited.insert(cur);
+                // Resolve bare superclass name to full key
+                std::string next;
+                for (const auto& [c, _] : class_superclass_) {
+                    auto cc = c.find(':');
+                    std::string bare = cc != std::string::npos ? c.substr(cc + 1) : c;
+                    if (bare == sit->second) { next = c; break; }
+                }
+                if (next.empty()) { d++; break; }
+                cur = next;
+                d++;
+            }
+            return d;
+        };
+        std::stable_sort(sorted_tds.begin(), sorted_tds.end(),
+            [&](const ball::v1::TypeDefinition* a, const ball::v1::TypeDefinition* b) {
+                return depth_of(a) < depth_of(b);
+            });
+        for (const auto* td : sorted_tds) {
+            auto it = class_methods.find(td->name());
+            auto methods = it != class_methods.end() ? it->second : std::vector<const ball::v1::FunctionDefinition*>{};
+            emit_struct(*td, methods);
+        }
     }
 
     // Standalone functions
@@ -5753,14 +5941,46 @@ CompileSplitResult CppCompiler::compile_split(const std::string& output_dir,
     }
     if (!top_level_vars.empty()) emit_newline();
 
-    for (const auto& td : main_module->type_defs()) {
-        if (!td.has_descriptor_()) continue;
-        if (runtime_types.count(sanitize_name(td.name())) > 0) continue;
-        auto it = class_methods.find(td.name());
-        auto methods = it != class_methods.end()
-                           ? it->second
-                           : std::vector<const ball::v1::FunctionDefinition*>{};
-        emit_struct(td, methods);
+    // Topological sort: emit parent types before child types (split path).
+    {
+        std::vector<const ball::v1::TypeDefinition*> sorted_tds;
+        for (const auto& td : main_module->type_defs()) {
+            if (!td.has_descriptor_()) continue;
+            if (runtime_types.count(sanitize_name(td.name())) > 0) continue;
+            sorted_tds.push_back(&td);
+        }
+        auto depth_of = [&](const ball::v1::TypeDefinition* td) -> int {
+            int d = 0;
+            std::string cur = td->name();
+            std::set<std::string> visited;
+            while (true) {
+                auto sit = class_superclass_.find(cur);
+                if (sit == class_superclass_.end() || sit->second.empty()) break;
+                if (visited.count(cur)) break;
+                visited.insert(cur);
+                std::string next;
+                for (const auto& [c, _] : class_superclass_) {
+                    auto cc = c.find(':');
+                    std::string bare = cc != std::string::npos ? c.substr(cc + 1) : c;
+                    if (bare == sit->second) { next = c; break; }
+                }
+                if (next.empty()) { d++; break; }
+                cur = next;
+                d++;
+            }
+            return d;
+        };
+        std::stable_sort(sorted_tds.begin(), sorted_tds.end(),
+            [&](const ball::v1::TypeDefinition* a, const ball::v1::TypeDefinition* b) {
+                return depth_of(a) < depth_of(b);
+            });
+        for (const auto* td : sorted_tds) {
+            auto it = class_methods.find(td->name());
+            auto methods = it != class_methods.end()
+                               ? it->second
+                               : std::vector<const ball::v1::FunctionDefinition*>{};
+            emit_struct(*td, methods);
+        }
     }
 
     for (const auto* func : standalone) {
@@ -5962,38 +6182,39 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         auto list = get_message_field(call, "list");
         auto callback = get_callback_field(call);
         auto initial = get_message_field(call, "initial");
-        return "[](const auto& v, auto fn, auto init){"
-               "auto acc=init;for(const auto& e:v){"
-               "std::map<std::string,std::any> p;p[\"accumulator\"]=acc;p[\"element\"]=e;"
+        return "[](const BallDyn& v, auto fn, auto init){"
+               "auto acc=init;for(size_t i=0;i<v.size();i++){"
+               "BallDyn __e(v[static_cast<int64_t>(i)]);"
+               "std::map<std::string,std::any> p;p[\"accumulator\"]=acc;p[\"element\"]=std::any(__e);"
                "acc=fn(std::any(p));}return acc;}("
                + list + "," + callback + "," + initial + ")";
     }
     if (fn == "list_find") {
         auto list = get_message_field(call, "list");
         auto callback = get_callback_field(call);
-        return "[](const auto& v, auto fn)->std::any{"
-               "for(const auto& e:v)if(_ball_pred_true(fn(e)))return e;return std::any{};}("
+        return "[](const BallDyn& v, auto fn)->BallDyn{"
+               "for(size_t i=0;i<v.size();i++){BallDyn __e(v[static_cast<int64_t>(i)]);if(_ball_pred_true(fn(__e)))return __e;}return BallDyn();}("
                + list + "," + callback + ")";
     }
     if (fn == "list_any") {
         auto list = get_message_field(call, "list");
         auto callback = get_callback_field(call);
-        return "[](const auto& v, auto fn){"
-               "for(const auto& e:v)if(_ball_pred_true(fn(e)))return true;return false;}("
+        return "[](const BallDyn& v, auto fn){"
+               "for(size_t i=0;i<v.size();i++){BallDyn __e(v[static_cast<int64_t>(i)]);if(_ball_pred_true(fn(__e)))return true;}return false;}("
                + list + "," + callback + ")";
     }
     if (fn == "list_all") {
         auto list = get_message_field(call, "list");
         auto callback = get_callback_field(call);
-        return "[](const auto& v, auto fn){"
-               "for(const auto& e:v)if(!_ball_pred_true(fn(e)))return false;return true;}("
+        return "[](const BallDyn& v, auto fn){"
+               "for(size_t i=0;i<v.size();i++){BallDyn __e(v[static_cast<int64_t>(i)]);if(!_ball_pred_true(fn(__e)))return false;}return true;}("
                + list + "," + callback + ")";
     }
     if (fn == "list_none") {
         auto list = get_message_field(call, "list");
         auto callback = get_callback_field(call);
-        return "[](const auto& v, auto fn){"
-               "for(const auto& e:v)if(_ball_pred_true(fn(e)))return false;return true;}("
+        return "[](const BallDyn& v, auto fn){"
+               "for(size_t i=0;i<v.size();i++){BallDyn __e(v[static_cast<int64_t>(i)]);if(_ball_pred_true(fn(__e)))return false;}return true;}("
                + list + "," + callback + ")";
     }
     if (fn == "list_sort") {
@@ -6057,9 +6278,10 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "list_flat_map") {
         auto list = get_message_field(call, "list");
         auto callback = get_callback_field(call);
-        return "[](const auto& v, auto fn){std::decay_t<decltype(v)> r;"
-               "for(const auto& e:v){auto sub=std::any_cast<decltype(v)>(fn(e));"
-               "r.insert(r.end(),sub.begin(),sub.end());}return r;}("
+        return "[](const BallDyn& v, auto fn) -> BallDyn {BallList r;"
+               "for(size_t i=0;i<v.size();i++){BallDyn __e(v[static_cast<int64_t>(i)]);"
+               "BallDyn sub(fn(__e));for(size_t j=0;j<sub.size();j++)r.push_back(std::any(BallDyn(sub[static_cast<int64_t>(j)])));"
+               "}return BallDyn(r);}("
                + list + "," + callback + ")";
     }
     if (fn == "list_zip") {

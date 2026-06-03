@@ -3407,7 +3407,7 @@ export class BallEngine {
         }
       }
       else if ((__sw === 'toString')) {
-        return this._ballToString(object);
+        return await this._ballToStringAsync(object);
       }
       else if ((__sw === 'runtimeType')) {
         if ((__ball_eq(object, null) || (object == null))) {
@@ -5499,10 +5499,11 @@ export class BallEngine {
           return self.indexOf(arg0);
         }
         else if ((__sw === 'join')) {
-          return self.map(((e) => {
-            const input = e;
-            return this._ballToString(e);
-          })).join((!__ball_eq(arg0, null) ? __ball_to_string(arg0) : ', '));
+          let joinParts = [];
+          for (const e of self) {
+            joinParts = (joinParts.push(await this._ballToStringAsync(e)), joinParts);
+          }
+          return joinParts.join((!__ball_eq(arg0, null) ? __ball_to_string(arg0) : ', '));
         }
         else if ((__sw === 'sublist')) {
           let end = __ball_index(args, 'arg1');
@@ -5649,7 +5650,11 @@ export class BallEngine {
           return _wrapList([...self.toSet()]);
         }
         else if ((__sw === 'toString')) {
-          return (('[' + __ball_to_string(self.map(this._ballToString.bind(this)).join(', '))) + ']');
+          let toStrParts = [];
+          for (const e of self) {
+            toStrParts = (toStrParts.push(await this._ballToStringAsync(e)), toStrParts);
+          }
+          return (('[' + __ball_to_string(toStrParts.join(', '))) + ']');
         }
         else if ((__sw === 'filled')) {
           return _wrapList(List.filled(this._toInt(arg0), __ball_index(args, 'arg1')));
@@ -5884,7 +5889,7 @@ export class BallEngine {
           return _ballDoubleToInt64(self);
         }
         else if ((__sw === 'toString')) {
-          return this._ballToString(self);
+          return await this._ballToStringAsync(self);
         }
         else if ((__sw === 'toStringAsFixed')) {
           return (+(self)).toFixed(this._toInt(arg0));
@@ -5922,11 +5927,11 @@ export class BallEngine {
         do {
           const __sw = method;
           if ((__sw === 'write')) {
-            selfMap['__buffer__'] = __ball_add((__ball_index(selfMap, '__buffer__') ?? ''), this._ballToString(arg0));
+            selfMap['__buffer__'] = __ball_add((__ball_index(selfMap, '__buffer__') ?? ''), await this._ballToStringAsync(arg0));
             return null;
           }
           else if ((__sw === 'writeln')) {
-            selfMap['__buffer__'] = __ball_add(__ball_add((__ball_index(selfMap, '__buffer__') ?? ''), this._ballToString(arg0)), '\n');
+            selfMap['__buffer__'] = __ball_add(__ball_add((__ball_index(selfMap, '__buffer__') ?? ''), await this._ballToStringAsync(arg0)), '\n');
             return null;
           }
           else if ((__sw === 'writeCharCode')) {
@@ -5946,7 +5951,7 @@ export class BallEngine {
         } while (false);
       }
       if (__ball_eq(method, 'toString')) {
-        return this._ballToString(self);
+        return await this._ballToStringAsync(self);
       }
     }
     return _sentinel;
@@ -6207,9 +6212,9 @@ export class BallEngine {
       }), 'post_decrement': ((i) => {
         const input = i;
         return __ball_sub(this._extractUnaryArg(i), 1);
-      }), 'concat': this._stdConcat.bind(this), 'length': this._stdLength.bind(this), 'to_string': ((i) => {
+      }), 'concat': this._stdConcat.bind(this), 'length': this._stdLength.bind(this), 'to_string': (async (i) => {
         const input = i;
-        return this._ballToString(this._extractUnaryArg(i));
+        return await this._ballToStringAsync(this._extractUnaryArg(i));
       }), 'int_to_string': ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
@@ -6257,27 +6262,28 @@ export class BallEngine {
         let a = this._toNum(v);
         let b = this._toNum(other);
         return ((a < b) ? __ball_negate(1) : (((a > b) ? 1 : 0)));
-      }), 'string_interpolation': ((i) => {
+      }), 'string_interpolation': (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         if (!__ball_eq(m, null)) {
           let parts = this._stdAsList(__ball_index(m, 'parts'));
           if (!__ball_eq(parts, null)) {
-            let result = parts.map(((p) => {
-              const input = p;
-              return this._ballToString(p);
-            })).join('');
+            let strParts = [];
+            for (const p of parts) {
+              strParts = (strParts.push(await this._ballToStringAsync(p)), strParts);
+            }
+            let result = strParts.join('');
             this._trackMemoryAllocation(__ball_mul(result.length, _ballStringCodeUnitBytes));
             return result;
           }
           let value = __ball_index(m, 'value');
           if (!__ball_eq(value, null)) {
-            let result = this._ballToString(value);
+            let result = await this._ballToStringAsync(value);
             this._trackMemoryAllocation(__ball_mul(result.length, _ballStringCodeUnitBytes));
             return result;
           }
         }
-        let result = this._ballToString(i);
+        let result = await this._ballToStringAsync(i);
         this._trackMemoryAllocation(__ball_mul(result.length, _ballStringCodeUnitBytes));
         return result;
       }), 'null_coalesce': ((i) => {
@@ -6698,7 +6704,7 @@ export class BallEngine {
             }
           }
         }
-      }), 'list_join': ((i) => {
+      }), 'list_join': (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
@@ -6706,10 +6712,11 @@ export class BallEngine {
           let __nac_15 = __ball_index(m, 'separator');
           return (__ball_eq(__nac_15, null) ? null : __nac_15.toString());
         })() ?? ',');
-        return list.map(((e) => {
-          const input = e;
-          return this._ballToString(e);
-        })).join(sep);
+        let parts = [];
+        for (const e of list) {
+          parts = (parts.push(await this._ballToStringAsync(e)), parts);
+        }
+        return parts.join(sep);
       }), 'map_get': ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
@@ -7390,111 +7397,6 @@ export class BallEngine {
     return list;
   }
 
-  _ballToString(v: any): any {
-    const input = v;
-    if ((__ball_eq(v, null) || (v == null))) {
-      return 'null';
-    }
-    if ((typeof v === 'string')) {
-      return v;
-    }
-    if ((typeof v === 'string')) {
-      return v.value;
-    }
-    if ((typeof v === 'boolean')) {
-      return __ball_to_string(v);
-    }
-    if ((typeof v === 'boolean')) {
-      return __ball_to_string(v.value);
-    }
-    if ((typeof v === 'number' && Number.isInteger(v))) {
-      return __ball_to_string(v);
-    }
-    if ((typeof v === 'number' && Number.isInteger(v))) {
-      return __ball_to_string(v.value);
-    }
-    if ((v instanceof BallDouble || (typeof v === 'number' && !Number.isInteger(v)))) {
-      return __ball_to_string(v);
-    }
-    if ((typeof v === 'number' || v instanceof BallDouble)) {
-      return __ball_to_string(v);
-    }
-    if (_isBallFuture(v)) {
-      return this._ballToString(_unwrapBallFuture(v));
-    }
-    if (false /* BallList is List in TS */) {
-      return (('[' + __ball_to_string(v.items.map(this._ballToString.bind(this)).join(', '))) + ']');
-    }
-    if (Array.isArray(v)) {
-      return (('[' + __ball_to_string(v.map(this._ballToString.bind(this)).join(', '))) + ']');
-    }
-    if ((v instanceof BallException)) {
-      let ev = v.value;
-      let em = this._stdAsMap(ev);
-      if (!__ball_eq(em, null)) {
-        let msg = __ball_index(em, 'message');
-        if ((typeof msg === 'string')) {
-          return msg;
-        }
-      }
-      if ((typeof ev === 'string')) {
-        return ev;
-      }
-      return v.typeName;
-    }
-    let map = this._stdAsMap(v);
-    if (!__ball_eq(map, null)) {
-      let typeName = __ball_index(map, '__type__');
-      if ((!__ball_eq(typeName, null) && (typeName in this._enumValues))) {
-        let shortType = (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
-        let valName = __ball_index(map, 'name');
-        if (!__ball_eq(valName, null)) {
-          return ((__ball_to_string(shortType) + '.') + __ball_to_string(this._ballToString(valName)));
-        }
-      }
-      if ((!__ball_eq(typeName, null) && (typeName.endsWith(':StringBuffer') || __ball_eq(typeName, 'StringBuffer')))) {
-        return (__ball_index(map, '__buffer__') ?? '');
-      }
-      if (!__ball_eq(typeName, null)) {
-        if ((typeName.endsWith('Exception') || typeName.endsWith('Error'))) {
-          let msg = __ball_index(map, 'message');
-          if ((typeof msg === 'string')) {
-            return msg;
-          }
-          return (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
-        }
-        if (('__tostring_guard__' in map)) {
-          let shortType = (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
-          return (__ball_to_string(shortType) + '{...}');
-        }
-        let resolved = this._resolveMethod(typeName, 'toString');
-        if (!__ball_eq(resolved, null)) {
-          map['__tostring_guard__'] = true;
-          try {
-            let future = this._callFunction(resolved.module, resolved.func, { 'self': map });
-            let syncResult = __no_init__;
-            let done = false;
-            future.then(((r) => {
-              const input = r;
-              syncResult = r;
-              done = true;
-            }));
-            if (done) {
-              return ((__ball_eq(syncResult, null) ? null : syncResult.toString()) ?? 'null');
-            }
-            let shortType = (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
-            return (__ball_to_string(shortType) + '{...}');
-          } catch (__ball_active_error) {
-            const _ = __ball_active_error;
-          } finally {
-            map.remove('__tostring_guard__');
-          }
-        }
-      }
-    }
-    return __ball_to_string(v);
-  }
-
   _resolveMethod(typeName: any, methodName: any): any {
     let colonIdx = typeName.indexOf(':');
     let modPart = ((colonIdx >= 0) ? typeName.substring(0, colonIdx) : this._currentModule);
@@ -7985,7 +7887,7 @@ export class BallEngine {
     return args;
   }
 
-  _stdMapCreate(input: any): any {
+  async _stdMapCreate(input: any): Promise<any> {
     let m = this._stdAsMap(input);
     if (__ball_eq(m, null)) {
       return _ballUserMap();
@@ -7998,7 +7900,7 @@ export class BallEngine {
       for (const entry of entriesList) {
         let entryMap = this._stdAsMap(entry);
         if (!__ball_eq(entryMap, null)) {
-          let key = this._ballToString((__ball_index(entryMap, 'key') ?? __ball_index(entryMap, 'name')));
+          let key = await this._ballToStringAsync((__ball_index(entryMap, 'key') ?? __ball_index(entryMap, 'name')));
           result[key] = __ball_index(entryMap, 'value');
         }
       }
@@ -8007,7 +7909,7 @@ export class BallEngine {
     let entriesMap = this._stdAsMap(entries);
     if (!__ball_eq(entriesMap, null)) {
       this._trackMemoryAllocation(_ballMapEntryBytes);
-      let key = this._ballToString((__ball_index(entriesMap, 'key') ?? __ball_index(entriesMap, 'name')));
+      let key = await this._ballToStringAsync((__ball_index(entriesMap, 'key') ?? __ball_index(entriesMap, 'name')));
       return (() => {
         let __cascade_self__ = _ballUserMap();
         __cascade_self__[key] = __ball_index(entriesMap, 'value');
@@ -8386,8 +8288,60 @@ export class BallEngine {
     return __ball_eq(actualBare, patternBare);
   }
 
+  _ballToStringSimple(v: any): any {
+    const input = v;
+    if ((__ball_eq(v, null) || (v == null))) {
+      return 'null';
+    }
+    if ((typeof v === 'string')) {
+      return v;
+    }
+    if ((typeof v === 'string')) {
+      return v.value;
+    }
+    if ((typeof v === 'boolean')) {
+      return __ball_to_string(v);
+    }
+    if ((typeof v === 'boolean')) {
+      return __ball_to_string(v.value);
+    }
+    if ((typeof v === 'number' && Number.isInteger(v))) {
+      return __ball_to_string(v);
+    }
+    if ((typeof v === 'number' && Number.isInteger(v))) {
+      return __ball_to_string(v.value);
+    }
+    if ((v instanceof BallDouble || (typeof v === 'number' && !Number.isInteger(v)))) {
+      return __ball_to_string(v);
+    }
+    if ((typeof v === 'number' || v instanceof BallDouble)) {
+      return __ball_to_string(v);
+    }
+    if (_isBallFuture(v)) {
+      return this._ballToStringSimple(_unwrapBallFuture(v));
+    }
+    if (false /* BallList is List in TS */) {
+      return (('[' + __ball_to_string(v.items.map(this._ballToStringSimple.bind(this)).join(', '))) + ']');
+    }
+    if (Array.isArray(v)) {
+      return (('[' + __ball_to_string(v.map(this._ballToStringSimple.bind(this)).join(', '))) + ']');
+    }
+    let map = this._stdAsMap(v);
+    if (!__ball_eq(map, null)) {
+      let typeName = __ball_index(map, '__type__');
+      if ((!__ball_eq(typeName, null) && (typeName in this._enumValues))) {
+        let shortType = (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
+        let valName = __ball_index(map, 'name');
+        if (!__ball_eq(valName, null)) {
+          return ((__ball_to_string(shortType) + '.') + __ball_to_string(this._ballToStringSimple(valName)));
+        }
+      }
+    }
+    return __ball_to_string(v);
+  }
+
   _matchesTypePattern(value: any, pattern: any): any {
-    let p = ((typeof pattern === 'string') ? pattern : this._ballToString(pattern));
+    let p = ((typeof pattern === 'string') ? pattern : this._ballToStringSimple(pattern));
     if ((__ball_eq(p, 'Null') || __ball_eq(p, 'null'))) {
       return (__ball_eq(value, null) || (value == null));
     }

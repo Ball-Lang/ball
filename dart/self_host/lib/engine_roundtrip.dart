@@ -2125,7 +2125,7 @@ class BallEngine {
         }
         break;
       case 'toString':
-        return _ballToString(object);
+        return await _ballToStringAsync(object);
       case 'runtimeType':
         if (((object == null) || (object is BallNull))) {
           return 'Null';
@@ -4465,10 +4465,11 @@ class BallEngine {
         case 'indexOf':
           return this.indexOf(arg0);
         case 'join':
-          return this
-              .map((e) => _ballToString(e))
-              .toList()
-              .join(((arg0 != null) ? arg0.toString() : ', '));
+          final joinParts = <String>[];
+          for (final e in this) {
+            joinParts..add(await _ballToStringAsync(e));
+          }
+          return joinParts.join(((arg0 != null) ? arg0.toString() : ', '));
         case 'sublist':
           final end = args['arg1'];
           return _wrapList(
@@ -4610,9 +4611,11 @@ class BallEngine {
         case 'toSet':
           return _wrapList(this.toSet().toList());
         case 'toString':
-          return (('[' +
-                  this.map(_ballToString).toList().join(', ').toString()) +
-              ']');
+          final toStrParts = <String>[];
+          for (final e in this) {
+            toStrParts..add(await _ballToStringAsync(e));
+          }
+          return (('[' + toStrParts.join(', ').toString()) + ']');
         case 'filled':
           return _wrapList(List.filled(_toInt(arg0), args['arg1']));
         case 'union':
@@ -4839,7 +4842,7 @@ class BallEngine {
         case 'toInt':
           return _ballDoubleToInt64(this);
         case 'toString':
-          return _ballToString(this);
+          return await _ballToStringAsync(this);
         case 'toStringAsFixed':
           return this.toStringAsFixed(_toInt(arg0));
         case 'abs':
@@ -4870,12 +4873,12 @@ class BallEngine {
           case 'write':
             selfMap['__buffer__'] =
                 ((((selfMap['__buffer__'] as String?)) ?? '') +
-                _ballToString(arg0));
+                await _ballToStringAsync(arg0));
             return null;
           case 'writeln':
             selfMap['__buffer__'] =
                 (((((selfMap['__buffer__'] as String?)) ?? '') +
-                    _ballToString(arg0)) +
+                    await _ballToStringAsync(arg0)) +
                 '\n');
             return null;
           case 'writeCharCode':
@@ -4893,7 +4896,7 @@ class BallEngine {
         }
       }
       if ((method == 'toString')) {
-        return _ballToString(this);
+        return await _ballToStringAsync(this);
       }
     }
     return _sentinel;
@@ -5108,7 +5111,7 @@ class BallEngine {
       'post_decrement': (i) => (((_extractUnaryArg(i) as num)) - 1),
       'concat': _stdConcat,
       'length': _stdLength,
-      'to_string': (i) => _ballToString(_extractUnaryArg(i)),
+      'to_string': (i) async => await _ballToStringAsync(_extractUnaryArg(i)),
       'int_to_string': (i) => _stdConvert(i, (v) => ((v as int)).toString()),
       'double_to_string': (i) =>
           _stdConvert(i, (v) => ((v as double)).toString()),
@@ -5134,23 +5137,27 @@ class BallEngine {
           return (((a > b) ? 1 : 0));
         }
       },
-      'string_interpolation': (i) {
+      'string_interpolation': (i) async {
         final m = _stdAsMap(i);
         if ((m != null)) {
           final parts = _stdAsList(m['parts']);
           if ((parts != null)) {
-            final result = parts.map((p) => _ballToString(p)).toList().join();
+            final strParts = <String>[];
+            for (final p in parts) {
+              strParts..add(await _ballToStringAsync(p));
+            }
+            final result = strParts.join();
             _trackMemoryAllocation((result.length * _ballStringCodeUnitBytes));
             return result;
           }
           final value = m['value'];
           if ((value != null)) {
-            final result = _ballToString(value);
+            final result = await _ballToStringAsync(value);
             _trackMemoryAllocation((result.length * _ballStringCodeUnitBytes));
             return result;
           }
         }
-        final result = _ballToString(i);
+        final result = await _ballToStringAsync(i);
         _trackMemoryAllocation((result.length * _ballStringCodeUnitBytes));
         return result;
       },
@@ -5586,7 +5593,7 @@ class BallEngine {
         }
         return null;
       },
-      'list_join': (i) {
+      'list_join': (i) async {
         final m = _stdAsMap(i)!;
         final list = _stdAsList(m['list'])!;
         final sep =
@@ -5595,7 +5602,11 @@ class BallEngine {
               return ((__nac_15 == null) ? null : __nac_15.toString());
             })() ??
             ',');
-        return list.map((e) => _ballToString(e)).toList().join(sep);
+        final parts = <String>[];
+        for (final e in list) {
+          parts..add(await _ballToStringAsync(e));
+        }
+        return parts.join(sep);
       },
       'map_get': (i) {
         final m = _stdAsMap(i)!;
@@ -6153,129 +6164,6 @@ class BallEngine {
     return list;
   }
 
-  String _ballToString(Object? input) {
-    Object? v = input;
-    if (((v == null) || (v is BallNull))) {
-      return 'null';
-    }
-    if ((v is String)) {
-      return v;
-    }
-    if ((v is BallString)) {
-      return v.value;
-    }
-    if ((v is bool)) {
-      return v.toString();
-    }
-    if ((v is BallBool)) {
-      return v.value.toString();
-    }
-    if ((v is int)) {
-      return v.toString();
-    }
-    if ((v is BallInt)) {
-      return v.value.toString();
-    }
-    if ((v is double)) {
-      return v.toString();
-    }
-    if ((v is BallDouble)) {
-      return v.toString();
-    }
-    if (_isBallFuture(v)) {
-      return _ballToString(_unwrapBallFuture(v));
-    }
-    if ((v is BallList)) {
-      return (('[' +
-              v.items.map(_ballToString).toList().join(', ').toString()) +
-          ']');
-    }
-    if ((v is List)) {
-      return (('[' + v.map(_ballToString).toList().join(', ').toString()) +
-          ']');
-    }
-    if ((v is BallException)) {
-      final ev = v.value;
-      final em = _stdAsMap(ev);
-      if ((em != null)) {
-        final msg = em['message'];
-        if ((msg is String)) {
-          return msg;
-        }
-      }
-      if ((ev is String)) {
-        return ev;
-      }
-      return v.typeName;
-    }
-    final map = _stdAsMap(v);
-    if ((map != null)) {
-      final typeName = ((map['__type__'] as String?));
-      if (((typeName != null) && _enumValues.containsKey(typeName))) {
-        final shortType = (typeName.contains(':')
-            ? typeName.substring((typeName.lastIndexOf(':') + 1))
-            : typeName);
-        final valName = map['name'];
-        if ((valName != null)) {
-          return ((shortType.toString() + '.') +
-              _ballToString(valName).toString());
-        }
-      }
-      if (((typeName != null) &&
-          (typeName.endsWith(':StringBuffer') ||
-              (typeName == 'StringBuffer')))) {
-        return (((map['__buffer__'] as String?)) ?? '');
-      }
-      if ((typeName != null)) {
-        if ((typeName.endsWith('Exception') || typeName.endsWith('Error'))) {
-          final msg = map['message'];
-          if ((msg is String)) {
-            return msg;
-          }
-          return (typeName.contains(':')
-              ? typeName.substring((typeName.lastIndexOf(':') + 1))
-              : typeName);
-        }
-        if (map.containsKey('__tostring_guard__')) {
-          final shortType = (typeName.contains(':')
-              ? typeName.substring((typeName.lastIndexOf(':') + 1))
-              : typeName);
-          return (shortType.toString() + '{...}');
-        }
-        final resolved = _resolveMethod(typeName, 'toString');
-        if ((resolved != null)) {
-          map['__tostring_guard__'] = true;
-          try {
-            final future = _callFunction(
-              resolved.module,
-              resolved.func,
-              <String, Object?>{'self': map},
-            );
-            Object? syncResult;
-            var done = false;
-            future.then((r) {
-              syncResult = r;
-              done = true;
-            });
-            if (done) {
-              return (((syncResult == null) ? null : syncResult.toString()) ??
-                  'null');
-            }
-            final shortType = (typeName.contains(':')
-                ? typeName.substring((typeName.lastIndexOf(':') + 1))
-                : typeName);
-            return (shortType.toString() + '{...}');
-          } catch (__ball_e) {
-            final dynamic _ = __ball_e;
-          } finally {
-            map.remove('__tostring_guard__');
-          }
-        }
-      }
-    }
-    return v.toString();
-  }
-
   ({String module, FunctionDefinition func})? _resolveMethod(
     String typeName,
     String methodName,
@@ -6785,7 +6673,7 @@ class BallEngine {
     return args;
   }
 
-  Object? _stdMapCreate(Object? input) {
+  Future<Object?> _stdMapCreate(Object? input) async {
     final m = _stdAsMap(input);
     if ((m == null)) {
       return _ballUserMap();
@@ -6798,7 +6686,9 @@ class BallEngine {
       for (final entry in entriesList) {
         final entryMap = _stdAsMap(entry);
         if ((entryMap != null)) {
-          final key = _ballToString((entryMap['key'] ?? entryMap['name']));
+          final key = await _ballToStringAsync(
+            (entryMap['key'] ?? entryMap['name']),
+          );
           result[key] = entryMap['value'];
         }
       }
@@ -6807,7 +6697,9 @@ class BallEngine {
     final entriesMap = _stdAsMap(entries);
     if ((entriesMap != null)) {
       _trackMemoryAllocation(_ballMapEntryBytes);
-      final key = _ballToString((entriesMap['key'] ?? entriesMap['name']));
+      final key = await _ballToStringAsync(
+        (entriesMap['key'] ?? entriesMap['name']),
+      );
       return (() {
         final __cascade_self__ = _ballUserMap();
         __cascade_self__[key] = entriesMap['value'];
@@ -6815,6 +6707,7 @@ class BallEngine {
       })();
     }
     return _ballUserMap();
+    return null as dynamic;
   }
 
   Object? _stdSetCreate(Object? input) {
@@ -7240,8 +7133,67 @@ class BallEngine {
     return (actualBare == patternBare);
   }
 
+  String _ballToStringSimple(Object? input) {
+    Object? v = input;
+    if (((v == null) || (v is BallNull))) {
+      return 'null';
+    }
+    if ((v is String)) {
+      return v;
+    }
+    if ((v is BallString)) {
+      return v.value;
+    }
+    if ((v is bool)) {
+      return v.toString();
+    }
+    if ((v is BallBool)) {
+      return v.value.toString();
+    }
+    if ((v is int)) {
+      return v.toString();
+    }
+    if ((v is BallInt)) {
+      return v.value.toString();
+    }
+    if ((v is double)) {
+      return v.toString();
+    }
+    if ((v is BallDouble)) {
+      return v.toString();
+    }
+    if (_isBallFuture(v)) {
+      return _ballToStringSimple(_unwrapBallFuture(v));
+    }
+    if ((v is BallList)) {
+      return (('[' +
+              v.items.map(_ballToStringSimple).toList().join(', ').toString()) +
+          ']');
+    }
+    if ((v is List)) {
+      return (('[' +
+              v.map(_ballToStringSimple).toList().join(', ').toString()) +
+          ']');
+    }
+    final map = _stdAsMap(v);
+    if ((map != null)) {
+      final typeName = ((map['__type__'] as String?));
+      if (((typeName != null) && _enumValues.containsKey(typeName))) {
+        final shortType = (typeName.contains(':')
+            ? typeName.substring((typeName.lastIndexOf(':') + 1))
+            : typeName);
+        final valName = map['name'];
+        if ((valName != null)) {
+          return ((shortType.toString() + '.') +
+              _ballToStringSimple(valName).toString());
+        }
+      }
+    }
+    return v.toString();
+  }
+
   bool _matchesTypePattern(Object? value, Object? pattern) {
-    final p = ((pattern is String) ? pattern : _ballToString(pattern));
+    final p = ((pattern is String) ? pattern : _ballToStringSimple(pattern));
     if (((p == 'Null') || (p == 'null'))) {
       return ((value == null) || (value is BallNull));
     }

@@ -481,6 +481,9 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     if (ball_type == "Duration") return "int64_t";
     if (ball_type == "Iterable" || ball_type.find("Iterable<") == 0)
         return "std::vector<std::any>";
+    // Stream<T> → synchronous list (async simulated as sync in C++)
+    if (ball_type == "Stream" || ball_type.find("Stream<") == 0)
+        return "BallDyn";
     if (ball_type == "Type") return "std::string";
     if (ball_type == "Iterator" || ball_type.find("Iterator<") == 0)
         return "BallDyn";
@@ -1866,6 +1869,201 @@ static std::optional<StructuredPatternResult> _compileStructuredPattern(
             return _compileStructuredPattern(*subpattern, subject, exprFn);
         }
         return StructuredPatternResult{"true", {}};
+    }
+
+    // RelationalPattern: compare subject using a relational operator
+    // IR: typeName="RelationalPattern", fields: operator (string), operand (expression)
+    // Emits: (__subj <op> <operand>)
+    if (kind == "RelationalPattern") {
+        std::string op = _patternStringField(patternExpr, "operator");
+        auto* operand = _patternField(patternExpr, "operand");
+        if (!op.empty() && operand) {
+            std::string operandCode = exprFn(*operand);
+            // Map Dart relational operators to C++ BallDyn comparisons
+            std::string cond;
+            if (op == "==" || op == "!=") {
+                cond = "BallDyn(" + subject + ") " + op + " BallDyn(" + operandCode + ")";
+            } else if (op == "<" || op == ">" || op == "<=" || op == ">=") {
+                cond = "BallDyn(" + subject + ") " + op + " BallDyn(" + operandCode + ")";
+            } else {
+                cond = "BallDyn(" + subject + ") == BallDyn(" + operandCode + ")";
+            }
+            return StructuredPatternResult{cond, {}};
+        }
+        return StructuredPatternResult{"true", {}};
+    }
+
+    // LogicalAndPattern: both sub-patterns must match
+    // IR: typeName="LogicalAndPattern", fields: left (pattern), right (pattern)
+    // Emits: (left_cond && right_cond)
+    if (kind == "LogicalAndPattern") {
+        auto* left = _patternField(patternExpr, "left");
+        auto* right = _patternField(patternExpr, "right");
+        if (left && right) {
+            auto leftResult = _compileStructuredPattern(*left, subject, exprFn);
+            auto rightResult = _compileStructuredPattern(*right, subject, exprFn);
+            if (leftResult && rightResult) {
+                std::string cond;
+                if (leftResult->condition == "true" && rightResult->condition == "true") {
+                    cond = "true";
+                } else if (leftResult->condition == "true") {
+                    cond = rightResult->condition;
+                } else if (rightResult->condition == "true") {
+                    cond = leftResult->condition;
+                } else {
+                    cond = "(" + leftResult->condition + ") && (" + rightResult->condition + ")";
+                }
+                std::vector<std::pair<std::string, std::string>> binds;
+                binds.insert(binds.end(), leftResult->bindings.begin(), leftResult->bindings.end());
+                binds.insert(binds.end(), rightResult->bindings.begin(), rightResult->bindings.end());
+                return StructuredPatternResult{cond, binds};
+            }
+        }
+    }
+
+    // RecordPattern (uppercase): extract named/positional fields from a record
+    // IR: typeName="RecordPattern", fields: fields (list of {name?, pattern})
+    if (kind == "RecordPattern") {
+        auto* fieldsExpr = _patternField(patternExpr, "fields");
+        std::vector<const ball::v1::Expression*> fields;
+        if (fieldsExpr &&
+            fieldsExpr->expr_case() == ball::v1::Expression::kLiteral &&
+            fieldsExpr->literal().value_case() == ball::v1::Literal::kListValue) {
+            for (const auto& e : fieldsExpr->literal().list_value().elements()) {
+                fields.push_back(&e);
+            }
+        }
+
+        std::vector<std::string> conds;
+        std::vector<std::pair<std::string, std::string>> binds;
+
+        int positionalIdx = 0;
+        for (auto* field : fields) {
+            std::string name = _patternStringField(*field, "name");
+            auto* pattern = _patternField(*field, "pattern");
+            if (!pattern) continue;
+
+            std::string fieldAccess;
+            if (!name.empty()) {
+                // Named field: access via string key
+                fieldAccess = "static_cast<BallDyn>(BallDyn(" + subject + "))[\"" + name + "\"s]";
+            } else {
+                // Positional field: access via $N key or integer index
+                fieldAccess = "static_cast<BallDyn>(BallDyn(" + subject + "))[int64_t(" +
+                    std::to_string(positionalIdx) + ")]";
+                positionalIdx++;
+            }
+            auto sub = _compileStructuredPattern(*pattern, fieldAccess, exprFn);
+            if (sub) {
+                if (sub->condition != "true") conds.push_back(sub->condition);
+                binds.insert(binds.end(), sub->bindings.begin(), sub->bindings.end());
+            }
+        }
+
+        std::string combined;
+        for (size_t i = 0; i < conds.size(); i++) {
+            if (i > 0) combined += " && ";
+            combined += conds[i];
+        }
+        return StructuredPatternResult{combined.empty() ? "true" : combined, binds};
+    }
+
+    // ObjectPattern: type check + named field extraction via getter-style access
+    // IR: typeName="ObjectPattern", fields: type (string), fields (list of {name, pattern})
+    if (kind == "ObjectPattern") {
+        std::string typeName = _patternStringField(patternExpr, "type");
+        auto* fieldsExpr = _patternField(patternExpr, "fields");
+
+        std::vector<std::string> conds;
+        std::vector<std::pair<std::string, std::string>> binds;
+
+        // Type check if type name is provided
+        if (!typeName.empty()) {
+            conds.push_back(_typeCheckCondition(typeName, subject));
+        }
+
+        // Extract fields
+        std::vector<const ball::v1::Expression*> fields;
+        if (fieldsExpr &&
+            fieldsExpr->expr_case() == ball::v1::Expression::kLiteral &&
+            fieldsExpr->literal().value_case() == ball::v1::Literal::kListValue) {
+            for (const auto& e : fieldsExpr->literal().list_value().elements()) {
+                fields.push_back(&e);
+            }
+        }
+
+        for (auto* field : fields) {
+            std::string name = _patternStringField(*field, "name");
+            auto* pattern = _patternField(*field, "pattern");
+            if (name.empty() || !pattern) continue;
+
+            // Access field via string key (works for map-backed objects)
+            std::string fieldAccess = "static_cast<BallDyn>(BallDyn(" + subject + "))[\"" + name + "\"s]";
+            auto sub = _compileStructuredPattern(*pattern, fieldAccess, exprFn);
+            if (sub) {
+                if (sub->condition != "true") conds.push_back(sub->condition);
+                binds.insert(binds.end(), sub->bindings.begin(), sub->bindings.end());
+            }
+        }
+
+        std::string combined;
+        for (size_t i = 0; i < conds.size(); i++) {
+            if (i > 0) combined += " && ";
+            combined += conds[i];
+        }
+        return StructuredPatternResult{combined.empty() ? "true" : combined, binds};
+    }
+
+    // CastPattern: match inner pattern and cast (no runtime check in C++,
+    // the cast is implicit via BallDyn)
+    // IR: typeName="CastPattern", fields: pattern (sub-pattern), type (string)
+    if (kind == "CastPattern") {
+        auto* subpattern = _patternField(patternExpr, "pattern");
+        if (subpattern) {
+            return _compileStructuredPattern(*subpattern, subject, exprFn);
+        }
+        return StructuredPatternResult{"true", {}};
+    }
+
+    // NullCheckPattern: matches if subject is non-null, then matches inner pattern
+    // IR: typeName="NullCheckPattern", fields: pattern (sub-pattern)
+    if (kind == "NullCheckPattern") {
+        auto* subpattern = _patternField(patternExpr, "pattern");
+        std::string nullCheck = subject + ".has_value()";
+        if (subpattern) {
+            auto sub = _compileStructuredPattern(*subpattern, subject, exprFn);
+            if (sub) {
+                std::string cond;
+                if (sub->condition == "true") {
+                    cond = nullCheck;
+                } else {
+                    cond = nullCheck + " && (" + sub->condition + ")";
+                }
+                return StructuredPatternResult{cond, sub->bindings};
+            }
+        }
+        return StructuredPatternResult{nullCheck, {}};
+    }
+
+    // NullAssertPattern: asserts subject is non-null (throws if null), then
+    // matches inner pattern. At compile time, same as NullCheckPattern.
+    // IR: typeName="NullAssertPattern", fields: pattern (sub-pattern)
+    if (kind == "NullAssertPattern") {
+        auto* subpattern = _patternField(patternExpr, "pattern");
+        std::string nullCheck = subject + ".has_value()";
+        if (subpattern) {
+            auto sub = _compileStructuredPattern(*subpattern, subject, exprFn);
+            if (sub) {
+                std::string cond;
+                if (sub->condition == "true") {
+                    cond = nullCheck;
+                } else {
+                    cond = nullCheck + " && (" + sub->condition + ")";
+                }
+                return StructuredPatternResult{cond, sub->bindings};
+            }
+        }
+        return StructuredPatternResult{nullCheck, {}};
     }
 
     // LogicalOrPattern: handled separately via _collectOrPatternValues
@@ -6003,17 +6201,22 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             indent_++;
             {
                 auto mrt = map_return_type(*func);
+                auto body_is_throw = [](const ball::v1::Expression& e) {
+                    if (e.expr_case() != ball::v1::Expression::kCall) return false;
+                    const auto& fn = e.call().function();
+                    return fn == "throw" || fn == "rethrow";
+                };
                 if (func->body().expr_case() == ball::v1::Expression::kBlock) {
                     for (const auto& s : func->body().block().statements())
                         compile_statement(s);
                     if (func->body().block().has_result()) {
-                        if (mrt == "void")
+                        if (mrt == "void" || body_is_throw(func->body().block().result()))
                             emit_line(compile_expr(func->body().block().result()) + ";");
                         else
                             emit_line("return " + compile_expr(func->body().block().result()) + ";");
                     }
                 } else {
-                    if (mrt == "void")
+                    if (mrt == "void" || body_is_throw(func->body()))
                         emit_line(compile_expr(func->body()) + ";");
                     else
                         emit_line("return " + compile_expr(func->body()) + ";");
@@ -6032,18 +6235,23 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             indent_++;
             if (func->has_body()) {
                 auto mrt = map_return_type(*func);
+                auto body_is_throw = [](const ball::v1::Expression& e) {
+                    if (e.expr_case() != ball::v1::Expression::kCall) return false;
+                    const auto& fn = e.call().function();
+                    return fn == "throw" || fn == "rethrow";
+                };
                 if (func->body().expr_case() == ball::v1::Expression::kBlock) {
                     for (const auto& s : func->body().block().statements())
                         compile_statement(s);
                     if (func->body().block().has_result()) {
-                        if (mrt == "void")
+                        if (mrt == "void" || body_is_throw(func->body().block().result()))
                             emit_line(compile_expr(func->body().block().result()) + ";");
                         else
                             emit_line("return " +
                                        compile_expr(func->body().block().result()) + ";");
                     }
                 } else {
-                    if (mrt == "void")
+                    if (mrt == "void" || body_is_throw(func->body()))
                         emit_line(compile_expr(func->body()) + ";");
                     else
                         emit_line("return " + compile_expr(func->body()) + ";");
@@ -6423,6 +6631,15 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         emit_line("BallGenerator __gen;");
     }
 
+    // Helper: detect whether an expression is a throw/rethrow call whose
+    // compiled form is a C++ `throw` statement (void). Prefixing such an
+    // expression with `return` produces `return void`, which MSVC rejects.
+    auto is_throw_expr = [](const ball::v1::Expression& e) -> bool {
+        if (e.expr_case() != ball::v1::Expression::kCall) return false;
+        const auto& fn = e.call().function();
+        return fn == "throw" || fn == "rethrow";
+    };
+
     if (func.has_body()) {
         if (func.body().expr_case() == ball::v1::Expression::kBlock) {
             for (const auto& s : func.body().block().statements())
@@ -6432,12 +6649,19 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
                     // For generators, the result expression is typically unused;
                     // the collected values are returned instead.
                     emit_line(compile_expr(func.body().block().result()) + ";");
+                } else if (is_throw_expr(func.body().block().result())) {
+                    // throw is void — emit without `return` to avoid
+                    // `return void` compile errors.
+                    emit_line(compile_expr(func.body().block().result()) + ";");
                 } else {
                     emit_line("return " + compile_expr(func.body().block().result()) + ";");
                 }
             }
         } else {
             if (is_generator) {
+                emit_line(compile_expr(func.body()) + ";");
+            } else if (is_throw_expr(func.body())) {
+                // throw is void — emit without `return`.
                 emit_line(compile_expr(func.body()) + ";");
             } else {
                 emit_line("return " + compile_expr(func.body()) + ";");

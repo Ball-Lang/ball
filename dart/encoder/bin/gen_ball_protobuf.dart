@@ -113,7 +113,8 @@ void main(List<String> args) {
       for (final m in implModules)
         ModuleImport()
           ..name = m.name
-          ..inline = (InlineSource()..protoBytes = m.writeToBuffer()),
+          ..inline = (InlineSource()
+            ..json = jsonEncode(m.toProto3Json())),
     ]);
 
   // Write proto3 JSON (self-describing Any envelope -> ball.v1.Module).

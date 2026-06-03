@@ -787,7 +787,7 @@ extension BallEngineEval on BallEngine {
       case 'abs':
         if (object is num) return object.abs();
       case 'toString':
-        return _ballToString(object);
+        return await _ballToStringAsync(object);
       case 'runtimeType':
         if (object == null || object is BallNull) return 'Null';
         if (object is int || object is BallInt) return 'int';

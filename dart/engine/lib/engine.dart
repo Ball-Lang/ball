@@ -189,11 +189,11 @@ class BallEngine {
   /// Saved and restored around each catch body so nested tries unwind cleanly.
   Object? _activeException;
 
-  // toString recursion guard: [_ballToString] / [_ballToStringAsync] set a
-  // sentinel key (`__tostring_guard__`) directly on each typed-object map
-  // while evaluating its toString method. If re-entered for the same object,
-  // the key is already present and a safe placeholder is returned. This
-  // approach is portable across all Ball targets (Dart, TS, C++).
+  // toString recursion guard: [_ballToStringAsync] sets a sentinel key
+  // (`__tostring_guard__`) directly on each typed-object map while evaluating
+  // its toString method. If re-entered for the same object, the key is already
+  // present and a safe placeholder is returned. This approach is portable
+  // across all Ball targets (Dart, TS, C++).
 
   /// Optional module resolver for lazy-loading unresolved module imports.
   /// When set, if a cross-module call targets a module not yet in the

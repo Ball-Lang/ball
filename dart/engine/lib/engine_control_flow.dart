@@ -1491,9 +1491,11 @@ extension BallEngineControlFlow on BallEngine {
         case 'indexOf':
           return self.indexOf(arg0);
         case 'join':
-          return self
-              .map((e) => _ballToString(e))
-              .join(arg0 != null ? arg0.toString() : ', ');
+          final joinParts = <String>[];
+          for (final e in self) {
+            joinParts.add(await _ballToStringAsync(e));
+          }
+          return joinParts.join(arg0 != null ? arg0.toString() : ', ');
         case 'sublist':
           final end = args['arg1'];
           return _wrapList(
@@ -1614,7 +1616,11 @@ extension BallEngineControlFlow on BallEngine {
         case 'toSet':
           return _wrapList(self.toSet().toList());
         case 'toString':
-          return '[${self.map(_ballToString).join(', ')}]';
+          final toStrParts = <String>[];
+          for (final e in self) {
+            toStrParts.add(await _ballToStringAsync(e));
+          }
+          return '[${toStrParts.join(', ')}]';
         case 'filled':
           // List.filled(n, value) encoded as self=[], arg0=n, arg1=value
           return _wrapList(List.filled(_toInt(arg0), args['arg1']));
@@ -1814,7 +1820,7 @@ extension BallEngineControlFlow on BallEngine {
         case 'toInt':
           return _ballDoubleToInt64(self);
         case 'toString':
-          return _ballToString(self);
+          return await _ballToStringAsync(self);
         case 'toStringAsFixed':
           return self.toStringAsFixed(_toInt(arg0));
         case 'abs':
@@ -1846,12 +1852,13 @@ extension BallEngineControlFlow on BallEngine {
         switch (method) {
           case 'write':
             selfMap['__buffer__'] =
-                (selfMap['__buffer__'] as String? ?? '') + _ballToString(arg0);
+                (selfMap['__buffer__'] as String? ?? '') +
+                await _ballToStringAsync(arg0);
             return null;
           case 'writeln':
             selfMap['__buffer__'] =
                 (selfMap['__buffer__'] as String? ?? '') +
-                _ballToString(arg0) +
+                await _ballToStringAsync(arg0) +
                 '\n';
             return null;
           case 'writeCharCode':
@@ -1871,7 +1878,7 @@ extension BallEngineControlFlow on BallEngine {
 
       // Generic toString on typed objects.
       if (method == 'toString') {
-        return _ballToString(self);
+        return await _ballToStringAsync(self);
       }
     }
 

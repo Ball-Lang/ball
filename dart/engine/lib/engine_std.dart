@@ -265,7 +265,7 @@ extension BallEngineStd on BallEngine {
       // String & conversion
       'concat': _stdConcat,
       'length': _stdLength,
-      'to_string': (i) => _ballToString(_extractUnaryArg(i)),
+      'to_string': (i) async => await _ballToStringAsync(_extractUnaryArg(i)),
       'int_to_string': (i) => _stdConvert(i, (v) => (v as int).toString()),
       'double_to_string': (i) =>
           _stdConvert(i, (v) => (v as double).toString()),
@@ -288,23 +288,27 @@ extension BallEngineStd on BallEngine {
 
       // String interpolation — concatenates evaluated parts list.
       // Encoders emit this frequently; was previously missing from the engine.
-      'string_interpolation': (i) {
+      'string_interpolation': (i) async {
         final m = _stdAsMap(i);
         if (m != null) {
           final parts = _stdAsList(m['parts']);
           if (parts != null) {
-            final result = parts.map((p) => _ballToString(p)).join();
+            final strParts = <String>[];
+            for (final p in parts) {
+              strParts.add(await _ballToStringAsync(p));
+            }
+            final result = strParts.join();
             _trackMemoryAllocation(result.length * _ballStringCodeUnitBytes);
             return result;
           }
           final value = m['value'];
           if (value != null) {
-            final result = _ballToString(value);
+            final result = await _ballToStringAsync(value);
             _trackMemoryAllocation(result.length * _ballStringCodeUnitBytes);
             return result;
           }
         }
-        final result = _ballToString(i);
+        final result = await _ballToStringAsync(i);
         _trackMemoryAllocation(result.length * _ballStringCodeUnitBytes);
         return result;
       },
@@ -705,11 +709,15 @@ extension BallEngineStd on BallEngine {
         }
         return null;
       },
-      'list_join': (i) {
+      'list_join': (i) async {
         final m = _stdAsMap(i)!;
         final list = _stdAsList(m['list'])!;
         final sep = m['separator']?.toString() ?? ',';
-        return list.map((e) => _ballToString(e)).join(sep);
+        final parts = <String>[];
+        for (final e in list) {
+          parts.add(await _ballToStringAsync(e));
+        }
+        return parts.join(sep);
       },
 
       // std_collections — map operations
@@ -1240,109 +1248,6 @@ extension BallEngineStd on BallEngine {
     return list;
   }
 
-  /// Convert a Ball value to its string representation.
-  ///
-  /// For typed objects with a user-defined `toString` method, invokes that
-  /// method. For StringBuffer objects, returns the buffer contents.
-  /// Falls back to Dart's native `toString()`.
-  String _ballToString(Object? v) {
-    if (v == null || v is BallNull) return 'null';
-    if (v is String) return v;
-    if (v is BallString) return v.value;
-    if (v is bool) return v.toString();
-    if (v is BallBool) return v.value.toString();
-    if (v is int) return v.toString();
-    if (v is BallInt) return v.value.toString();
-    if (v is double) return v.toString();
-    if (v is BallDouble) return v.toString();
-    // BallFuture: show the resolved value for readable output.
-    if (_isBallFuture(v)) return _ballToString(_unwrapBallFuture(v));
-    if (v is BallList) return '[${v.items.map(_ballToString).join(', ')}]';
-    if (v is List) return '[${v.map(_ballToString).join(', ')}]';
-    // BallException: return message/value directly without invoking toString
-    // to prevent infinite recursion when exceptions are caught and stringified.
-    if (v is BallException) {
-      final ev = v.value;
-      final em = _stdAsMap(ev);
-      if (em != null) {
-        final msg = em['message'];
-        if (msg is String) return msg;
-      }
-      if (ev is String) return ev;
-      return v.typeName;
-    }
-    final map = _stdAsMap(v);
-    if (map != null) {
-      // StringBuffer: return the buffer contents.
-      final typeName = map['__type__'] as String?;
-      // Enum value: format as EnumName.valueName, matching Dart's enum
-      // toString (e.g. `Color.red`) instead of dumping the underlying map.
-      if (typeName != null && _enumValues.containsKey(typeName)) {
-        final shortType = typeName.contains(':')
-            ? typeName.substring(typeName.lastIndexOf(':') + 1)
-            : typeName;
-        final valName = map['name'];
-        if (valName != null) return '$shortType.${_ballToString(valName)}';
-      }
-      if (typeName != null &&
-          (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
-        return (map['__buffer__'] as String?) ?? '';
-      }
-      // Typed object: try to invoke the user's toString method, with a
-      // recursion guard to prevent infinite loops.
-      if (typeName != null) {
-        // Exception-typed objects: return the message field directly.
-        if (typeName.endsWith('Exception') || typeName.endsWith('Error')) {
-          final msg = map['message'];
-          if (msg is String) return msg;
-          return typeName.contains(':')
-              ? typeName.substring(typeName.lastIndexOf(':') + 1)
-              : typeName;
-        }
-        // Recursion guard: place a sentinel key on the map itself.
-        // This is portable across Dart/TS/C++ targets (no identityHashCode).
-        if (map.containsKey('__tostring_guard__')) {
-          final shortType = typeName.contains(':')
-              ? typeName.substring(typeName.lastIndexOf(':') + 1)
-              : typeName;
-          return '$shortType{...}';
-        }
-        final resolved = _resolveMethod(typeName, 'toString');
-        if (resolved != null) {
-          map['__tostring_guard__'] = true;
-          try {
-            final future = _callFunction(
-              resolved.module,
-              resolved.func,
-              <String, Object?>{'self': map},
-            );
-            // _callFunction returns Future<Object?>. Most calls complete
-            // synchronously (Dart optimises already-completed Futures).
-            // Use .then to grab the value if already resolved.
-            Object? syncResult;
-            var done = false;
-            future.then((r) {
-              syncResult = r;
-              done = true;
-            });
-            if (done) return syncResult?.toString() ?? 'null';
-            // If truly async, fall back to a safe representation instead
-            // of map.toString() which would recurse infinitely.
-            final shortType = typeName.contains(':')
-                ? typeName.substring(typeName.lastIndexOf(':') + 1)
-                : typeName;
-            return '$shortType{...}';
-          } catch (_) {
-            // If toString throws, fall back.
-          } finally {
-            map.remove('__tostring_guard__');
-          }
-        }
-      }
-    }
-    return v.toString();
-  }
-
   /// Resolve a method by name walking the class hierarchy.
   /// Returns the module name and function definition, or null if not found.
   ({String module, FunctionDefinition func})? _resolveMethod(
@@ -1426,7 +1331,8 @@ extension BallEngineStd on BallEngine {
     return null;
   }
 
-  /// Async version of [_ballToString] that can await method calls.
+  /// Convert a Ball value to its string representation, awaiting async method
+  /// calls (e.g. user-defined toString methods dispatched via [_callFunction]).
   Future<String> _ballToStringAsync(Object? v) async {
     if (v == null || v is BallNull) return 'null';
     if (v is String) return v;
@@ -1771,7 +1677,7 @@ extension BallEngineStd on BallEngine {
     return args;
   }
 
-  Object? _stdMapCreate(Object? input) {
+  Future<Object?> _stdMapCreate(Object? input) async {
     final m = _stdAsMap(input);
     if (m == null) return _ballUserMap();
     // Support both 'entries' (list of {name, value}) and 'entry' (single or
@@ -1784,7 +1690,8 @@ extension BallEngineStd on BallEngine {
       for (final entry in entriesList) {
         final entryMap = _stdAsMap(entry);
         if (entryMap != null) {
-          final key = _ballToString(entryMap['key'] ?? entryMap['name']);
+          final key =
+              await _ballToStringAsync(entryMap['key'] ?? entryMap['name']);
           result[key] = entryMap['value'];
         }
       }
@@ -1794,7 +1701,8 @@ extension BallEngineStd on BallEngine {
     if (entriesMap != null) {
       // Single entry (not wrapped in a list).
       _trackMemoryAllocation(_ballMapEntryBytes);
-      final key = _ballToString(entriesMap['key'] ?? entriesMap['name']);
+      final key =
+          await _ballToStringAsync(entriesMap['key'] ?? entriesMap['name']);
       return _ballUserMap()..[key] = entriesMap['value'];
     }
     return _ballUserMap();
@@ -2178,10 +2086,43 @@ extension BallEngineStd on BallEngine {
     return actualBare == patternBare;
   }
 
+  /// Convert a Ball value to its string representation using only primitive
+  /// type checks. Does NOT invoke user-defined toString methods (no async
+  /// dispatch). Safe for synchronous contexts like pattern matching.
+  String _ballToStringSimple(Object? v) {
+    if (v == null || v is BallNull) return 'null';
+    if (v is String) return v;
+    if (v is BallString) return v.value;
+    if (v is bool) return v.toString();
+    if (v is BallBool) return v.value.toString();
+    if (v is int) return v.toString();
+    if (v is BallInt) return v.value.toString();
+    if (v is double) return v.toString();
+    if (v is BallDouble) return v.toString();
+    if (_isBallFuture(v)) return _ballToStringSimple(_unwrapBallFuture(v));
+    if (v is BallList) return '[${v.items.map(_ballToStringSimple).join(', ')}]';
+    if (v is List) return '[${v.map(_ballToStringSimple).join(', ')}]';
+    // Enum values: format as EnumName.valueName.
+    final map = _stdAsMap(v);
+    if (map != null) {
+      final typeName = map['__type__'] as String?;
+      if (typeName != null && _enumValues.containsKey(typeName)) {
+        final shortType = typeName.contains(':')
+            ? typeName.substring(typeName.lastIndexOf(':') + 1)
+            : typeName;
+        final valName = map['name'];
+        if (valName != null) {
+          return '$shortType.${_ballToStringSimple(valName)}';
+        }
+      }
+    }
+    return v.toString();
+  }
+
   /// Returns true if [value] matches the type-name pattern string.
   /// Enables switch expressions with type arms like `case int: ...`.
   bool _matchesTypePattern(Object? value, Object? pattern) {
-    final p = pattern is String ? pattern : _ballToString(pattern);
+    final p = pattern is String ? pattern : _ballToStringSimple(pattern);
     if (p == 'Null' || p == 'null') {
       return value == null || value is BallNull;
     }

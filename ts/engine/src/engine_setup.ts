@@ -1302,6 +1302,28 @@ export function createEngineSetup(mod: EngineModule) {
             pattern = { ...pattern, entries: entries.flat() };
           }
         }
+        // Fix LogicalAndPattern binding propagation: the compiled engine's
+        // logical_and handler does `bindings = __ball_concat(tempBindings, tempBindings)`
+        // which reassigns the local variable instead of mutating the caller's
+        // object. Override here to correctly propagate bindings.
+        if (kind === 'logical_and') {
+          const tempBindings: any = {};
+          const leftMatch = e._matchPattern(value, pattern.left, tempBindings);
+          if (!leftMatch) return false;
+          const rightMatch = e._matchPattern(value, pattern.right, tempBindings);
+          if (!rightMatch) return false;
+          Object.assign(bindings, tempBindings);
+          return true;
+        }
+        // Fix LogicalOrPattern binding propagation (same bug pattern)
+        if (kind === 'logical_or') {
+          const leftBindings: any = {};
+          if (e._matchPattern(value, pattern.left, leftBindings)) {
+            Object.assign(bindings, leftBindings);
+            return true;
+          }
+          return e._matchPattern(value, pattern.right, bindings);
+        }
       }
       return origMatchPattern(value, pattern, bindings);
     };

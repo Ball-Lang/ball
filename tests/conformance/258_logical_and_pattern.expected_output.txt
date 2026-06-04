@@ -1,0 +1,4 @@
+pos-int:42
+neg-int:-7
+str:hello
+other

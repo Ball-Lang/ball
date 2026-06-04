@@ -1,0 +1,494 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "switch_expr",
+          "isBase": true
+        },
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "for_in",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "grade",
+          "inputType": "int",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "switch_expr",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "subject",
+                      "value": {
+                        "reference": {
+                          "name": "score"
+                        }
+                      }
+                    },
+                    {
+                      "name": "cases",
+                      "value": {
+                        "literal": {
+                          "listValue": {
+                            "elements": [
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": ">= 90"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "A"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "RelationalPattern",
+                                          "fields": [
+                                            {
+                                              "name": "operator",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": ">="
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "operand",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "90"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": ">= 80"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "B"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "RelationalPattern",
+                                          "fields": [
+                                            {
+                                              "name": "operator",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": ">="
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "operand",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "80"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": ">= 70"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "C"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "RelationalPattern",
+                                          "fields": [
+                                            {
+                                              "name": "operator",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": ">="
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "operand",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "70"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "< 0"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "invalid"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "RelationalPattern",
+                                          "fields": [
+                                            {
+                                              "name": "operator",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "<"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "operand",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "0"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "_"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "F"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "WildcardPattern"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "params": [
+              {
+                "name": "score",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "for_in",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "variable",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "s"
+                                }
+                              }
+                            },
+                            {
+                              "name": "iterable",
+                              "value": {
+                                "literal": {
+                                  "listValue": {
+                                    "elements": [
+                                      {
+                                        "literal": {
+                                          "intValue": "95"
+                                        }
+                                      },
+                                      {
+                                        "literal": {
+                                          "intValue": "85"
+                                        }
+                                      },
+                                      {
+                                        "literal": {
+                                          "intValue": "72"
+                                        }
+                                      },
+                                      {
+                                        "literal": {
+                                          "intValue": "50"
+                                        }
+                                      },
+                                      {
+                                        "literal": {
+                                          "intValue": "-1"
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "body",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "print",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "PrintInput",
+                                      "fields": [
+                                        {
+                                          "name": "message",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "concat",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "concat",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "left",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "module": "std",
+                                                                      "function": "to_string",
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "typeName": "",
+                                                                          "fields": [
+                                                                            {
+                                                                              "name": "value",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "s"
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "right",
+                                                                  "value": {
+                                                                    "literal": {
+                                                                      "stringValue": ":"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "call": {
+                                                          "function": "grade",
+                                                          "input": {
+                                                            "reference": {
+                                                              "name": "s"
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

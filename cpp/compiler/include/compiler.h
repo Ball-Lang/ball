@@ -95,6 +95,13 @@ private:
     std::unordered_map<std::string, std::unordered_set<std::string>> class_setters_;
     // Set of all user-defined class names (sanitized, e.g. "Point").
     std::unordered_set<std::string> user_class_names_;
+    // Sanitized bare names of void-returning user functions. Call sites use
+    // this to avoid wrapping a void call in BallDyn(...) (conformance 133).
+    std::unordered_set<std::string> void_user_functions_;
+    // C++ return type of the function currently being emitted ("void", "BallDyn",
+    // ...). Lets the return-statement handler emit a bare `return;` in void
+    // functions instead of `return BallDyn(...)` (conformance 89).
+    std::string current_return_type_;
     // Set of all enum type names (sanitized, e.g. "Color").
     std::unordered_set<std::string> enum_names_;
     // Maps class name to its TypeDefinition for field lookups.
@@ -170,6 +177,9 @@ private:
     std::string compile_call(const ball::v1::FunctionCall& call);
     std::string compile_literal(const ball::v1::Literal& lit);
     std::string compile_reference(const ball::v1::Reference& ref);
+    // True when `e` is a call to a void-returning user function (so the call
+    // must not be wrapped in BallDyn(...)).
+    bool _isVoidUserCall(const ball::v1::Expression& e);
     std::string compile_field_access(const ball::v1::FieldAccess& access);
     std::string compile_message_creation(const ball::v1::MessageCreation& msg);
     std::string compile_block(const ball::v1::Block& block);

@@ -617,6 +617,24 @@ public:
     bool containsKey(const BallDyn& key) const { return count(key) > 0; }
     bool containsKey(const std::string& key) const { return count(key) > 0; }
 
+    // Dart Object.hashCode: int hashes to itself, others via std::hash on the
+    // underlying scalar/string. Used by user `hashCode` getters/overrides that
+    // combine field hashes (conformance 113).
+    int64_t hashCode() const {
+        // _val is never a nested BallDyn (the constructor peels those), so a
+        // direct type check on the underlying scalar/string is sufficient.
+        if (!_val.has_value()) return 0;
+        if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val);
+        if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) ? 1 : 0;
+        if (_val.type() == typeid(double))
+            return static_cast<int64_t>(
+                std::hash<double>{}(std::any_cast<double>(_val)));
+        if (_val.type() == typeid(std::string))
+            return static_cast<int64_t>(
+                std::hash<std::string>{}(std::any_cast<std::string>(_val)));
+        return 0;
+    }
+
     // Instance field write — routes through BallObject::setField when [this]
     // holds a BallObjectRef, otherwise falls back to map set().
     void setField(const std::string& field, const BallDyn& val) {
@@ -777,6 +795,20 @@ public:
         if (_val.type() == typeid(double)) return std::any_cast<double>(_val) == std::any_cast<double>(o._val);
         if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) == std::any_cast<bool>(o._val);
         if (_val.type() == typeid(std::string)) return std::any_cast<const std::string&>(_val) == std::any_cast<const std::string&>(o._val);
+        // Structural map equality (both same type per the check above): enum
+        // values compile to `{index, _name}` maps and are compared through the
+        // BallDyn layer in switch statements (conformance 109).
+        if (_val.type() == typeid(BallMap)) {
+            const BallMap& ma = std::any_cast<const BallMap&>(_val);
+            const BallMap& mb = std::any_cast<const BallMap&>(o._val);
+            if (ma.size() != mb.size()) return false;
+            for (const auto& kv : ma) {
+                auto it = mb.find(kv.first);
+                if (it == mb.end()) return false;
+                if (BallDyn(kv.second) != BallDyn(it->second)) return false;
+            }
+            return true;
+        }
         return false;
     }
     bool operator!=(const BallDyn& o) const { return !(*this == o); }

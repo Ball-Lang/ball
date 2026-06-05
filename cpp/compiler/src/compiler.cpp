@@ -82,6 +82,15 @@ void CppCompiler::build_lookup_tables() {
                 auto params = extract_params(func.metadata());
                 if (!params.empty()) param_cache_[key] = std::move(params);
             }
+            // Registry of void-returning user functions, keyed by sanitized
+            // bare name. Call sites consult this to avoid wrapping a void call
+            // in BallDyn(...) (conformance 133). Use original_name when mangled.
+            if (!func.is_base() && func.output_type() == "void") {
+                std::string bare = func.name();
+                auto dot = bare.rfind('.');
+                if (dot != std::string::npos) bare = bare.substr(dot + 1);
+                void_user_functions_.insert(sanitize_name(bare));
+            }
         }
 
         // OOP class metadata: collect class names, superclasses, methods.
@@ -1423,7 +1432,9 @@ std::string CppCompiler::compile_block(const ball::v1::Block& block) {
             if (is_last) {
                 bool expr_is_throw = s.expression().expr_case() == ball::v1::Expression::kCall &&
                                      s.expression().call().function() == "throw";
-                if (expr_is_throw) {
+                if (expr_is_throw || _isVoidUserCall(s.expression())) {
+                    // throw / void call: emit as a statement, return empty —
+                    // wrapping a void expression in BallDyn(...) won't compile.
                     result += indent_str() + compile_expr(s.expression()) + "; return BallDyn();\n";
                 } else {
                     result += indent_str() + "return BallDyn(" + compile_expr(s.expression()) + ");\n";
@@ -1562,6 +1573,15 @@ static void _collectOrPatternValues(const ball::v1::Expression& expr,
             }
         }
     }
+}
+
+bool CppCompiler::_isVoidUserCall(const ball::v1::Expression& e) {
+    if (e.expr_case() != ball::v1::Expression::kCall) return false;
+    const auto& call = e.call();
+    // Empty-module (user) call whose bare name is a registered void function.
+    if (!call.module().empty()) return false;
+    std::string name = sanitize_name(call.function());
+    return void_user_functions_.count(name) > 0;
 }
 
 // ================================================================
@@ -4465,6 +4485,28 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                     emit_line("return BallDyn(*__gen.values);");
                     return;
                 }
+                auto* val_expr = get_message_field_expr(call, "value");
+                // Inside a void function, emit a bare `return;` (an early
+                // `return;` in Dart). Wrapping in BallDyn would be `return
+                // <value>` in a void function (conformance 89). If there's a
+                // real value, still evaluate it for side effects first.
+                if (current_return_type_ == "void") {
+                    if (val_expr &&
+                        val_expr->expr_case() != ball::v1::Expression::kLiteral) {
+                        emit_line(compile_expr(*val_expr) + ";");
+                    }
+                    emit_line("return;");
+                    return;
+                }
+                // A `return f()` where f is a void user function: emit the call
+                // as a statement, then `return BallDyn()` — wrapping a void
+                // expression in BallDyn(...) is a hard compile error
+                // (conformance 133).
+                if (val_expr && _isVoidUserCall(*val_expr)) {
+                    emit_line(compile_expr(*val_expr) + ";");
+                    emit_line("return BallDyn();");
+                    return;
+                }
                 // Wrap in BallDyn so a function/lambda with multiple `return`
                 // statements (and a possibly differently-typed block result)
                 // deduces a single, consistent return type. All compiled engine
@@ -5702,7 +5744,11 @@ void CppCompiler::emit_enum(const google::protobuf::EnumDescriptorProto& ed) {
     bool first = true;
     for (const auto& val : ed.value()) {
         if (!first) out_ << ", ";
-        out_ << "std::any(BallDyn(" << name << "::" << sanitize_name(val.name()) << "))";
+        // Call the conversion operator explicitly: `BallDyn(Color::red)` is
+        // ambiguous (Color→BallDyn via operator BallDyn() vs Color→std::any via
+        // BallDyn's template ctor). `.operator BallDyn()` selects unambiguously.
+        out_ << "std::any(" << name << "::" << sanitize_name(val.name())
+             << ".operator BallDyn())";
         first = false;
     }
     out_ << "};\n";
@@ -6187,7 +6233,16 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             emit_indent();
             out_ << "static inline " << map_return_type(*func) << " " << sanitize_name(field_name);
             if (func->has_body()) {
-                out_ << " = " << compile_expr(func->body());
+                std::string init = compile_expr(func->body());
+                // C++ forbids a capture-default on a lambda at namespace/class
+                // scope. The outermost IIFE for list/map/block literals emits
+                // `[&]()...` — there are no enclosing locals to capture in a
+                // static initializer, so demote the leading `[&]`/`[=]` to `[]`.
+                // (Inner lambdas remain at block scope and keep their captures.)
+                if (init.rfind("[&]", 0) == 0 || init.rfind("[=]", 0) == 0) {
+                    init = "[]" + init.substr(3);
+                }
+                out_ << " = " << init;
             }
             out_ << ";\n";
             continue;
@@ -6757,6 +6812,8 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     if (meta.count("is_sync_star") && meta["is_sync_star"] == "true") is_generator = true;
     if (meta.count("is_async_star") && meta["is_async_star"] == "true") is_generator = true;
     bool prev_in_generator = in_generator_;
+    std::string prev_return_type = current_return_type_;
+    current_return_type_ = return_type;
     if (is_generator) {
         in_generator_ = true;
         emit_line("BallGenerator __gen;");
@@ -6780,9 +6837,13 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
                     // For generators, the result expression is typically unused;
                     // the collected values are returned instead.
                     emit_line(compile_expr(func.body().block().result()) + ";");
-                } else if (is_throw_expr(func.body().block().result())) {
-                    // throw is void — emit without `return` to avoid
-                    // `return void` compile errors.
+                } else if (return_type == "void" ||
+                           is_throw_expr(func.body().block().result())) {
+                    // void function (or a throw, which is void): emit the
+                    // result as a statement, not `return <expr>` — a free
+                    // function returning void must not return a value.
+                    // (The method emitter already guards this; free functions
+                    // didn't — conformance 89, 133.)
                     emit_line(compile_expr(func.body().block().result()) + ";");
                 } else {
                     emit_line("return " + compile_expr(func.body().block().result()) + ";");
@@ -6791,8 +6852,8 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         } else {
             if (is_generator) {
                 emit_line(compile_expr(func.body()) + ";");
-            } else if (is_throw_expr(func.body())) {
-                // throw is void — emit without `return`.
+            } else if (return_type == "void" || is_throw_expr(func.body())) {
+                // void function (or throw): emit without `return`.
                 emit_line(compile_expr(func.body()) + ";");
             } else {
                 emit_line("return " + compile_expr(func.body()) + ";");
@@ -6805,6 +6866,7 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         emit_line("return " + return_type + "();");
     }
     in_generator_ = prev_in_generator;
+    current_return_type_ = prev_return_type;
     declared_locals_.clear();
     generic_locals_.clear();
 

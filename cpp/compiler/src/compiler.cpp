@@ -642,7 +642,11 @@ std::string CppCompiler::compile_expr(const ball::v1::Expression& expr) {
 std::string CppCompiler::compile_literal(const ball::v1::Literal& lit) {
     switch (lit.value_case()) {
         case ball::v1::Literal::kIntValue:
-            return std::to_string(lit.int_value()) + "LL";
+            // Emit as int64_t (not `NLL`): on Linux GCC `int64_t` is `long`
+            // while `LL` is `long long`, so `42LL` stored in std::any fails
+            // `typeid(int64_t)` runtime checks. static_cast<int64_t> produces
+            // exactly int64_t on every platform (conformance 78/167/181 on Linux).
+            return "static_cast<int64_t>(" + std::to_string(lit.int_value()) + ")";
         case ball::v1::Literal::kDoubleValue: {
             std::ostringstream oss;
             oss << lit.double_value();
@@ -883,14 +887,13 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     if (field == "isInfinite") return "ball_isInfinite(" + obj + ")";
     if (field == "isFinite") return "ball_isFinite(" + obj + ")";
     if (field == "isNegative") return "ball_isNegative(" + obj + ")";
-    // BallDyn property accessors emitted as member function calls. These
-    // correspond to Dart getters on FlowSignal (.kind, .value), protobuf
-    // Struct (.fields), ListValue (.values), and map-entry (.value). The
-    // BallDyn class defines matching member functions that delegate to
-    // operator[] on the underlying map.
-    if (field == "kind") return obj + ".kind()";
-    if (field == "value") return obj + ".value()";
-    if (field == "fields") return obj + ".fields()";
+    // NOTE: `.kind`, `.value`, and `.fields` are NOT special-cased to member
+    // function calls. They fall through to the bracket-notation default
+    // (`obj["value"s]`) so user objects with these field names (e.g. Box.value,
+    // a record's .value) read the actual field. FlowSignal/proto-Value/proto-
+    // Struct are all map-shaped in compiled form, so bracket access works for
+    // the self-hosted engine too. (Emitting `.value()` etc. broke every user
+    // program with a field named `value` — conformance 78, 167, 181.)
     // Dart `someMap.values.first` / `.values.last`: the `.values` getter yields
     // the map's value collection, and `.first`/`.last` take an element. A bare
     // `.values` deliberately falls through to a key lookup (`obj["values"]`,
@@ -2310,7 +2313,7 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
     }
     if (mod.empty() && fn == "_ballCodeUnitAt") {
         std::string s = "BallDyn()";
-        std::string idx = "0LL";
+        std::string idx = "static_cast<int64_t>(0)";
         if (call.has_input() &&
             call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
             for (const auto& f : call.input().message_creation().fields()) {

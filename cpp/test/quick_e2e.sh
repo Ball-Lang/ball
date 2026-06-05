@@ -38,7 +38,7 @@ else
 fi
 
 pass=0; fail=0; skip=0
-declare -a FAILS
+FAILS=()
 
 for name in "${PROGS[@]}"; do
   # Resolve program + expected output.
@@ -83,7 +83,7 @@ done
 echo ""
 echo "=============================="
 echo "Results: $pass passed, $fail failed, $skip skipped"
-if [[ ${#FAILS[@]} -gt 0 ]]; then
+if [[ $fail -gt 0 ]]; then
   echo ""
   echo "Failures:"
   for f in "${FAILS[@]}"; do echo "  - $f"; done

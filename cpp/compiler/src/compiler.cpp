@@ -3488,6 +3488,54 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 result += "return __m; }()";
                 return result;
             }
+            // The Dart encoder emits an empty map literal `{}` as
+            // map_create(elements: []) — a single `elements` field holding a
+            // (usually empty) list of map entries. Expand the list into
+            // key/value pairs; an empty list yields an empty map. Treating
+            // `elements` as a literal key produced a phantom "elements" entry
+            // (off-by-one length — conformance 78, 124).
+            {
+                const ball::v1::Expression* elements_list = nullptr;
+                bool only_elements_and_meta = true;
+                for (const auto& f : call.input().message_creation().fields()) {
+                    if (f.name() == "type_args" || f.name() == "__type_args__")
+                        continue;
+                    if (f.name() == "elements") {
+                        elements_list = &f.value();
+                    } else {
+                        only_elements_and_meta = false;
+                    }
+                }
+                if (elements_list != nullptr && only_elements_and_meta) {
+                    std::string result =
+                        "[&]() { std::map<std::string,std::any> __m; ";
+                    if (elements_list->expr_case() ==
+                            ball::v1::Expression::kLiteral &&
+                        elements_list->literal().value_case() ==
+                            ball::v1::Literal::kListValue) {
+                        for (const auto& el :
+                             elements_list->literal().list_value().elements()) {
+                            std::string key_expr, val_expr;
+                            if (el.expr_case() ==
+                                ball::v1::Expression::kMessageCreation) {
+                                for (const auto& ef :
+                                     el.message_creation().fields()) {
+                                    if (ef.name() == "key")
+                                        key_expr = compile_expr(ef.value());
+                                    else if (ef.name() == "value")
+                                        val_expr = compile_expr(ef.value());
+                                }
+                            }
+                            if (!key_expr.empty() && !val_expr.empty()) {
+                                result += "__m[ball_to_string(" + key_expr +
+                                          ")] = std::any(" + val_expr + "); ";
+                            }
+                        }
+                    }
+                    result += "return __m; }()";
+                    return result;
+                }
+            }
             // No entry fields: use direct field names as keys. Skip the
             // generic-type bookkeeping fields — they are metadata, not map data,
             // and emitting them pollutes the map (off-by-one length, phantom
@@ -3633,8 +3681,37 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         return "static_cast<int64_t>(std::trunc(static_cast<double>(" + get_message_field(call, "value") + ")))";
     }
     if (fn == "math_clamp") {
+        // Static-method-style dispatch: the Dart encoder routes a user 3-arg
+        // `Foo.clamp(v, lo, hi)` static method to std.math_clamp with
+        // value=Foo(class ref), min=v, max=lo, arg2=hi. When `value` is a
+        // reference to a known user class, shift the args (mirrors the Dart
+        // engine's _stdMathClamp). Otherwise use the standard num.clamp form.
+        std::string value_field = get_message_field(call, "value");
+        bool static_style = false;
+        if (call.has_input() &&
+            call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+            for (const auto& f : call.input().message_creation().fields()) {
+                if (f.name() == "value" &&
+                    f.value().expr_case() == ball::v1::Expression::kReference &&
+                    user_class_names_.count(
+                        sanitize_name(f.value().reference().name())) > 0) {
+                    static_style = true;
+                }
+                if (f.name() == "value") break;
+            }
+        }
+        std::string v, lo, hi;
+        if (static_style) {
+            v = get_message_field(call, "min");
+            lo = get_message_field(call, "max");
+            hi = get_message_field(call, "arg2");
+        } else {
+            v = value_field;
+            lo = get_message_field(call, "min");
+            hi = get_message_field(call, "max");
+        }
         return "[](BallDyn v, BallDyn lo, BallDyn hi) -> BallDyn { if (v < lo) return lo; if (hi < v) return hi; return v; }(" +
-               get_message_field(call, "value") + ", " + get_message_field(call, "min") + ", " + get_message_field(call, "max") + ")";
+               v + ", " + lo + ", " + hi + ")";
     }
     if (fn == "unsigned_right_shift") {
         return "static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(" + get_message_field(call, "left") +
@@ -3753,6 +3830,34 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
                 self = sanitize_name(f.value().reference().name()) + "()";
                 break;
             }
+        }
+    }
+
+    // User static-method dispatch takes priority over the std-builtin method
+    // routes below. `MathUtils.clamp(...)` must emit `MathUtils::clamp(...)`,
+    // NOT the std `clamp` builtin (which would pass the class name as a value
+    // argument and fail to compile). When `self` is a reference whose name is a
+    // known user class, the call is unambiguously a static method call.
+    if (call.has_input() &&
+        call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+        const auto& mc = call.input().message_creation();
+        for (const auto& f : mc.fields()) {
+            if (f.name() != "self") continue;
+            if (f.value().expr_case() == ball::v1::Expression::kReference &&
+                user_class_names_.count(
+                    sanitize_name(f.value().reference().name())) > 0) {
+                std::string cls = sanitize_name(f.value().reference().name());
+                std::string joined;
+                bool first = true;
+                for (const auto& g : mc.fields()) {
+                    if (g.name() == "self") continue;
+                    if (!first) joined += ", ";
+                    joined += compile_expr(g.value());
+                    first = false;
+                }
+                return cls + "::" + sanitize_name(fn) + "(" + joined + ")";
+            }
+            break;  // self found but not a user-class reference
         }
     }
 

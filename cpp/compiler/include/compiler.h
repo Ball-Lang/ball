@@ -108,6 +108,17 @@ private:
     // closure over a loop-body local keeps that iteration's binding alive
     // (conformance 85/203/223). References to a boxed name emit `(*name)`.
     std::unordered_set<std::string> boxed_vars_;
+    // Subset of boxed_vars_ that are function PARAMETERS (not lets). emit_function
+    // renames the C++ parameter to `<name>__p` and boxes it at entry so a
+    // returned closure capturing the parameter keeps its binding (currying,
+    // conformance 154/211/224).
+    std::unordered_set<std::string> boxed_params_;
+    // Closure-captured FUNCTION-typed params (std::function<...>): these are NOT
+    // boxed (a std::function is already heap-backed and copyable, and boxing to
+    // BallDyn would lose multi-arg arity). Instead they are captured BY VALUE in
+    // the lambda so the callable copies and survives the call frame
+    // (conformance 224 — `partialApply(fn, first) => (x) => fn(first, x)`).
+    std::unordered_set<std::string> value_capture_vars_;
     // Set of all enum type names (sanitized, e.g. "Color").
     std::unordered_set<std::string> enum_names_;
     // Maps class name to its TypeDefinition for field lookups.
@@ -175,10 +186,13 @@ private:
     void emit_function(const ball::v1::FunctionDefinition& func);
     void emit_top_level_var(const ball::v1::FunctionDefinition& func);
     void emit_main(const ball::v1::FunctionDefinition& entry);
-    // Populate boxed_vars_ for a function/main body: the `let` locals captured
-    // by closures that must be shared_ptr-boxed (params excluded).
+    // Populate boxed_vars_/boxed_params_/value_capture_vars_ for a function/main
+    // body: `let` locals + non-function params captured by closures are boxed;
+    // function-typed captured params are value-captured. `param_types` is the
+    // mapped C++ type per param (empty entries / no params ⇒ treat as non-fn).
     void compute_boxed_vars(const ball::v1::Expression& body,
-                            const std::vector<std::string>& params);
+                            const std::vector<std::string>& params,
+                            const std::vector<std::string>& param_types = {});
 
     // Expression compilation — returns C++ expression string
     std::string compile_expr(const ball::v1::Expression& expr);

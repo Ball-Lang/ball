@@ -798,6 +798,14 @@ static void _collect_referenced_names(const ball::v1::Expression& e,
             out.insert(e.reference().name());
             return;
         case E::kCall:
+            // A call to a local closure variable (`f(x)` where f is a param/let)
+            // is encoded with the variable name as the call's `function` and an
+            // empty module — record it so such captures are detected (currying:
+            // `compose(f, g) => (x) => f(g(x))`). Module-qualified std/base calls
+            // are global, never locals, so intersecting with lets/params later
+            // drops any false positives harmlessly.
+            if (e.call().module().empty() && !e.call().function().empty())
+                out.insert(e.call().function());
             if (e.call().has_input()) _collect_referenced_names(e.call().input(), out);
             return;
         case E::kBlock:
@@ -1593,13 +1601,16 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
     // the enclosing loop iteration ends), while everything else stays captured
     // by reference. So the capture clause is `[&, box1, box2, ...]`.
     std::string capture = "&";
-    if (!boxed_vars_.empty() && func.has_body()) {
+    if ((!boxed_vars_.empty() || !value_capture_vars_.empty()) && func.has_body()) {
         std::unordered_set<std::string> fvs;
         _collect_referenced_names(func.body(), fvs);
-        // Deterministic order for stable output.
+        // Deterministic order for stable output. Both boxed locals (shared_ptr
+        // copy keeps the cell alive) and value-capture function params
+        // (std::function copy) are captured BY VALUE so they survive the frame.
         std::set<std::string> captured;
         for (const auto& name : fvs)
-            if (boxed_vars_.count(name)) captured.insert(name);
+            if (boxed_vars_.count(name) || value_capture_vars_.count(name))
+                captured.insert(name);
         for (const auto& name : captured)
             capture += ", " + ball_local_var_name(sanitize_name(name));
     }
@@ -2654,9 +2665,12 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
         }
     }
 
-    // User-defined function call
+    // User-defined function call. A call to a boxed local closure variable
+    // (a shared_ptr<BallDyn>) must dereference it to invoke BallDyn::operator()
+    // — e.g. `compose(f,g) => (x) => f(g(x))` with f/g boxed parameters.
     std::string func_name = sanitize_name(fn);
-    std::string result = func_name + "(";
+    std::string callee = boxed_vars_.count(fn) ? "(*" + func_name + ")" : func_name;
+    std::string result = callee + "(";
     if (call.has_input()) {
         if (call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
             bool first = true;
@@ -6913,13 +6927,40 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     };
     auto param_types = extract_param_types(func);
 
+    // Closure-capture pre-pass MUST run before the signature is emitted so that
+    // boxed parameters get their `<name>__p` rename here (boxed_params_), and
+    // boxed `let`/param references resolve to `(*name)` in the body. Skipped for
+    // generators (distinct lowering). (conformance 85/154/203/211/223/224)
+    boxed_vars_.clear();
+    boxed_params_.clear();
+    value_capture_vars_.clear();
+    {
+        bool is_gen_fn = (meta.count("is_sync_star") && meta["is_sync_star"] == "true") ||
+                         (meta.count("is_async_star") && meta["is_async_star"] == "true");
+        if (func.has_body() && !is_gen_fn) {
+            std::vector<std::string> mapped_types;
+            mapped_types.reserve(params.size());
+            for (size_t i = 0; i < params.size(); i++) {
+                mapped_types.push_back(
+                    (i < param_types.size() && !param_types[i].empty())
+                        ? map_type(param_types[i])
+                        : std::string());
+            }
+            compute_boxed_vars(func.body(), params, mapped_types);
+        }
+    }
+
     if (!params.empty()) {
         for (size_t i = 0; i < params.size(); i++) {
             if (i > 0) out_ << ", ";
             std::string t = (i < param_types.size() && !param_types[i].empty())
                                 ? map_type(param_types[i])
                                 : "auto&&";
-            out_ << t << " " << sanitize_name(params[i]);
+            // A closure-captured parameter is renamed `<name>__p`; the body
+            // sees a boxed `<name>` created at function entry (below).
+            std::string pname = sanitize_name(params[i]);
+            if (boxed_params_.count(params[i])) pname += "__p";
+            out_ << t << " " << pname;
         }
     } else if (!func.input_type().empty()) {
         out_ << map_type(func.input_type()) << " input";
@@ -6937,6 +6978,19 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         return;
     }
 
+    // Box closure-captured parameters: the C++ parameter arrived as
+    // `<name>__p`; allocate a shared_ptr<BallDyn> cell `<name>` so a returned
+    // closure capturing the parameter keeps its binding alive after the call
+    // frame is gone (currying — conformance 154/211/224). Body references to
+    // the parameter resolve to `(*name)` (see compile_reference).
+    for (const auto& p : params) {
+        if (boxed_params_.count(p)) {
+            std::string pn = sanitize_name(p);
+            emit_line("auto " + pn + " = std::make_shared<BallDyn>(BallDyn(" +
+                      pn + "__p));");
+        }
+    }
+
     // Legacy alias: hand-written ball.json fixtures often reference
     // `input` in the body even when metadata.params declares real
     // names (e.g. `fibonacci(n) { return input - 1; }`). For
@@ -6945,7 +6999,11 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     // the real param names and the alias is harmless (just a local
     // reference binding).
     if (params.size() == 1 && sanitize_name(params[0]) != "input") {
-        emit_line("auto& input = " + sanitize_name(params[0]) + ";");
+        // For a boxed parameter, alias `input` to the boxed value (*name).
+        std::string rhs = boxed_params_.count(params[0])
+                              ? "*" + sanitize_name(params[0])
+                              : sanitize_name(params[0]);
+        emit_line("auto& input = " + rhs + ";");
     }
 
     // Record this function's locals (params + every `let`) so references to a
@@ -6956,17 +7014,7 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     for (const auto& p : params) declared_locals_.insert(p);
     if (func.has_body()) _collect_declared_locals(func.body(), declared_locals_);
 
-    // Closure-capture pre-pass: box `let` locals captured by lambdas so an
-    // escaping closure over a per-iteration loop local keeps its own binding
-    // (conformance 85/203/223). Skipped for generators (their bodies use a
-    // distinct collection-based lowering). Params are not boxed (would require
-    // renaming the C++ parameter) — currying over a parameter is a follow-up.
-    boxed_vars_.clear();
-    bool is_gen_fn = (meta.count("is_sync_star") && meta["is_sync_star"] == "true") ||
-                     (meta.count("is_async_star") && meta["is_async_star"] == "true");
-    if (func.has_body() && !is_gen_fn) {
-        compute_boxed_vars(func.body(), params);
-    }
+    // (boxed_vars_/boxed_params_ were computed above, before the signature.)
 
     // Detect sync*/async* generator functions from metadata.
     bool is_generator = false;
@@ -7031,6 +7079,8 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     declared_locals_.clear();
     generic_locals_.clear();
     boxed_vars_.clear();
+    boxed_params_.clear();
+    value_capture_vars_.clear();
 
     indent_--;
     emit_line("}");
@@ -7073,13 +7123,17 @@ void CppCompiler::emit_top_level_var(const ball::v1::FunctionDefinition& func) {
 }
 
 void CppCompiler::compute_boxed_vars(const ball::v1::Expression& body,
-                                     const std::vector<std::string>& params) {
-    // Closure-capture pre-pass (shared by emit_function and emit_main): a `let`
-    // local captured by a lambda must be BOXED (shared_ptr<BallDyn>) so an
-    // escaping closure over a per-iteration loop local keeps its own binding
-    // (conformance 85/203/223). See compile_statement's let boxing and
-    // compile_lambda's by-value capture of boxed free vars.
+                                     const std::vector<std::string>& params,
+                                     const std::vector<std::string>& param_types) {
+    // Closure-capture pre-pass (shared by emit_function and emit_main). A local
+    // captured by a lambda that escapes its frame must outlive the frame:
+    //  - `let` locals + non-function params → BOXED (shared_ptr<BallDyn>), so a
+    //    per-iteration loop binding survives (conformance 85/203/223/154).
+    //  - function-typed params (std::function) → VALUE-CAPTURED (copied into the
+    //    closure), preserving arity (conformance 224).
     boxed_vars_.clear();
+    boxed_params_.clear();
+    value_capture_vars_.clear();
     std::unordered_set<std::string> lambda_fvs;
     _collect_lambda_free_vars(body, lambda_fvs);
     if (lambda_fvs.empty()) return;
@@ -7087,10 +7141,27 @@ void CppCompiler::compute_boxed_vars(const ball::v1::Expression& body,
     _collect_declared_locals(body, lets);
     static const std::unordered_set<std::string> kSpecial = {
         "input", "self", "this", "super", "__no_init__"};
-    std::unordered_set<std::string> param_set(params.begin(), params.end());
+    // Map each param name to whether its C++ type is a std::function.
+    std::unordered_map<std::string, bool> param_is_fn;
+    for (size_t i = 0; i < params.size(); i++) {
+        bool is_fn = i < param_types.size() &&
+                     param_types[i].find("std::function") != std::string::npos;
+        param_is_fn[params[i]] = is_fn;
+    }
     for (const auto& name : lambda_fvs) {
-        if (lets.count(name) && !param_set.count(name) && !kSpecial.count(name)) {
-            boxed_vars_.insert(name);
+        if (kSpecial.count(name)) continue;
+        if (lets.count(name)) {
+            boxed_vars_.insert(name);  // a `let` local captured by a closure
+        } else if (param_is_fn.count(name)) {
+            if (param_is_fn[name]) {
+                value_capture_vars_.insert(name);  // function param: copy by value
+            } else {
+                // Non-function param captured by an escaping closure (currying:
+                // `adder(a) => (b) => a + b`). Box it; emit_function renames the
+                // C++ parameter to `<name>__p` and boxes it at entry.
+                boxed_vars_.insert(name);
+                boxed_params_.insert(name);
+            }
         }
     }
 }

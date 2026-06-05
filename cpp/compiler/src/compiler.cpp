@@ -787,6 +787,104 @@ static void _collect_declared_locals(const ball::v1::Expression& e,
     }
 }
 
+// Collect every variable name referenced (kReference) anywhere in an expression
+// tree, descending into nested lambdas, blocks, calls, etc. Used by the
+// closure-capture pre-pass to find which outer locals a lambda body reads.
+static void _collect_referenced_names(const ball::v1::Expression& e,
+                                      std::unordered_set<std::string>& out) {
+    using E = ball::v1::Expression;
+    switch (e.expr_case()) {
+        case E::kReference:
+            out.insert(e.reference().name());
+            return;
+        case E::kCall:
+            if (e.call().has_input()) _collect_referenced_names(e.call().input(), out);
+            return;
+        case E::kBlock:
+            for (const auto& s : e.block().statements()) {
+                if (s.has_let()) _collect_referenced_names(s.let().value(), out);
+                else if (s.has_expression()) _collect_referenced_names(s.expression(), out);
+            }
+            if (e.block().has_result()) _collect_referenced_names(e.block().result(), out);
+            return;
+        case E::kLambda:
+            if (e.lambda().has_body()) _collect_referenced_names(e.lambda().body(), out);
+            return;
+        case E::kMessageCreation:
+            for (const auto& f : e.message_creation().fields())
+                if (f.has_value()) _collect_referenced_names(f.value(), out);
+            return;
+        case E::kFieldAccess:
+            if (e.field_access().has_object())
+                _collect_referenced_names(e.field_access().object(), out);
+            return;
+        case E::kLiteral:
+            if (e.literal().value_case() == ball::v1::Literal::kListValue)
+                for (const auto& el : e.literal().list_value().elements())
+                    _collect_referenced_names(el, out);
+            return;
+        default:
+            return;
+    }
+}
+
+// Walk an expression tree; for every lambda found, add the names it references
+// that are NOT bound inside that lambda (its params + inner lets) to `out`.
+// These are the lambda's free variables — the outer locals it captures. When a
+// closure escapes its enclosing loop iteration, such captures must be boxed
+// (shared_ptr) so each iteration's binding survives (conformance 85/203/223).
+static void _collect_lambda_free_vars(const ball::v1::Expression& e,
+                                      std::unordered_set<std::string>& out) {
+    using E = ball::v1::Expression;
+    switch (e.expr_case()) {
+        case E::kLambda: {
+            const auto& fn = e.lambda();
+            std::unordered_set<std::string> referenced;
+            std::unordered_set<std::string> bound;
+            if (fn.has_body()) {
+                _collect_referenced_names(fn.body(), referenced);
+                _collect_declared_locals(fn.body(), bound);
+            }
+            // Lambda parameters are bound within the lambda.
+            // (Params live in metadata; the caller passes them via the
+            // CppCompiler instance, so we approximate by also excluding any
+            // name the body itself declares. Param names are added by the
+            // member wrapper below.)
+            for (const auto& name : referenced) {
+                if (bound.count(name) == 0) out.insert(name);
+            }
+            // Recurse into the body to find nested lambdas too.
+            if (fn.has_body()) _collect_lambda_free_vars(fn.body(), out);
+            return;
+        }
+        case E::kCall:
+            if (e.call().has_input()) _collect_lambda_free_vars(e.call().input(), out);
+            return;
+        case E::kBlock:
+            for (const auto& s : e.block().statements()) {
+                if (s.has_let()) _collect_lambda_free_vars(s.let().value(), out);
+                else if (s.has_expression()) _collect_lambda_free_vars(s.expression(), out);
+            }
+            if (e.block().has_result()) _collect_lambda_free_vars(e.block().result(), out);
+            return;
+        case E::kMessageCreation:
+            for (const auto& f : e.message_creation().fields())
+                if (f.has_value()) _collect_lambda_free_vars(f.value(), out);
+            return;
+        case E::kFieldAccess:
+            if (e.field_access().has_object())
+                _collect_lambda_free_vars(e.field_access().object(), out);
+            return;
+        case E::kLiteral:
+            if (e.literal().value_case() == ball::v1::Literal::kListValue)
+                for (const auto& el : e.literal().list_value().elements())
+                    _collect_lambda_free_vars(el, out);
+            return;
+        default:
+            return;
+    }
+}
+
 std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
     // Dart's `this` → C++ `(*this)` (dereference the pointer for value semantics)
     if (ref.name() == "this") return "(*this)";
@@ -845,6 +943,11 @@ std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
             return sname + "()";
         }
         return "[this](auto __arg) mutable { return " + sname + "(__arg); }";
+    }
+    // A boxed (closure-captured) local is a shared_ptr<BallDyn>; dereference it
+    // to read/write the underlying value (conformance 85/203/223).
+    if (boxed_vars_.count(ref.name())) {
+        return "(*" + ball_local_var_name(sname) + ")";
     }
     return ball_local_var_name(sname);
 }
@@ -1484,9 +1587,23 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
     // iteration. We emit `[&]` (by reference) which is correct for shared
     // mutable state (counters, currying, forEach-accumulate) but dangles when
     // a closure escapes its loop iteration capturing a loop-local. That
-    // specific case is handled by boxing loop-captured locals — see
-    // compile_statement's let-binding boxing for closure-captured loop vars.
-    std::string result = "[&](";
+    // specific case is handled by boxing loop-captured locals (shared_ptr) — see
+    // the let-binding boxing in compile_statement. Such boxed locals must be
+    // captured BY VALUE here (copying the shared_ptr keeps the cell alive after
+    // the enclosing loop iteration ends), while everything else stays captured
+    // by reference. So the capture clause is `[&, box1, box2, ...]`.
+    std::string capture = "&";
+    if (!boxed_vars_.empty() && func.has_body()) {
+        std::unordered_set<std::string> fvs;
+        _collect_referenced_names(func.body(), fvs);
+        // Deterministic order for stable output.
+        std::set<std::string> captured;
+        for (const auto& name : fvs)
+            if (boxed_vars_.count(name)) captured.insert(name);
+        for (const auto& name : captured)
+            capture += ", " + ball_local_var_name(sanitize_name(name));
+    }
+    std::string result = "[" + capture + "](";
     // Parameters
     if (func.has_metadata()) {
         auto params = extract_params(func.metadata());
@@ -4399,7 +4516,14 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
             }
         }
 
-        if (is_user_class) {
+        if (boxed_vars_.count(stmt.let().name())) {
+            // Closure-captured local: allocate a fresh shared_ptr<BallDyn> cell
+            // each time this declaration executes (e.g. per loop iteration), so
+            // every escaping closure captures its own binding. References emit
+            // `(*X)` (see compile_reference). (conformance 85/203/223)
+            out_ << "auto " << var_name
+                 << " = std::make_shared<BallDyn>(BallDyn(" << val_str << "));\n";
+        } else if (is_user_class) {
             out_ << class_type << " " << var_name << " = " << val_str << ";\n";
         } else {
             out_ << "auto " << var_name << " = BallDyn(" << val_str << ");\n";
@@ -6832,6 +6956,18 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     for (const auto& p : params) declared_locals_.insert(p);
     if (func.has_body()) _collect_declared_locals(func.body(), declared_locals_);
 
+    // Closure-capture pre-pass: box `let` locals captured by lambdas so an
+    // escaping closure over a per-iteration loop local keeps its own binding
+    // (conformance 85/203/223). Skipped for generators (their bodies use a
+    // distinct collection-based lowering). Params are not boxed (would require
+    // renaming the C++ parameter) — currying over a parameter is a follow-up.
+    boxed_vars_.clear();
+    bool is_gen_fn = (meta.count("is_sync_star") && meta["is_sync_star"] == "true") ||
+                     (meta.count("is_async_star") && meta["is_async_star"] == "true");
+    if (func.has_body() && !is_gen_fn) {
+        compute_boxed_vars(func.body(), params);
+    }
+
     // Detect sync*/async* generator functions from metadata.
     bool is_generator = false;
     if (meta.count("is_sync_star") && meta["is_sync_star"] == "true") is_generator = true;
@@ -6894,6 +7030,7 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     current_return_type_ = prev_return_type;
     declared_locals_.clear();
     generic_locals_.clear();
+    boxed_vars_.clear();
 
     indent_--;
     emit_line("}");
@@ -6935,6 +7072,29 @@ void CppCompiler::emit_top_level_var(const ball::v1::FunctionDefinition& func) {
     }
 }
 
+void CppCompiler::compute_boxed_vars(const ball::v1::Expression& body,
+                                     const std::vector<std::string>& params) {
+    // Closure-capture pre-pass (shared by emit_function and emit_main): a `let`
+    // local captured by a lambda must be BOXED (shared_ptr<BallDyn>) so an
+    // escaping closure over a per-iteration loop local keeps its own binding
+    // (conformance 85/203/223). See compile_statement's let boxing and
+    // compile_lambda's by-value capture of boxed free vars.
+    boxed_vars_.clear();
+    std::unordered_set<std::string> lambda_fvs;
+    _collect_lambda_free_vars(body, lambda_fvs);
+    if (lambda_fvs.empty()) return;
+    std::unordered_set<std::string> lets;
+    _collect_declared_locals(body, lets);
+    static const std::unordered_set<std::string> kSpecial = {
+        "input", "self", "this", "super", "__no_init__"};
+    std::unordered_set<std::string> param_set(params.begin(), params.end());
+    for (const auto& name : lambda_fvs) {
+        if (lets.count(name) && !param_set.count(name) && !kSpecial.count(name)) {
+            boxed_vars_.insert(name);
+        }
+    }
+}
+
 void CppCompiler::emit_main(const ball::v1::FunctionDefinition& entry) {
     emit_line("int main() {");
     indent_++;
@@ -6944,6 +7104,7 @@ void CppCompiler::emit_main(const ball::v1::FunctionDefinition& entry) {
     declared_locals_.clear();
     generic_locals_.clear();
     if (entry.has_body()) _collect_declared_locals(entry.body(), declared_locals_);
+    if (entry.has_body()) compute_boxed_vars(entry.body(), {});
 
     if (entry.has_body()) {
         if (entry.body().expr_case() == ball::v1::Expression::kBlock) {
@@ -6966,6 +7127,7 @@ void CppCompiler::emit_main(const ball::v1::FunctionDefinition& entry) {
     emit_line("return 0;");
     indent_--;
     emit_line("}");
+    boxed_vars_.clear();
 }
 
 // ================================================================

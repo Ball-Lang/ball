@@ -102,6 +102,12 @@ private:
     // ...). Lets the return-statement handler emit a bare `return;` in void
     // functions instead of `return BallDyn(...)` (conformance 89).
     std::string current_return_type_;
+    // Local/param names captured by a closure in the current function that must
+    // be BOXED (shared_ptr<BallDyn>): their declaration allocates a fresh cell
+    // per iteration and lambdas capture the shared_ptr by value, so an escaping
+    // closure over a loop-body local keeps that iteration's binding alive
+    // (conformance 85/203/223). References to a boxed name emit `(*name)`.
+    std::unordered_set<std::string> boxed_vars_;
     // Set of all enum type names (sanitized, e.g. "Color").
     std::unordered_set<std::string> enum_names_;
     // Maps class name to its TypeDefinition for field lookups.
@@ -169,6 +175,10 @@ private:
     void emit_function(const ball::v1::FunctionDefinition& func);
     void emit_top_level_var(const ball::v1::FunctionDefinition& func);
     void emit_main(const ball::v1::FunctionDefinition& entry);
+    // Populate boxed_vars_ for a function/main body: the `let` locals captured
+    // by closures that must be shared_ptr-boxed (params excluded).
+    void compute_boxed_vars(const ball::v1::Expression& body,
+                            const std::vector<std::string>& params);
 
     // Expression compilation — returns C++ expression string
     std::string compile_expr(const ball::v1::Expression& expr);

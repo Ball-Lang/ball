@@ -7825,13 +7825,26 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         return "ball_concat(" + left + "," + right + ")";
     }
     if (fn == "list_slice") {
+        // `list.sublist(start[, end])`. The Ball IR encodes the bounds as
+        // positional `value` (or arg0/arg1) fields after `list`, NOT as named
+        // start/end — collect them in order (conformance 132: merge sort
+        // recursed forever because the bounds were dropped → segfault).
         auto list = get_message_field(call, "list");
-        auto start = get_message_field(call, "start");
-        auto end = get_optional_field(call, "end");
-        if (end.empty()) {
-            return "ball_sublist(" + list + "," + start + ")";
+        std::vector<std::string> bounds;
+        if (call.has_input() &&
+            call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+            for (const auto& f : call.input().message_creation().fields()) {
+                if (f.name() == "list") continue;
+                if (f.name() == "value" || f.name() == "start" ||
+                    f.name() == "end" || f.name().rfind("arg", 0) == 0) {
+                    bounds.push_back(compile_expr(f.value()));
+                }
+            }
         }
-        return "ball_sublist(" + list + "," + start + "," + end + ")";
+        if (bounds.empty()) return "ball_sublist(" + list + ", BallDyn())";
+        if (bounds.size() == 1)
+            return "ball_sublist(" + list + ", " + bounds[0] + ")";
+        return "ball_sublist(" + list + ", " + bounds[0] + ", " + bounds[1] + ")";
     }
     if (fn == "string_join") {
         auto list = get_message_field(call, "list");

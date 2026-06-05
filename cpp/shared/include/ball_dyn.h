@@ -231,6 +231,9 @@ public:
         _val = BallListRef(std::make_shared<BallList>(std::move(l)));
     }
     BallDyn(BallFunc v) : _val(std::move(v)) {}
+    // StringBuffer — stored shared_ptr-backed (BallStringBuffer holds the
+    // shared_ptr) so writes through any alias accumulate (conformance 140/150).
+    BallDyn(BallStringBuffer v) : _val(std::move(v)) {}
     // List.filled(length, value) lowers to a List_filled aggregate (defined in
     // ball_emit_runtime.h, always spliced before this header in compiled programs).
     BallDyn(const List_filled& lf)
@@ -435,6 +438,8 @@ public:
             out += "}";
             return out;
         }
+        if (_val.type() == typeid(BallStringBuffer))
+            return *std::any_cast<const BallStringBuffer&>(_val).buf;
         return "<dynamic>";
     }
 
@@ -1257,6 +1262,49 @@ template <typename F>
 inline BallDyn ball_map_put_if_absent(BallDyn&& m, const BallDyn& key, F ifAbsent) {
     std::string k = static_cast<std::string>(key);
     return m.count(k) == 0 ? BallDyn(ifAbsent()) : m[k];
+}
+
+// StringBuffer write helpers — the compiler lowers `sb.write(x)` etc. to free
+// calls `write(sb, x)`. sb wraps a shared_ptr-backed BallStringBuffer, so all
+// appends through any alias accumulate into the same string (conformance
+// 140/150). Returns the buffer for cascade chaining.
+inline std::string* _ball_strbuf_ptr(const BallDyn& sb) {
+    std::any a = static_cast<std::any>(sb);
+    const std::any& u = _BallDynUnwrapper::unwrap(a);
+    if (u.type() == typeid(BallStringBuffer))
+        return std::any_cast<const BallStringBuffer&>(u).buf.get();
+    return nullptr;
+}
+inline BallDyn write(const BallDyn& sb, const BallDyn& value) {
+    if (auto* p = _ball_strbuf_ptr(sb)) *p += ball_to_string(value);
+    return sb;
+}
+inline BallDyn writeln(const BallDyn& sb, const BallDyn& value) {
+    if (auto* p = _ball_strbuf_ptr(sb)) { *p += ball_to_string(value); *p += "\n"; }
+    return sb;
+}
+inline BallDyn writeln(const BallDyn& sb) {
+    if (auto* p = _ball_strbuf_ptr(sb)) *p += "\n";
+    return sb;
+}
+inline BallDyn writeCharCode(const BallDyn& sb, const BallDyn& code) {
+    if (auto* p = _ball_strbuf_ptr(sb)) {
+        int64_t c = static_cast<int64_t>(code);
+        // UTF-16 code unit in the BMP → a single char (sufficient for the
+        // ASCII/Latin conformance cases). Astral planes are out of scope here.
+        p->push_back(static_cast<char>(c & 0xFF));
+    }
+    return sb;
+}
+inline BallDyn writeAll(const BallDyn& sb, const BallDyn& items) {
+    if (auto* p = _ball_strbuf_ptr(sb)) {
+        for (const auto& e : items) *p += ball_to_string(BallDyn(e));
+    }
+    return sb;
+}
+inline BallDyn ball_strbuf_clear(const BallDyn& sb) {
+    if (auto* p = _ball_strbuf_ptr(sb)) p->clear();
+    return sb;
 }
 
 // Generator yields — the engine calls `gen.yield_(v)` / `gen.yieldAll(xs)`,

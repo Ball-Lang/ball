@@ -187,6 +187,14 @@ using BallMap_RT = std::map<std::string, std::any>;
 using BallList_RT = std::vector<std::any>;
 using BallFunc_RT = std::function<std::any(std::any)>;
 
+// Dart StringBuffer: a growable text buffer. shared_ptr-backed so that
+// `..write(a)..write(b)` cascades and writes through aliases accumulate into
+// the same string (reference semantics, like Dart). Defined before
+// ball_to_string so the stringify path can read it. (conformance 140/150)
+struct BallStringBuffer {
+    std::shared_ptr<std::string> buf = std::make_shared<std::string>();
+};
+
 // Helper to unwrap the inner std::any from a BallDyn stored in std::any.
 // On MSVC, implicit conversion of BallDyn to const std::any& may use
 // std::any's template constructor, wrapping the BallDyn object in std::any
@@ -270,6 +278,8 @@ inline std::string ball_to_string(const std::any& v) {
     if (v.type() == typeid(bool)) return ball_to_string(std::any_cast<bool>(v));
     if (v.type() == typeid(std::string)) return std::any_cast<std::string>(v);
     if (v.type() == typeid(const char*)) return std::any_cast<const char*>(v);
+    if (v.type() == typeid(BallStringBuffer))
+        return *std::any_cast<const BallStringBuffer&>(v).buf;
     if (v.type() == typeid(BallList_RT)) return ball_to_string(std::any_cast<const BallList_RT&>(v));
     if (const BallList_RT* lp = _BallRefDeref::list(v)) return ball_to_string(*lp);
     if (v.type() == typeid(BallMap_RT)) {

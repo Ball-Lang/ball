@@ -475,9 +475,11 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     if (ball_type == "Exception") return "std::runtime_error";
     if (ball_type == "Error") return "std::runtime_error";
 
-    // Dart IO types
+    // Dart IO types. StringBuffer → BallStringBuffer (a shared_ptr-backed
+    // runtime type) so it wraps in BallDyn and its write/writeCharCode/toString
+    // methods route to runtime helpers (conformance 140/150).
     if (ball_type == "StringSink" || ball_type == "StringBuffer")
-        return "std::ostringstream";
+        return "BallStringBuffer";
     if (ball_type == "IOSink") return "std::ostream";
     if (ball_type == "Random") return "BallDyn";
     if (ball_type == "Completer" || ball_type.find("Completer<") == 0)
@@ -1165,6 +1167,11 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
         } else if (mapped.find("::") != std::string::npos) {
             type = mapped;
         } else if (bare_mapped.find("::") != std::string::npos) {
+            type = bare_mapped;
+        } else if (bare_mapped != sanitize_name(bare) && !bare_mapped.empty()) {
+            // map_type transformed the name to a Ball runtime type (e.g.
+            // StringBuffer → BallStringBuffer); use the mapped form so the
+            // construction names the real type (conformance 140/150).
             type = bare_mapped;
         } else {
             type = sanitize_name(msg.type_name());
@@ -4788,8 +4795,26 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                     auto emit_case_body = [&](const ball::v1::Expression* case_body) {
                         if (!case_body) return;
                         if (case_body->expr_case() == ball::v1::Expression::kBlock) {
-                            for (const auto& s : case_body->block().statements()) {
-                                compile_statement(s);
+                            // A switch is lowered to an if/else-if chain, so the
+                            // Dart switch-case's trailing `break;` (encoded as a
+                            // bare std.break with no label) must NOT be emitted —
+                            // a C++ `break` here would escape the *enclosing loop*,
+                            // not the (non-existent) switch (conformance 150).
+                            const auto& stmts = case_body->block().statements();
+                            int n = stmts.size();
+                            if (n > 0) {
+                                const auto& last = stmts[n - 1];
+                                if (last.has_expression() &&
+                                    last.expression().expr_case() ==
+                                        ball::v1::Expression::kCall &&
+                                    last.expression().call().function() == "break" &&
+                                    get_string_field(last.expression().call(),
+                                                     "label").empty()) {
+                                    n--;  // drop the trailing switch-break
+                                }
+                            }
+                            for (int si = 0; si < n; si++) {
+                                compile_statement(stmts[si]);
                             }
                             if (case_body->block().has_result()) {
                                 emit_line("return " + compile_expr(case_body->block().result()) + ";");

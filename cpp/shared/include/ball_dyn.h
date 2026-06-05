@@ -2117,6 +2117,47 @@ inline BallDyn ball_map_values(const BallDyn& v) {
     return BallDyn(BallList(r));
 }
 
+// std_collections.list_foreach: iterate a collection, invoking `fn` per element
+// for its side effects. Over a LIST, calls fn(item). Over a MAP, calls
+// fn({key, value, arg0:key, arg1:value}) per entry so the callback can bind the
+// key/value by name or positionally (mirrors the Dart engine). (conformance 116)
+template <typename F>
+inline BallDyn ball_foreach(const BallDyn& coll, F fn) {
+    // Split on callback ARITY at compile time: only the matching branch is
+    // instantiated, so a 2-arg map callback never has to compile `fn(item)`
+    // (and vice-versa) — both runtime branches of a plain `if` would otherwise
+    // be type-checked and fail for the wrong arity (conformance 119).
+    if constexpr (std::is_invocable_v<F, BallDyn, BallDyn>) {
+        // Dart `map.forEach((key, value) => …)` — a 2-arg callback.
+        BallDyn entries = ball_map_entries(coll);
+        for (size_t i = 0; i < entries.size(); i++) {
+            BallDyn ent = entries[static_cast<int64_t>(i)];
+            fn(BallDyn(ent["key"s]), BallDyn(ent["value"s]));
+        }
+    } else {
+        // 1-arg callback: list items, or map entries as `{key,value,arg0,arg1}`.
+        if (ball_is_map_dyn(coll)) {
+            BallDyn entries = ball_map_entries(coll);
+            for (size_t i = 0; i < entries.size(); i++) {
+                BallDyn ent = entries[static_cast<int64_t>(i)];
+                BallDyn k = ent["key"s];
+                BallDyn val = ent["value"s];
+                BallMap arg;
+                arg["key"] = static_cast<std::any>(k);
+                arg["value"] = static_cast<std::any>(val);
+                arg["arg0"] = static_cast<std::any>(k);
+                arg["arg1"] = static_cast<std::any>(val);
+                fn(BallDyn(arg));
+            }
+        } else {
+            for (size_t i = 0; i < coll.size(); i++) {
+                fn(coll[static_cast<int64_t>(i)]);
+            }
+        }
+    }
+    return BallDyn();
+}
+
 // ── fold free function ──
 // Dart's Iterable.fold(initialValue, combine) — reduce over a list.
 template<typename Iter, typename Init, typename Fn>

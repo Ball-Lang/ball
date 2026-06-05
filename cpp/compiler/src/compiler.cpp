@@ -1604,12 +1604,19 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
     if ((!boxed_vars_.empty() || !value_capture_vars_.empty()) && func.has_body()) {
         std::unordered_set<std::string> fvs;
         _collect_referenced_names(func.body(), fvs);
+        // A name declared (let) INSIDE this lambda is local, not a free variable
+        // captured from the enclosing scope — exclude it so we don't emit a
+        // capture for a shadowing inner local (conformance 119: a foreach
+        // callback that declares its own `total`).
+        std::unordered_set<std::string> inner_decls;
+        _collect_declared_locals(func.body(), inner_decls);
         // Deterministic order for stable output. Both boxed locals (shared_ptr
         // copy keeps the cell alive) and value-capture function params
         // (std::function copy) are captured BY VALUE so they survive the frame.
         std::set<std::string> captured;
         for (const auto& name : fvs)
-            if (boxed_vars_.count(name) || value_capture_vars_.count(name))
+            if ((boxed_vars_.count(name) || value_capture_vars_.count(name)) &&
+                !inner_decls.count(name))
                 captured.insert(name);
         for (const auto& name : captured)
             capture += ", " + ball_local_var_name(sanitize_name(name));
@@ -1674,7 +1681,25 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
                 result += indent_str() + "return BallDyn();\n";
             }
         } else {
-            result += indent_str() + "return " + compile_expr(func.body()) + ";\n";
+            // A single-expression body that is void (a `print`/println, or a
+            // void user function) must NOT be `return`ed: print compiles to a
+            // `std::cout << …` whose value is `std::ostream&`, and `return`ing
+            // it deduces a by-value ostream copy (deleted) — surfaced by
+            // foreach callbacks like `(k,v) => print(...)` (conformance 116).
+            const auto& b = func.body();
+            bool is_void_expr =
+                (b.expr_case() == ball::v1::Expression::kCall &&
+                 b.call().module() == "std" &&
+                 (b.call().function() == "print" ||
+                  b.call().function() == "println" ||
+                  b.call().function() == "print_error")) ||
+                _isVoidUserCall(b);
+            if (is_void_expr) {
+                result += indent_str() + compile_expr(b) + ";\n";
+                result += indent_str() + "return BallDyn();\n";
+            } else {
+                result += indent_str() + "return " + compile_expr(b) + ";\n";
+            }
         }
     }
     indent_--;
@@ -7704,6 +7729,15 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         auto callback = cb_e ? compile_expr(*cb_e) : "BallDyn()";
         return "[](const BallDyn& v, auto fn) -> BallDyn {BallList r;for(size_t i=0;i<v.size();i++)r.push_back(std::any(fn(v[static_cast<int64_t>(i)])));return BallDyn(r);}("
                + list + "," + callback + ")";
+    }
+    if (fn == "list_foreach") {
+        // Iterate a list or map for side effects (Dart Iterable/Map.forEach).
+        auto list = get_message_field(call, "list");
+        auto* cb_e = get_message_field_expr(call, "callback");
+        if (!cb_e) cb_e = get_message_field_expr(call, "function");
+        if (!cb_e) cb_e = get_message_field_expr(call, "value");
+        auto callback = cb_e ? compile_expr(*cb_e) : "BallDyn()";
+        return "ball_foreach(" + list + ", " + callback + ")";
     }
     if (fn == "list_filter") {
         auto list = get_message_field(call, "list");

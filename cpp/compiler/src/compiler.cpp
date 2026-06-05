@@ -1461,11 +1461,13 @@ std::string CppCompiler::compile_block_statements(const ball::v1::Block& block) 
 }
 
 std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func) {
-    // Dart closures capture by reference: all closures sharing a variable
-    // see the same value, including mutations. Use `[&]` to match Dart
-    // semantics. This is safe as long as closures don't outlive the
-    // enclosing stack frame; compiled Ball programs keep all relevant
-    // locals alive through the program's single main() or function scope.
+    // Dart closures capture the variable *binding* (a box). Function-scope
+    // locals are shared by reference; loop-body locals get a fresh box per
+    // iteration. We emit `[&]` (by reference) which is correct for shared
+    // mutable state (counters, currying, forEach-accumulate) but dangles when
+    // a closure escapes its loop iteration capturing a loop-local. That
+    // specific case is handled by boxing loop-captured locals — see
+    // compile_statement's let-binding boxing for closure-captured loop vars.
     std::string result = "[&](";
     // Parameters
     if (func.has_metadata()) {
@@ -3194,11 +3196,13 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             std::string pattern;
             const ball::v1::Expression* body_expr = nullptr;
             const ball::v1::Expression* pattern_expr_ptr = nullptr;
+            const ball::v1::Expression* value_expr = nullptr;
             bool is_default = false;
             for (const auto& f : case_expr.message_creation().fields()) {
                 if (f.name() == "pattern") pattern = compile_expr(f.value());
                 if (f.name() == "body") body_expr = &f.value();
                 if (f.name() == "pattern_expr") pattern_expr_ptr = &f.value();
+                if (f.name() == "value") value_expr = &f.value();
                 if (f.name() == "is_default" &&
                     f.value().expr_case() == ball::v1::Expression::kLiteral &&
                     f.value().literal().bool_value()) is_default = true;
@@ -3250,6 +3254,15 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                     result += indent_str() + "  if (" + cond + ") return " + body + ";\n";
                     continue;
                 }
+            }
+
+            // Plain value case (`case N => body`): the Ball IR encodes the
+            // match value in a `value` field (no `pattern`/`pattern_expr`).
+            // Emit a direct equality check. (conformance 169, 170)
+            if (value_expr && pattern.empty() && !pattern_expr_ptr) {
+                result += indent_str() + "  if (BallDyn(__subj) == BallDyn(" +
+                          compile_expr(*value_expr) + ")) return " + body + ";\n";
+                continue;
             }
 
             // Fall back to text-based pattern matching

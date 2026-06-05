@@ -7789,8 +7789,21 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     }
     if (fn == "list_sort") {
         auto list = get_message_field(call, "list");
+        // `list.sort(compare)` may supply a 2-arg comparator (a→int: <0 means a
+        // before b). When present, use it; otherwise sort by natural order.
         // Sort in place on the shared list (reference semantics) and return the
-        // same handle, so `list.sort()` mutates the caller's list.
+        // same handle, so `list.sort()` mutates the caller's list. (conf. 122)
+        const ball::v1::Expression* cmp_e = get_message_field_expr(call, "compare");
+        if (!cmp_e) cmp_e = get_message_field_expr(call, "callback");
+        if (!cmp_e) cmp_e = get_message_field_expr(call, "function");
+        if (!cmp_e) cmp_e = get_message_field_expr(call, "value");
+        if (cmp_e && cmp_e->expr_case() == ball::v1::Expression::kLambda) {
+            std::string cmp = compile_expr(*cmp_e);
+            return "[](BallDyn v, auto fn){if(BallList* l=v._listPtr()){"
+                   "std::stable_sort(l->begin(),l->end(),[&](const std::any& a,const std::any& b){"
+                   "return static_cast<int64_t>(BallDyn(fn(BallDyn(a),BallDyn(b))))<0;});}"
+                   "return v;}(" + list + "," + cmp + ")";
+        }
         return "[](BallDyn v){if(BallList* l=v._listPtr()){std::sort(l->begin(),l->end(),[](const std::any& a,const std::any& b){return ball_natural_less(a,b);});}return v;}(" + list + ")";
     }
     if (fn == "list_sort_by") {

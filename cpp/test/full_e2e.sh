@@ -19,7 +19,9 @@ for prog in "$CONF"/*.ball.json; do
   if ! "$COMPILER" "$prog" > "$TMP/p.cpp" 2>"$TMP/cerr"; then
     COMPILE_ERR+=("$name"); ((fail++)); continue
   fi
-  if ! timeout 60 g++ -std=c++20 -O1 "$TMP/p.cpp" -o "$TMP/p.bin" 2>"$TMP/gerr"; then
+  # -O0: faster builds, avoids false timeouts on large generator programs
+  # (149) that are slow to optimize. Correctness is what we measure here.
+  if ! timeout 120 g++ -std=c++20 -O0 "$TMP/p.cpp" -o "$TMP/p.bin" 2>"$TMP/gerr"; then
     GPP_ERR+=("$name: $(grep -m1 'error:' "$TMP/gerr" | sed -E 's/.*error: //' | head -c 80)")
     ((fail++)); continue
   fi

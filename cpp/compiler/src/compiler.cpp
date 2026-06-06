@@ -234,6 +234,96 @@ void CppCompiler::build_lookup_tables() {
             ancestor = next_ancestor;
         }
     }
+
+    // ── Dynamic-class discriminator ──
+    // A class is "dynamic" iff it is generic (type_params), abstract, or has an
+    // abstract ancestor (its superclass chain reaches an abstract class). These
+    // lower to map-backed BallObjects with a __methods__ table; their type maps
+    // to BallDyn. All other classes keep the concrete-struct path.
+    {
+        // Helper: bare/sanitized name of a full class key.
+        auto bare_of = [](const std::string& cls) {
+            auto c = cls.find(':');
+            return c != std::string::npos ? cls.substr(c + 1) : cls;
+        };
+        // Collect generic + abstract classes directly.
+        std::unordered_set<std::string> abstract_full;   // full class keys
+        std::unordered_set<std::string> generic_full;
+        for (const auto& [cls, td_ptr] : class_typedefs_) {
+            if (!td_ptr) continue;
+            auto tmeta = read_type_meta(*td_ptr);
+            bool is_abstract = tmeta.count("is_abstract") && tmeta["is_abstract"] == "true";
+            bool is_generic = td_ptr->type_params_size() > 0 ||
+                              read_meta_list(td_ptr->metadata(), "type_params").size() > 0;
+            if (is_abstract) abstract_full.insert(cls);
+            if (is_generic) generic_full.insert(cls);
+        }
+        // Walk each class's superclass chain; if it reaches an abstract class,
+        // it (and every link visited) is dynamic.
+        auto has_abstract_ancestor = [&](const std::string& start) -> bool {
+            std::string cur = start;
+            std::unordered_set<std::string> seen;
+            while (!cur.empty() && !seen.count(cur)) {
+                seen.insert(cur);
+                auto sit = class_superclass_.find(cur);
+                if (sit == class_superclass_.end() || sit->second.empty()) break;
+                // Resolve bare superclass name to a full class key.
+                std::string super_full;
+                for (const auto& [c, _] : class_superclass_) {
+                    if (bare_of(c) == sit->second) { super_full = c; break; }
+                }
+                if (super_full.empty()) break;
+                if (abstract_full.count(super_full)) return true;
+                cur = super_full;
+            }
+            return false;
+        };
+        // Runtime/stub types are provided by the emitted preamble (BallObject,
+        // scopes, flow signals, module handlers, …) and have hand-written
+        // implementations — they must NEVER be lowered to map-backed dynamic
+        // classes even if their TypeDefinition is marked abstract (e.g. the
+        // self-hosted engine's abstract `BallModuleHandler`).
+        static const std::set<std::string> runtime_excluded = {
+            "BallModuleHandler", "StdModuleHandler", "BallException",
+            "BallRuntimeError", "BallFuture", "BallGenerator", "_FlowSignal",
+            "_Scope", "Scope", "_ExitSignal", "File", "JsonEncoder",
+            "JsonDecoder", "StringBuffer", "StringSink",
+        };
+        for (const auto& [cls, td_ptr] : class_typedefs_) {
+            bool dyn = generic_full.count(cls) || abstract_full.count(cls) ||
+                       has_abstract_ancestor(cls);
+            if (!dyn) continue;
+            std::string bare = sanitize_name(bare_of(cls));
+            if (runtime_excluded.count(bare)) continue;
+            dynamic_class_names_.insert(cls);
+            dynamic_class_names_.insert(bare);
+            dynamic_class_typedefs_[bare] = td_ptr;
+        }
+        // Collect each dynamic class's methods/constructors in declaration order.
+        for (const auto& mod : program_.modules()) {
+            for (const auto& func : mod.functions()) {
+                if (func.is_base() || !func.has_metadata()) continue;
+                auto colon = func.name().find(':');
+                if (colon == std::string::npos) continue;
+                std::string after = func.name().substr(colon + 1);
+                auto dot = after.find('.');
+                if (dot == std::string::npos) continue;
+                std::string cls_full = func.name().substr(0, colon + 1 + dot);
+                if (!dynamic_class_names_.count(cls_full)) continue;
+                std::string bare = sanitize_name(after.substr(0, dot));
+                dynamic_class_methods_[bare].push_back(&func);
+            }
+        }
+        // A method/getter name is dynamic-dispatchable ONLY if EVERY class that
+        // defines it is dynamic. Otherwise a concrete-class call with the same
+        // method name (e.g. toString) would be wrongly routed to ball_call_method.
+        for (const auto& [mname, owners] : method_to_classes_) {
+            bool all_dynamic = !owners.empty();
+            for (const auto& cls : owners)
+                if (!dynamic_class_names_.count(cls)) { all_dynamic = false; break; }
+            if (all_dynamic) dynamic_method_names_.insert(mname);
+        }
+    }
 }
 
 std::vector<std::string> CppCompiler::lookup_ctor_params(const std::string& type_name) {
@@ -610,6 +700,24 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     // dispatch (for-in iteration, switch comparison, function params).
     // The enum struct is still used for static member access (Color::red).
     if (enum_names_.count(sanitize_name(ball_type)) > 0) return "BallDyn";
+
+    // ── Dynamic-dispatch-generics ──
+    // A bare in-scope type parameter (e.g. `T`) → BallDyn: generic functions are
+    // not emitted as templates, so a `T` param/return is erased to BallDyn.
+    if (active_type_params_.count(ball_type) > 0) return "BallDyn";
+    // A generic instantiation `Box<X>` / `Container<X>` whose base names a
+    // dynamic (generic) class → BallDyn (map-backed). Strip the angle-args and
+    // test the base name.
+    {
+        auto lt = ball_type.find('<');
+        if (lt != std::string::npos && !ball_type.empty() && ball_type.back() == '>') {
+            std::string base = ball_type.substr(0, lt);
+            if (is_dynamic_class(base)) return "BallDyn";
+        }
+    }
+    // A dynamic class name (generic/abstract/abstract-descendant) → BallDyn.
+    if (is_dynamic_class(ball_type)) return "BallDyn";
+
     // User-defined type
     return sanitize_name(ball_type);
 }
@@ -621,6 +729,16 @@ std::string CppCompiler::map_return_type(const ball::v1::FunctionDefinition& fun
     // Enum types stay as BallDyn since they flow through BallDyn dispatch.
     if (!func.output_type().empty()) {
         std::string stype = sanitize_name(func.output_type());
+        // Dynamic classes (generic/abstract/abstract-descendant) and bare type
+        // params return BallDyn (map-backed), never a concrete struct type.
+        if (active_type_params_.count(func.output_type()) > 0) return "BallDyn";
+        if (is_dynamic_class(func.output_type())) return "BallDyn";
+        {
+            auto lt = func.output_type().find('<');
+            if (lt != std::string::npos && func.output_type().back() == '>' &&
+                is_dynamic_class(func.output_type().substr(0, lt)))
+                return "BallDyn";
+        }
         if (user_class_names_.count(stype) > 0 && enum_names_.count(stype) == 0)
             return stype;
         if (func.output_type() == "void") return "void";
@@ -973,6 +1091,18 @@ static void _collect_lambda_free_vars(const ball::v1::Expression& e,
 }
 
 std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
+    // ── Dynamic-class method closures ──
+    // When emitting a dynamic (map-backed) class method as a free closure,
+    // `self`/`this`/`super` resolve to the captured receiver BallDyn, and a bare
+    // reference to one of the instance's fields reads it via bracket access.
+    if (!dynamic_self_expr_.empty()) {
+        if (ref.name() == "self" || ref.name() == "this" || ref.name() == "super")
+            return dynamic_self_expr_;
+        if (declared_locals_.count(ref.name()) == 0 &&
+            dynamic_self_fields_.count(ref.name()) > 0)
+            return "static_cast<BallDyn>(" + dynamic_self_expr_ + ")[\"" +
+                   ref.name() + "\"s]";
+    }
     // Dart's `this` → C++ `(*this)` (dereference the pointer for value semantics)
     if (ref.name() == "this") return "(*this)";
     // `self` inside a class method body → `(*this)` (the Ball IR uses `self`
@@ -1083,6 +1213,42 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
     // is the schema name `field`, so map the renamed getter back to the
     // canonical JSON key. (field_2 is the only such rename in ball.proto.)
     if (field == "field_2") field = "field";
+    // ── Dynamic (map-backed) user-class getter/no-arg-method access ──
+    // `s.peek` / `s.size` / `s.isEmpty` where the field names a method/getter of
+    // a dynamic class route through ball_call_method (program-scoped: the set
+    // only contains names owned exclusively by dynamic classes in THIS program,
+    // so list/map virtual properties like `.isEmpty`/`.length` are unaffected
+    // unless a dynamic class actually defines them). Must run BEFORE the generic
+    // `.isEmpty`/`.length`/`.first` shortcuts below. A static class reference
+    // (Enum-like) is excluded because those resolve to `Class::member`.
+    if (dynamic_method_names_.count(sanitize_name(field)) > 0) {
+        bool is_static_ref = false;
+        if (access.object().expr_case() == ball::v1::Expression::kReference)
+            is_static_ref = user_class_names_.count(
+                sanitize_name(access.object().reference().name())) > 0;
+        // Don't route when the object is one of the CURRENT dynamic method's
+        // own instance fields (a declared List/Map/etc., not a dynamic instance):
+        // e.g. inside Stack.isEmpty the body is `_items.isEmpty`, where `isEmpty`
+        // names both a List property AND a Stack method — here it is the List
+        // property. Self-field receivers keep the normal collection dispatch.
+        bool is_self_field = false;
+        if (!dynamic_self_expr_.empty() &&
+            access.object().expr_case() == ball::v1::Expression::kReference &&
+            dynamic_self_fields_.count(access.object().reference().name()) > 0)
+            is_self_field = true;
+        if (!is_static_ref && !is_self_field)
+            return "ball_call_method(BallDyn(" + obj + "), \"" +
+                   sanitize_name(field) + "\")";
+    }
+    // Inside a dynamic-class method closure, `self.<field>` reads the instance
+    // field via bracket access on the receiver (no concrete struct member).
+    if (!dynamic_self_expr_.empty() &&
+        (access.object().expr_case() == ball::v1::Expression::kReference) &&
+        (access.object().reference().name() == "self" ||
+         access.object().reference().name() == "this") &&
+        dynamic_self_fields_.count(field) > 0) {
+        return "static_cast<BallDyn>(" + obj + ")[\"" + field + "\"s]";
+    }
     // Enum static member access: `Color.red` → `Color::red`, `Color.values` → `Color::values`.
     if (access.object().expr_case() == ball::v1::Expression::kReference) {
         const auto& ref_name = access.object().reference().name();
@@ -1442,6 +1608,12 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
             std::vector<std::string> ctor_params = lookup_ctor_params(msg.type_name());
             auto colon = msg.type_name().find(':');
             auto bare = colon != std::string::npos ? msg.type_name().substr(colon + 1) : msg.type_name();
+            // Dynamic (generic) class with reified args: build a map-backed
+            // BallObject carrying __type_args__ AND a __methods__ table so both
+            // `is Box<int>` checks and method dispatch (getValue/unwrap) work.
+            if (is_dynamic_class(msg.type_name()))
+                return emit_dynamic_construction(sanitize_name(bare), msg,
+                                                 type_args_expr);
             std::string result = "[&]() { std::map<std::string,std::any> __m;";
             result += " __m[\"__type__\"s] = std::any(\"" + bare + "\"s);";
             result += " __m[\"__type_args__\"s] = std::any(" + type_args_expr + ");";
@@ -1462,6 +1634,19 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
         }
     }
 
+    // ── Dynamic (generic/abstract/abstract-descendant) class construction ──
+    // Handles ALL field shapes (empty `Stack()`, positional `Box(99)`, or named
+    // fields): build a map-backed BallObject + __methods__ table. Must run before
+    // the positional/aggregate constructor paths so it also catches zero-arg
+    // construction (which the all_positional test below would reject).
+    if (is_dynamic_class(msg.type_name())) {
+        auto colon = msg.type_name().find(':');
+        std::string bare = colon != std::string::npos
+                               ? msg.type_name().substr(colon + 1)
+                               : msg.type_name();
+        return emit_dynamic_construction(sanitize_name(bare), msg, "");
+    }
+
     // If all fields are positional (argN), emit a constructor call
     // instead of designated initializers (which require matching field names).
     bool all_positional = !msg.fields().empty();
@@ -1480,6 +1665,7 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
     }
 
     if (all_positional) {
+        // (Dynamic-class construction is handled earlier, above all_positional.)
         // Check if this class has a factory constructor for "new" — if so,
         // route through the static factory method instead of direct construction.
         bool has_factory_new = false;
@@ -2977,6 +3163,29 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         std::string op = "=";
         if (op_expr && op_expr->expr_case() == ball::v1::Expression::kLiteral)
             op = op_expr->literal().string_value();
+        // ── Dynamic-class method closure: assignment to a self field ──
+        // `_items = ...` (or `self._items = ...`) inside a dynamic-class method
+        // writes through the map-backed receiver so the mutation persists.
+        if (op == "=" && !dynamic_self_expr_.empty() && target_expr) {
+            std::string fld;
+            if (target_expr->expr_case() == ball::v1::Expression::kReference &&
+                dynamic_self_fields_.count(target_expr->reference().name()) > 0)
+                fld = target_expr->reference().name();
+            else if (target_expr->expr_case() == ball::v1::Expression::kFieldAccess &&
+                     target_expr->field_access().object().expr_case() ==
+                         ball::v1::Expression::kReference &&
+                     (target_expr->field_access().object().reference().name() == "self" ||
+                      target_expr->field_access().object().reference().name() == "this") &&
+                     dynamic_self_fields_.count(target_expr->field_access().field()) > 0)
+                fld = target_expr->field_access().field();
+            if (!fld.empty()) {
+                // Evaluate `val` exactly once (it may mutate a shared list, e.g.
+                // list_push) before writing it back to the field.
+                return "[&]() -> BallDyn { BallDyn __v = BallDyn(" + val +
+                       "); __self->setField(std::string(\"" + fld +
+                       "\"), std::any(__v)); return __v; }()";
+            }
+        }
         if (op == "~/=") {
             return "(" + target + " = static_cast<int64_t>(" + target + " / " + val + "))";
         }
@@ -4314,6 +4523,17 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
         }
     }
 
+    // ── Dynamic (map-backed) user-class instance method dispatch ──
+    // When `fn` is a method owned exclusively by dynamic (generic/abstract/
+    // abstract-descendant) classes, the receiver is a BallDyn-wrapped BallObject
+    // carrying a __methods__ table. Route through ball_call_method BEFORE the STL
+    // shortcuts below (otherwise e.g. Stack.isEmpty would emit `s.empty()`).
+    if (dynamic_method_names_.count(sanitize_name(fn)) > 0) {
+        std::string arg = arg0.empty() ? "BallDyn()" : "BallDyn(" + arg0 + ")";
+        return "ball_call_method(BallDyn(" + self + "), \"" + sanitize_name(fn) +
+               "\", " + arg + ")";
+    }
+
     // ── List methods ──
     // `List.of(x)` / `List.from(x)` / `Set.of(x)` copy the iterable; `Map.of` /
     // `Map.from` copy a map. Encoded as a method-style call (self is the type
@@ -4827,7 +5047,9 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                 for (const auto& f : mc.fields()) {
                     if (f.name() == "__type_args__") { has_type_args = true; break; }
                 }
-                if (!has_type_args) {
+                // Dynamic (generic/abstract/abstract-descendant) classes lower
+                // to map-backed BallDyn values — never a concrete struct local.
+                if (!has_type_args && !is_dynamic_class(tn)) {
                     // Check if the sanitized bare name is a user class.
                     auto colon = tn.find(':');
                     auto bare = colon != std::string::npos ? tn.substr(colon + 1) : tn;
@@ -4847,7 +5069,8 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
             if (it != stmt.let().metadata().fields().end() &&
                 it->second.kind_case() == google::protobuf::Value::kStringValue) {
                 std::string raw_type = it->second.string_value();
-                if (raw_type.find('<') == std::string::npos) {
+                if (raw_type.find('<') == std::string::npos &&
+                    !is_dynamic_class(raw_type)) {
                     auto stype = sanitize_name(raw_type);
                     if (user_class_names_.count(stype) > 0) {
                         is_user_class = true;
@@ -6055,6 +6278,38 @@ inline BallDyn ball_map_copy(const BallDyn& v) {
   } catch(...) {}
   return v;
 }
+
+// ── Dynamic user-class method dispatch ──
+// A "dynamic" user-class instance (generic / abstract / polymorphic) is a
+// map-backed BallObject (or plain BallMap) carrying a "__methods__" entry: a
+// BallMap from method name to a one-arg BallFunc closure that closes over the
+// instance's fields. ball_call_method looks the method up and invokes it.
+// Returns BallDyn() when the receiver has no such method (matches Dart's
+// noSuchMethod-as-null behavior for the cases the compiler emits).
+inline BallDyn ball_call_method(const BallDyn& recv, const std::string& name,
+                                const BallDyn& arg = BallDyn()) {
+  std::any ua = static_cast<std::any>(recv);
+  const std::any& u = _BallDynUnwrapper::unwrap(ua);
+  const BallMap* mp = nullptr;
+  if (u.type() == typeid(BallObject))
+    mp = &static_cast<const BallMap&>(std::any_cast<const BallObject&>(u));
+  else if (u.type() == typeid(BallObjectRef)) {
+    const auto& r = std::any_cast<const BallObjectRef&>(u);
+    mp = r ? &static_cast<const BallMap&>(*r) : nullptr;
+  } else if (u.type() == typeid(BallMap))
+    mp = &std::any_cast<const BallMap&>(u);
+  if (mp) {
+    auto mit = mp->find("__methods__");
+    if (mit != mp->end() && mit->second.type() == typeid(BallMap)) {
+      const BallMap& methods = std::any_cast<const BallMap&>(mit->second);
+      auto fit = methods.find(name);
+      if (fit != methods.end() && fit->second.type() == typeid(BallFunc))
+        return BallDyn(std::any_cast<const BallFunc&>(fit->second)(
+            static_cast<std::any>(arg)));
+    }
+  }
+  return BallDyn();
+}
 )";
     emit_newline();
 }
@@ -6133,6 +6388,9 @@ void CppCompiler::emit_forward_decls(const ball::v1::Module& module) {
     for (const auto& td : module.type_defs()) {
         if (!td.has_descriptor_()) continue;
         if (runtime_types.count(sanitize_name(td.name())) > 0) continue;
+        // Dynamic classes (generic/abstract/abstract-descendant) lower to
+        // map-backed BallObjects, not C++ structs — no struct forward decl.
+        if (is_dynamic_class(td.name())) continue;
         // Forward decls also need template prefix
         emit_template_prefix(td);
         emit_line("struct " + sanitize_name(td.name()) + ";");
@@ -6155,6 +6413,18 @@ void CppCompiler::emit_forward_decls(const ball::v1::Module& module) {
              meta_map["kind"] == "top_level_variable")) continue;
         if (meta_map.count("is_operator") && meta_map["is_operator"] == "true") continue;
 
+        // Generic free functions are emitted as plain (non-template) functions;
+        // erase their type params to BallDyn for the forward declaration too,
+        // matching the definition emitted by emit_function.
+        active_type_params_.clear();
+        if (func.has_metadata()) {
+            for (const auto& tp : read_meta_list(func.metadata(), "type_params")) {
+                auto space = tp.find(' ');
+                active_type_params_.insert(space != std::string::npos
+                                               ? tp.substr(0, space) : tp);
+            }
+        }
+
         auto return_type = map_return_type(func);
         auto name = sanitize_name(func.name());
         if (meta_map.count("original_name")) {
@@ -6174,7 +6444,6 @@ void CppCompiler::emit_forward_decls(const ball::v1::Module& module) {
                       "(BallDyn map, BallDyn key, BallDyn value);");
             continue;
         }
-        if (func.has_metadata()) emit_template_prefix_from_meta(func.metadata());
         emit_indent();
         out_ << return_type << " " << name << "(";
 
@@ -6213,6 +6482,7 @@ void CppCompiler::emit_forward_decls(const ball::v1::Module& module) {
         }
         out_ << ");\n";
     }
+    active_type_params_.clear();
     emit_newline();
 }
 
@@ -7204,6 +7474,222 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
     emit_newline();
 }
 
+// ── Dynamic (map-backed) class emission ──
+// A dynamic class (generic / abstract / abstract-descendant) does NOT become a
+// C++ struct. Instead each instance method is emitted as a free closure-style
+// function over the receiver, and a make_<Class>(...) factory builds a
+// BallObject carrying the instance fields plus a "__methods__" table of one-arg
+// BallFunc closures that route method calls back to those free functions.
+void CppCompiler::emit_dynamic_class(
+    const ball::v1::TypeDefinition& td,
+    const std::vector<const ball::v1::FunctionDefinition*>& methods) {
+    std::string name = sanitize_name(td.name());
+
+    // Collect the class's declared field names (from descriptor) so a bare
+    // reference inside a method body reads through the receiver.
+    std::vector<std::string> field_names;
+    std::unordered_set<std::string> field_set;
+    if (td.has_descriptor_()) {
+        for (const auto& f : td.descriptor_().field()) {
+            field_names.push_back(f.name());
+            field_set.insert(f.name());
+        }
+    }
+
+    // The class's own type parameters are in scope while emitting its method
+    // bodies and factory (so `T` etc. erase to BallDyn).
+    std::unordered_set<std::string> class_tparams;
+    for (const auto& tp : read_meta_list(td.metadata(), "type_params")) {
+        auto space = tp.find(' ');
+        class_tparams.insert(space != std::string::npos ? tp.substr(0, space) : tp);
+    }
+
+    // Instance methods that get an EMITTED closure (non-static, non-abstract,
+    // with a body). Only these are installed into the __methods__ table — an
+    // abstract base's bodiless methods (e.g. Shape.area) have no closure.
+    std::vector<std::string> own_methods;  // ordered, deduped below
+    std::unordered_set<std::string> own_methods_set;
+    for (const auto* func : methods) {
+        auto m = read_meta(*func);
+        auto k = m.count("kind") ? m["kind"] : "method";
+        if (k != "method") continue;
+        if (m.count("is_static") && m["is_static"] == "true") continue;
+        if (m.count("is_abstract") && m["is_abstract"] == "true") continue;
+        if (!func->has_body()) continue;
+        auto d = func->name().rfind('.');
+        std::string mn = d != std::string::npos ? func->name().substr(d + 1) : func->name();
+        std::string smn = sanitize_name(mn);
+        if (own_methods_set.insert(smn).second) own_methods.push_back(smn);
+    }
+
+    bool has_to_string = false;
+    // Emit a free closure function per instance method.
+    for (const auto* func : methods) {
+        auto m = read_meta(*func);
+        auto kind = m.count("kind") ? m["kind"] : "method";
+        if (kind != "method") continue;  // constructors/static fields handled in factory
+        if (m.count("is_static") && m["is_static"] == "true") continue;
+        if (m.count("is_abstract") && m["is_abstract"] == "true") continue;
+        if (!func->has_body()) continue;
+        auto d = func->name().rfind('.');
+        std::string mn = d != std::string::npos ? func->name().substr(d + 1) : func->name();
+        std::string smn = sanitize_name(mn);
+        if (mn == "toString") has_to_string = true;
+
+        std::string fn_name = "__dyn_" + name + "_" + smn;
+        emit_line("inline BallDyn " + fn_name +
+                  "(const BallObjectRef& __self, BallDyn input) {");
+        indent_++;
+
+        // Body compilation context for a dynamic-class method closure.
+        auto saved_type_params = active_type_params_;
+        auto saved_self = dynamic_self_expr_;
+        auto saved_self_fields = dynamic_self_fields_;
+        auto saved_class_methods = current_class_methods_;
+        auto saved_class_name = current_class_name_;
+        std::string saved_return = current_return_type_;
+        active_type_params_ = class_tparams;
+        for (const auto& tp : class_tparams) active_type_params_.insert(tp);
+        dynamic_self_expr_ = "BallDyn(__self)";
+        dynamic_self_fields_ = field_set;
+        current_class_methods_.clear();   // dispatch handled via ball_call_method
+        current_class_name_.clear();
+        current_return_type_ = "BallDyn";
+
+        boxed_vars_.clear();
+        boxed_params_.clear();
+        value_capture_vars_.clear();
+        declared_locals_.clear();
+        generic_locals_.clear();
+        // The single method parameter (if any) is the closure's `input`. Bind
+        // its declared name as an alias so the body resolves it.
+        auto params = func->has_metadata() ? extract_params(func->metadata())
+                                            : std::vector<std::string>{};
+        for (const auto& p : params) declared_locals_.insert(p);
+        if (func->has_body()) _collect_declared_locals(func->body(), declared_locals_);
+        if (params.size() == 1 && sanitize_name(params[0]) != "input")
+            emit_line("auto& " + sanitize_name(params[0]) + " = input;");
+
+        if (func->body().expr_case() == ball::v1::Expression::kBlock) {
+            for (const auto& s : func->body().block().statements())
+                compile_statement(s);
+            if (func->body().block().has_result())
+                emit_line("return BallDyn(" +
+                          compile_expr(func->body().block().result()) + ");");
+        } else {
+            emit_line("return BallDyn(" + compile_expr(func->body()) + ");");
+        }
+        emit_line("return BallDyn();");
+
+        active_type_params_ = saved_type_params;
+        dynamic_self_expr_ = saved_self;
+        dynamic_self_fields_ = saved_self_fields;
+        current_class_methods_ = saved_class_methods;
+        current_class_name_ = saved_class_name;
+        current_return_type_ = saved_return;
+
+        indent_--;
+        emit_line("}");
+    }
+
+    // Build the "__methods__" table builder used by both the factory and the
+    // reified-generics construction path. Each entry is a BallFunc capturing
+    // the receiver ref and forwarding to the free closure function.
+    // Emitted as a helper that installs methods onto an existing BallObjectRef.
+    emit_line("inline void __install_methods_" + name +
+              "(const BallObjectRef& __self) {");
+    indent_++;
+    emit_line("BallMap __methods;");
+    for (const auto& smn : own_methods) {
+        // Only methods that actually have an emitted closure function.
+        std::string fn_name = "__dyn_" + name + "_" + smn;
+        emit_line("__methods[\"" + smn + "\"] = std::any(BallFunc([__self](std::any __a) "
+                  "-> std::any { return static_cast<std::any>(" + fn_name +
+                  "(__self, BallDyn(__a))); }));");
+    }
+    emit_line("__self->__op_set_index__(std::string(\"__methods__\"), std::any(__methods));");
+    indent_--;
+    emit_line("}");
+
+    // Note: stringification of a dynamic instance with a `toString` method is
+    // handled in the runtime (BallDyn::operator std::string() consults the
+    // __methods__ table for "toString"), so no per-class ball_to_string overload
+    // is emitted here — the instance is BallDyn-typed at every use site.
+    (void)has_to_string;
+    emit_newline();
+}
+
+// Emit the inline make-expression for constructing a dynamic-class instance.
+// `bare_class` is the sanitized class name, `msg` the message creation (with
+// positional argN fields → real constructor params), `type_args_expr` an
+// optional compiled __type_args__ value (empty string if none).
+std::string CppCompiler::emit_dynamic_construction(
+    const std::string& bare_class, const ball::v1::MessageCreation& msg,
+    const std::string& type_args_expr) {
+    std::vector<std::string> ctor_params = lookup_ctor_params(msg.type_name());
+    std::string r = "[&]() -> BallDyn { BallMap __flds;";
+
+    // Seed class-level field initializers (e.g. `List<T> _items = []`) for
+    // every field NOT supplied by a positional constructor argument, so a
+    // default-constructed instance has real (reference-semantic) containers.
+    std::set<std::string> supplied;
+    for (const auto& f : msg.fields()) {
+        if (f.name() == "__type_args__" || f.name() == "__const__") continue;
+        std::string fn = f.name();
+        if (fn.size() >= 4 && fn.substr(0, 3) == "arg") {
+            try {
+                int idx = std::stoi(fn.substr(3));
+                if (idx >= 0 && idx < static_cast<int>(ctor_params.size()))
+                    fn = ctor_params[idx];
+            } catch (...) {}
+        }
+        supplied.insert(fn);
+    }
+    auto tdit = dynamic_class_typedefs_.find(bare_class);
+    if (tdit != dynamic_class_typedefs_.end() && tdit->second &&
+        tdit->second->has_metadata()) {
+        auto inits = extract_field_initializers(tdit->second->metadata());
+        for (const auto& [fld, raw] : inits) {
+            if (supplied.count(fld)) continue;
+            size_t b = raw.find_first_not_of(" \t\r\n");
+            size_t e = raw.find_last_not_of(" \t\r\n");
+            std::string t = (b == std::string::npos) ? std::string() : raw.substr(b, e - b + 1);
+            std::string init;
+            if (t.size() >= 2 && t.front() == '[' && t.back() == ']')
+                init = "BallDyn(BallList{})";
+            else if (t.size() >= 2 && t.front() == '{' && t.back() == '}')
+                init = "BallDyn(BallOrderedMap{})";
+            else if (!t.empty() && t != "null")
+                init = cpp_param_default("BallDyn", t);  // already BallDyn(...)
+            else
+                init = "BallDyn()";
+            r += " __flds[\"" + fld + "\"] = std::any(" + init + ");";
+        }
+    }
+
+    for (const auto& f : msg.fields()) {
+        if (f.name() == "__type_args__" || f.name() == "__const__") continue;
+        std::string field_name = f.name();
+        if (field_name.size() >= 4 && field_name.substr(0, 3) == "arg") {
+            try {
+                int idx = std::stoi(field_name.substr(3));
+                if (idx >= 0 && idx < static_cast<int>(ctor_params.size()))
+                    field_name = ctor_params[idx];
+            } catch (...) {}
+        }
+        r += " __flds[\"" + field_name + "\"] = std::any(BallDyn(" +
+             compile_expr(f.value()) + "));";
+    }
+    r += " auto __self = std::make_shared<BallObject>(std::any(std::string(\"" +
+         bare_class + "\")), std::any{}, std::any(__flds), std::any{});";
+    if (!type_args_expr.empty())
+        r += " __self->__op_set_index__(std::string(\"__type_args__\"), "
+             "static_cast<std::any>(BallDyn(" + type_args_expr + ")));";
+    r += " __install_methods_" + bare_class + "(__self);";
+    r += " return BallDyn(__self); }()";
+    return r;
+}
+
 void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     auto return_type = map_return_type(func);
     auto meta = read_meta(func);
@@ -7433,9 +7919,20 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         return;
     }
 
-    // Template prefix for generic functions
-    if (func.has_metadata())
-        emit_template_prefix_from_meta(func.metadata());
+    // Generic free functions are NOT emitted as C++ templates. A bare `T`
+    // param/return and generic instantiations (`List<T>`, `Box<T>`) cannot put
+    // `T` in a deducible position once collections/dynamic classes erase to
+    // BallDyn, so the template never matched at the call site. Instead, erase
+    // every type-param-referencing type to BallDyn (map_type consults
+    // active_type_params_) and emit a plain non-template function.
+    active_type_params_.clear();
+    if (func.has_metadata()) {
+        for (const auto& tp : read_meta_list(func.metadata(), "type_params")) {
+            auto space = tp.find(' ');  // "T extends Foo" → "T"
+            active_type_params_.insert(space != std::string::npos
+                                           ? tp.substr(0, space) : tp);
+        }
+    }
 
     emit_indent();
     bool is_operator = meta.count("is_operator") && meta["is_operator"] == "true";
@@ -7690,6 +8187,7 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
 }
 
 void CppCompiler::emit_top_level_var(const ball::v1::FunctionDefinition& func) {
+    active_type_params_.clear();
     // Skip constants already defined in the preamble
     auto bare_name = sanitize_name(func.name());
     if (bare_name == "_builtinTypeNames" || bare_name == "_stdFunctionToOperator" ||
@@ -7769,6 +8267,7 @@ void CppCompiler::compute_boxed_vars(const ball::v1::Expression& body,
 }
 
 void CppCompiler::emit_main(const ball::v1::FunctionDefinition& entry) {
+    active_type_params_.clear();
     emit_line("int main() {");
     indent_++;
 
@@ -7981,7 +8480,10 @@ std::string CppCompiler::compile() {
         for (const auto* td : sorted_tds) {
             auto it = class_methods.find(td->name());
             auto methods = it != class_methods.end() ? it->second : std::vector<const ball::v1::FunctionDefinition*>{};
-            emit_struct(*td, methods);
+            if (is_dynamic_class(td->name()))
+                emit_dynamic_class(*td, methods);
+            else
+                emit_struct(*td, methods);
         }
     }
 

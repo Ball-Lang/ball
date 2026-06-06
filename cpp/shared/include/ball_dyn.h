@@ -368,6 +368,22 @@ public:
             return ball_to_string(std::any_cast<double>(_val));
         }
         if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) ? "true" : "false";
+        // Dynamic (map-backed) user-class instance: if it carries a "__methods__"
+        // table with a "toString" closure, invoke it (Dart's toString()). This is
+        // how a generic/abstract class instance stringifies (e.g. Pair.toString).
+        if (const BallObject* op = _objPtr()) {
+            const BallMap& base = static_cast<const BallMap&>(*op);
+            auto mit = base.find("__methods__");
+            if (mit != base.end() && mit->second.type() == typeid(BallMap)) {
+                const BallMap& methods = std::any_cast<const BallMap&>(mit->second);
+                auto fit = methods.find("toString");
+                if (fit != methods.end() && fit->second.type() == typeid(BallFunc)) {
+                    std::any r = std::any_cast<const BallFunc&>(fit->second)(std::any{});
+                    return ball_to_string(r);
+                }
+            }
+            // No toString: fall through to the generic {key: value} map print.
+        }
         // List: Dart-style [a, b, c]
         if (const BallList* vp = _listPtr()) {
             const auto& v = *vp;

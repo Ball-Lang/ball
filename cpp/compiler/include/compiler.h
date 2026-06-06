@@ -150,6 +150,59 @@ private:
     // Maps class name to named (non-default, non-factory) constructor basenames.
     std::unordered_map<std::string, std::vector<std::string>> class_named_ctors_;
 
+    // ── Dynamic-class discriminator (dynamic-dispatch-generics cluster) ──
+    // A user class is "dynamic" iff it is generic (has type_params), abstract,
+    // or descends from / implements an abstract base. Dynamic classes lower to
+    // MAP-BACKED BallObject instances carrying a "__methods__" table of one-arg
+    // BallFunc closures over their fields; their type maps to BallDyn and method
+    // dispatch routes through the ball_call_method runtime helper. Concrete,
+    // non-generic, non-abstract classes KEEP the existing struct path.
+    // Keyed by BOTH the full ("main:Box") and bare/sanitized ("Box") names.
+    std::unordered_set<std::string> dynamic_class_names_;
+    // Maps a dynamic class's bare-sanitized name to its TypeDefinition + ordered
+    // method list, so messageCreation can emit the make_<Class> factory inline.
+    std::unordered_map<std::string, const ball::v1::TypeDefinition*> dynamic_class_typedefs_;
+    std::unordered_map<std::string, std::vector<const ball::v1::FunctionDefinition*>>
+        dynamic_class_methods_;
+    // Sanitized method/getter basenames owned by ANY dynamic class. A method
+    // call or field access whose name is in this set, on a non-static receiver,
+    // routes through ball_call_method instead of the struct/STL path.
+    std::unordered_set<std::string> dynamic_method_names_;
+    // Set of (sanitized bare) type-parameter names in scope while emitting a
+    // generic function/method body or dynamic-class method closure. A bare
+    // reference whose type is one of these maps to BallDyn.
+    std::unordered_set<std::string> active_type_params_;
+    // When non-empty, we are emitting a dynamic-class method body as a free
+    // closure: `self`/`this` resolve to this receiver expression and bare field
+    // references read through it via bracket access.
+    std::string dynamic_self_expr_;
+    // Field names of the dynamic class whose method body is currently being
+    // emitted (so a bare reference to one becomes a receiver bracket read).
+    std::unordered_set<std::string> dynamic_self_fields_;
+
+    // True iff `class_name` (full or bare/sanitized) is a dynamic class.
+    bool is_dynamic_class(const std::string& class_name) const {
+        return dynamic_class_names_.count(class_name) > 0 ||
+               dynamic_class_names_.count(sanitize_name_const(class_name)) > 0;
+    }
+    // const-friendly name sanitizer for use in const predicates.
+    static std::string sanitize_name_const(const std::string& name) {
+        std::string r = name;
+        auto colon = r.find(':');
+        if (colon != std::string::npos) r = r.substr(colon + 1);
+        std::replace(r.begin(), r.end(), '.', '_');
+        std::replace(r.begin(), r.end(), '-', '_');
+        return r;
+    }
+    // Emit the make_<Class> factory + per-method closure free functions for a
+    // dynamic class, plus a ball_to_string overload routing to toString.
+    void emit_dynamic_class(const ball::v1::TypeDefinition& td,
+        const std::vector<const ball::v1::FunctionDefinition*>& methods);
+    // Build the inline make_<Class>(...) construction expression for a dynamic
+    // class message-creation (positional argN fields → field map + __methods__).
+    std::string emit_dynamic_construction(const std::string& bare_class,
+        const ball::v1::MessageCreation& msg, const std::string& type_args_expr);
+
     // Sanitized names of locals/parameters declared in the function body
     // currently being emitted. A reference to one of these resolves to the
     // variable, shadowing the Dart type-object names (`num`, `int`, `String`,

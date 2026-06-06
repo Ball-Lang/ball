@@ -2785,10 +2785,39 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "right_shift") return compile_binary_op(">>", call);
 
     // ── Inc/Dec ──
-    if (fn == "pre_increment") return "(++" + get_message_field(call, "value") + ")";
-    if (fn == "post_increment") return "(" + get_message_field(call, "value") + "++)";
-    if (fn == "pre_decrement") return "(--" + get_message_field(call, "value") + ")";
-    if (fn == "post_decrement") return "(" + get_message_field(call, "value") + "--)";
+    if (fn == "pre_increment" || fn == "post_increment" ||
+        fn == "pre_decrement" || fn == "post_decrement") {
+        const bool is_inc = (fn == "pre_increment" || fn == "post_increment");
+        const bool is_pre = (fn == "pre_increment" || fn == "pre_decrement");
+        const char* delta = is_inc ? " + 1" : " - 1";
+        // `count[i]++` / `m[k]--` on an index target: BallDyn::operator[]
+        // returns by value, so a native `++` would not persist. Emit a
+        // read-modify-write through ball_set (mirrors the assign handler), so
+        // the element is actually mutated (conformance 134 counting sort).
+        const ball::v1::Expression* val_e = get_message_field_expr(call, "value");
+        if (val_e && val_e->expr_case() == ball::v1::Expression::kCall &&
+            (val_e->call().module() == "std" || val_e->call().module().empty()) &&
+            val_e->call().function() == "index") {
+            std::string tgt = get_message_field(val_e->call(), "target");
+            std::string idx = get_message_field(val_e->call(), "index");
+            std::string read = "BallDyn(" + tgt + ")[BallDyn(" + idx + ")]";
+            std::string key = "std::string(ball_to_string(BallDyn(" + idx + ")))";
+            if (is_pre) {
+                // Return the NEW value.
+                return "[&](){ BallDyn __nv = BallDyn(" + read + ")" + delta +
+                       "; ball_set(" + tgt + ", " + key +
+                       ", std::any(__nv)); return __nv; }()";
+            }
+            // Return the OLD value.
+            return "[&](){ BallDyn __old = BallDyn(" + read + "); ball_set(" +
+                   tgt + ", " + key + ", std::any(BallDyn(__old)" + delta +
+                   ")); return __old; }()";
+        }
+        std::string v = get_message_field(call, "value");
+        const char* opstr = is_inc ? "++" : "--";
+        return is_pre ? "(" + std::string(opstr) + v + ")"
+                      : "(" + v + std::string(opstr) + ")";
+    }
 
     // ── Assignment ──
     if (fn == "assign") {

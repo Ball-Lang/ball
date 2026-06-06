@@ -579,6 +579,21 @@ inline bool ball_object_type_matches(const std::any& value, const std::string& t
     return false;
 }
 
+// ── Concrete-struct type matching ──
+// Compiled classes are emitted as plain C++ structs (not BallMap-backed
+// objects), so `x is Vec2` on a concrete struct receiver cannot consult a
+// runtime `__type__` field. Each emitted struct exposes a static
+// `__ball_type_name()`; this template overload is a better match than the
+// `const std::any&` overload for any value carrying that trait, so a concrete
+// struct compares its declared type name against the requested type (walking
+// the same colon-stripping rules as map-backed objects). conformance 113.
+template <typename T>
+auto ball_object_type_matches(const T& value, const std::string& type)
+    -> decltype(T::__ball_type_name(), bool()) {
+    (void)value;
+    return ball_type_name_matches(T::__ball_type_name(), type);
+}
+
 // ── Reified generics: check __type_args__ on a map-backed object ──
 inline bool ball_type_args_match(const std::any& value, const std::string& expected) {
     const auto& u = _BallDynUnwrapper::unwrap(value);
@@ -845,7 +860,13 @@ inline std::vector<std::any> ball_to_list(const std::vector<T>& v) {
     for (const auto& el : v) result.push_back(std::any(el));
     return result;
 }
-inline std::vector<std::any> ball_to_list(const std::any& v) {
+inline std::vector<std::any> ball_to_list(const std::any& raw) {
+    // A rest pattern lowers its subject to `ball_to_list(static_cast<std::any>(
+    // BallDyn(__subj)))`, which hands us a std::any wrapping a *BallDyn* (not a
+    // bare BallList). Without unwrapping, the type checks below all miss, the
+    // function returns {}, and `BallList(__l.begin()+1, __l.end())` underflows
+    // into a multi-exabyte allocation (std::length_error). conformance 252.
+    const std::any& v = _BallDynUnwrapper::unwrap(raw);
     if (v.type() == typeid(std::vector<std::any>))
         return std::any_cast<std::vector<std::any>>(v);
     if (const std::vector<std::any>* lp = _BallRefDeref::list(v))

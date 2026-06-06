@@ -718,7 +718,12 @@ std::string CppCompiler::compile_literal(const ball::v1::Literal& lit) {
             // exactly int64_t on every platform (conformance 78/167/181 on Linux).
             return "static_cast<int64_t>(" + std::to_string(lit.int_value()) + ")";
         case ball::v1::Literal::kDoubleValue: {
+            // max_digits10 (17) round-trips every IEEE-754 double exactly. The
+            // stream's default precision is 6 significant digits, which silently
+            // truncated large exact integers like 9007199254740992.0 to
+            // 9.0072e+15 (== 9007200000000000) — wrong by ~745M. conformance 216.
             std::ostringstream oss;
+            oss.precision(17);
             oss << lit.double_value();
             auto s = oss.str();
             if (s.find('.') == std::string::npos && s.find('e') == std::string::npos)
@@ -3029,6 +3034,31 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 return "(ball_set(" + tgt + ", std::string(ball_to_string(BallDyn(" + idx + "))), std::any(" + val + ")), " + val + ")";
             }
         }
+        // Compound assignment (`+=`, `-=`, …) on an index target. `target[idx]`
+        // is an rvalue (BallDyn::operator[] returns by value), so the built-in
+        // `target[idx] += v` mutates a throwaway copy and the underlying list is
+        // never updated — matrix accumulation read all zeros (conformance 83).
+        // Desugar to a read-modify-ball_set so the element is written back
+        // through the (reference-semantic) list handle. Excludes `=`, `~/=`,
+        // `??=` (handled above).
+        if (op != "=" && target_expr &&
+            target_expr->expr_case() == ball::v1::Expression::kCall &&
+            (target_expr->call().module() == "std" ||
+             target_expr->call().module().empty()) &&
+            target_expr->call().function() == "index") {
+            std::string binop = op;
+            if (!binop.empty() && binop.back() == '=') binop.pop_back();
+            if (!binop.empty()) {
+                auto tgt = get_message_field(target_expr->call(), "target");
+                auto idx = get_message_field(target_expr->call(), "index");
+                std::string cur = "static_cast<BallDyn>(" + tgt + ")[" + idx + "]";
+                std::string newv =
+                    "(BallDyn(" + cur + ") " + binop + " BallDyn(" + val + "))";
+                return "(ball_set(" + tgt +
+                       ", std::string(ball_to_string(BallDyn(" + idx +
+                       "))), std::any(" + newv + ")), " + newv + ")";
+            }
+        }
         // Plain identifier (lvalue) target with `=`: use ball_assign so a
         // std::string target assigned a BallDyn routes through ball_to_string
         // (gcc/clang reject the ambiguous std::string::operator=(BallDyn)).
@@ -3557,10 +3587,13 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         auto cond = get_message_field(call, "condition");
         return "assert(" + cond + ")";
     }
-    if (fn == "switch_expr") {
+    if (fn == "switch_expr" || fn == "switch") {
         // Switch expression: evaluate subject, match against cases.
         // Supports ConstPattern, LogicalOrPattern, VarPattern (with type),
         // ListPattern, RestPattern, MapPattern, record patterns.
+        // `switch` reaches here only in expression context (a function body
+        // that *is* a switch returning a value); the statement form is handled
+        // separately in compile_statement (conformance 182).
         auto subject = get_message_field(call, "subject");
         auto* cases_expr = get_message_field_expr(call, "cases");
         if (!cases_expr || cases_expr->expr_case() != ball::v1::Expression::kLiteral ||
@@ -4048,10 +4081,35 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                "return b == std::string::npos ? std::string() : s.substr(0, b + 1); }(ball_to_string(" +
                get_message_field(call, "value") + "))";
     }
+    if (fn == "string_repeat") {
+        // value * count (Dart String * int). Negative/zero count → empty.
+        return "[](const std::string& s, int64_t n){ std::string o; "
+               "if (n > 0) { o.reserve(s.size() * (size_t)n); "
+               "for (int64_t k = 0; k < n; ++k) o += s; } return o; }(ball_to_string(" +
+               get_message_field(call, "value") + "), static_cast<int64_t>(" +
+               get_message_field(call, "count") + "))";
+    }
+    if (fn == "string_index_of") {
+        // left.indexOf(right) → byte index, or -1 when not found. The
+        // conformance strings are ASCII so byte index == UTF-16 index.
+        return "[](const std::string& s, const std::string& p) -> int64_t { "
+               "auto i = s.find(p); return i == std::string::npos ? -1 : (int64_t)i; }("
+               "ball_to_string(" + get_message_field(call, "left") +
+               "), ball_to_string(" + get_message_field(call, "right") + "))";
+    }
+    if (fn == "string_last_index_of") {
+        return "[](const std::string& s, const std::string& p) -> int64_t { "
+               "auto i = s.rfind(p); return i == std::string::npos ? -1 : (int64_t)i; }("
+               "ball_to_string(" + get_message_field(call, "left") +
+               "), ball_to_string(" + get_message_field(call, "right") + "))";
+    }
     if (fn == "string_pad_left" || fn == "string_pad_right") {
         auto v = get_message_field(call, "value");
         auto w = get_message_field(call, "width");
-        auto f = get_optional_field(call, "fill");
+        // The pad character lives in `padding` (matching StringPadInput / the
+        // Dart engine `_stdStringPad`); accept the legacy `fill` name too.
+        auto f = get_optional_field(call, "padding");
+        if (f.empty()) f = get_optional_field(call, "fill");
         if (f.empty()) f = "std::string(\" \")";
         std::string left = (fn == "string_pad_left") ? "true" : "false";
         return "[](std::string s, int64_t w, std::string f, bool left){ if (f.empty()) f = \" \"; "
@@ -6350,6 +6408,18 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
     emit_line(kind_kw + " " + name + bases + " {");
     indent_++;
 
+    // Static type-name trait so `x is ClassName` works on a concrete struct
+    // receiver (the runtime template overload of ball_object_type_matches
+    // consults this). Use the unqualified type name; ball_type_name_matches
+    // strips any `module:` prefix on either side. conformance 113.
+    {
+        std::string raw_type = td.name();
+        auto colon = raw_type.rfind(':');
+        if (colon != std::string::npos) raw_type = raw_type.substr(colon + 1);
+        emit_line("static constexpr const char* __ball_type_name() { return \"" +
+                  raw_type + "\"; }");
+    }
+
     // Gather constructor parameter info so fields get correct initializers.
     // Without this, default-constructing the class leaves primitive fields
     // (int64_t/bool/double) with indeterminate values — e.g. a garbage
@@ -6491,6 +6561,84 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             result.push_back({init_kind, init_args});
         }
         return result;
+    };
+
+    // Helper: extract `field` initializers (`kind:"field"`, `name`, `value`)
+    // from constructor metadata. A named/default constructor with a colon-
+    // initializer list (e.g. `Point.origin() : x = 0.0, y = 0.0`) carries
+    // each assignment as one of these; without applying them the instance's
+    // fields stay default (null), so `Point.origin()` printed `(null, null)`
+    // (conformance 112). The `value` is a Dart source fragment which we map
+    // to C++ via cpp_param_default / dart_field_init_to_cpp below.
+    auto extract_field_inits = [](const google::protobuf::Struct& metadata)
+        -> std::vector<std::pair<std::string, std::string>> {
+        std::vector<std::pair<std::string, std::string>> result;
+        auto it = metadata.fields().find("initializers");
+        if (it == metadata.fields().end()) return result;
+        if (it->second.kind_case() != google::protobuf::Value::kListValue) return result;
+        for (const auto& elem : it->second.list_value().values()) {
+            if (elem.kind_case() != google::protobuf::Value::kStructValue) continue;
+            const auto& f = elem.struct_value().fields();
+            auto kit = f.find("kind");
+            if (kit == f.end() || kit->second.string_value() != "field") continue;
+            auto nit = f.find("name");
+            auto vit = f.find("value");
+            if (nit == f.end() || vit == f.end()) continue;
+            result.push_back({nit->second.string_value(), vit->second.string_value()});
+        }
+        return result;
+    };
+
+    // Map a Dart constructor field-initializer source fragment to a C++
+    // expression assignable to the (BallDyn / primitive) field. Numeric and
+    // boolean literals pass through; a simple `param[idx]` subscript becomes a
+    // BallDyn index; everything else falls back to cpp_param_default. Field
+    // types here are not known precisely, so prefer BallDyn-friendly output.
+    auto dart_field_init_to_cpp = [this](const std::string& field_cpp_type,
+                                         const std::string& raw) -> std::string {
+        std::string d = raw;
+        size_t b = d.find_first_not_of(" \t\r\n");
+        size_t e = d.find_last_not_of(" \t\r\n");
+        d = (b == std::string::npos) ? std::string() : d.substr(b, e - b + 1);
+        // `name[index]` subscript (e.g. `coords[0]`) → BallDyn(name)[index].
+        auto lb = d.find('[');
+        if (lb != std::string::npos && !d.empty() && d.back() == ']' && lb > 0) {
+            std::string base = d.substr(0, lb);
+            std::string idx = d.substr(lb + 1, d.size() - lb - 2);
+            bool ident = !base.empty() &&
+                         (std::isalpha((unsigned char)base[0]) || base[0] == '_');
+            for (char c : base)
+                if (!std::isalnum((unsigned char)c) && c != '_') ident = false;
+            if (ident) {
+                return "BallDyn(" + sanitize_name(base) + ")[" + idx + "]";
+            }
+        }
+        return cpp_param_default(field_cpp_type, d);
+    };
+
+    // Resolve the C++ type a class field is emitted with (mirrors the
+    // descriptor-driven type mapping above) so a field initializer is coerced
+    // to the right literal form.
+    auto field_cpp_type = [&](const std::string& fname) -> std::string {
+        if (!td.has_descriptor_()) return "BallDyn";
+        for (const auto& field : td.descriptor_().field()) {
+            if (field.name() != fname) continue;
+            switch (field.type()) {
+                case google::protobuf::FieldDescriptorProto::TYPE_INT32:
+                case google::protobuf::FieldDescriptorProto::TYPE_INT64:
+                    return "int64_t";
+                case google::protobuf::FieldDescriptorProto::TYPE_FLOAT:
+                case google::protobuf::FieldDescriptorProto::TYPE_DOUBLE:
+                    return "double";
+                case google::protobuf::FieldDescriptorProto::TYPE_STRING:
+                    return "std::string";
+                case google::protobuf::FieldDescriptorProto::TYPE_BOOL:
+                    return "bool";
+                default:
+                    return "BallDyn";
+            }
+        }
+        return "BallDyn";
     };
 
     // Emit a defaulted default constructor so `return ClassName()` compiles
@@ -6655,6 +6803,23 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                     }
                 }
 
+                // Field colon-initializers (`Foo() : x = 0.0, y = expr`) that
+                // are NOT plain is_this params: emit as assignments in the body
+                // so they take effect even on a constructor with no Ball body
+                // (conformance 112).
+                std::vector<std::pair<std::string, std::string>> default_field_inits;
+                if (func->has_metadata()) {
+                    for (const auto& fi : extract_field_inits(func->metadata()))
+                        default_field_inits.push_back(fi);
+                }
+                auto emit_default_field_inits = [&]() {
+                    for (const auto& [fname, fval] : default_field_inits) {
+                        emit_line("this->" + sanitize_name(fname) + " = " +
+                                  dart_field_init_to_cpp(field_cpp_type(fname), fval) +
+                                  ";");
+                    }
+                };
+
                 if (split_mode_ && func->has_body()) {
                     out_ << ";\n";
                     std::ostringstream saved;
@@ -6668,6 +6833,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                     }
                     out_ << ") {\n";
                     indent_++;
+                    emit_default_field_inits();
                     if (func->body().expr_case() == ball::v1::Expression::kBlock) {
                         for (const auto& s : func->body().block().statements())
                             compile_statement(s);
@@ -6679,10 +6845,12 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                     out_.clear();
                     out_.swap(saved);
                     indent_ = saved_indent;
-                } else if (func->has_body()) {
+                } else if (func->has_body() || !default_field_inits.empty()) {
                     out_ << " {\n";
                     indent_++;
-                    if (func->body().expr_case() == ball::v1::Expression::kBlock) {
+                    emit_default_field_inits();
+                    if (func->has_body() &&
+                        func->body().expr_case() == ball::v1::Expression::kBlock) {
                         for (const auto& s : func->body().block().statements()) {
                             // Skip encoder-generated `let self = ClassName{}`
                             // and `return self` patterns in constructor bodies.
@@ -6718,6 +6886,17 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                     bool is_this = i < is_this_flags.size() && is_this_flags[i];
                     if (is_this) {
                         emit_line("__obj." + sanitize_name(params[i]) + " = " + sanitize_name(params[i]) + ";");
+                    }
+                }
+                // Apply `field` colon-initializers (e.g. `Point.origin() : x = 0.0`)
+                // so a named constructor with no `is_this` params still seeds its
+                // fields instead of leaving them default/null (conformance 112).
+                if (func->has_metadata()) {
+                    for (const auto& [fname, fval] :
+                         extract_field_inits(func->metadata())) {
+                        emit_line("__obj." + sanitize_name(fname) + " = " +
+                                  dart_field_init_to_cpp(field_cpp_type(fname), fval) +
+                                  ";");
                     }
                 }
                 if (func->has_body()) {

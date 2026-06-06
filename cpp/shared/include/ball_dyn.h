@@ -1026,6 +1026,22 @@ public:
     friend bool operator<=(int64_t v, const BallDyn& d) { return BallDyn(v) <= d; }
     friend bool operator>=(int64_t v, const BallDyn& d) { return BallDyn(v) >= d; }
 
+    // Comparison with double. Without these, `someDouble < ballDyn` and
+    // `ballDyn < someDouble` resolved through the int64_t overloads above,
+    // forcing `static_cast<int64_t>(double)` on the operand — which is UB for
+    // non-finite values (Infinity/NaN) and lossy for large magnitudes. The
+    // bug surfaced as `1.0/0.0 > big` (Infinity > DBL_MAX) returning false:
+    // Infinity was truncated to INT64_MIN before the compare. Route through
+    // BallDyn(double) so the double-aware operator< is used. conformance 232.
+    bool operator<(double v) const { return *this < BallDyn(v); }
+    bool operator>(double v) const { return *this > BallDyn(v); }
+    bool operator<=(double v) const { return *this <= BallDyn(v); }
+    bool operator>=(double v) const { return *this >= BallDyn(v); }
+    friend bool operator<(double v, const BallDyn& d) { return BallDyn(v) < d; }
+    friend bool operator>(double v, const BallDyn& d) { return BallDyn(v) > d; }
+    friend bool operator<=(double v, const BallDyn& d) { return BallDyn(v) <= d; }
+    friend bool operator>=(double v, const BallDyn& d) { return BallDyn(v) >= d; }
+
     // Increment/decrement
     BallDyn& operator++() {
         if (_val.type() == typeid(int64_t)) _val = std::any_cast<int64_t>(_val) + 1;

@@ -91,6 +91,16 @@ void CppCompiler::build_lookup_tables() {
                 if (dot != std::string::npos) bare = bare.substr(dot + 1);
                 void_user_functions_.insert(sanitize_name(bare));
             }
+            // Registry of standalone (non-method) user function bare names, so a
+            // reference to such a name used as a VALUE (e.g. a function placed in
+            // a list) can be wrapped in a callable lambda instead of emitting a
+            // bare function name that std::any cannot invoke (conformance 155).
+            if (!func.is_base() && func.name().find(':') == std::string::npos) {
+                std::string mkind = func.has_metadata() ? read_meta(func).count("kind")
+                    ? read_meta(func)["kind"] : "function" : "function";
+                if (mkind == "function")
+                    user_function_names_.insert(sanitize_name(func.name()));
+            }
         }
 
         // OOP class metadata: collect class names, superclasses, methods.
@@ -263,6 +273,33 @@ static std::map<std::string, std::string> extract_param_defaults(
         if (name_it != sf.end() && def_it != sf.end() &&
             def_it->second.kind_case() == google::protobuf::Value::kStringValue) {
             result[name_it->second.string_value()] = def_it->second.string_value();
+        }
+    }
+    return result;
+}
+
+// Extract class-field initializers from a TypeDefinition's metadata `fields[]`
+// list (each entry: {name, type, initializer}). Maps field name -> Dart source
+// of its initializer (e.g. "parts" -> "[]"). Without seeding these, a default-
+// constructed collection field is null and `parts.add(x)` silently no-ops
+// (conformance 111).
+static std::map<std::string, std::string> extract_field_initializers(
+    const google::protobuf::Struct& metadata) {
+    std::map<std::string, std::string> result;
+    auto it = metadata.fields().find("fields");
+    if (it == metadata.fields().end() ||
+        it->second.kind_case() != google::protobuf::Value::kListValue) {
+        return result;
+    }
+    for (const auto& elem : it->second.list_value().values()) {
+        if (elem.kind_case() != google::protobuf::Value::kStructValue) continue;
+        const auto& sf = elem.struct_value().fields();
+        auto name_it = sf.find("name");
+        auto init_it = sf.find("initializer");
+        if (name_it != sf.end() && init_it != sf.end() &&
+            name_it->second.kind_case() == google::protobuf::Value::kStringValue &&
+            init_it->second.kind_case() == google::protobuf::Value::kStringValue) {
+            result[name_it->second.string_value()] = init_it->second.string_value();
         }
     }
     return result;
@@ -621,7 +658,13 @@ std::string CppCompiler::sanitize_name(const std::string& name) {
 // Method-call names (compile_method_call) deliberately do NOT use this, so the
 // renamed local and the still-named function no longer collide.
 static std::string ball_local_var_name(const std::string& sanitized) {
-    static const std::set<std::string> shadowing = {"child", "bind"};
+    // Sanitized names that collide with runtime free functions the compiler
+    // emits. A local with one of these names would shadow the function in its
+    // own initializer (`auto union_ = union_(a,b)`), which C++ rejects with
+    // "use of '...' before deduction of 'auto'". `union_` is the sanitized form
+    // of the Ball local `union` (a C++ keyword). (conformance 118)
+    static const std::set<std::string> shadowing = {
+        "child", "bind", "union_", "intersection", "difference"};
     return shadowing.count(sanitized) ? sanitized + "_lv" : sanitized;
 }
 
@@ -950,6 +993,13 @@ std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
     // - Other methods: wrap in a lambda to bind `this`. Bare member function
     //   names can't be stored as std::any / passed as values in C++.
     auto sname = sanitize_name(ref.name());
+    // A static field referenced inside its class resolves to the bare member
+    // name (a static member is in scope unqualified). It must NOT fall into the
+    // method-lambda branch below, which binds `this` and is illegal in a static
+    // method (conformance 106).
+    if (current_class_static_fields_.count(sname) > 0) {
+        return sname;
+    }
     if (!current_class_methods_.empty() &&
         current_class_methods_.count(sname) > 0) {
         // Check if it's a getter in the current class
@@ -971,6 +1021,14 @@ std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
     // to read/write the underlying value (conformance 85/203/223).
     if (boxed_vars_.count(ref.name())) {
         return "(*" + ball_local_var_name(sname) + ")";
+    }
+    // A bare reference to a standalone user function used as a VALUE (not the
+    // callee of a call — that path goes through compile_call/compile_method_call)
+    // must be wrapped in a callable lambda: a raw function name stored in
+    // std::any cannot be invoked via BallDyn::operator() (conformance 155).
+    if (declared_locals_.count(ref.name()) == 0 &&
+        user_function_names_.count(sname) > 0) {
+        return "BallDyn([](BallDyn __x){ return " + sname + "(__x); })";
     }
     return ball_local_var_name(sname);
 }
@@ -3181,9 +3239,13 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         auto target = get_message_field(call, "target");
         auto idx = get_message_field(call, "index");
         // If the target is a class method reference, call it first (it's a getter).
+        // A static field is a plain member, NOT a getter — leave it as a bare
+        // name so it isn't mis-emitted as `_cache()` (conformance 106).
         if (target_expr &&
             target_expr->expr_case() == ball::v1::Expression::kReference &&
             !current_class_methods_.empty() &&
+            current_class_static_fields_.count(
+                sanitize_name(target_expr->reference().name())) == 0 &&
             current_class_methods_.count(sanitize_name(target_expr->reference().name())) > 0) {
             target = sanitize_name(target_expr->reference().name()) + "()";
         }
@@ -4102,6 +4164,16 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
     }
 
     // ── List methods ──
+    // `List.of(x)` / `List.from(x)` / `Set.of(x)` copy the iterable; `Map.of` /
+    // `Map.from` copy a map. Encoded as a method-style call (self is the type
+    // reference "List"/"Map"/"Set", arg0 is the source). Without this they fall
+    // through to the undeclared free function `of(...)` (conformance 155).
+    if ((fn == "of" || fn == "from") && !arg0.empty()) {
+        if (self == "\"List\"s" || self == "\"Set\"s")
+            return "ball_list_copy(" + arg0 + ")";
+        if (self == "\"Map\"s")
+            return "ball_map_copy(" + arg0 + ")";
+    }
     if (fn == "add") {
         return self + ".push_back(" + arg0 + ")";
     }
@@ -4376,11 +4448,19 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
         return "std::sort(" + self + ".begin(), " + self + ".end(), " + arg0 + ")";
     }
     if (fn == "fromEntries") {
-        // For `Map.fromEntries(list)`, self is "Map" (type name), arg0 is the list.
-        // For `list.fromEntries()`, self is the list.
-        if (!arg0.empty())
-            return "ball_from_entries(" + arg0 + ")";
-        return "ball_from_entries(" + self + ")";
+        // `Map.fromEntries(entries)`: entries is a BallDyn list whose elements are
+        // MapEntry pairs (std::pair<std::string,BallDyn>) or {key,value} maps. The
+        // runtime ball_from_entries is declared before BallDyn and only takes a
+        // std::vector<std::any> of maps, so build the map inline here instead
+        // (conformance 121).
+        std::string src = !arg0.empty() ? arg0 : self;
+        return "[](const BallDyn& v) -> BallDyn { BallOrderedMap __m; "
+               "for(int64_t i=0;i<v.size();i++){ BallDyn e(v[i]); const std::any& u=e._val; "
+               "if(u.type()==typeid(std::pair<std::string, BallDyn>)){ "
+               "const auto& p=std::any_cast<const std::pair<std::string, BallDyn>&>(u); "
+               "__m[p.first]=p.second._val; } else { "
+               "__m[static_cast<std::string>(e[\"key\"s])]=e[\"value\"s]._val; } } "
+               "return BallDyn(__m); }(" + src + ")";
     }
 
     // ── Dart regex helpers ──
@@ -4510,7 +4590,21 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
                 return static_class_name + "::" + func_name + "(" + join_args() + ")";
             }
 
-            // Regular instance method call: self.method(args)
+            // Regular instance method call: self.method(args). The receiver may
+            // have been erased to a BallDyn (stored in a collection, returned from
+            // a cascade IIFE, or aliased through an untyped binding). When the
+            // method name belongs to exactly ONE user class, route through
+            // ball_obj_as<Class>(self) so the call compiles whether self is the
+            // concrete struct or a BallDyn wrapping it (conformance 111).
+            auto owners_it = method_to_classes_.find(func_name);
+            if (owners_it != method_to_classes_.end() &&
+                owners_it->second.size() == 1) {
+                std::string cls = *owners_it->second.begin();
+                auto cc = cls.find(':');
+                std::string cls_bare = cc != std::string::npos ? cls.substr(cc + 1) : cls;
+                return "ball_obj_as<" + sanitize_name(cls_bare) + ">(" + self +
+                       ")." + func_name + "(" + join_args() + ")";
+            }
             return self + "." + func_name + "(" + join_args() + ")";
         }
     }
@@ -4726,6 +4820,15 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                 // deduces a single, consistent return type. All compiled engine
                 // callables ultimately return BallDyn.
                 auto val = get_message_field(call, "value");
+                // A function declared to return a concrete user class but whose
+                // body yields a BallDyn (e.g. a `static` factory) must recover the
+                // concrete struct so the `return` converts to the declared type:
+                // swap `BallDyn(...)` for `ball_obj_as<Class>(...)` (conformance 106).
+                if (user_class_names_.count(current_return_type_) > 0) {
+                    emit_line("return ball_obj_as<" + current_return_type_ +
+                              ">(" + val + ");");
+                    return;
+                }
                 emit_line("return BallDyn(" + val + ");");
                 return;
             }
@@ -5927,7 +6030,7 @@ void CppCompiler::emit_forward_decls(const ball::v1::Module& module) {
                 if (i > 0) out_ << ", ";
                 std::string t = (i < ptypes.size() && !ptypes[i].empty())
                                     ? map_type(ptypes[i])
-                                    : "auto";
+                                    : "auto&&";
                 out_ << t << " " << sanitize_name(params[i]);
             }
         } else if (!func.input_type().empty()) {
@@ -6144,6 +6247,14 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         for (const auto& [k, v] : extract_param_defaults(func->metadata())) ctor_defaults[k] = v;
     }
 
+    // Class-level field initializers (e.g. `List<String> parts = []`). Without
+    // these a default-constructed collection field is null and mutations like
+    // `parts.add(x)` silently no-op (conformance 111).
+    std::map<std::string, std::string> field_inits;
+    if (td.has_metadata()) {
+        field_inits = extract_field_initializers(td.metadata());
+    }
+
     // Fields from descriptor
     if (td.has_descriptor_()) {
         for (const auto& field : td.descriptor_().field()) {
@@ -6167,9 +6278,30 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                 (type == "int64_t" || type == "double" || type == "bool");
             std::string init;
             auto dit = ctor_defaults.find(fname);
+            auto fit = field_inits.find(fname);
             if (dit != ctor_defaults.end()) {
                 // Constructor supplies a default (e.g. maxExpressionDepth = 1000).
                 init = " = " + dit->second;
+            } else if (fit != field_inits.end() && !ctor_params.count(fname)) {
+                // Class-level field initializer. Empty list/map literals seed the
+                // BallDyn so subsequent .add()/[]= operate on a real container;
+                // other literals route through cpp_param_default.
+                std::string raw = fit->second;
+                size_t fb = raw.find_first_not_of(" \t\r\n");
+                size_t fe = raw.find_last_not_of(" \t\r\n");
+                std::string trimmed =
+                    (fb == std::string::npos) ? std::string() : raw.substr(fb, fe - fb + 1);
+                if (trimmed.size() >= 2 && trimmed.front() == '[' && trimmed.back() == ']') {
+                    type = "BallDyn";
+                    init = " = BallDyn(BallList{})";
+                } else if (trimmed.size() >= 2 && trimmed.front() == '{' && trimmed.back() == '}') {
+                    type = "BallDyn";
+                    init = " = BallDyn(BallOrderedMap{})";
+                } else if (!trimmed.empty() && trimmed != "null") {
+                    init = " = " + cpp_param_default(type, trimmed);
+                } else if (is_primitive) {
+                    init = "{}";
+                }
             } else if (ctor_params.count(fname) > 0 && is_primitive) {
                 // Optional constructor param with no default → nullable in Dart
                 // (e.g. `int? timeoutMs`). Represent as BallDyn so the engine's
@@ -6188,11 +6320,18 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
     // and wrap it in a lambda (member function pointers can't be stored
     // directly as std::any values).
     current_class_methods_.clear();
+    current_class_static_fields_.clear();
     current_class_name_ = name;
     for (const auto* func : methods) {
         auto dot = func->name().rfind('.');
         std::string basename = dot != std::string::npos ? func->name().substr(dot + 1) : func->name();
         current_class_methods_.insert(sanitize_name(basename));
+        // Track static fields separately so compile_reference does NOT treat a
+        // reference to one as a member method (which binds `this`, illegal in a
+        // static method) — conformance 106.
+        auto fm = read_meta(*func);
+        if ((fm.count("kind") ? fm["kind"] : "") == "static_field")
+            current_class_static_fields_.insert(sanitize_name(basename));
     }
 
     // Helper: extract is_this flags from constructor metadata params.
@@ -6277,17 +6416,37 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                 }
                 out_ << ") {\n";
                 indent_++;
+                // The factory's declared return type is the concrete class `name`,
+                // but its body produces BallDyn values (cached lookup / a `new`d
+                // instance erased through BallDyn). Set current_return_type_ so the
+                // compile_statement return handler recovers the concrete struct,
+                // and wrap the block/expr result the same way (conformance 106).
+                std::string prev_rt = current_return_type_;
+                current_return_type_ = name;
+                auto wrap_ret = [&](std::string expr) -> std::string {
+                    const std::string kPrefix = "BallDyn(";
+                    if (user_class_names_.count(name) > 0 &&
+                        expr.rfind(kPrefix, 0) == 0 && !expr.empty() &&
+                        expr.back() == ')') {
+                        return "ball_obj_as<" + name + ">(" +
+                               expr.substr(kPrefix.size(),
+                                           expr.size() - kPrefix.size() - 1) + ")";
+                    }
+                    return expr;
+                };
                 if (func->has_body()) {
                     if (func->body().expr_case() == ball::v1::Expression::kBlock) {
                         for (const auto& s : func->body().block().statements())
                             compile_statement(s);
                         if (func->body().block().has_result()) {
-                            emit_line("return " + compile_expr(func->body().block().result()) + ";");
+                            emit_line("return " +
+                                      wrap_ret(compile_expr(func->body().block().result())) + ";");
                         }
                     } else {
-                        emit_line("return " + compile_expr(func->body()) + ";");
+                        emit_line("return " + wrap_ret(compile_expr(func->body())) + ";");
                     }
                 }
+                current_return_type_ = prev_rt;
                 emit_line("return " + name + "();");
                 indent_--;
                 emit_line("}");
@@ -6619,6 +6778,21 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             indent_++;
             {
                 auto mrt = map_return_type(*func);
+                // See the non-split path below: recover a concrete user-class
+                // struct from a BallDyn body result on return (conformance 106).
+                std::string prev_rt = current_return_type_;
+                current_return_type_ = mrt;
+                auto wrap_ret = [&](std::string expr) -> std::string {
+                    const std::string kPrefix = "BallDyn(";
+                    if (user_class_names_.count(mrt) > 0 &&
+                        expr.rfind(kPrefix, 0) == 0 && !expr.empty() &&
+                        expr.back() == ')') {
+                        return "ball_obj_as<" + mrt + ">(" +
+                               expr.substr(kPrefix.size(),
+                                           expr.size() - kPrefix.size() - 1) + ")";
+                    }
+                    return expr;
+                };
                 auto body_is_throw = [](const ball::v1::Expression& e) {
                     if (e.expr_case() != ball::v1::Expression::kCall) return false;
                     const auto& fn = e.call().function();
@@ -6631,14 +6805,16 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                         if (mrt == "void" || body_is_throw(func->body().block().result()))
                             emit_line(compile_expr(func->body().block().result()) + ";");
                         else
-                            emit_line("return " + compile_expr(func->body().block().result()) + ";");
+                            emit_line("return " +
+                                      wrap_ret(compile_expr(func->body().block().result())) + ";");
                     }
                 } else {
                     if (mrt == "void" || body_is_throw(func->body()))
                         emit_line(compile_expr(func->body()) + ";");
                     else
-                        emit_line("return " + compile_expr(func->body()) + ";");
+                        emit_line("return " + wrap_ret(compile_expr(func->body())) + ";");
                 }
+                current_return_type_ = prev_rt;
                 if (mrt != "void") emit_line("return " + mrt + "();");
             }
             indent_--;
@@ -6653,6 +6829,24 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             indent_++;
             if (func->has_body()) {
                 auto mrt = map_return_type(*func);
+                // A method (e.g. a static factory) whose declared return type is
+                // a concrete user class but whose body yields a BallDyn must
+                // recover the concrete struct on return (conformance 106). Set
+                // current_return_type_ so compile_statement converts inner
+                // `return`s, and wrap the block/expr result the same way.
+                std::string prev_rt = current_return_type_;
+                current_return_type_ = mrt;
+                auto wrap_ret = [&](std::string expr) -> std::string {
+                    const std::string kPrefix = "BallDyn(";
+                    if (user_class_names_.count(mrt) > 0 &&
+                        expr.rfind(kPrefix, 0) == 0 && !expr.empty() &&
+                        expr.back() == ')') {
+                        return "ball_obj_as<" + mrt + ">(" +
+                               expr.substr(kPrefix.size(),
+                                           expr.size() - kPrefix.size() - 1) + ")";
+                    }
+                    return expr;
+                };
                 auto body_is_throw = [](const ball::v1::Expression& e) {
                     if (e.expr_case() != ball::v1::Expression::kCall) return false;
                     const auto& fn = e.call().function();
@@ -6666,14 +6860,15 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                             emit_line(compile_expr(func->body().block().result()) + ";");
                         else
                             emit_line("return " +
-                                       compile_expr(func->body().block().result()) + ";");
+                                       wrap_ret(compile_expr(func->body().block().result())) + ";");
                     }
                 } else {
                     if (mrt == "void" || body_is_throw(func->body()))
                         emit_line(compile_expr(func->body()) + ";");
                     else
-                        emit_line("return " + compile_expr(func->body()) + ";");
+                        emit_line("return " + wrap_ret(compile_expr(func->body())) + ";");
                 }
+                current_return_type_ = prev_rt;
             }
             {
                 auto mrt = map_return_type(*func);
@@ -7106,6 +7301,42 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         return fn == "throw" || fn == "rethrow";
     };
 
+    // Detect a body expression that compiles to a VOID statement: a std
+    // print/println/print_error (which lowers to `std::cout << ... << std::endl`,
+    // an std::ostream& not convertible to BallDyn) or a registered void user
+    // call. Returning such an expression from a BallDyn-typed function fails to
+    // compile (conformance 206/213).
+    auto is_void_expr = [&](const ball::v1::Expression& e) -> bool {
+        if (e.expr_case() == ball::v1::Expression::kCall &&
+            e.call().module() == "std" &&
+            (e.call().function() == "print" ||
+             e.call().function() == "println" ||
+             e.call().function() == "print_error")) {
+            return true;
+        }
+        return _isVoidUserCall(e);
+    };
+
+    // When a function's declared return type is a concrete user class but the
+    // body produces a BallDyn (e.g. a `static` factory returning cached/new
+    // instances erased to BallDyn), recover the concrete struct. If the compiled
+    // value is `BallDyn( ... )`, swap the outer wrapper for
+    // `ball_obj_as<Class>( ... )` so the returned reference converts to the
+    // declared type (conformance 106).
+    auto wrap_return = [&](std::string expr) -> std::string {
+        const std::string kPrefix = "BallDyn(";
+        if (user_class_names_.count(current_return_type_) > 0 &&
+            expr.rfind(kPrefix, 0) == 0 && !expr.empty() &&
+            expr.back() == ')') {
+            // Strip the outer `BallDyn(` ... `)` wrapper and re-wrap with
+            // ball_obj_as<Class>( ... ).
+            std::string inner =
+                expr.substr(kPrefix.size(), expr.size() - kPrefix.size() - 1);
+            return "ball_obj_as<" + current_return_type_ + ">(" + inner + ")";
+        }
+        return expr;
+    };
+
     if (func.has_body()) {
         if (func.body().expr_case() == ball::v1::Expression::kBlock) {
             for (const auto& s : func.body().block().statements())
@@ -7116,25 +7347,30 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
                     // the collected values are returned instead.
                     emit_line(compile_expr(func.body().block().result()) + ";");
                 } else if (return_type == "void" ||
-                           is_throw_expr(func.body().block().result())) {
+                           is_throw_expr(func.body().block().result()) ||
+                           is_void_expr(func.body().block().result())) {
                     // void function (or a throw, which is void): emit the
                     // result as a statement, not `return <expr>` — a free
                     // function returning void must not return a value.
                     // (The method emitter already guards this; free functions
-                    // didn't — conformance 89, 133.)
+                    // didn't — conformance 89, 133, 206, 213.)
                     emit_line(compile_expr(func.body().block().result()) + ";");
                 } else {
-                    emit_line("return " + compile_expr(func.body().block().result()) + ";");
+                    emit_line("return " +
+                              wrap_return(compile_expr(func.body().block().result())) + ";");
                 }
             }
         } else {
             if (is_generator) {
                 emit_line(compile_expr(func.body()) + ";");
-            } else if (return_type == "void" || is_throw_expr(func.body())) {
-                // void function (or throw): emit without `return`.
+            } else if (return_type == "void" || is_throw_expr(func.body()) ||
+                       is_void_expr(func.body())) {
+                // void function (or throw, or a void print): emit without
+                // `return` — the expression's C++ type (std::ostream& / void)
+                // is not convertible to BallDyn (conformance 206, 213).
                 emit_line(compile_expr(func.body()) + ";");
             } else {
-                emit_line("return " + compile_expr(func.body()) + ";");
+                emit_line("return " + wrap_return(compile_expr(func.body())) + ";");
             }
         }
     }
@@ -7301,6 +7537,24 @@ std::string CppCompiler::compile() {
     if (!main_module)
         throw std::runtime_error("Entry module \"" + program_.entry_module() + "\" not found");
 
+    // Collect every user (non-base) module so cross-module user functions,
+    // top-level variables, classes and enums are all emitted — not just the
+    // entry module's. The entry module is placed LAST so its definitions can
+    // reference everything imported before it. Base modules (std, std_*) carry
+    // only base functions supplied by the runtime, so skip them (conformance 256).
+    std::vector<const ball::v1::Module*> user_modules;
+    for (const auto& mod : program_.modules()) {
+        if (mod.name() == program_.entry_module()) continue;
+        if (base_modules_.count(mod.name())) continue;
+        bool all_base = mod.functions_size() > 0;
+        for (const auto& f : mod.functions()) {
+            if (!f.is_base()) { all_base = false; break; }
+        }
+        if (all_base) continue;
+        user_modules.push_back(&mod);
+    }
+    user_modules.push_back(main_module);
+
     // Linear memory runtime preamble
     if (base_modules_.count("std_memory")) {
         emit_line("// Ball linear memory runtime");
@@ -7320,19 +7574,25 @@ std::string CppCompiler::compile() {
 
     // Enums — emit before forward declarations so function signatures
     // that reference enum types (e.g. `colorName(Color c)`) can resolve.
-    for (const auto& ed : main_module->enums()) {
-        emit_enum(ed);
+    for (const auto* mod : user_modules) {
+        for (const auto& ed : mod->enums()) {
+            emit_enum(ed);
+        }
     }
 
-    // Forward declarations
-    emit_forward_decls(*main_module);
+    // Forward declarations (across every user module so cross-module calls and
+    // mutual recursion resolve regardless of emission order).
+    for (const auto* mod : user_modules) {
+        emit_forward_decls(*mod);
+    }
 
     // Partition functions
     std::unordered_map<std::string, std::vector<const ball::v1::FunctionDefinition*>> class_methods;
     std::vector<const ball::v1::FunctionDefinition*> standalone;
     std::vector<const ball::v1::FunctionDefinition*> top_level_vars;
 
-    for (const auto& func : main_module->functions()) {
+    for (const auto* mod : user_modules)
+    for (const auto& func : mod->functions()) {
         if (func.is_base()) continue;
         if (entry_func && func.name() == program_.entry_function()) continue;
 
@@ -7379,9 +7639,10 @@ std::string CppCompiler::compile() {
     // Topological sort: emit parent types before child types so
     // superclass structs are fully defined before subclasses reference them.
     {
-        // Collect non-skipped type_defs as pointers.
+        // Collect non-skipped type_defs as pointers (across every user module).
         std::vector<const ball::v1::TypeDefinition*> sorted_tds;
-        for (const auto& td : main_module->type_defs()) {
+        for (const auto* mod : user_modules)
+        for (const auto& td : mod->type_defs()) {
             if (!td.has_descriptor_()) continue;
             if (runtime_types.count(sanitize_name(td.name())) > 0) continue;
             sorted_tds.push_back(&td);

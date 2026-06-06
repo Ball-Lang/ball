@@ -74,6 +74,10 @@ private:
     // wraps it in a lambda to bind `this` (member function pointers
     // can't be stored directly as std::any/std::function values).
     std::unordered_set<std::string> current_class_methods_;
+    // Sanitized basenames of static_field members of the class currently being
+    // emitted. A reference to one resolves to the bare member name, NOT a
+    // this-binding method lambda (illegal in a static method) — conformance 106.
+    std::unordered_set<std::string> current_class_static_fields_;
 
     // OOP class support — populated in build_lookup_tables():
     // Maps a method basename (e.g. "describe") to the set of class names
@@ -98,6 +102,10 @@ private:
     // Sanitized bare names of void-returning user functions. Call sites use
     // this to avoid wrapping a void call in BallDyn(...) (conformance 133).
     std::unordered_set<std::string> void_user_functions_;
+    // Sanitized bare names of standalone (non-method) user functions. A bare
+    // reference to one used as a value is wrapped in a callable lambda so it can
+    // be stored in std::any and invoked through BallDyn (conformance 155).
+    std::unordered_set<std::string> user_function_names_;
     // C++ return type of the function currently being emitted ("void", "BallDyn",
     // ...). Lets the return-statement handler emit a bare `return;` in void
     // functions instead of `return BallDyn(...)` (conformance 89).

@@ -1625,6 +1625,24 @@ BALL_DYN_STUB(StdModuleHandler);
 
 #undef BALL_DYN_STUB
 
+// ── User-class method receiver recovery ──
+// A user-class instance may arrive as its concrete struct type (T) or boxed
+// inside a BallDyn (stored in a collection, returned from a cascade IIFE, or
+// aliased through an untyped `final x = obj` binding). `ball_obj_as<T>(self)`
+// yields a `T&` in both cases so `ball_obj_as<T>(self).method(...)` compiles
+// uniformly (conformance 111; also used for factory return conversion, 106).
+template<class T> inline T& ball_obj_as(BallDyn& d) {
+    return std::any_cast<T&>(d._val);
+}
+template<class T> inline const T& ball_obj_as(const BallDyn& d) {
+    return std::any_cast<const T&>(d._val);
+}
+template<class T, class U,
+         std::enable_if_t<!std::is_same_v<std::decay_t<U>, BallDyn>, int> = 0>
+inline U&& ball_obj_as(U&& u) {
+    return std::forward<U>(u);
+}
+
 // ── ball_where / ball_map overloads for BallDyn ──
 template<typename F>
 inline BallList ball_where(const BallDyn& v, F pred) {

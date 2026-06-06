@@ -723,7 +723,22 @@ std::string CppCompiler::compile_literal(const ball::v1::Literal& lit) {
             for (const auto& el : lit.list_value().elements()) {
                 if (!first) result += ", ";
                 if (elem_type == "std::any") {
-                    result += "std::any(" + compile_expr(el) + ")";
+                    // A NESTED list literal compiles to a typed std::vector
+                    // (e.g. std::vector<int64_t> for [1,2,3]); stored raw in
+                    // std::any, the BallDyn runtime's _listPtr()/ball_length()
+                    // don't recognize it (they only match BallList/BallListRef),
+                    // so a matrix row read back as `m[i]` had length 0. Wrap a
+                    // nested list element in BallDyn so its constructor converts
+                    // it to a BallListRef (conformance 138/128/83).
+                    bool nested_list =
+                        el.expr_case() == ball::v1::Expression::kLiteral &&
+                        el.literal().value_case() ==
+                            ball::v1::Literal::kListValue;
+                    if (nested_list) {
+                        result += "std::any(BallDyn(" + compile_expr(el) + "))";
+                    } else {
+                        result += "std::any(" + compile_expr(el) + ")";
+                    }
                 } else {
                     result += compile_expr(el);
                 }

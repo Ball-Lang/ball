@@ -91,6 +91,14 @@ void CppCompiler::build_lookup_tables() {
                 if (dot != std::string::npos) bare = bare.substr(dot + 1);
                 void_user_functions_.insert(sanitize_name(bare));
             }
+            // Record module-level variable names so the legacy `input` alias is
+            // not emitted for a function whose body means the GLOBAL `input`
+            // (conformance 151).
+            if (func.has_metadata()) {
+                auto gm = read_meta(func);
+                if (gm.count("kind") && gm["kind"] == "top_level_variable")
+                    global_var_names_.insert(sanitize_name(func.name()));
+            }
             // Registry of standalone (non-method) user function bare names, so a
             // reference to such a name used as a VALUE (e.g. a function placed in
             // a list) can be wrapped in a callable lambda instead of emitting a
@@ -98,8 +106,16 @@ void CppCompiler::build_lookup_tables() {
             if (!func.is_base() && func.name().find(':') == std::string::npos) {
                 std::string mkind = func.has_metadata() ? read_meta(func).count("kind")
                     ? read_meta(func)["kind"] : "function" : "function";
-                if (mkind == "function")
-                    user_function_names_.insert(sanitize_name(func.name()));
+                if (mkind == "function") {
+                    std::string sn = sanitize_name(func.name());
+                    user_function_names_.insert(sn);
+                    // Record arity so a value-reference wrapper matches the
+                    // function's parameter count (conformance 224).
+                    size_t ar = 0;
+                    if (func.has_metadata()) ar = extract_params(func.metadata()).size();
+                    if (ar == 0 && !func.input_type().empty()) ar = 1;
+                    user_function_arity_[sn] = ar;
+                }
             }
         }
 
@@ -1028,7 +1044,27 @@ std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
     // std::any cannot be invoked via BallDyn::operator() (conformance 155).
     if (declared_locals_.count(ref.name()) == 0 &&
         user_function_names_.count(sname) > 0) {
-        return "BallDyn([](BallDyn __x){ return " + sname + "(__x); })";
+        // The wrapper lambda must take exactly as many params as the function:
+        // wrapping a 2-arg function in a 1-arg lambda is a compile error
+        // (partialApply over a 2-arg `add2`, conformance 224).
+        auto ar_it = user_function_arity_.find(sname);
+        size_t ar = ar_it != user_function_arity_.end() ? ar_it->second : 1;
+        if (ar <= 1) {
+            return "BallDyn([](BallDyn __x){ return " + sname + "(__x); })";
+        }
+        // Multi-arg function value: BallDyn wraps only 0/1-arg callables, so a
+        // 2+-arg function is emitted as a BARE lambda that converts to the
+        // concrete std::function<...> parameter type it is passed to (a
+        // function-typed param such as partialApply's `fn`); wrapping it in
+        // BallDyn(...) is ill-formed (conformance 224).
+        std::string params, args;
+        for (size_t i = 0; i < ar; ++i) {
+            if (i) { params += ", "; args += ", "; }
+            std::string a = "__a" + std::to_string(i);
+            params += "BallDyn " + a;
+            args += a;
+        }
+        return "[](" + params + "){ return " + sname + "(" + args + "); }";
     }
     return ball_local_var_name(sname);
 }
@@ -1694,6 +1730,27 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
         for (const auto& name : captured)
             capture += ", " + ball_local_var_name(sanitize_name(name));
     }
+    // Recursive closure conversion: a parameter of THIS lambda captured by a
+    // NESTED lambda must outlive this frame. Box it (shared_ptr<BallDyn>) and
+    // rename the C++ parameter to <name>__p so the inner lambda captures the
+    // box by value (currying: conformance 211/224).
+    std::unordered_set<std::string> saved_boxed_vars = boxed_vars_;
+    std::unordered_set<std::string> saved_boxed_params = boxed_params_;
+    std::set<std::string> lambda_boxed_params;
+    if (func.has_metadata() && func.has_body()) {
+        auto lp = extract_params(func.metadata());
+        if (!lp.empty()) {
+            std::unordered_set<std::string> nested_fvs;
+            _collect_lambda_free_vars(func.body(), nested_fvs);
+            for (const auto& p : lp) {
+                if (nested_fvs.count(p)) {
+                    lambda_boxed_params.insert(p);
+                    boxed_vars_.insert(p);
+                    boxed_params_.insert(p);
+                }
+            }
+        }
+    }
     std::string result = "[" + capture + "](";
     // Parameters
     if (func.has_metadata()) {
@@ -1701,7 +1758,9 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
         bool first = true;
         for (const auto& p : params) {
             if (!first) result += ", ";
-            result += "BallDyn " + sanitize_name(p);
+            std::string pname = sanitize_name(p);
+            if (lambda_boxed_params.count(p)) pname += "__p";
+            result += "BallDyn " + pname;
             first = false;
         }
     } else if (!func.input_type().empty()) {
@@ -1728,6 +1787,11 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
     }
     result += " {\n";
     indent_++;
+    for (const auto& p : lambda_boxed_params) {
+        std::string bn = ball_local_var_name(sanitize_name(p));
+        result += indent_str() + "auto " + bn +
+                  " = std::make_shared<BallDyn>(BallDyn(" + sanitize_name(p) + "__p));\n";
+    }
     if (func.has_body()) {
         if (body_is_block) {
             // Emit the body via the statement-aware path (out_-swap) so that
@@ -1770,6 +1834,11 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
             if (is_void_expr) {
                 result += indent_str() + compile_expr(b) + ";\n";
                 result += indent_str() + "return BallDyn();\n";
+            } else if (b.expr_case() == ball::v1::Expression::kLambda) {
+                // A returned lambda must be wrapped in BallDyn so the enclosing
+                // lambda's deduced return type is BallDyn; a raw nested lambda
+                // breaks BallDyn's callable round-trip -> null (conformance 211/224).
+                result += indent_str() + "return BallDyn(" + compile_expr(b) + ");\n";
             } else {
                 result += indent_str() + "return " + compile_expr(b) + ";\n";
             }
@@ -1777,6 +1846,8 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
     }
     indent_--;
     result += indent_str() + "}";
+    boxed_vars_ = saved_boxed_vars;
+    boxed_params_ = saved_boxed_params;
     return result;
 }
 
@@ -3414,6 +3485,26 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             }
         }
         if (is_msg) {
+            // No `__type` field: derive the type name from the messageCreation
+            // type_name (`main:FormatException` -> `FormatException`) so a typed
+            // catch on the bare name matches (conformance 146).
+            {
+                std::string mtn = val_expr->message_creation().type_name();
+                auto mc = mtn.find(':');
+                if (mc != std::string::npos) mtn = mtn.substr(mc + 1);
+                if (!mtn.empty() && mtn != "BallException") type_name = mtn;
+            }
+            // Built-in Dart exceptions store the first positional ctor arg as
+            // `.message`; the catch reads `e.message` (conformance 146).
+            static const std::set<std::string> kBuiltinExc = {
+                "Exception", "Error", "FormatException", "RangeError",
+                "ArgumentError", "StateError", "UnsupportedError",
+                "UnimplementedError", "TypeError", "NoSuchMethodError",
+                "OutOfMemoryError", "StackOverflowError",
+                "IntegerDivisionByZeroException", "ConcurrentModificationError",
+                "IndexError", "IOException", "FileSystemException",
+                "HttpException", "SocketException"};
+            bool builtin = kBuiltinExc.count(type_name) > 0;
             std::string fields_init;
             for (const auto& f : val_expr->message_creation().fields()) {
                 if (f.value().expr_case() == ball::v1::Expression::kLiteral &&
@@ -3423,8 +3514,10 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                     if (f.name() == "__type") {
                         type_name = val;
                     } else {
+                        std::string fname = f.name();
+                        if (builtin && fname == "arg0") fname = "message";
                         if (!fields_init.empty()) fields_init += ", ";
-                        fields_init += "{\"" + f.name() + "\"s, \"" + val + "\"s}";
+                        fields_init += "{\"" + fname + "\"s, \"" + val + "\"s}";
                     }
                 }
             }
@@ -5226,7 +5319,6 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                                 if (structured) {
                                     used_structured = true;
                                     cond = structured->condition;
-                                    pending_patterns.clear();
 
                                     if (cond == "true" && structured->bindings.empty()) {
                                         // Wildcard / catch-all — treat as default
@@ -7287,7 +7379,8 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     // so both names resolve. Modern encoder-generated programs use
     // the real param names and the alias is harmless (just a local
     // reference binding).
-    if (params.size() == 1 && sanitize_name(params[0]) != "input") {
+    if (params.size() == 1 && sanitize_name(params[0]) != "input" &&
+        global_var_names_.count("input") == 0) {
         // For a boxed parameter, alias `input` to the boxed value (*name).
         std::string rhs = boxed_params_.count(params[0])
                               ? "*" + sanitize_name(params[0])

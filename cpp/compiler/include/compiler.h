@@ -102,10 +102,19 @@ private:
     // Sanitized bare names of void-returning user functions. Call sites use
     // this to avoid wrapping a void call in BallDyn(...) (conformance 133).
     std::unordered_set<std::string> void_user_functions_;
+    // Sanitized names of module-level (top-level) variables. Suppresses the
+    // legacy `input` param alias when `input` names a global (conformance 151).
+    std::unordered_set<std::string> global_var_names_;
     // Sanitized bare names of standalone (non-method) user functions. A bare
     // reference to one used as a value is wrapped in a callable lambda so it can
     // be stored in std::any and invoked through BallDyn (conformance 155).
     std::unordered_set<std::string> user_function_names_;
+    // Parameter count of each standalone user function, keyed by sanitized bare
+    // name. When such a function is referenced as a VALUE, the callable wrapper
+    // lambda must accept exactly this many params; a single-arg wrapper around a
+    // multi-arg function is a compile error (currying: partialApply over a 2-arg
+    // function, conformance 224).
+    std::unordered_map<std::string, size_t> user_function_arity_;
     // C++ return type of the function currently being emitted ("void", "BallDyn",
     // ...). Lets the return-statement handler emit a bare `return;` in void
     // functions instead of `return BallDyn(...)` (conformance 89).

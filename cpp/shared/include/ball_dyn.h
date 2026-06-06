@@ -780,6 +780,20 @@ public:
             }
             return true;
         }
+        // Numeric cross-type equality: Dart `0 == 0.0` is true. Compare an
+        // int64_t and a double by value before the strict type-mismatch reject
+        // (switch on a `num` subject with int patterns; conformance 225).
+        {
+            bool an = _val.type() == typeid(int64_t) || _val.type() == typeid(double);
+            bool bn = o._val.type() == typeid(int64_t) || o._val.type() == typeid(double);
+            if (an && bn && _val.type() != o._val.type()) {
+                double av = _val.type() == typeid(int64_t)
+                    ? (double)std::any_cast<int64_t>(_val) : std::any_cast<double>(_val);
+                double bv = o._val.type() == typeid(int64_t)
+                    ? (double)std::any_cast<int64_t>(o._val) : std::any_cast<double>(o._val);
+                return av == bv;
+            }
+        }
         if (_val.type() != o._val.type()) return false;
         if (_val.type() == typeid(BallDispatchNotFound)) return true;
         if (_val.type() == typeid(BallListRef) && o._val.type() == typeid(BallListRef)) {
@@ -1979,6 +1993,17 @@ inline BallDyn ball_skip(const BallDyn& v, int64_t n) {
 // Defined here (end of ball_dyn.h) because they return a BallDyn; BallException
 // itself is declared earlier in ball_emit_runtime.h (always spliced first).
 inline BallDyn _ball_exception_to_dyn(const BallException& e) {
+    // A bare scalar throw (`throw "msg"` / `throw 42`) with no structured
+    // fields: the caught variable should BE that scalar so a filter like
+    // `catch (e) { if (e == "recoverable") ... }` matches Dart semantics
+    // (conformance 222). Structured throws keep the reified map shape.
+    if (e.has_payload && e.fields.empty()) {
+        const std::any& pu = _BallDynUnwrapper::unwrap(e.value);
+        if (pu.type() == typeid(std::string) || pu.type() == typeid(int64_t) ||
+            pu.type() == typeid(double) || pu.type() == typeid(bool)) {
+            BallDyn sv; sv._val = e.value; return sv;
+        }
+    }
     std::map<std::string, std::any> m;
     m["__type__"] = std::any(std::string("BallException"));
     m["typeName"] = std::any(e.type_name);

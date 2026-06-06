@@ -4635,6 +4635,31 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
         auto var_name = ball_local_var_name(sanitize_name(stmt.let().name()));
         auto val_str = compile_expr(stmt.let().value());
 
+        // An EMPTY `set_create` (no `elements`) whose let-metadata type starts
+        // with "Map" is an empty map literal (the encoder reuses set_create for
+        // `{}`). Without this, the value compiles to an empty list and later
+        // string-keyed `ball_set` calls silently no-op. Mirrors the Dart engine
+        // (engine_eval.dart: empty Set/List -> empty map when let type is Map).
+        if (stmt.let().value().expr_case() == ball::v1::Expression::kCall &&
+            stmt.let().value().call().function() == "set_create" &&
+            stmt.let().has_metadata()) {
+            bool has_elements = false;
+            if (stmt.let().value().call().has_input() &&
+                stmt.let().value().call().input().expr_case() ==
+                    ball::v1::Expression::kMessageCreation) {
+                for (const auto& f :
+                     stmt.let().value().call().input().message_creation().fields()) {
+                    if (f.name() == "elements") { has_elements = true; break; }
+                }
+            }
+            auto mit = stmt.let().metadata().fields().find("type");
+            if (!has_elements && mit != stmt.let().metadata().fields().end() &&
+                mit->second.kind_case() == google::protobuf::Value::kStringValue &&
+                mit->second.string_value().rfind("Map", 0) == 0) {
+                val_str = "BallOrderedMap{}";
+            }
+        }
+
         // Check if the value is a user-class construction. If so, emit the
         // concrete class type so that method calls and field accesses resolve
         // directly on the struct (BallDyn wrapping erases the type and breaks
@@ -8568,55 +8593,31 @@ std::string CppCompiler::compile_cpp_std_call(const std::string& fn,
 std::string CppCompiler::compile_convert_call(const std::string& fn,
                                                const ball::v1::FunctionCall& call) {
     if (fn == "json_encode") {
-        auto val = field_expr(call, "value");
-        return CppExpr::static_call("nlohmann::json", {val}).call("dump").str();
+        // Use the spliced runtime helper (no nlohmann dependency in emitted code).
+        return "_ball_json_encode(" + field_expr(call, "value").str() + ")";
     }
     if (fn == "json_decode") {
-        auto src = field_expr(call, "source");
-        return CppExpr::ref("nlohmann::json").scope("parse")
-            .call(std::vector<CppExpr>{src}).str();
+        // Ball field name is "value" (not "source"); decode via runtime helper.
+        return "_ball_json_decode(" + field_expr(call, "value").str() + ")";
     }
     if (fn == "utf8_encode") {
-        auto src = field_expr(call, "source");
-        return CppExpr::template_call("std::vector", "uint8_t",
-            {src.dot("begin").call(), src.dot("end").call()}).str();
+        // Ball field name is "value". Returns bytes (std::vector<std::any>).
+        return "encode(utf8, " + field_expr(call, "value").str() + ")";
     }
     if (fn == "utf8_decode") {
-        auto bytes = field_expr(call, "bytes");
-        return CppExpr::static_call("std::string",
-            {bytes.dot("begin").call(), bytes.dot("end").call()}).str();
+        // Ball field name is "value" (the bytes). Wrap in BallDyn so the
+        // BallDyn-aware decode overload (ball_dyn.h) resolves uniformly.
+        return "decode(utf8, BallDyn(" + field_expr(call, "value").str() + "))";
     }
     if (fn == "base64_encode") {
-        auto src = field_expr(call, "source");
-        return "[](const std::vector<uint8_t>& b){"
-               "static const char* a=\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";"
-               "std::string o;o.reserve(((b.size()+2)/3)*4);"
-               "size_t i=0;for(;i+3<=b.size();i+=3){"
-               "o+=a[(b[i]>>2)&0x3f];"
-               "o+=a[((b[i]&0x3)<<4)|((b[i+1]>>4)&0xf)];"
-               "o+=a[((b[i+1]&0xf)<<2)|((b[i+2]>>6)&0x3)];"
-               "o+=a[b[i+2]&0x3f];}"
-               "if(i<b.size()){o+=a[(b[i]>>2)&0x3f];"
-               "if(i+1==b.size()){o+=a[(b[i]&0x3)<<4];o+=\"==\";}"
-               "else{o+=a[((b[i]&0x3)<<4)|((b[i+1]>>4)&0xf)];"
-               "o+=a[(b[i+1]&0xf)<<2];o+='=';}}"
-               "return o;}(" + src.str() + ")";
+        // Ball field name is "value" (the bytes). Wrap in BallDyn so the
+        // BallDyn-aware encode overload resolves whether the input is bytes
+        // (std::vector<std::any>) or already a BallDyn.
+        return "encode(base64, BallDyn(" + field_expr(call, "value").str() + "))";
     }
     if (fn == "base64_decode") {
-        auto src = field_expr(call, "source");
-        return "[](const std::string& s){"
-               "static int t[256];static bool init=false;"
-               "if(!init){for(int i=0;i<256;i++)t[i]=-1;"
-               "const char* a=\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";"
-               "for(int i=0;i<64;i++)t[(unsigned char)a[i]]=i;init=true;}"
-               "std::vector<uint8_t> o;o.reserve((s.size()/4)*3);"
-               "int v=0,bits=0;"
-               "for(char c:s){"
-               "if(c=='='||c=='\\n'||c=='\\r'||c==' '||c=='\\t')continue;"
-               "int d=t[(unsigned char)c];if(d<0)continue;"
-               "v=(v<<6)|d;bits+=6;"
-               "if(bits>=8){bits-=8;o.push_back((uint8_t)((v>>bits)&0xff));}}"
-               "return o;}(" + src.str() + ")";
+        // Ball field name is "value" (the string). Returns bytes.
+        return "decode(base64, " + field_expr(call, "value").str() + ")";
     }
     return "/* std_convert." + fn + " */";
 }
@@ -8689,6 +8690,18 @@ std::string CppCompiler::compile_time_call(const std::string& fn,
     }
     if (fn == "duration_subtract") {
         return (field_expr(call, "left") - field_expr(call, "right")).str();
+    }
+    if (fn == "format_timestamp") {
+        // Ball field is "timestamp_ms"; matches Dart
+        // DateTime.fromMillisecondsSinceEpoch(ms, isUtc:true).toIso8601String().
+        return "_ball_format_timestamp(static_cast<int64_t>(" +
+               field_expr(call, "timestamp_ms").str() + "))";
+    }
+    if (fn == "parse_timestamp") {
+        // Ball field is "value"; matches Dart
+        // DateTime.parse(value).millisecondsSinceEpoch.
+        return "_ball_parse_timestamp(static_cast<std::string>(" +
+               field_expr(call, "value").str() + "))";
     }
     return "/* std_time." + fn + " */";
 }

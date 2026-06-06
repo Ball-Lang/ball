@@ -15,6 +15,14 @@
 #ifndef BALL_EMIT_RUNTIME_H
 #define BALL_EMIT_RUNTIME_H
 
+// std_time format/parse helpers below need C time + formatted I/O.
+// The compiler's emit_includes does not bring these in, and they are not
+// reliably pulled in elsewhere, so include them here. This header has an
+// include guard, so double-inclusion (engine path + spliced-program path)
+// is harmless.
+#include <ctime>
+#include <cstdio>
+
 // Minimal Ball exception type used by `throw` / `try` to preserve
 // typed-catch semantics. Derives from std::exception so untyped
 // `catch (const std::exception&)` clauses still match.
@@ -1255,6 +1263,58 @@ inline std::string convert(const JsonEncoder&, const std::any& value) {
 inline std::any convert(const JsonDecoder&, const std::string& text) {
     size_t i = 0;
     return _ball_json_parse(text, i, 0);
+}
+
+// Single-argument JSON decode used by emitted std_convert.json_decode.
+// Parses numbers->int64/double, strings, bools, null, arrays->BallList_RT,
+// objects->BallMap_RT (mirrors _ball_json_encode's value model).
+inline std::any _ball_json_decode(const std::string& text) {
+    size_t i = 0;
+    return _ball_json_parse(text, i, 0);
+}
+
+// ── std_time helpers ──
+// Self-contained ISO-8601 (UTC, millisecond) format/parse matching the Dart
+// engine's DateTime.fromMillisecondsSinceEpoch(ms, isUtc:true).toIso8601String()
+// and DateTime.parse(value).millisecondsSinceEpoch. Uses only <ctime>/<cstdio>
+// (included above).
+inline std::string _ball_format_timestamp(int64_t ms) {
+    int64_t secs = ms / 1000;
+    int millis = static_cast<int>(ms % 1000);
+    if (millis < 0) { millis += 1000; secs -= 1; }
+    std::time_t t = static_cast<std::time_t>(secs);
+    std::tm g{};
+#if defined(_WIN32)
+    gmtime_s(&g, &t);
+#else
+    gmtime_r(&t, &g);
+#endif
+    char buf[40];
+    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
+        g.tm_year + 1900, g.tm_mon + 1, g.tm_mday,
+        g.tm_hour, g.tm_min, g.tm_sec, millis);
+    return std::string(buf);
+}
+inline int64_t _ball_parse_timestamp(const std::string& iso) {
+    int Y = 0, Mo = 0, D = 0, H = 0, Mi = 0, S = 0, frac = 0;
+    std::sscanf(iso.c_str(), "%d-%d-%dT%d:%d:%d", &Y, &Mo, &D, &H, &Mi, &S);
+    auto dot = iso.find('.');
+    if (dot != std::string::npos) {
+        std::string f;
+        size_t j = dot + 1;
+        while (j < iso.size() && iso[j] >= '0' && iso[j] <= '9') { f += iso[j]; ++j; }
+        while (f.size() < 3) f += '0';
+        frac = std::stoi(f.substr(0, 3));
+    }
+    std::tm g{};
+    g.tm_year = Y - 1900; g.tm_mon = Mo - 1; g.tm_mday = D;
+    g.tm_hour = H; g.tm_min = Mi; g.tm_sec = S;
+#if defined(_WIN32)
+    std::time_t t = _mkgmtime(&g);
+#else
+    std::time_t t = timegm(&g);
+#endif
+    return static_cast<int64_t>(t) * 1000 + frac;
 }
 
 // ── utf8 / base64 codec stubs ──

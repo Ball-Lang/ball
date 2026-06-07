@@ -54,14 +54,6 @@ void CppCompiler::build_lookup_tables() {
         if (all_base && mod.functions_size() > 0) {
             base_modules_.insert(mod.name());
         }
-        for (const auto& td : mod.type_defs()) {
-            if (td.has_descriptor_()) {
-                types_[td.name()] = td.descriptor_();
-                auto colon = td.name().find(':');
-                if (colon != std::string::npos)
-                    types_[td.name().substr(colon + 1)] = td.descriptor_();
-            }
-        }
         // Collect enum type names for field-access dispatch (Color.red → Color::red).
         for (const auto& ed : mod.enums()) {
             enum_names_.insert(sanitize_name(ed.name()));
@@ -78,10 +70,6 @@ void CppCompiler::build_lookup_tables() {
         for (const auto& func : mod.functions()) {
             std::string key = mod.name() + "." + func.name();
             functions_[key] = &func;
-            if (func.has_metadata()) {
-                auto params = extract_params(func.metadata());
-                if (!params.empty()) param_cache_[key] = std::move(params);
-            }
             // Registry of void-returning user functions, keyed by sanitized
             // bare name. Call sites consult this to avoid wrapping a void call
             // in BallDyn(...) (conformance 133). Use original_name when mangled.

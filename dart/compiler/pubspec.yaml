@@ -20,11 +20,11 @@ resolution: workspace
 dependencies:
   ball_base: ^0.3.0
   ball_encoder: ^0.3.0
-  ball_engine: ^0.3.0
   ball_resolver: ^0.3.0
   code_builder: ^4.10.0
   dart_style: ^3.0.0
   protobuf: ^6.0.0
 
 dev_dependencies:
+  ball_engine: ^0.3.0
   test: ^1.25.0

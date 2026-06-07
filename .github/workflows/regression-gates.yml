@@ -15,7 +15,7 @@ name: Regression Gates
 #   * Dart encoder           : exactly DART_ENCODER_EXPECTED passed / 0 failed
 #   * Dart compiler          : exactly DART_COMPILER_EXPECTED passed / 0 failed
 #                              (--exclude-tags slow, matching ci.yml)
-#   * C++ self-host tally     : PASS must not drop below 209 (of 227 fixtures)
+#   * C++ self-host tally     : PASS must not drop below CPP_SELFHOST_MIN_PASS
 #                              — blocking only when the Linux native build is green
 #
 # Action versions verified 2026-05-25 against the upstream release pages:
@@ -50,7 +50,8 @@ env:
 jobs:
   # ──────────────────────────────────────────────────
   # TypeScript regression gate — engine + compiler must each
-  # report exactly 269 engine / 41 compiler passed / 0 failed.
+  # report exactly TS_ENGINE_EXPECTED_PASS / TS_COMPILER_EXPECTED_PASS
+  # passed / 0 failed.
   # ──────────────────────────────────────────────────
   ts-regression:
     name: TS Regression Gate (engine + compiler)
@@ -353,7 +354,7 @@ jobs:
           printf '%s\n' "${fails[@]}"
 
           echo ""
-          echo "C++ self-host tally: $pass passed (floor: ${CPP_SELFHOST_MIN_PASS}, of 227 fixtures)"
+          echo "C++ self-host tally: $pass passed (floor: ${CPP_SELFHOST_MIN_PASS}, of conformance fixtures)"
           if [ "$pass" -lt "${CPP_SELFHOST_MIN_PASS}" ]; then
             echo "::error::C++ self-host PASS regressed: got $pass, must be >= ${CPP_SELFHOST_MIN_PASS}. See the non-pass list above. If this is an intentional change, update CPP_SELFHOST_MIN_PASS in .github/workflows/regression-gates.yml."
             exit 1

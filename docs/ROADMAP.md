@@ -1,11 +1,14 @@
-# Redirect
+# Roadmap (Obsolete)
 
-**This file has been merged into `IMPLEMENTATION_PLAN.md` at the repository root.**
+This file previously contained the Ball project roadmap. It was marked as merged into
+a root `IMPLEMENTATION_PLAN.md`, but that file was subsequently removed. The roadmap
+content no longer exists in a standalone document.
 
-The authoritative roadmap for the Ball project is now at:
-- [`../IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md)
+For current project status, see:
 
-The content previously in this file was a duplicate of the root `IMPLEMENTATION_PLAN.md`. The two have been consolidated, and this file is kept as a redirect to avoid breaking any links.
+- `docs/SELF_HOST_STATUS.md` — per-language self-host and conformance status
+- `docs/CONFORMANCE_GAPS.md` — conformance test gap analysis
+- `CLAUDE.md` — project overview and build instructions
 
 **Created:** March 22, 2026
 **Obsolete:** May 6, 2026

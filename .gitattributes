@@ -9,8 +9,17 @@
 *.cpp text
 *.cc text
 
+# TypeScript
+*.ts text
+
 # Proto — force LF for cross-platform buf format consistency
 *.proto text eol=lf
+
+# Shell scripts — force LF so they run on Unix without \r errors
+*.sh text eol=lf
+
+# PowerShell
+*.ps1 text
 
 # Web
 *.html text
@@ -28,4 +37,5 @@
 *.jpg binary
 *.bin binary
 *.pb binary
+*.binpb binary
 *.snapshot binary

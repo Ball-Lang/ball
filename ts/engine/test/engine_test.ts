@@ -550,9 +550,6 @@ try {
   }
 }
 
-// Encoder-generated fixtures are now unified in tests/conformance/ (265-301).
-// No separate scan of tests/fixtures/dart/_generated/ needed.
-
 // ── Summary ─────────────────────────────────────────────────────────────────
 
 console.log(`\n===========================`);

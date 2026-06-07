@@ -668,8 +668,9 @@ void _build(List<String> args) {
       final encoder = PackageEncoder(pkgDir);
       final prog = encoder.encode();
       for (final m in prog.modules) {
-        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty)
+        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty) {
           continue;
+        }
         if (m.functions.isEmpty && m.typeDefs.isEmpty) continue;
         stderr.writeln('OK');
         return m;
@@ -900,8 +901,9 @@ Future<void> _resolve(List<String> args) async {
       final program = encoder.encode();
       // Return the main module (the first non-base, non-stub module).
       for (final m in program.modules) {
-        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty)
+        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty) {
           continue;
+        }
         if (m.functions.isEmpty && m.typeDefs.isEmpty) continue;
         return m;
       }

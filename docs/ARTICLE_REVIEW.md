@@ -26,8 +26,8 @@ Ball eliminates **grammar parsing** (lexing, tokenizing, building AST from text)
 |-----------|------|------------|-----|
 | Compiler (Ball → lang) | Full | Full | Full |
 | Encoder (lang → Ball) | Full | **Stub** | Full |
-| Engine (interpreter) | Full | Self-hosted | **Test-only** |
-| Conformance pass rate | Baseline | 227/227 (100%) | 194/210 (92.4%) |
+| Engine (interpreter) | Full | Self-hosted | **Self-hosted** |
+| Conformance pass rate | Baseline | 270 pass (CI-gated) | In conformance matrix |
 
 **Fix:** Show a maturity matrix, or say "Dart (full stack), TypeScript (compiler + self-hosted engine), C++ (compiler + encoder)."
 
@@ -82,7 +82,7 @@ This is the first question every experienced developer will ask. Key differentia
 
 ### 10. The self-hosting story is your strongest proof — feature it
 
-Your TS engine is the Dart engine compiled to Ball IR, then compiled to TypeScript. It passes 227/227 conformance tests. This should be front and center, not absent.
+Your TS engine is the Dart engine compiled to Ball IR, then compiled to TypeScript. It passes 270 conformance tests (CI-gated). This should be front and center, not absent.
 
 ### 11. Add an honest limitations section
 
@@ -106,10 +106,10 @@ ALL Ball code reduces to 7 expression types: `call`, `literal`, `reference`, `fi
 
 ### 14. Impressive numbers you're not using
 
-- **232 conformance tests** across all engines
-- **262 total base functions** across 8 std modules
-- **TS engine: 100% conformance** (227/227)
-- **C++ engine: 92.4% conformance** (194/210)
+- **277 conformance programs** across all engines
+- **173+ total base functions** across std modules
+- **TS engine: 270 pass** (self-hosted, CI-gated)
+- **C++ engine: in conformance matrix** (compiled + self-host legs)
 - Proto bindings for **7 languages** (Dart, Go, Python, TS, C++, Java, C#)
 - Self-hosted engine encoded from thousands of lines of Dart
 
@@ -147,7 +147,7 @@ You mention Claude Code can bootstrap a new language — expand on this. AI-assi
 4. **The Insight**: Code = types + functions + 7 expression types
 5. **Show Don't Tell**: Hello World in Ball JSON → compiled to Dart & TS
 6. **The Architecture**: Encoder → Ball IR → Compiler diagram
-7. **Proof**: Self-hosting story. 227/227 tests pass.
+7. **Proof**: Self-hosting story. 270 conformance tests pass.
 8. **The Proto Schema**: Your current proto snippets (simplified, marked as such)
 9. **Cross-Language Conversion**: Concrete before/after example
 10. **Current State & Limitations**: Maturity matrix + honesty

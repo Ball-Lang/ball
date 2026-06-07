@@ -64,15 +64,15 @@ class BallEngine {
     final gen = gs.lookup('__generator__');
     if (gen is! BallGenerator) return result;
     if (result.kind == 'yield') {
-      (gen as BallGenerator).yield_(result.value);
+      gen.yield_(result.value);
       return null;
     }
     if (result.kind == 'yield_each') {
       final val = result.value;
       if (val is BallGenerator) {
-        (gen as BallGenerator).yieldAll(val.values);
+        gen.yieldAll(val.values);
       } else {
-        (gen as BallGenerator).yieldAll(_toIterable(val));
+        gen.yieldAll(_toIterable(val));
       }
       return null;
     }

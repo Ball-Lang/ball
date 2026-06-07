@@ -28,7 +28,7 @@ void main(List<String> args) {
   }
 
   final result = Process.runSync(Platform.isWindows ? 'node.exe' : 'node', [
-    cli!,
+    cli,
     args.first,
   ]);
   stdout.write(result.stdout);

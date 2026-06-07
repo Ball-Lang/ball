@@ -144,7 +144,7 @@ This spec costs nothing to add to the repo and immediately makes every new compi
 ## What you have (solid foundation)
 
 - Proto schema: `Program → Module → FunctionDefinition → Expression` tree, using `google.protobuf.DescriptorProto` for language-agnostic types. Smart.  
-- `std` module: 73 universal base functions, well categorized.  
+- `std` module: 90+ universal base functions (including former `dart_std` ops), well categorized.  
 - Universal `std` module: all constructs (including former `dart_std` ops like cascade, spread, invoke) route through `std`.  
 - Dart compiler/encoder/engine: clean reference implementation, all three programs working.  
 - Module import system with 4 source types and integrity hashing.

@@ -24,12 +24,12 @@ A valid Ball program has:
   "modules": [
     {
       "name": "std",
-      "types": [...],
+      "typeDefs": [...],
       "functions": [...]
     },
     {
       "name": "main",
-      "imports": ["std"],
+      "moduleImports": [{"name": "std"}],
       "functions": [...]
     }
   ]

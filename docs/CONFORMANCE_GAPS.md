@@ -11,25 +11,18 @@
 | Total std base functions in `std.json` | **118** |
 | Covered by conformance programs | **79 (67%)** |
 | Uncovered | **39 (33%)** |
-| Conformance programs (`.ball.json`) | **240** |
-| With expected output | **236** |
-| Dart sources (`src/*.dart`) | **181** |
+| Conformance programs (`.ball.json`) | **277** |
+| Dart sources (`src/*.dart`) | **218** |
 | Skipped (no entry function / no stdout) | **4** (196, 197, 201, 202 — sandbox/security tests) |
 
 ---
 
 ## Engine Conformance Status
 
-All engines pass 100% of their respective conformance suites:
+Engine pass counts are maintained in `.github/workflows/regression-gates.yml`
+(the CI-enforced floor). Check that file for the current exact numbers.
 
-| Engine | Pass | Total | Status |
-|--------|-----:|------:|:------:|
-| Dart engine (reference) | 271 | 271 | 100% |
-| TS self-hosted engine | 270 | 270 | 100% |
-| TS compiled engine | 270 | 270 | 100% |
-| C++ compiled | 236 | 236 | 100% |
-
-The C++ compiled leg is now wired into the CI conformance matrix (`conformance-matrix.yml`).
+The C++ compiled leg is wired into the CI conformance matrix (`conformance-matrix.yml`).
 
 ---
 

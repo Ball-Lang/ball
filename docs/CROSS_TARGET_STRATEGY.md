@@ -5,12 +5,12 @@
 > Covers reified generics, BigInt/int64, and cross-language gaps for future targets
 > (Rust, Python, Java, Go, Ruby, C#).
 
-## Current State (June 2025)
+## Current State (June 2026)
 
-- **191 -> 3** conformance baseline (98.4% fixed)
+- **277 conformance programs** across all engines
 - Dart: 0 failures across compiled + roundtrip legs
-- TS: 3 remaining (reified generic `instanceof` — fixable with type descriptors)
-- C++: prototype, not yet in conformance matrix
+- TS: 270 pass (self-hosted engine), 0 failures on tested fixtures
+- C++: in conformance matrix (compiled leg); self-host engine also tracked
 
 ## 1. Reified Generics Strategy
 
@@ -201,9 +201,8 @@ gets this for free.
 
 ## 5. Action Items
 
-### Immediate (fix the last 3 conformance failures)
+### Immediate
 
-- [ ] Implement type descriptor objects for TS generic `is`-checks (167, 180, 181)
 - [ ] Apply BigInt improvements (asIntN, toJSON, 32-bit fast path)
 
 ### Short-term (before adding next target)

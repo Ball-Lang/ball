@@ -747,15 +747,6 @@ export function createEngineSetup(mod: EngineModule) {
     _r('list_remove_at', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const idx = Number(m['index'] ?? 0); return Array.isArray(l) ? l.splice(idx, 1)[0] : null; });
     _r('list_insert', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const idx = Number(m['index'] ?? 0); const v = m['value'] ?? m['element']; if (Array.isArray(l)) l.splice(idx, 0, v); return null; });
     _r('list_clear', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; if (Array.isArray(l)) l.length = 0; return null; });
-    _r('list_filled', (i: any) => { const m = _m(i); return Array(Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0)).fill(m['value'] ?? m['fill'] ?? m['arg1'] ?? null); });
-    _r('list_generate', async (i: any) => {
-      const m = _m(i); const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
-      const gen = m['generator'] ?? m['function'] ?? m['arg1'] ?? m['value'];
-      const result: any[] = [];
-      if (typeof gen === 'function') { for (let j = 0; j < count; j++) { let r = gen(j); if (r?.then) r = await r; result.push(r); } }
-      else { for (let j = 0; j < count; j++) result.push(null); }
-      return result;
-    });
     _r('list_contains', (i: any) => {
       const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; const v = m['value'] ?? m['element'];
       if (l instanceof Set) { if (l.has(v)) return true; if (typeof v === 'number') return l.has(String(v)); if (typeof v === 'string') { const n = Number(v); if (!isNaN(n)) return l.has(n); } return false; }
@@ -1024,30 +1015,6 @@ export function createEngineSetup(mod: EngineModule) {
     // std.typed_list: a typed list literal `<T>[...]`. The type argument is
     // erased at runtime — the value is just the element array.
     _r('typed_list', (i: any) => { const m = _m(i); const elements = m['elements']; return Array.isArray(elements) ? elements : []; });
-  
-    // List.filled / List.generate encoded as bare std.list_filled /
-    // std.list_generate (the encoder uses the `length` field name; the compiled
-    // engine only registers the `dart_*` variants keyed on `count`).
-    _r('list_filled', (i: any) => {
-      const m = _m(i);
-      const count = Number(m['length'] ?? m['count'] ?? m['arg0'] ?? 0);
-      const value = m['value'] ?? m['arg1'];
-      return new Array(count).fill(value);
-    });
-    _r('list_generate', async (i: any) => {
-      const m = _m(i);
-      const count = Number(m['length'] ?? m['count'] ?? m['arg0'] ?? 0);
-      const gen = m['generator'] ?? m['function'] ?? m['arg1'];
-      const result: any[] = [];
-      if (typeof gen === 'function') {
-        for (let idx = 0; idx < count; idx++) {
-          let v = gen(idx);
-          if (v?.then) v = await v;
-          result.push(v);
-        }
-      }
-      return result;
-    });
   
     // ── Async / Generator ──────────────────────────────────────────────
     //

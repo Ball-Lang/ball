@@ -8,7 +8,7 @@
 
 ---
 
-## `std` Module — Core Operations (~73 functions)
+## `std` Module — Core Operations (~90 functions)
 
 ### I/O
 
@@ -371,13 +371,13 @@
 
 ---
 
-## Planned New Modules (Not Yet Implemented)
+## Additional Modules
 
 | Module | Functions | Status |
 |--------|-----------|--------|
-| `std_convert` | json_encode, json_decode, utf8_encode, utf8_decode, base64_encode, base64_decode | Planned (Tier 8.7) |
-| `std_fs` | file_read, file_write, file_exists, file_delete, dir_list, dir_create, etc. | Planned (Tier 8.8) |
-| `std_time` | now, now_micros, format_timestamp, parse_timestamp, etc. | Planned (Tier 8.9) |
-| `std_concurrency` | thread_spawn, thread_join, mutex_*, atomic_*, scoped_lock | Planned (Tier 8.5) |
-| `std_net` | http_get, http_post, tcp_connect, tcp_send, tcp_receive | Planned (Tier 10.3) |
+| `std_convert` | json_encode, json_decode, utf8_encode, utf8_decode, base64_encode, base64_decode | Implemented (Dart engine + C++ engine) |
+| `std_time` | now, now_micros, format_timestamp, parse_timestamp, year, month, day, hour, minute, second | Implemented (Dart engine + C++ engine) |
+| `std_fs` | file_read, file_write, file_exists, file_delete, dir_list, dir_create, etc. | Planned |
+| `std_concurrency` | thread_spawn, thread_join, mutex_*, atomic_*, scoped_lock | Planned |
+| `std_net` | http_get, http_post, tcp_connect, tcp_send, tcp_receive | Planned |
 | ~~`cpp_std`~~ | ~~Eliminated~~ — C++ pointer/reference ops are now inlined into universal `std`/`std_memory` by the encoder | N/A |

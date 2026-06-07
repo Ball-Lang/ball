@@ -61,7 +61,7 @@ Modules where **every** function has `isBase = true` are base modules.
 Your compiler must provide native implementations for these functions.
 
 Required base modules:
-- **`std`** — ~130 universal functions (arithmetic, comparison, logic, control flow, strings, math, cascade, spread, invoke, etc.)
+- **`std`** — 118 universal functions (arithmetic, comparison, logic, control flow, strings, math, cascade, spread, invoke, etc.)
 - **`std_collections`** — list/map/set operations (optional — not all runtimes)
 - **`std_io`** — console, process, time, random (optional — not all runtimes)
 
@@ -385,9 +385,9 @@ Ball's `std.try` function supports typed catch clauses. The input message has:
 4. Always execute the `finally` expression regardless of whether an
    exception was thrown, caught, or propagated.
 
-### New Modules
+### Additional Modules
 
-The following additional modules are available for compilers to support:
+The following modules are available for compilers to support:
 
 #### std_convert
 `json_encode`, `json_decode`, `utf8_encode`, `utf8_decode`,

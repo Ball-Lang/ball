@@ -55,12 +55,6 @@ extension BallEngineStd on BallEngine {
     return null;
   }
 
-  /// Map handle for std_collections ops — same lowering as [map_get] (`ball_is_map_dyn` in C++).
-  Object? _stdResolveProgramMap(Object? raw) {
-    if (raw is BallMap) return raw.entries;
-    return raw is Map ? raw : <dynamic, dynamic>{};
-  }
-
   /// Unwrap a value that may be a [BallList] or a raw [List].
   List<Object?>? _stdAsList(Object? v) {
     if (v is BallList) return v.items;

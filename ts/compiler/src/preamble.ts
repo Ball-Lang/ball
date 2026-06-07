@@ -414,10 +414,6 @@ const _nativeSet = Set;
 };
 (Set as any).from = (iter: any) => new _nativeSet(iter);
 (Set as any).of = (iter: any) => new _nativeSet(iter);
-// Polyfill Dart Set methods on JS Set prototype
-if (!(Set.prototype as any).contains) (Set.prototype as any).contains = Set.prototype.has;
-if (!(Set.prototype as any).includes) (Set.prototype as any).includes = Set.prototype.has;
-if (!(Set.prototype as any).remove) (Set.prototype as any).remove = Set.prototype.delete;
 // Ball encoder sometimes uses set_create for lists, then list_push on them.
 // Bridge the gap with push/indexOf/length on Set.
 if (!(Set.prototype as any).push) (Set.prototype as any).push = function(v: any) { this.add(v); return this.size; };
@@ -592,7 +588,6 @@ function __ball_cascade(target: any, ops: any[]): any {
   if (!ap.take) ap.take = function (n: any) { return this.slice(0, n); };
   if (!ap.skip) ap.skip = function (n: any) { return this.slice(n); };
   if (!ap.any) ap.any = function (fn: any) { return this.some(fn); };
-  if (!ap.every) ap.every = ap.every; // already exists
   if (!ap.fold) ap.fold = function (init: any, fn: any) { return this.reduce(fn, init); };
   if (!ap.followedBy) ap.followedBy = function (other: any) { return [...this, ...other]; };
   if (!ap.getRange) ap.getRange = function (start: any, end: any) { return this.slice(start, end); };
@@ -608,6 +603,7 @@ function __ball_cascade(target: any, ops: any[]): any {
   // Dart Set polyfills — Set.contains → Set.has, etc.
   const setp: any = Set.prototype;
   if (!setp.contains) setp.contains = function (v: any) { return this.has(v); };
+  if (!setp.includes) setp.includes = function (v: any) { return this.has(v); };
   if (!setp.toList) setp.toList = function () { return [...this]; };
   if (!setp.add) { /* Set already has .add */ }
   if (!setp.remove) setp.remove = function (v: any) { return this.delete(v); };
@@ -754,7 +750,6 @@ function __ball_cascade(target: any, ops: any[]): any {
   }
   // forEach — Dart Map.forEach. Works on plain objects.
   // Don't overwrite native Map.prototype.forEach.
-  const _nativeObjForEach = op2.forEach;
   Object.defineProperty(op2, 'forEach', {
     configurable: true, writable: true, enumerable: false,
     value: function (fn: any) {

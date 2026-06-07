@@ -144,7 +144,7 @@ Every Ball computation is exactly one of these nodes:
 
 Every function takes **one input message** and returns **one output message** (gRPC-style). Base functions have no body — their implementation is provided per-platform:
 
-- **`std`** — ~130 functions: arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops, cascade, null-aware access, spread, invoke, record
+- **`std`** — 118 functions: arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops, cascade, null-aware access, spread, invoke, record
 - **`std_collections`** — ~53 functions: list/map/set operations
 - **`std_io`** — ~10 functions: console, process, time, random
 - **`std_memory`** — ~38 functions: linear memory for C/C++ interop

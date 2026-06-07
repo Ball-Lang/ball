@@ -92,18 +92,6 @@ int _ballDoubleToInt64(Object? value) {
 int _ballCodeUnitAt(Object? s, Object? index) =>
     (s as String).codeUnitAt(index as int);
 
-/// Dart `Object.runtimeType.toString()` for primitive Ball values.
-String _ballRuntimeTypeName(Object? value) {
-  if (value == null || value is BallNull) return 'Null';
-  if (value is int || value is BallInt) return 'int';
-  if (value is double || value is BallDouble) return 'double';
-  if (value is String || value is BallString) return 'String';
-  if (value is bool || value is BallBool) return 'bool';
-  if (value is List || value is BallList) return 'List';
-  if (value is Map || value is BallMap) return 'Map';
-  return 'Object';
-}
-
 /// Dart num.toDouble() — always stores as double (avoids int64 wrap on large ints).
 double _ballToDouble(Object? value) {
   if (value is double) return value;
@@ -296,11 +284,6 @@ Map<String, Object?> _ballFutureError(Object? error) => {
 /// Returns `true` if [value] is a BallFuture map.
 bool _isBallFuture(Object? value) =>
     value is Map<String, Object?> && value['__ball_future__'] == true;
-
-/// Returns `true` if [value] is a BallFuture in error state.
-bool _isBallFutureError(Object? value) =>
-    _isBallFuture(value) &&
-    (value as Map<String, Object?>).containsKey('error');
 
 /// Unwraps a BallFuture map, returning the inner value.
 /// If [value] is a BallFuture in error state, rethrows the stored error.

@@ -50,10 +50,8 @@ private:
     ball::v1::Program program_;
 
     // Lookup tables
-    std::unordered_map<std::string, google::protobuf::DescriptorProto> types_;
     std::unordered_map<std::string, const ball::v1::FunctionDefinition*> functions_;
     std::unordered_set<std::string> base_modules_;
-    std::unordered_map<std::string, std::vector<std::string>> param_cache_;
 
     // Output state
     std::ostringstream out_;

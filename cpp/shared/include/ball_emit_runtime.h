@@ -644,6 +644,14 @@ inline bool ball_identical(const std::any& a, const std::any& b) {
         return std::any_cast<const std::string&>(ua) == std::any_cast<const std::string&>(ub);
     // Different types → not identical
     if (ua.type() != ub.type()) return false;
+    // BallUserRef (shared_ptr<std::any>): compare pointer identity.
+    // Concrete user-class struct instances stored reference-semantically
+    // through BallUserRef share the same std::any when they originate from
+    // the same Dart object; `identical` must reflect that.
+    if (ua.type() == typeid(std::shared_ptr<std::any>)) {
+        return std::any_cast<const std::shared_ptr<std::any>&>(ua).get() ==
+               std::any_cast<const std::shared_ptr<std::any>&>(ub).get();
+    }
     // For objects, fall back to pointer identity
     return false;
 }

@@ -108,6 +108,15 @@ using BallScope = std::shared_ptr<BallMap>;
 // BallListRef, so its behavior and the direct-conformance baseline are unaffected.
 using BallListRef = std::shared_ptr<BallList>;
 
+// Reference-semantic user-class struct instances. Concrete (non-generic,
+// non-abstract) user classes are compiled as plain C++ structs — value types.
+// In Dart all objects are reference types, so two variables pointing at the same
+// object share mutations and `identical()` returns true. Wrapping the struct in
+// a shared_ptr<std::any> inside BallDyn gives Dart-compatible reference
+// semantics: copies of the BallDyn share the underlying struct, `ball_obj_as<T>`
+// dereferences transparently, and `ball_identical` compares pointers.
+using BallUserRef = std::shared_ptr<std::any>;
+
 // Unique marker for Dart engine `_sentinel` (dispatch not found). Must not
 // compare equal to null/empty BallDyn() returned by void builtin methods.
 struct BallDispatchNotFound {};
@@ -245,6 +254,9 @@ public:
     // would create self-referential `self` cycles).
     BallDyn(BallObject v) : _val(BallObjectRef(std::make_shared<BallObject>(std::move(v)))) {}
     BallDyn(BallObjectRef v) : _val(std::move(v)) {}
+    // Reference-semantic concrete user-class struct instance (BallUserRef).
+    // The shared_ptr<std::any> wraps the struct; copies of BallDyn share it.
+    BallDyn(BallUserRef v) : _val(std::move(v)) {}
 
     // ── Reference-semantic list accessors ──
     // Return a pointer to the underlying vector whether stored by-value (legacy /
@@ -825,6 +837,11 @@ public:
             }
         }
         if (_val.type() != o._val.type()) return false;
+        // BallUserRef: reference identity (Dart default `==` for objects).
+        if (_val.type() == typeid(BallUserRef)) {
+            return std::any_cast<const BallUserRef&>(_val).get() ==
+                   std::any_cast<const BallUserRef&>(o._val).get();
+        }
         if (_val.type() == typeid(BallDispatchNotFound)) return true;
         if (_val.type() == typeid(BallListRef) && o._val.type() == typeid(BallListRef)) {
             return std::any_cast<const BallListRef&>(_val) ==
@@ -1691,10 +1708,16 @@ BALL_DYN_STUB(StdModuleHandler);
 // aliased through an untyped `final x = obj` binding). `ball_obj_as<T>(self)`
 // yields a `T&` in both cases so `ball_obj_as<T>(self).method(...)` compiles
 // uniformly (conformance 111; also used for factory return conversion, 106).
+// When the value is stored reference-semantically via BallUserRef
+// (shared_ptr<std::any>), dereference through the shared_ptr first.
 template<class T> inline T& ball_obj_as(BallDyn& d) {
+    if (d._val.type() == typeid(BallUserRef))
+        return std::any_cast<T&>(*std::any_cast<BallUserRef&>(d._val));
     return std::any_cast<T&>(d._val);
 }
 template<class T> inline const T& ball_obj_as(const BallDyn& d) {
+    if (d._val.type() == typeid(BallUserRef))
+        return std::any_cast<const T&>(*std::any_cast<const BallUserRef&>(d._val));
     return std::any_cast<const T&>(d._val);
 }
 template<class T, class U,

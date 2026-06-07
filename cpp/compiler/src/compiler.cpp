@@ -1681,6 +1681,7 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
         }
         if (has_factory_new) {
             // Call the factory constructor: ClassName::new_(args)
+            // The factory returns BallDyn (with BallUserRef inside).
             std::string result = type + "::" + sanitize_name("new") + "(";
             bool first = true;
             for (const auto& f : msg.fields()) {
@@ -5102,6 +5103,22 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
             }
         }
 
+        // When the value comes from a factory constructor (which returns
+        // BallDyn), the variable must NOT use the concrete struct type — use
+        // auto/BallDyn instead (conformance 106).
+        if (is_user_class &&
+            stmt.let().value().expr_case() == ball::v1::Expression::kMessageCreation) {
+            for (const auto& [cls, factories] : class_factory_ctors_) {
+                auto cls_colon = cls.find(':');
+                std::string cls_bare = cls_colon != std::string::npos ? cls.substr(cls_colon + 1) : cls;
+                if (sanitize_name(cls_bare) == class_type) {
+                    for (const auto& fname : factories) {
+                        if (fname == "new") { is_user_class = false; break; }
+                    }
+                    break;
+                }
+            }
+        }
         if (boxed_vars_.count(stmt.let().name())) {
             // Closure-captured local: allocate a fresh shared_ptr<BallDyn> cell
             // each time this declaration executes (e.g. per loop iteration), so
@@ -5109,6 +5126,13 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
             // `(*X)` (see compile_reference). (conformance 85/203/223)
             out_ << "auto " << var_name
                  << " = std::make_shared<BallDyn>(BallDyn(" << val_str << "));\n";
+        } else if (is_user_class && inside_factory_) {
+            // Inside a factory body, user-class let bindings are wrapped in
+            // BallUserRef for reference semantics. The factory stores/returns
+            // these BallDyn values, and identical() compares their BallUserRef
+            // pointers (conformance 106).
+            out_ << "auto " << var_name
+                 << " = BallDyn(BallUserRef(std::make_shared<std::any>(" << val_str << ")));\n";
         } else if (is_user_class) {
             out_ << class_type << " " << var_name << " = " << val_str << ";\n";
         } else {
@@ -6951,48 +6975,41 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             bool is_default = (ctor_name == "new" || ctor_name == name || ctor_name.empty());
 
             if (is_factory) {
-                // Factory constructor → static method returning the class type.
+                // Factory constructor → static method returning BallDyn.
+                // User-class instances are reference-semantic (BallUserRef);
+                // the factory returns a BallDyn that wraps the cached/new
+                // instance so that `identical()` and cascade mutations
+                // propagate correctly (conformance 106).
                 auto params = func->has_metadata() ? extract_params(func->metadata()) : std::vector<std::string>{};
                 emit_indent();
-                out_ << "static " << name << " " << sanitize_name(ctor_name) << "(";
+                out_ << "static BallDyn " << sanitize_name(ctor_name) << "(";
                 for (size_t i = 0; i < params.size(); i++) {
                     if (i > 0) out_ << ", ";
                     out_ << "auto " << sanitize_name(params[i]);
                 }
                 out_ << ") {\n";
                 indent_++;
-                // The factory's declared return type is the concrete class `name`,
-                // but its body produces BallDyn values (cached lookup / a `new`d
-                // instance erased through BallDyn). Set current_return_type_ so the
-                // compile_statement return handler recovers the concrete struct,
-                // and wrap the block/expr result the same way (conformance 106).
-                std::string prev_rt = current_return_type_;
-                current_return_type_ = name;
-                auto wrap_ret = [&](std::string expr) -> std::string {
-                    const std::string kPrefix = "BallDyn(";
-                    if (user_class_names_.count(name) > 0 &&
-                        expr.rfind(kPrefix, 0) == 0 && !expr.empty() &&
-                        expr.back() == ')') {
-                        return "ball_obj_as<" + name + ">(" +
-                               expr.substr(kPrefix.size(),
-                                           expr.size() - kPrefix.size() - 1) + ")";
-                    }
-                    return expr;
-                };
+                // Do NOT set current_return_type_ to the class name — the
+                // factory returns BallDyn (with BallUserRef inside), not a
+                // bare struct. Return statements should pass BallDyn through.
+                // Set inside_factory_ so let bindings of user-class type use
+                // BallDyn(BallUserRef(...)) instead of the concrete struct.
+                bool prev_factory = inside_factory_;
+                inside_factory_ = true;
                 if (func->has_body()) {
                     if (func->body().expr_case() == ball::v1::Expression::kBlock) {
                         for (const auto& s : func->body().block().statements())
                             compile_statement(s);
                         if (func->body().block().has_result()) {
-                            emit_line("return " +
-                                      wrap_ret(compile_expr(func->body().block().result())) + ";");
+                            emit_line("return BallDyn(" +
+                                      compile_expr(func->body().block().result()) + ");");
                         }
                     } else {
-                        emit_line("return " + wrap_ret(compile_expr(func->body())) + ";");
+                        emit_line("return BallDyn(" + compile_expr(func->body()) + ");");
                     }
                 }
-                current_return_type_ = prev_rt;
-                emit_line("return " + name + "();");
+                inside_factory_ = prev_factory;
+                emit_line("return BallDyn();");
                 indent_--;
                 emit_line("}");
                 continue;
@@ -7201,6 +7218,16 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             out_ << "static inline " << map_return_type(*func) << " " << sanitize_name(field_name);
             if (func->has_body()) {
                 std::string init = compile_expr(func->body());
+                // An empty `set_create` whose outputType starts with "Map" is
+                // an empty map literal (the encoder reuses set_create for `{}`).
+                // The let handler has a parallel check using let-metadata, but
+                // static fields bypass that path (conformance 106).
+                if (func->body().expr_case() == ball::v1::Expression::kCall &&
+                    func->body().call().function() == "set_create" &&
+                    !func->output_type().empty() &&
+                    func->output_type().rfind("Map", 0) == 0) {
+                    init = "BallDyn(BallOrderedMap{})";
+                }
                 // C++ forbids a capture-default on a lambda at namespace/class
                 // scope. The outermost IIFE for list/map/block literals emits
                 // `[&]()...` — there are no enclosing locals to capture in a
@@ -9168,7 +9195,10 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
                get_message_field(call, "map") + "), " + get_message_field(call, "value") + ")";
     }
     if (fn == "list_clear") {
-        return "(ball_clear(" + get_message_field(call, "list") + "), BallDyn())";
+        // Return the list itself (now cleared) so `assign(parts, list_clear(parts))`
+        // leaves parts as an empty list rather than null (conformance 111).
+        auto list_expr = get_message_field(call, "list");
+        return "(ball_clear(" + list_expr + "), " + list_expr + ")";
     }
     if (fn == "map_put_if_absent") {
         return "ball_map_put_if_absent(" + get_message_field(call, "map") + ", " +

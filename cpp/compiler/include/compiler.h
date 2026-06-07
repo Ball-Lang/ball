@@ -147,6 +147,11 @@ private:
     std::unordered_map<std::string, std::unordered_set<std::string>> class_abstract_methods_;
     // Maps class name to factory constructor function names.
     std::unordered_map<std::string, std::vector<std::string>> class_factory_ctors_;
+    // True while compiling a factory constructor body. Inside a factory,
+    // user-class `let` bindings are emitted as `auto var = BallDyn(...)` so
+    // the instance is stored reference-semantically via BallUserRef and
+    // `identical()` / cascade mutations work correctly (conformance 106/111).
+    bool inside_factory_ = false;
     // Maps class name to named (non-default, non-factory) constructor basenames.
     std::unordered_map<std::string, std::vector<std::string>> class_named_ctors_;
 

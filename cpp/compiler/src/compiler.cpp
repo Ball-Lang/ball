@@ -4,6 +4,8 @@
 #include "ball_emit_runtime_embed.h"
 #include "ball_dyn_embed.h"
 
+#include <google/protobuf/util/json_util.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -276,6 +278,7 @@ void CppCompiler::build_lookup_tables() {
             "BallRuntimeError", "BallFuture", "BallGenerator", "_FlowSignal",
             "_Scope", "Scope", "_ExitSignal", "File", "JsonEncoder",
             "JsonDecoder", "StringBuffer", "StringSink",
+            "ByteData", "BallByteData", "Endian",
         };
         for (const auto& [cls, td_ptr] : class_typedefs_) {
             bool dyn = generic_full.count(cls) || abstract_full.count(cls) ||
@@ -605,6 +608,10 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     // Dart exception types → C++ equivalents
     if (ball_type == "Exception") return "std::runtime_error";
     if (ball_type == "Error") return "std::runtime_error";
+
+    // Dart typed_data types. ByteData → BallByteData (runtime-provided).
+    if (ball_type == "ByteData") return "BallByteData";
+    if (ball_type == "Uint8List") return "std::vector<std::any>";
 
     // Dart IO types. StringBuffer → BallStringBuffer (a shared_ptr-backed
     // runtime type) so it wraps in BallDyn and its write/writeCharCode/toString
@@ -4899,6 +4906,38 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
         return arg0.empty() ? self : arg0;
     }
 
+    // ── dart:typed_data ByteData methods ──
+    // Route ByteData member calls (setUint8, getUint8, setFloat32, getFloat32,
+    // setFloat64, getFloat64, setUint32, getUint32) as direct member calls on the
+    // BallByteData struct. The Ball IR encodes these as method-style calls with
+    // self=bd, arg0=offset, arg1=value, arg2=endian.
+    {
+        static const std::set<std::string> bytedata_methods = {
+            "setUint8", "getUint8", "setUint16", "getUint16",
+            "setUint32", "getUint32", "setInt32", "getInt32",
+            "setUint64", "getUint64",
+            "setFloat32", "getFloat32", "setFloat64", "getFloat64",
+            "lengthInBytes",
+        };
+        if (bytedata_methods.count(fn) > 0) {
+            // Collect all non-self args in order
+            std::vector<std::string> args;
+            if (call.has_input() &&
+                call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+                for (const auto& f : call.input().message_creation().fields()) {
+                    if (f.name() == "self") continue;
+                    args.push_back(compile_expr(f.value()));
+                }
+            }
+            std::string joined;
+            for (size_t i = 0; i < args.size(); i++) {
+                if (i > 0) joined += ", ";
+                joined += args[i];
+            }
+            return self + "." + fn + "(" + joined + ")";
+        }
+    }
+
     // ── User-defined class method dispatch ──
     // If `fn` is a known user-class method, emit as `self.fn(args)`.
     // For super calls (self == "super" reference), emit `SuperClass::fn(args)`.
@@ -6425,6 +6464,8 @@ void CppCompiler::emit_forward_decls(const ball::v1::Module& module) {
         "StdModuleHandler",
         // Self-hosted engine types provided by ball_emit_runtime.h
         "BallObject", "List_filled",
+        // dart:typed_data types provided by ball_emit_runtime.h
+        "ByteData", "BallByteData", "Endian",
     };
     for (const auto& td : module.type_defs()) {
         if (!td.has_descriptor_()) continue;
@@ -8475,6 +8516,8 @@ std::string CppCompiler::compile() {
         "StdModuleHandler",
         // Self-hosted engine types provided by ball_emit_runtime.h
         "BallObject", "List_filled",
+        // dart:typed_data types provided by ball_emit_runtime.h
+        "ByteData", "BallByteData", "Endian",
     };
     // Topological sort: emit parent types before child types so
     // superclass structs are fully defined before subclasses reference them.
@@ -8635,6 +8678,8 @@ CompileSplitResult CppCompiler::compile_split(const std::string& output_dir,
         "BallGenerator", "_ExitSignal", "BallModuleHandler",
         "StdModuleHandler",
         "BallObject", "List_filled",
+        // dart:typed_data types provided by ball_emit_runtime.h
+        "ByteData", "BallByteData", "Endian",
     };
 
     for (const auto& ed : main_module->enums()) {
@@ -8795,6 +8840,227 @@ std::string CppCompiler::compile_module(const std::string& module_name) {
     }
 
     return out_.str();
+}
+
+// ================================================================
+// Library compilation (Module facade → .h + .cpp, no main)
+// ================================================================
+
+CompileLibraryResult CppCompiler::compile_library(
+    const ball::v1::Module& facade,
+    const std::string& ns_override) {
+
+    // Determine namespace name (sanitize the module name).
+    std::string ns = ns_override.empty() ? facade.name() : ns_override;
+    // Replace dots/dashes/colons with underscores for a valid C++ identifier.
+    for (auto& c : ns) {
+        if (c == '.' || c == '-' || c == ':') c = '_';
+    }
+
+    // Extract inline sub-modules from moduleImports.
+    std::vector<ball::v1::Module> extracted_modules;
+    for (const auto& imp : facade.module_imports()) {
+        if (imp.has_inline_() && !imp.inline_().json().empty()) {
+            ball::v1::Module sub_mod;
+            auto status = google::protobuf::util::JsonStringToMessage(
+                imp.inline_().json(), &sub_mod);
+            if (status.ok()) {
+                extracted_modules.push_back(std::move(sub_mod));
+            }
+        }
+    }
+
+    // If the facade itself has non-base functions/types, include it too.
+    {
+        bool has_user_content = false;
+        for (const auto& f : facade.functions()) {
+            if (!f.is_base()) { has_user_content = true; break; }
+        }
+        if (!has_user_content && facade.type_defs_size() > 0) has_user_content = true;
+        if (has_user_content) {
+            extracted_modules.push_back(facade);
+        }
+    }
+
+    // Build a synthetic Program with all extracted modules + a dummy entry.
+    ball::v1::Program program;
+    program.set_name(facade.name());
+    program.set_version("1.0.0");
+    program.set_entry_module("__ball_lib_entry__");
+    program.set_entry_function("__ball_lib_main__");
+
+    // Add all extracted modules
+    for (auto& mod : extracted_modules) {
+        *program.add_modules() = std::move(mod);
+    }
+
+    // Add the dummy entry module
+    auto* entry_mod = program.add_modules();
+    entry_mod->set_name("__ball_lib_entry__");
+    auto* entry_fn = entry_mod->add_functions();
+    entry_fn->set_name("__ball_lib_main__");
+    entry_fn->mutable_body()->mutable_literal()->set_int_value(0);
+
+    // Compile using compile_split into a temporary result, then adapt.
+    // Instead of writing files, we use the normal compile() and strip main.
+    CppCompiler compiler(program);
+
+    // Use the named namespace mode (like compile_split) but capture directly.
+    compiler.split_mode_ = true;  // enables named namespace
+    compiler.out_.str("");
+    compiler.out_.clear();
+
+    // Emit header content
+    compiler.emit_line("// Generated by ball compiler (C++ target, library mode)");
+    compiler.emit_line("// Source module: " + facade.name());
+    compiler.emit_line("#pragma once");
+    compiler.emit_newline();
+    compiler.emit_includes();
+
+    // Open named namespace
+    compiler.emit_line("namespace " + ns + " {");
+    compiler.emit_newline();
+
+    // Collect user modules (skip base-only and the dummy entry)
+    std::vector<const ball::v1::Module*> user_modules;
+    for (const auto& mod : program.modules()) {
+        if (mod.name() == "__ball_lib_entry__") continue;
+        bool all_base = mod.functions_size() > 0;
+        for (const auto& f : mod.functions()) {
+            if (!f.is_base()) { all_base = false; break; }
+        }
+        if (all_base) continue;
+        user_modules.push_back(&mod);
+    }
+
+    // Emit enums
+    for (const auto* mod : user_modules) {
+        for (const auto& ed : mod->enums()) {
+            compiler.emit_enum(ed);
+        }
+    }
+
+    // Emit forward declarations
+    for (const auto* mod : user_modules) {
+        compiler.emit_forward_decls(*mod);
+    }
+
+    // Partition functions
+    std::unordered_map<std::string, std::vector<const ball::v1::FunctionDefinition*>>
+        class_methods;
+    std::vector<const ball::v1::FunctionDefinition*> standalone;
+    std::vector<const ball::v1::FunctionDefinition*> top_level_vars;
+
+    for (const auto* mod : user_modules) {
+        for (const auto& func : mod->functions()) {
+            if (func.is_base()) continue;
+            auto meta = compiler.read_meta(func);
+            auto kind = meta.count("kind") ? meta["kind"] : "function";
+            if (kind == "method" || kind == "constructor" ||
+                kind == "static_field" || kind == "operator") {
+                auto colon = func.name().find(':');
+                std::string after = colon != std::string::npos
+                    ? func.name().substr(colon + 1) : func.name();
+                auto dot = after.find('.');
+                if (dot != std::string::npos) {
+                    std::string class_key = func.name().substr(
+                        0, (colon != std::string::npos ? colon + 1 : 0) + dot);
+                    class_methods[class_key].push_back(&func);
+                    continue;
+                }
+            }
+            if (kind == "top_level_variable") {
+                top_level_vars.push_back(&func);
+                continue;
+            }
+            standalone.push_back(&func);
+        }
+    }
+
+    // Top-level variables
+    for (const auto* func : top_level_vars) {
+        compiler.emit_top_level_var(*func);
+    }
+    if (!top_level_vars.empty()) compiler.emit_newline();
+
+    // Structs/classes (skip runtime-provided types)
+    static const std::set<std::string> runtime_types = {
+        "BallException", "File", "JsonEncoder", "JsonDecoder",
+        "Map_from", "FunctionType",
+        "_FlowSignal", "_Scope", "BallRuntimeError", "BallFuture",
+        "BallGenerator", "_ExitSignal", "BallModuleHandler",
+        "StdModuleHandler", "BallObject", "List_filled",
+    };
+
+    // Topological sort
+    std::vector<const ball::v1::TypeDefinition*> sorted_tds;
+    for (const auto* mod : user_modules) {
+        for (const auto& td : mod->type_defs()) {
+            if (!td.has_descriptor_()) continue;
+            if (runtime_types.count(compiler.sanitize_name(td.name())) > 0) continue;
+            sorted_tds.push_back(&td);
+        }
+    }
+    auto depth_of = [&](const ball::v1::TypeDefinition* td) -> int {
+        int d = 0;
+        std::string cur = td->name();
+        std::set<std::string> visited;
+        while (true) {
+            auto sit = compiler.class_superclass_.find(cur);
+            if (sit == compiler.class_superclass_.end() || sit->second.empty())
+                break;
+            if (visited.count(cur)) break;
+            visited.insert(cur);
+            std::string next;
+            for (const auto& [c, _] : compiler.class_superclass_) {
+                auto cc = c.find(':');
+                std::string bare = cc != std::string::npos ? c.substr(cc + 1) : c;
+                if (bare == sit->second) { next = c; break; }
+            }
+            if (next.empty()) { d++; break; }
+            cur = next;
+            d++;
+        }
+        if (td->has_metadata()) {
+            auto mixins = compiler.read_meta_list(td->metadata(), "mixins");
+            if (!mixins.empty() && d == 0) d = 1;
+        }
+        return d;
+    };
+    std::stable_sort(sorted_tds.begin(), sorted_tds.end(),
+        [&](const ball::v1::TypeDefinition* a, const ball::v1::TypeDefinition* b) {
+            return depth_of(a) < depth_of(b);
+        });
+    for (const auto* td : sorted_tds) {
+        auto it = class_methods.find(td->name());
+        auto methods = it != class_methods.end()
+            ? it->second
+            : std::vector<const ball::v1::FunctionDefinition*>{};
+        if (compiler.is_dynamic_class(td->name()))
+            compiler.emit_dynamic_class(*td, methods);
+        else
+            compiler.emit_struct(*td, methods);
+    }
+
+    // Standalone functions
+    for (const auto* func : standalone) {
+        compiler.emit_function(*func);
+    }
+
+    // Close namespace
+    compiler.emit_newline();
+    compiler.emit_line("} // namespace " + ns);
+
+    // The header contains everything (header-only library).
+    // For larger libraries, we could split declarations into .h and
+    // definitions into .cpp, but for now a header-only approach is simpler
+    // and matches how ball_emit_runtime.h works.
+    CompileLibraryResult result;
+    result.ns = ns;
+    result.header = compiler.out_.str();
+    // Source is empty for header-only mode; consumers just #include the header.
+    result.source = "";
+    return result;
 }
 
 // ================================================================

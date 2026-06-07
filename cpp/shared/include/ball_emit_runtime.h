@@ -22,6 +22,7 @@
 // is harmless.
 #include <ctime>
 #include <cstdio>
+#include <cstring>
 
 // Minimal Ball exception type used by `throw` / `try` to preserve
 // typed-catch semantics. Derives from std::exception so untyped
@@ -1875,6 +1876,362 @@ struct List_filled {
     }
 };
 // BallDyn overload for List_filled — defined in ball_dyn.h after BallDyn class
+
+// ── Endian constants ──
+// Dart's `Endian.little` / `Endian.big` from dart:typed_data.
+// Represented as simple bool: true = little-endian, false = big-endian.
+struct EndianType {
+    bool isLittle;
+};
+// Dart's `Endian.little` and `Endian.big` are accessed as field accesses on
+// the `Endian` reference. The compiled code emits `Endian.little` / `Endian.big`.
+// We define a struct with non-static member constants so `Endian.little` works.
+struct EndianNamespace_ {
+    EndianType little{true};
+    EndianType big{false};
+    // Dart also has `Endian.host` — use platform endianness.
+    EndianType host() const {
+        uint16_t test = 1;
+        return EndianType{*reinterpret_cast<uint8_t*>(&test) == 1};
+    }
+};
+inline EndianNamespace_ Endian;
+
+// ── BallByteData ──
+// Dart's `ByteData` from dart:typed_data — a fixed-size byte buffer with
+// typed accessors for reading/writing integers and IEEE 754 floats at
+// arbitrary offsets with explicit endianness.
+//
+// Used by ball_protobuf for binary wire encoding of float/double fields.
+struct BallByteData {
+    std::vector<uint8_t> _bytes;
+
+    BallByteData() = default;
+    explicit BallByteData(int64_t size) : _bytes(static_cast<size_t>(size < 0 ? 0 : size), 0) {}
+    BallByteData(const std::any& size_val) {
+        int64_t n = 0;
+        const std::any& u = _BallDynUnwrapper::unwrap(size_val);
+        if (u.type() == typeid(int64_t)) n = std::any_cast<int64_t>(u);
+        else if (u.type() == typeid(double)) n = static_cast<int64_t>(std::any_cast<double>(u));
+        _bytes.resize(static_cast<size_t>(n < 0 ? 0 : n), 0);
+    }
+
+    int64_t lengthInBytes() const { return static_cast<int64_t>(_bytes.size()); }
+
+    // ── Single-byte access ──
+    void setUint8(int64_t offset, int64_t value) {
+        if (offset >= 0 && static_cast<size_t>(offset) < _bytes.size())
+            _bytes[static_cast<size_t>(offset)] = static_cast<uint8_t>(value & 0xFF);
+    }
+    int64_t getUint8(int64_t offset) const {
+        if (offset >= 0 && static_cast<size_t>(offset) < _bytes.size())
+            return static_cast<int64_t>(_bytes[static_cast<size_t>(offset)]);
+        return 0;
+    }
+
+    // ── 16-bit access ──
+    void setUint16(int64_t offset, int64_t value, EndianType endian = EndianType{false}) {
+        if (offset < 0 || static_cast<size_t>(offset) + 2 > _bytes.size()) return;
+        uint16_t v = static_cast<uint16_t>(value);
+        if (endian.isLittle) {
+            _bytes[offset] = static_cast<uint8_t>(v & 0xFF);
+            _bytes[offset + 1] = static_cast<uint8_t>((v >> 8) & 0xFF);
+        } else {
+            _bytes[offset] = static_cast<uint8_t>((v >> 8) & 0xFF);
+            _bytes[offset + 1] = static_cast<uint8_t>(v & 0xFF);
+        }
+    }
+    int64_t getUint16(int64_t offset, EndianType endian = EndianType{false}) const {
+        if (offset < 0 || static_cast<size_t>(offset) + 2 > _bytes.size()) return 0;
+        if (endian.isLittle) {
+            return static_cast<int64_t>(_bytes[offset]) |
+                   (static_cast<int64_t>(_bytes[offset + 1]) << 8);
+        } else {
+            return (static_cast<int64_t>(_bytes[offset]) << 8) |
+                   static_cast<int64_t>(_bytes[offset + 1]);
+        }
+    }
+
+    // ── 32-bit unsigned access ──
+    void setUint32(int64_t offset, int64_t value, EndianType endian = EndianType{false}) {
+        if (offset < 0 || static_cast<size_t>(offset) + 4 > _bytes.size()) return;
+        uint32_t v = static_cast<uint32_t>(value);
+        if (endian.isLittle) {
+            _bytes[offset]     = static_cast<uint8_t>(v & 0xFF);
+            _bytes[offset + 1] = static_cast<uint8_t>((v >> 8) & 0xFF);
+            _bytes[offset + 2] = static_cast<uint8_t>((v >> 16) & 0xFF);
+            _bytes[offset + 3] = static_cast<uint8_t>((v >> 24) & 0xFF);
+        } else {
+            _bytes[offset]     = static_cast<uint8_t>((v >> 24) & 0xFF);
+            _bytes[offset + 1] = static_cast<uint8_t>((v >> 16) & 0xFF);
+            _bytes[offset + 2] = static_cast<uint8_t>((v >> 8) & 0xFF);
+            _bytes[offset + 3] = static_cast<uint8_t>(v & 0xFF);
+        }
+    }
+    int64_t getUint32(int64_t offset, EndianType endian = EndianType{false}) const {
+        if (offset < 0 || static_cast<size_t>(offset) + 4 > _bytes.size()) return 0;
+        uint32_t v;
+        if (endian.isLittle) {
+            v = static_cast<uint32_t>(_bytes[offset]) |
+                (static_cast<uint32_t>(_bytes[offset + 1]) << 8) |
+                (static_cast<uint32_t>(_bytes[offset + 2]) << 16) |
+                (static_cast<uint32_t>(_bytes[offset + 3]) << 24);
+        } else {
+            v = (static_cast<uint32_t>(_bytes[offset]) << 24) |
+                (static_cast<uint32_t>(_bytes[offset + 1]) << 16) |
+                (static_cast<uint32_t>(_bytes[offset + 2]) << 8) |
+                static_cast<uint32_t>(_bytes[offset + 3]);
+        }
+        return static_cast<int64_t>(v);
+    }
+
+    // ── 32-bit signed access ──
+    void setInt32(int64_t offset, int64_t value, EndianType endian = EndianType{false}) {
+        setUint32(offset, value, endian);
+    }
+    int64_t getInt32(int64_t offset, EndianType endian = EndianType{false}) const {
+        int64_t u = getUint32(offset, endian);
+        // Sign-extend from 32 bits
+        if (u & 0x80000000LL) u |= ~0xFFFFFFFFLL;
+        return u;
+    }
+
+    // ── 64-bit unsigned access ──
+    void setUint64(int64_t offset, int64_t value, EndianType endian = EndianType{false}) {
+        if (offset < 0 || static_cast<size_t>(offset) + 8 > _bytes.size()) return;
+        uint64_t v = static_cast<uint64_t>(value);
+        if (endian.isLittle) {
+            for (int i = 0; i < 8; ++i)
+                _bytes[offset + i] = static_cast<uint8_t>((v >> (i * 8)) & 0xFF);
+        } else {
+            for (int i = 0; i < 8; ++i)
+                _bytes[offset + i] = static_cast<uint8_t>((v >> ((7 - i) * 8)) & 0xFF);
+        }
+    }
+    int64_t getUint64(int64_t offset, EndianType endian = EndianType{false}) const {
+        if (offset < 0 || static_cast<size_t>(offset) + 8 > _bytes.size()) return 0;
+        uint64_t v = 0;
+        if (endian.isLittle) {
+            for (int i = 0; i < 8; ++i)
+                v |= static_cast<uint64_t>(_bytes[offset + i]) << (i * 8);
+        } else {
+            for (int i = 0; i < 8; ++i)
+                v |= static_cast<uint64_t>(_bytes[offset + i]) << ((7 - i) * 8);
+        }
+        return static_cast<int64_t>(v);
+    }
+
+    // ── IEEE 754 float (32-bit) ──
+    void setFloat32(int64_t offset, double value, EndianType endian = EndianType{false}) {
+        if (offset < 0 || static_cast<size_t>(offset) + 4 > _bytes.size()) return;
+        float f = static_cast<float>(value);
+        uint8_t raw[4];
+        std::memcpy(raw, &f, 4);
+        if (endian.isLittle) {
+            // Native float is stored in platform endianness; we need little-endian.
+            // On little-endian platforms (x86/ARM): raw is already LE.
+            // On big-endian platforms: reverse the bytes.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            _bytes[offset]     = raw[3];
+            _bytes[offset + 1] = raw[2];
+            _bytes[offset + 2] = raw[1];
+            _bytes[offset + 3] = raw[0];
+#else
+            _bytes[offset]     = raw[0];
+            _bytes[offset + 1] = raw[1];
+            _bytes[offset + 2] = raw[2];
+            _bytes[offset + 3] = raw[3];
+#endif
+        } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            _bytes[offset]     = raw[0];
+            _bytes[offset + 1] = raw[1];
+            _bytes[offset + 2] = raw[2];
+            _bytes[offset + 3] = raw[3];
+#else
+            _bytes[offset]     = raw[3];
+            _bytes[offset + 1] = raw[2];
+            _bytes[offset + 2] = raw[1];
+            _bytes[offset + 3] = raw[0];
+#endif
+        }
+    }
+    double getFloat32(int64_t offset, EndianType endian = EndianType{false}) const {
+        if (offset < 0 || static_cast<size_t>(offset) + 4 > _bytes.size()) return 0.0;
+        uint8_t raw[4];
+        if (endian.isLittle) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            raw[0] = _bytes[offset + 3];
+            raw[1] = _bytes[offset + 2];
+            raw[2] = _bytes[offset + 1];
+            raw[3] = _bytes[offset];
+#else
+            raw[0] = _bytes[offset];
+            raw[1] = _bytes[offset + 1];
+            raw[2] = _bytes[offset + 2];
+            raw[3] = _bytes[offset + 3];
+#endif
+        } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            raw[0] = _bytes[offset];
+            raw[1] = _bytes[offset + 1];
+            raw[2] = _bytes[offset + 2];
+            raw[3] = _bytes[offset + 3];
+#else
+            raw[0] = _bytes[offset + 3];
+            raw[1] = _bytes[offset + 2];
+            raw[2] = _bytes[offset + 1];
+            raw[3] = _bytes[offset];
+#endif
+        }
+        float f;
+        std::memcpy(&f, raw, 4);
+        return static_cast<double>(f);
+    }
+
+    // ── IEEE 754 double (64-bit) ──
+    void setFloat64(int64_t offset, double value, EndianType endian = EndianType{false}) {
+        if (offset < 0 || static_cast<size_t>(offset) + 8 > _bytes.size()) return;
+        uint8_t raw[8];
+        std::memcpy(raw, &value, 8);
+        if (endian.isLittle) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            for (int i = 0; i < 8; ++i) _bytes[offset + i] = raw[7 - i];
+#else
+            for (int i = 0; i < 8; ++i) _bytes[offset + i] = raw[i];
+#endif
+        } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            for (int i = 0; i < 8; ++i) _bytes[offset + i] = raw[i];
+#else
+            for (int i = 0; i < 8; ++i) _bytes[offset + i] = raw[7 - i];
+#endif
+        }
+    }
+    double getFloat64(int64_t offset, EndianType endian = EndianType{false}) const {
+        if (offset < 0 || static_cast<size_t>(offset) + 8 > _bytes.size()) return 0.0;
+        uint8_t raw[8];
+        if (endian.isLittle) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            for (int i = 0; i < 8; ++i) raw[i] = _bytes[offset + 7 - i];
+#else
+            for (int i = 0; i < 8; ++i) raw[i] = _bytes[offset + i];
+#endif
+        } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            for (int i = 0; i < 8; ++i) raw[i] = _bytes[offset + i];
+#else
+            for (int i = 0; i < 8; ++i) raw[i] = _bytes[offset + 7 - i];
+#endif
+        }
+        double d;
+        std::memcpy(&d, raw, 8);
+        return d;
+    }
+
+    // ── BallDyn overloads for dynamic args ──
+    void setUint8(const std::any& offset, const std::any& value) {
+        int64_t o = 0, v = 0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        const std::any& vu = _BallDynUnwrapper::unwrap(value);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        if (vu.type() == typeid(int64_t)) v = std::any_cast<int64_t>(vu);
+        else if (vu.type() == typeid(double)) v = static_cast<int64_t>(std::any_cast<double>(vu));
+        setUint8(o, v);
+    }
+    int64_t getUint8(const std::any& offset) const {
+        int64_t o = 0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        return getUint8(o);
+    }
+    void setFloat32(const std::any& offset, const std::any& value, EndianType endian = EndianType{false}) {
+        int64_t o = 0;
+        double v = 0.0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        const std::any& vu = _BallDynUnwrapper::unwrap(value);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        if (vu.type() == typeid(double)) v = std::any_cast<double>(vu);
+        else if (vu.type() == typeid(int64_t)) v = static_cast<double>(std::any_cast<int64_t>(vu));
+        setFloat32(o, v, endian);
+    }
+    double getFloat32(const std::any& offset, EndianType endian = EndianType{false}) const {
+        int64_t o = 0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        return getFloat32(o, endian);
+    }
+    void setFloat64(const std::any& offset, const std::any& value, EndianType endian = EndianType{false}) {
+        int64_t o = 0;
+        double v = 0.0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        const std::any& vu = _BallDynUnwrapper::unwrap(value);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        if (vu.type() == typeid(double)) v = std::any_cast<double>(vu);
+        else if (vu.type() == typeid(int64_t)) v = static_cast<double>(std::any_cast<int64_t>(vu));
+        setFloat64(o, v, endian);
+    }
+    double getFloat64(const std::any& offset, EndianType endian = EndianType{false}) const {
+        int64_t o = 0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        return getFloat64(o, endian);
+    }
+    void setUint32(const std::any& offset, const std::any& value, EndianType endian = EndianType{false}) {
+        int64_t o = 0, v = 0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        const std::any& vu = _BallDynUnwrapper::unwrap(value);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        if (vu.type() == typeid(int64_t)) v = std::any_cast<int64_t>(vu);
+        else if (vu.type() == typeid(double)) v = static_cast<int64_t>(std::any_cast<double>(vu));
+        setUint32(o, v, endian);
+    }
+    int64_t getUint32(const std::any& offset, EndianType endian = EndianType{false}) const {
+        int64_t o = 0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        return getUint32(o, endian);
+    }
+
+    // ── buffer property (mimics Dart's ByteData.buffer) ──
+    // In Dart, `byteData.buffer.asUint8List()` returns a Uint8List view.
+    // We provide a nested struct with asUint8List() that returns the bytes as
+    // a BallList (vector<any> of int64_t byte values).
+    struct BufferView {
+        const std::vector<uint8_t>& bytes;
+        std::vector<std::any> asUint8List() const {
+            std::vector<std::any> result;
+            result.reserve(bytes.size());
+            for (uint8_t b : bytes) result.push_back(std::any(static_cast<int64_t>(b)));
+            return result;
+        }
+        std::vector<std::any> asUint8List(int64_t start, int64_t length) const {
+            std::vector<std::any> result;
+            size_t end = static_cast<size_t>(start + length);
+            if (end > bytes.size()) end = bytes.size();
+            for (size_t i = static_cast<size_t>(start); i < end; ++i)
+                result.push_back(std::any(static_cast<int64_t>(bytes[i])));
+            return result;
+        }
+    };
+    BufferView buffer() const { return BufferView{_bytes}; }
+    // Also support direct access pattern: `bd.buffer.asUint8List()` when compiled
+    // as a field access chain (the compiler emits `.buffer` then `.asUint8List()`).
+    BufferView get_buffer() const { return BufferView{_bytes}; }
+};
+
+// Free-function overloads so the compiled code `ByteData(n)` resolves.
+// The compiler emits `BallByteData{.arg0 = n}` or `BallByteData(n)`.
+inline BallByteData ByteData(int64_t size) { return BallByteData(size); }
+inline BallByteData ByteData(const std::any& size) { return BallByteData(size); }
 
 // ── BallObject ──
 // Dart: class BallObject extends BallMap { ... }

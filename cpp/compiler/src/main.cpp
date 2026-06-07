@@ -44,7 +44,9 @@ static int run_compile(int argc, char** argv) {
         std::cerr << "Usage: " << argv[0]
                   << " <program.ball.json|program.ball.pb> [output.cpp]\n"
                   << "       " << argv[0]
-                  << " <program.ball.pb> --split <dir> [--shards N]\n";
+                  << " <program.ball.pb> --split <dir> [--shards N]\n"
+                  << "       " << argv[0]
+                  << " <module.ball.json> --library [--ns <namespace>] [--out <file.h>]\n";
         return 1;
     }
 
@@ -52,12 +54,20 @@ static int run_compile(int argc, char** argv) {
     std::string output_path;
     std::string split_dir;
     int split_shards = 8;
+    bool library_mode = false;
+    std::string library_ns;
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--split" && i + 1 < argc) {
             split_dir = argv[++i];
         } else if (arg == "--shards" && i + 1 < argc) {
             split_shards = std::atoi(argv[++i]);
+        } else if (arg == "--library") {
+            library_mode = true;
+        } else if (arg == "--ns" && i + 1 < argc) {
+            library_ns = argv[++i];
+        } else if (arg == "--out" && i + 1 < argc) {
+            output_path = argv[++i];
         } else if (output_path.empty() && split_dir.empty()) {
             output_path = arg;
         }
@@ -72,6 +82,42 @@ static int run_compile(int argc, char** argv) {
     std::stringstream buffer;
     buffer << file.rdbuf();
     std::string content = buffer.str();
+
+    // Library mode: input is a Module (not a Program).
+    if (library_mode) {
+        ball::v1::Module module;
+        try {
+            ball::v1::Program unused_prog;
+            auto kind = ball::DecodeBallFile(input_path, content, unused_prog, module);
+            if (kind != ball::BallFileKind::kModule) {
+                // Also try decoding as a Module directly in case the file lacks
+                // the @type wrapper (happens with some tool outputs).
+                std::cerr << "Warning: file is a Program, not a Module. "
+                          << "Library mode expects a Module.\n";
+                return 1;
+            }
+        } catch (const ball::BallFileFormatException& e) {
+            std::cerr << "Failed to read ball file: " << e.what() << std::endl;
+            return 1;
+        }
+
+        auto result = ball::CppCompiler::compile_library(module, library_ns);
+        std::string output = result.header;
+
+        if (!output_path.empty()) {
+            std::ofstream out(output_path);
+            if (!out) {
+                std::cerr << "Could not open output file " << output_path << std::endl;
+                return 1;
+            }
+            out << output;
+            std::cerr << "Compiled library to " << output_path
+                      << " (namespace: " << result.ns << ")\n";
+        } else {
+            std::cout << output;
+        }
+        return 0;
+    }
 
     // Ball files are self-describing google.protobuf.Any envelopes. Extension
     // selects binary vs JSON; the envelope's type URL must be a Program here.

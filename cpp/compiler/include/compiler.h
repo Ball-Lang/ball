@@ -29,6 +29,13 @@ struct CompileSplitResult {
     std::vector<std::string> shard_sources;  // engine_rt_shard_NN.cpp paths
 };
 
+// Library compilation result (no main, exported symbols).
+struct CompileLibraryResult {
+    std::string header;       // .h content: forward declarations + inline types
+    std::string source;       // .cpp content: function definitions
+    std::string ns;           // namespace name used
+};
+
 class CppCompiler {
 public:
     explicit CppCompiler(const ball::v1::Program& program);
@@ -42,6 +49,18 @@ public:
 
     // Compile a single module (for multi-file output)
     std::string compile_module(const std::string& module_name);
+
+    // Compile from a Module facade (library mode): extracts inline sub-modules
+    // and emits a .h (declarations) + .cpp (definitions) pair in a named
+    // namespace, with no main() function. Used for ball_protobuf and similar
+    // library-only Ball artifacts.
+    //
+    // The Module's moduleImports with InlineSource.json are expanded into the
+    // program's module list. The namespace defaults to the module's name
+    // (sanitized, e.g., "ball_protobuf").
+    static CompileLibraryResult compile_library(
+        const ball::v1::Module& facade,
+        const std::string& ns_override = "");
 
     // Namespace used for multi-TU emission (single-TU uses anonymous namespace).
     static constexpr const char* kSplitNamespace = "ball_rt";

@@ -32,33 +32,10 @@ void main() {
   stdout.writeln('Extracted ${modules.length} inline modules from facade');
   stdout.writeln('Total functions: ${modules.fold<int>(0, (n, m) => n + m.functions.length)}');
 
-  // Add a dummy main module so the C++ compiler has an entry point
-  final mainModule = Module()
-    ..name = 'main'
-    ..functions.add(
-      FunctionDefinition()
-        ..name = 'main'
-        ..body = (Expression()
-          ..literal = (Literal()..intValue = Int64(0))),
-    );
-
-  final program = Program()
-    ..name = 'ball_protobuf'
-    ..version = '1.0.0'
-    ..entryModule = 'main'
-    ..entryFunction = 'main'
-    ..modules.add(mainModule)
-    ..modules.addAll(modules);
-
-  // Write expanded Program JSON
-  final outPath = '$repoRoot/dart/shared/ball_protobuf_program.json';
-  final outJson = encodeBallFileJson(program);
-  File(outPath).writeAsStringSync(
-    const JsonEncoder.withIndent('  ').convert(outJson),
-  );
-  stdout.writeln('Wrote $outPath (${File(outPath).lengthSync()} bytes)');
-
-  // Compile to C++ using the Ball C++ compiler
+  // Compile to C++ using the Ball C++ compiler in library mode.
+  // The --library flag tells the compiler to accept a Module (not a Program),
+  // expand its InlineSource sub-modules, and emit a header-only library in a
+  // named namespace (no main() function).
   final compilerExe = _findCppCompiler(repoRoot);
   if (compilerExe == null) {
     stderr.writeln('C++ compiler not found. Build it first:');
@@ -66,24 +43,56 @@ void main() {
     exit(1);
   }
 
-  stdout.writeln('Compiling to C++ via $compilerExe...');
-  final outCpp = '$repoRoot/cpp/shared/ball_protobuf_rt.cpp';
-  final result = Process.runSync(compilerExe, [outPath, '--out', outCpp]);
+  final facadePath = '$repoRoot/dart/shared/ball_protobuf.json';
+  final outCpp = '$repoRoot/cpp/shared/ball_protobuf_rt.h';
+  stdout.writeln('Compiling to C++ library via $compilerExe --library...');
+  final result = Process.runSync(
+    compilerExe,
+    [facadePath, '--library', '--ns', 'ball_protobuf', '--out', outCpp],
+  );
   if (result.exitCode != 0) {
-    stderr.writeln('C++ compilation failed (exit ${result.exitCode}):');
+    stderr.writeln('C++ library compilation failed (exit ${result.exitCode}):');
     stderr.writeln(result.stderr);
-    // Try without --out (may print to stdout)
-    final result2 = Process.runSync(compilerExe, [outPath]);
-    if (result2.exitCode == 0) {
-      File(outCpp).writeAsStringSync(result2.stdout as String);
-      stdout.writeln('Wrote $outCpp (${File(outCpp).lengthSync()} bytes)');
-    } else {
+    // Fallback: wrap in a Program and compile the old way
+    stderr.writeln('Falling back to Program-wrapping approach...');
+
+    final mainModule = Module()
+      ..name = 'main'
+      ..functions.add(
+        FunctionDefinition()
+          ..name = 'main'
+          ..body = (Expression()
+            ..literal = (Literal()..intValue = Int64(0))),
+      );
+
+    final program = Program()
+      ..name = 'ball_protobuf'
+      ..version = '1.0.0'
+      ..entryModule = 'main'
+      ..entryFunction = 'main'
+      ..modules.add(mainModule)
+      ..modules.addAll(modules);
+
+    final outPath = '$repoRoot/dart/shared/ball_protobuf_program.json';
+    final outJson = encodeBallFileJson(program);
+    File(outPath).writeAsStringSync(
+      const JsonEncoder.withIndent('  ').convert(outJson),
+    );
+    stdout.writeln('Wrote $outPath (${File(outPath).lengthSync()} bytes)');
+
+    final outCppFallback = '$repoRoot/cpp/shared/ball_protobuf_rt.cpp';
+    final result2 = Process.runSync(compilerExe, [outPath, '--out', outCppFallback]);
+    if (result2.exitCode != 0) {
       stderr.writeln('Fallback also failed:');
       stderr.writeln(result2.stderr);
       exit(2);
     }
+    stdout.writeln('Wrote $outCppFallback (fallback mode)');
   } else {
-    stdout.writeln('Wrote $outCpp');
+    stdout.writeln('Wrote $outCpp (namespace: ball_protobuf)');
+    if ((result.stderr as String).isNotEmpty) {
+      stderr.write(result.stderr);
+    }
   }
 }
 

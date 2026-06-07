@@ -3568,6 +3568,10 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         auto v = get_message_field(call, "value");
         return "[](BallDyn _v) -> BallDyn { if(_v.type()==typeid(int64_t))return BallDyn(std::abs(static_cast<int64_t>(_v))); return BallDyn(std::abs(static_cast<double>(_v))); }(" + v + ")";
     }
+    if (fn == "math_sign") {
+        auto v = get_message_field(call, "value");
+        return "[](BallDyn _v) -> BallDyn { if(_v._val.type()==typeid(int64_t)){auto n=static_cast<int64_t>(_v);return BallDyn(static_cast<int64_t>((n>0)-(n<0)));} auto d=static_cast<double>(_v); if(d!=d)return BallDyn(d); return BallDyn((d>0.0)?1.0:(d<0.0)?-1.0:0.0); }(" + v + ")";
+    }
     // std math functions take floating args; a BallDyn argument is ambiguous
     // under gcc/clang (multiple user conversions: operator double vs int64_t),
     // so cast to double explicitly. (MSVC tolerated the bare BallDyn.)

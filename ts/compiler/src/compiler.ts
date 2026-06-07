@@ -5731,6 +5731,50 @@ export function compileModule(module: Module, options?: CompileModuleOptions): s
     }],
   };
 
+  // Deduplicate function names across inline modules: if the same name appears
+  // in multiple modules, prefix with the module's short name to avoid collisions
+  // (e.g. _encodeFloatBytes in field_fixed → _field_fixed__encodeFloatBytes).
+  const nameCount: Record<string, string[]> = {};
+  for (const mod of allModules) {
+    const shortName = (mod.name ?? "").split(".").pop() ?? "";
+    for (const fn of mod.functions ?? []) {
+      if (!nameCount[fn.name]) nameCount[fn.name] = [];
+      nameCount[fn.name].push(shortName);
+    }
+  }
+  const dupeNames = new Set(
+    Object.entries(nameCount).filter(([, mods]) => mods.length > 1).map(([n]) => n)
+  );
+  if (dupeNames.size > 0) {
+    for (const mod of allModules) {
+      const shortName = (mod.name ?? "").split(".").pop() ?? "";
+      const renames: Record<string, string> = {};
+      for (const fn of mod.functions ?? []) {
+        if (dupeNames.has(fn.name)) {
+          const newName = `_${shortName}__${fn.name.replace(/^_/, "")}`;
+          renames[fn.name] = newName;
+          fn.name = newName;
+        }
+      }
+      // Rename calls within this module that reference the old name
+      if (Object.keys(renames).length > 0) {
+        const renameInExpr = (expr: any): void => {
+          if (!expr || typeof expr !== "object") return;
+          if (expr.call && renames[expr.call.function] && !expr.call.module) {
+            expr.call.function = renames[expr.call.function];
+          }
+          for (const v of Object.values(expr)) {
+            if (Array.isArray(v)) v.forEach(renameInExpr);
+            else if (v && typeof v === "object") renameInExpr(v);
+          }
+        };
+        for (const fn of mod.functions ?? []) {
+          if (fn.body) renameInExpr(fn.body);
+        }
+      }
+    }
+  }
+
   // Build a synthetic Program combining all extracted modules
   const syntheticProgram: Program = {
     name: moduleName ?? module.name ?? "library",

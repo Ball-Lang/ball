@@ -3572,6 +3572,21 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         auto v = get_message_field(call, "value");
         return "[](BallDyn _v) -> BallDyn { if(_v._val.type()==typeid(int64_t)){auto n=static_cast<int64_t>(_v);return BallDyn(static_cast<int64_t>((n>0)-(n<0)));} auto d=static_cast<double>(_v); if(d!=d)return BallDyn(d); return BallDyn((d>0.0)?1.0:(d<0.0)?-1.0:0.0); }(" + v + ")";
     }
+    if (fn == "math_is_nan") {
+        return "[](BallDyn _v) -> BallDyn { return BallDyn(static_cast<double>(_v) != static_cast<double>(_v)); }(" + get_message_field(call, "value") + ")";
+    }
+    if (fn == "math_is_finite") {
+        return "[](BallDyn _v) -> BallDyn { auto d=static_cast<double>(_v); return BallDyn(d==d && d!=1.0/0.0 && d!=-1.0/0.0); }(" + get_message_field(call, "value") + ")";
+    }
+    if (fn == "math_is_infinite") {
+        return "[](BallDyn _v) -> BallDyn { auto d=static_cast<double>(_v); return BallDyn(d==1.0/0.0 || d==-1.0/0.0); }(" + get_message_field(call, "value") + ")";
+    }
+    if (fn == "math_gcd") {
+        return "[](BallDyn _a, BallDyn _b) -> BallDyn { auto a=std::abs(static_cast<int64_t>(_a)); auto b=std::abs(static_cast<int64_t>(_b)); while(b){auto t=b;b=a%b;a=t;} return BallDyn(a); }(" + get_message_field(call, "left") + "," + get_message_field(call, "right") + ")";
+    }
+    if (fn == "string_is_empty") {
+        return "BallDyn(static_cast<std::string>(" + get_message_field(call, "value") + ").empty())";
+    }
     // std math functions take floating args; a BallDyn argument is ambiguous
     // under gcc/clang (multiple user conversions: operator double vs int64_t),
     // so cast to double explicitly. (MSVC tolerated the bare BallDyn.)

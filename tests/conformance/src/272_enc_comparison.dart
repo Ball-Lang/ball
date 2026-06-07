@@ -1,0 +1,9 @@
+void main() {
+  var a = 5;
+  var b = 3;
+  print((a > b).toString());
+  print((a < b).toString());
+  print((a >= a).toString());
+  print((a == a).toString());
+  print((a != b).toString());
+}

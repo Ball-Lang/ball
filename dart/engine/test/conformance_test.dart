@@ -11,29 +11,14 @@ import 'package:ball_engine/engine.dart';
 import 'package:test/test.dart';
 
 void main() {
-  // Two fixture sources:
-  //   1. tests/conformance/ — hand-written ball.json files (the 21-24
-  //      series) that exercise specific IR shapes the encoder doesn't
-  //      currently generate. Engine-layer tests.
-  //   2. tests/fixtures/dart/_generated/ — auto-generated from Dart
-  //      sources by the cross-language harness. Encoder-layer tests.
-  //
-  // Each entry needs a matching `.expected_output.txt` — for the
-  // generated directory we fall back to running `dart` on the source
-  // if no precomputed expected file exists.
-  final handDir = Directory('../../tests/conformance');
-  final genDir = Directory('../../tests/fixtures/dart/_generated');
+  // Single unified conformance directory — all .ball.json programs live in
+  // tests/conformance/ (hand-written, encoder-generated, and cross-language
+  // fixtures). Each needs a matching .expected_output.txt (except the 4
+  // sandbox/security tests which validate error behavior instead).
+  final confDir = Directory('../../tests/conformance');
 
-  final handFiles = handDir.existsSync()
-      ? (handDir
-            .listSync()
-            .whereType<File>()
-            .where((f) => f.path.endsWith('.ball.json'))
-            .toList()
-          ..sort((a, b) => a.path.compareTo(b.path)))
-      : <File>[];
-  final genFiles = genDir.existsSync()
-      ? (genDir
+  final testFiles = confDir.existsSync()
+      ? (confDir
             .listSync()
             .whereType<File>()
             .where((f) => f.path.endsWith('.ball.json'))
@@ -41,8 +26,8 @@ void main() {
           ..sort((a, b) => a.path.compareTo(b.path)))
       : <File>[];
 
-  group('conformance (hand-written IR)', () {
-    for (final testFile in handFiles) {
+  group('conformance', () {
+    for (final testFile in testFiles) {
       final name = testFile.uri.pathSegments.last.replaceAll('.ball.json', '');
       final expectedFile = File(
         testFile.path.replaceAll('.ball.json', '.expected_output.txt'),
@@ -187,53 +172,4 @@ void main() {
     }
   });
 
-  // The generated directory is populated when the cross-language test
-  // runs first. If it's empty (tests run in isolation, or a fresh
-  // checkout), skip — the cross-language test owns the ground-truth.
-  group('conformance (encoder-generated IR)', () {
-    for (final testFile in genFiles) {
-      final name = testFile.uri.pathSegments.last.replaceAll('.ball.json', '');
-      final sourceFile = File('../../tests/fixtures/dart/$name.dart');
-      if (!sourceFile.existsSync()) continue;
-
-      test(name, () async {
-        final program = decodeProgramJson(
-          jsonDecode(testFile.readAsStringSync()),
-        );
-
-        final lines = <String>[];
-        await BallEngine(program, stdout: lines.add).run();
-        final engineOut = lines.join('\n').trimRight();
-
-        // Prefer the committed expected-output file: it is deterministic and
-        // spawns no subprocess. Spawning `dart run` per fixture is slow, and —
-        // because a synchronous `Process.runSync` cannot be interrupted by
-        // package:test's per-test timeout — a single stuck child hangs the
-        // entire suite (this stalled the CI `Engine tests` step indefinitely).
-        final expectedFile = File(
-          testFile.path.replaceAll('.ball.json', '.expected_output.txt'),
-        );
-        if (expectedFile.existsSync()) {
-          final expected = expectedFile
-              .readAsStringSync()
-              .replaceAll('\r\n', '\n')
-              .trimRight();
-          expect(engineOut, equals(expected));
-          return;
-        }
-
-        // Fallback when no expected file is checked in: compare against
-        // `dart run` on the original source. Async + bounded so a stuck child
-        // surfaces as a test timeout instead of an unkillable suite hang.
-        final r = await Process.run(Platform.resolvedExecutable, [
-          'run',
-          sourceFile.absolute.path,
-        ], stdoutEncoding: utf8).timeout(const Duration(seconds: 60));
-        final dartOut = (r.stdout as String)
-            .replaceAll('\r\n', '\n')
-            .trimRight();
-        expect(engineOut, equals(dartOut));
-      });
-    }
-  });
 }

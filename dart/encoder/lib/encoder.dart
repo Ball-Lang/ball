@@ -2834,6 +2834,37 @@ class DartEncoder {
         return Expression()
           ..reference = (Reference()..name = '$prefixName.$member');
       }
+
+      // Well-known getter properties on a simple identifier receiver
+      // (e.g. `x.sign`, `nan.isNaN`). Same routes as the PropertyAccess path.
+      const getterRoutes = <String, String>{
+        'sign': 'math_sign',
+        'isNaN': 'math_is_nan',
+        'isFinite': 'math_is_finite',
+        'isInfinite': 'math_is_infinite',
+        'isEmpty': 'string_is_empty',
+        // isNotEmpty is handled separately below (negation of isEmpty).
+      };
+      final getterFn = getterRoutes[member];
+      if (getterFn != null) {
+        _usedBaseFunctions.add(getterFn);
+        return _buildUnaryStdCall(
+          getterFn,
+          Expression()..reference = (Reference()..name = prefixName),
+        );
+      }
+      // isNotEmpty → not(string_is_empty(target))
+      if (member == 'isNotEmpty') {
+        _usedBaseFunctions.addAll(['string_is_empty', 'not']);
+        return _buildUnaryStdCall(
+          'not',
+          _buildUnaryStdCall(
+            'string_is_empty',
+            Expression()..reference = (Reference()..name = prefixName),
+          ),
+        );
+      }
+
       return Expression()
         ..fieldAccess = (FieldAccess()
           ..object = (Expression()
@@ -2859,6 +2890,30 @@ class DartEncoder {
           _prefixToModule.containsKey(target.name)) {
         return Expression()
           ..reference = (Reference()..name = '${target.name}.$field');
+      }
+
+      // Well-known getter properties → std base function calls. Without type
+      // resolution, route by name (same risk as the method routes above).
+      const getterRoutes = <String, String>{
+        'sign': 'math_sign',
+        'isNaN': 'math_is_nan',
+        'isFinite': 'math_is_finite',
+        'isInfinite': 'math_is_infinite',
+        'isEmpty': 'string_is_empty',
+        // isNotEmpty is handled separately below (negation of isEmpty).
+      };
+      final getterFn = getterRoutes[field];
+      if (getterFn != null && target != null) {
+        _usedBaseFunctions.add(getterFn);
+        return _buildUnaryStdCall(getterFn, targetExpr);
+      }
+      // isNotEmpty → not(string_is_empty(target))
+      if (field == 'isNotEmpty' && target != null) {
+        _usedBaseFunctions.addAll(['string_is_empty', 'not']);
+        return _buildUnaryStdCall(
+          'not',
+          _buildUnaryStdCall('string_is_empty', targetExpr),
+        );
       }
 
       return Expression()
@@ -3399,6 +3454,9 @@ class DartEncoder {
         'substring': ('std', 'string_substring', 'value'),
         'split': ('std', 'string_split', 'value'),
         'replaceAll': ('std', 'string_replace_all', 'value'),
+        'replaceFirst': ('std', 'string_replace', 'value'),
+        'lastIndexOf': ('std', 'string_last_index_of', 'value'),
+        'gcd': ('std', 'math_gcd', 'value'),
         'startsWith': ('std', 'string_starts_with', 'value'),
         'endsWith': ('std', 'string_ends_with', 'value'),
         'padLeft': ('std', 'string_pad_left', 'value'),
@@ -3437,6 +3495,8 @@ class DartEncoder {
               'math_clamp' => 'min',
               'compare_to' => 'other',
               'to_string_as_fixed' => 'digits',
+              'string_last_index_of' => 'pattern',
+              'math_gcd' => 'other',
               _ => 'value',
             };
           } else if (a.name == 'arg1') {

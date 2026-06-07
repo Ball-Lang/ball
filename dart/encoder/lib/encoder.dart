@@ -3507,7 +3507,7 @@ class DartEncoder {
               'map_put_if_absent' => 'value',
               'string_substring' => 'end',
               'string_replace' || 'string_replace_all' => 'to',
-              'string_pad_left' || 'string_pad_right' => 'fill',
+              'string_pad_left' || 'string_pad_right' => 'padding',
               'math_clamp' => 'max',
               _ => 'value',
             };

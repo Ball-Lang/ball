@@ -25,7 +25,7 @@ All engines pass 100% of their respective conformance suites:
 | Engine | Pass | Total | Status |
 |--------|-----:|------:|:------:|
 | Dart engine (reference) | 271 | 271 | 100% |
-| TS hand-written engine | 270 | 270 | 100% |
+| TS self-hosted engine | 270 | 270 | 100% |
 | TS compiled engine | 270 | 270 | 100% |
 | C++ compiled | 236 | 236 | 100% |
 

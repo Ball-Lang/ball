@@ -660,6 +660,37 @@ function __ball_cascade(target: any, ops: any[]): any {
   };
   if (!rp.hasMatch) rp.hasMatch = function (s: any) { return this.test(s); };
 
+  // Dart Number polyfills — Dart num/int methods not on JS Number.prototype.
+  const _ballNp: any = Number.prototype;
+  if (!_ballNp.gcd) _ballNp.gcd = function (other: any) {
+    let a = Math.abs(this as number), b = Math.abs(Number(other));
+    while (b) { const t = b; b = a % b; a = t; }
+    return a;
+  };
+  Object.defineProperty(_ballNp, 'sign', {
+    configurable: true, get() { const n = Number(this); return n > 0 ? 1 : n < 0 ? -1 : 0; },
+  });
+  Object.defineProperty(_ballNp, 'isNaN', {
+    configurable: true, get() { return Number.isNaN(Number(this)); },
+  });
+  Object.defineProperty(_ballNp, 'isFinite', {
+    configurable: true, get() { return Number.isFinite(Number(this)); },
+  });
+  Object.defineProperty(_ballNp, 'isInfinite', {
+    configurable: true, get() { const n = Number(this); return n === Infinity || n === -Infinity; },
+  });
+  if (!_ballNp.abs) _ballNp.abs = function () { return Math.abs(Number(this)); };
+  if (!_ballNp.ceil) _ballNp.ceil = function () { return Math.ceil(Number(this)); };
+  if (!_ballNp.floor) _ballNp.floor = function () { return Math.floor(Number(this)); };
+  if (!_ballNp.round) _ballNp.round = function () { return Math.round(Number(this)); };
+  if (!_ballNp.truncate) _ballNp.truncate = function () { return Math.trunc(Number(this)); };
+  if (!_ballNp.toInt) _ballNp.toInt = function () { return Math.trunc(Number(this)); };
+  if (!_ballNp.toDouble) _ballNp.toDouble = function () { return Number(this); };
+  if (!_ballNp.clamp) _ballNp.clamp = function (lo: any, hi: any) { const n = Number(this); return n < lo ? lo : n > hi ? hi : n; };
+  if (!_ballNp.compareTo) _ballNp.compareTo = function (other: any) { const a = Number(this), b = Number(other); return a < b ? -1 : a > b ? 1 : 0; };
+  if (!_ballNp.toStringAsFixed) _ballNp.toStringAsFixed = function (digits: any) { return Number(this).toFixed(digits); };
+  if (!_ballNp.remainder) _ballNp.remainder = function (other: any) { return Number(this) % Number(other); };
+
   // Object.prototype polyfills — used by the compiled engine when
   // checking Ball program inputs (plain objects, not Maps).
   const op2: any = Object.prototype;
@@ -804,16 +835,7 @@ function __ball_cascade(target: any, ops: any[]): any {
     return Object.keys(this).filter((k: string) => !k.startsWith('__')).length;
   });
 
-  // Number polyfills for Dart-style methods.
-  const np: any = Number.prototype;
-  if (!np.toInt) np.toInt = function () { return Math.trunc(this); };
-  if (!np.toDouble) np.toDouble = function () { return this + 0.0; };
-  if (!np.compareTo) np.compareTo = function (other: any) {
-    return this < other ? -1 : this > other ? 1 : 0;
-  };
-  if (!np.clamp) np.clamp = function (lo: any, hi: any) {
-    return Math.min(Math.max(this, lo), hi);
-  };
+  // Number polyfills moved earlier (see "Dart Number polyfills" block above).
   // runtimeType — Dart's Object.runtimeType. Returns the Dart-style
   // type name for any JS value. Used by the compiled engine for type
   // checking and error messages.

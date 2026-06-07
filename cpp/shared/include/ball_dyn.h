@@ -352,7 +352,9 @@ public:
 
     // Truthiness (like JavaScript)
     bool has_value() const { return _val.has_value(); }
-    explicit operator bool() const {
+    // Non-explicit so BallDyn→bool is unambiguous (preferred over the two-step
+    // BallDyn→int64_t→bool or BallDyn→double→bool narrowing paths).
+    operator bool() const {
         if (!_val.has_value()) return false;
         if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val);
         if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val) != 0;

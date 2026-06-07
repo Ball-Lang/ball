@@ -822,6 +822,24 @@ std::string CppCompiler::compile_expr(const ball::v1::Expression& expr) {
     }
 }
 
+// Escape a raw string for embedding in a C++ string literal (between quotes).
+// Handles backslash, double-quote, newline, carriage return, and tab.
+std::string CppCompiler::cpp_escape_string(const std::string& s) {
+    std::string result;
+    result.reserve(s.size());
+    for (char c : s) {
+        switch (c) {
+            case '"':  result += "\\\""; break;
+            case '\\': result += "\\\\"; break;
+            case '\n': result += "\\n"; break;
+            case '\r': result += "\\r"; break;
+            case '\t': result += "\\t"; break;
+            default:   result += c; break;
+        }
+    }
+    return result;
+}
+
 std::string CppCompiler::compile_literal(const ball::v1::Literal& lit) {
     switch (lit.value_case()) {
         case ball::v1::Literal::kIntValue:
@@ -1859,7 +1877,15 @@ std::string CppCompiler::compile_block(const ball::v1::Block& block) {
         }
     }
     if (block.has_result()) {
-        result += indent_str() + "return " + compile_expr(block.result()) + ";\n";
+        // throw is a statement in C++, not an expression — do not wrap in `return`.
+        bool is_throw = block.result().expr_case() == ball::v1::Expression::kCall &&
+                        (block.result().call().function() == "throw" ||
+                         block.result().call().function() == "rethrow");
+        if (is_throw) {
+            result += indent_str() + compile_expr(block.result()) + "; return BallDyn();\n";
+        } else {
+            result += indent_str() + "return " + compile_expr(block.result()) + ";\n";
+        }
     }
     indent_--;
     result += indent_str() + "}()";
@@ -3771,7 +3797,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                         std::string fname = f.name();
                         if (builtin && fname == "arg0") fname = "message";
                         if (!fields_init.empty()) fields_init += ", ";
-                        fields_init += "{\"" + fname + "\"s, \"" + val + "\"s}";
+                        fields_init += "{\"" + cpp_escape_string(fname) + "\"s, \"" + cpp_escape_string(val) + "\"s}";
                     }
                 }
             }
@@ -4934,7 +4960,10 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
                 if (i > 0) joined += ", ";
                 joined += args[i];
             }
-            return self + "." + fn + "(" + joined + ")";
+            // ByteData methods live on the BallByteData struct, not on BallDyn.
+            // Cast the receiver through ball_obj_as<BallByteData> so the call
+            // compiles when `self` is typed as BallDyn.
+            return "ball_obj_as<BallByteData>(" + self + ")." + fn + "(" + joined + ")";
         }
     }
 
@@ -5035,6 +5064,22 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
             }
             return self + "." + func_name + "(" + join_args() + ")";
         }
+    }
+
+    // Special case: fn == "call" with self field means invoking self as a
+    // callable (Dart `resolver.call(arg)` or `resolver(arg)`). Emit as
+    // `self(arg0, arg1, ...)` — a BallDyn functor invocation.
+    if (fn == "call" && !self.empty()) {
+        std::string args;
+        if (call.has_input() &&
+            call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
+            for (const auto& f : call.input().message_creation().fields()) {
+                if (f.name() == "self") continue;
+                if (!args.empty()) args += ", ";
+                args += compile_expr(f.value());
+            }
+        }
+        return self + "(" + args + ")";
     }
 
     // Fallback: treat as a user-defined function call passing self + args
@@ -5606,15 +5651,29 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                                 compile_statement(stmts[si]);
                             }
                             if (case_body->block().has_result()) {
-                                emit_line("return " + compile_expr(case_body->block().result()) + ";");
+                                bool res_is_throw = case_body->block().result().expr_case() == ball::v1::Expression::kCall &&
+                                    (case_body->block().result().call().function() == "throw" ||
+                                     case_body->block().result().call().function() == "rethrow");
+                                if (res_is_throw) {
+                                    emit_line(compile_expr(case_body->block().result()) + ";");
+                                } else {
+                                    emit_line("return " + compile_expr(case_body->block().result()) + ";");
+                                }
                             }
                         } else {
-                            auto body_code = compile_expr(*case_body);
-                            auto pos = body_code.find("/* return */ ");
-                            if (pos == 0) {
-                                emit_line("return " + body_code.substr(12) + ";");
+                            bool nonblk_is_throw = case_body->expr_case() == ball::v1::Expression::kCall &&
+                                (case_body->call().function() == "throw" ||
+                                 case_body->call().function() == "rethrow");
+                            if (nonblk_is_throw) {
+                                emit_line(compile_expr(*case_body) + ";");
                             } else {
-                                emit_line("return " + body_code + ";");
+                                auto body_code = compile_expr(*case_body);
+                                auto pos = body_code.find("/* return */ ");
+                                if (pos == 0) {
+                                    emit_line("return " + body_code.substr(12) + ";");
+                                } else {
+                                    emit_line("return " + body_code + ";");
+                                }
                             }
                         }
                     };
@@ -6551,13 +6610,23 @@ void CppCompiler::emit_forward_decls(const ball::v1::Module& module) {
                 }
             }
         }
+        // Extract param specs for default values on optional params.
+        auto fwd_specs = func.has_metadata()
+                             ? extract_param_specs(func.metadata())
+                             : std::vector<ParamSpec>{};
         if (!params.empty()) {
             for (size_t i = 0; i < params.size(); i++) {
                 if (i > 0) out_ << ", ";
                 std::string t = (i < ptypes.size() && !ptypes[i].empty())
                                     ? map_type(ptypes[i])
                                     : "auto&&";
+                // Optional params need a concrete type (not auto&&) plus a default.
+                bool is_opt = i < fwd_specs.size() && fwd_specs[i].optional;
+                if (is_opt && (t == "auto&&" || t == "auto")) t = "BallDyn";
                 out_ << t << " " << sanitize_name(params[i]);
+                if (is_opt) {
+                    out_ << " = " << cpp_param_default(t, fwd_specs[i].def);
+                }
             }
         } else if (!func.input_type().empty()) {
             out_ << map_type(func.input_type()) << " input";
@@ -8092,12 +8161,20 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         }
     }
 
+    // Extract param specs for optional-param handling (matching forward decl).
+    auto fn_param_specs = func.has_metadata()
+                              ? extract_param_specs(func.metadata())
+                              : std::vector<ParamSpec>{};
     if (!params.empty()) {
         for (size_t i = 0; i < params.size(); i++) {
             if (i > 0) out_ << ", ";
             std::string t = (i < param_types.size() && !param_types[i].empty())
                                 ? map_type(param_types[i])
                                 : "auto&&";
+            // Optional params must use a concrete type (not auto&&) to match
+            // the forward declaration which carries a default value.
+            bool is_opt = i < fn_param_specs.size() && fn_param_specs[i].optional;
+            if (is_opt && (t == "auto&&" || t == "auto")) t = "BallDyn";
             // A closure-captured parameter is renamed `<name>__p`; the body
             // sees a boxed `<name>` created at function entry (below).
             std::string pname = sanitize_name(params[i]);
@@ -8921,6 +8998,45 @@ CompileLibraryResult CppCompiler::compile_library(
     compiler.emit_line("namespace " + ns + " {");
     compiler.emit_newline();
 
+    // Emit library-mode type stubs for types used by ball_protobuf but not
+    // declared in the Ball IR (they come from Dart's type system).
+    compiler.emit_line("// ── Library-mode type stubs ──");
+    compiler.emit_line("// AnyTypeResolver: callback that resolves a type URL to a descriptor.");
+    compiler.emit_line("using AnyTypeResolver = BallDyn;");
+    compiler.emit_newline();
+    // BigInt: Dart BigInt maps to int64_t in C++ (native 64-bit arithmetic).
+    // Provide a namespace-level struct with static fields (zero, one) and a
+    // parse/from factory so code like `BigInt.one << 64` and `BigInt.parse(s)` works.
+    compiler.emit_line("struct BigInt_t {");
+    compiler.emit_line("    BallDyn operator[](const std::string& key) const {");
+    compiler.emit_line("        if (key == \"zero\") return BallDyn(static_cast<int64_t>(0));");
+    compiler.emit_line("        if (key == \"one\") return BallDyn(static_cast<int64_t>(1));");
+    compiler.emit_line("        return BallDyn();");
+    compiler.emit_line("    }");
+    compiler.emit_line("};");
+    compiler.emit_line("inline BigInt_t BigInt;");
+    compiler.emit_line("// from(BigInt, v) — identity: int64_t is already 64-bit");
+    compiler.emit_line("inline BallDyn from(const BigInt_t&, BallDyn v) { return v; }");
+    compiler.emit_line("// toSigned(value, bits) — sign-extend from unsigned interpretation");
+    compiler.emit_line("inline BallDyn toSigned(BallDyn v, int64_t bits) {");
+    compiler.emit_line("    int64_t val = static_cast<int64_t>(v);");
+    compiler.emit_line("    if (bits == 32) { val = static_cast<int32_t>(val); }");
+    compiler.emit_line("    return BallDyn(val);");
+    compiler.emit_line("}");
+    compiler.emit_line("// truncateToDouble(v) — cast to int64_t");
+    compiler.emit_line("inline BallDyn truncateToDouble(BallDyn v) {");
+    compiler.emit_line("    double d = static_cast<double>(static_cast<int64_t>(v));");
+    compiler.emit_line("    return BallDyn(static_cast<int64_t>(d));");
+    compiler.emit_line("}");
+    compiler.emit_line("// ball_try_parse for BigInt: parse string to int64_t or null");
+    compiler.emit_line("inline BallDyn ball_try_parse(const BigInt_t&, BallDyn v) {");
+    compiler.emit_line("    try { return BallDyn(static_cast<int64_t>(std::stoll(ball_to_string(v)))); }");
+    compiler.emit_line("    catch (...) { return BallDyn(); }");
+    compiler.emit_line("}");
+    compiler.emit_line("// jsonDecode: parse JSON string (simplified — returns the string or number)");
+    compiler.emit_line("inline BallDyn jsonDecode(BallDyn v) { return v; }");
+    compiler.emit_newline();
+
     // Collect user modules (skip base-only and the dummy entry)
     std::vector<const ball::v1::Module*> user_modules;
     for (const auto& mod : program.modules()) {
@@ -9042,9 +9158,17 @@ CompileLibraryResult CppCompiler::compile_library(
             compiler.emit_struct(*td, methods);
     }
 
-    // Standalone functions
-    for (const auto* func : standalone) {
-        compiler.emit_function(*func);
+    // Standalone functions — deduplicate by sanitized name (functions like
+    // _encodeFloatBytes, _toInt may appear in multiple sub-modules; only the
+    // first definition wins).
+    {
+        std::set<std::string> emitted_fn_names;
+        for (const auto* func : standalone) {
+            std::string sn = compiler.sanitize_name(func->name());
+            if (emitted_fn_names.count(sn)) continue;
+            emitted_fn_names.insert(sn);
+            compiler.emit_function(*func);
+        }
     }
 
     // Close namespace

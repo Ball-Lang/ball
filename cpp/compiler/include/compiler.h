@@ -292,6 +292,8 @@ private:
     CppExpr expr(const ball::v1::Expression& e) { return CppExpr(compile_expr(e)); }
     std::string compile_call(const ball::v1::FunctionCall& call);
     std::string compile_literal(const ball::v1::Literal& lit);
+    // Escape a raw string for safe embedding inside a C++ string literal.
+    static std::string cpp_escape_string(const std::string& s);
     std::string compile_reference(const ball::v1::Reference& ref);
     // True when `e` is a call to a void-returning user function (so the call
     // must not be wrapped in BallDyn(...)).

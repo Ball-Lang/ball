@@ -202,6 +202,19 @@ using BallFunc_RT = std::function<std::any(std::any)>;
 // ball_to_string so the stringify path can read it. (conformance 140/150)
 struct BallStringBuffer {
     std::shared_ptr<std::string> buf = std::make_shared<std::string>();
+    BallStringBuffer() = default;
+    explicit BallStringBuffer(const std::string& initial)
+        : buf(std::make_shared<std::string>(initial)) {}
+    // Catch-all for types with operator std::string() (like BallDyn). Uses
+    // SFINAE to only participate when T is convertible to std::string but is
+    // NOT std::string itself (to avoid ambiguity with the overload above).
+    template<typename T, std::enable_if_t<
+        std::is_convertible_v<T, std::string> &&
+        !std::is_same_v<std::decay_t<T>, std::string> &&
+        !std::is_same_v<std::decay_t<T>, const char*> &&
+        !std::is_same_v<std::decay_t<T>, BallStringBuffer>, int> = 0>
+    explicit BallStringBuffer(const T& v)
+        : buf(std::make_shared<std::string>(static_cast<std::string>(v))) {}
 };
 
 // Helper to unwrap the inner std::any from a BallDyn stored in std::any.
@@ -2147,6 +2160,18 @@ struct BallByteData {
         else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
         return getUint8(o);
     }
+    // Helper: extract EndianType from std::any (supports EndianType directly,
+    // or a BallDyn-wrapped EndianType, or a bool isLittle flag).
+    static EndianType _endianFromAny(const std::any& e) {
+        const std::any& eu = _BallDynUnwrapper::unwrap(e);
+        if (eu.type() == typeid(EndianType)) return std::any_cast<EndianType>(eu);
+        if (eu.type() == typeid(bool)) return EndianType{std::any_cast<bool>(eu)};
+        // Default: big-endian (matches proto wire format)
+        return EndianType{false};
+    }
+    void setFloat32(const std::any& offset, const std::any& value, const std::any& endian) {
+        setFloat32(offset, value, _endianFromAny(endian));
+    }
     void setFloat32(const std::any& offset, const std::any& value, EndianType endian = EndianType{false}) {
         int64_t o = 0;
         double v = 0.0;
@@ -2158,12 +2183,18 @@ struct BallByteData {
         else if (vu.type() == typeid(int64_t)) v = static_cast<double>(std::any_cast<int64_t>(vu));
         setFloat32(o, v, endian);
     }
+    double getFloat32(const std::any& offset, const std::any& endian) const {
+        return getFloat32(offset, _endianFromAny(endian));
+    }
     double getFloat32(const std::any& offset, EndianType endian = EndianType{false}) const {
         int64_t o = 0;
         const std::any& ou = _BallDynUnwrapper::unwrap(offset);
         if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
         else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
         return getFloat32(o, endian);
+    }
+    void setFloat64(const std::any& offset, const std::any& value, const std::any& endian) {
+        setFloat64(offset, value, _endianFromAny(endian));
     }
     void setFloat64(const std::any& offset, const std::any& value, EndianType endian = EndianType{false}) {
         int64_t o = 0;
@@ -2175,6 +2206,9 @@ struct BallByteData {
         if (vu.type() == typeid(double)) v = std::any_cast<double>(vu);
         else if (vu.type() == typeid(int64_t)) v = static_cast<double>(std::any_cast<int64_t>(vu));
         setFloat64(o, v, endian);
+    }
+    double getFloat64(const std::any& offset, const std::any& endian) const {
+        return getFloat64(offset, _endianFromAny(endian));
     }
     double getFloat64(const std::any& offset, EndianType endian = EndianType{false}) const {
         int64_t o = 0;

@@ -7,7 +7,7 @@ paths:
 
 ## Build System
 
-- C++17 standard required
+- C++20 standard required (set in cpp/CMakeLists.txt:4)
 - CMake build system — root at `cpp/CMakeLists.txt`
 - 3 targets: `ball_shared`, `ball_cpp_compile` (compiler), `ball_cpp_encode` (encoder)
 - Self-hosted engine: `dart/self_host/lib/engine_rt.cpp` (generated from Dart engine via Ball compiler)

@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # Show the actual-vs-expected diff for a single failing e2e program.
 set -u
-ROOT="/mnt/d/packages/ball"
-COMPILER="$ROOT/cpp/build-wsl/compiler/ball_cpp_compile"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+COMPILER=""
+for d in "$ROOT/cpp/build/compiler" "$ROOT/cpp/build-wsl/compiler"; do
+  for bin in "$d/ball_cpp_compile" "$d/Release/ball_cpp_compile" "$d/Debug/ball_cpp_compile"; do
+    [[ -x "$bin" ]] && COMPILER="$bin" && break 2
+  done
+done
+[[ -n "$COMPILER" ]] || { echo "ERROR: ball_cpp_compile not found."; exit 1; }
 CONF="$ROOT/tests/conformance"
 GEN="$ROOT/tests/fixtures/dart/_generated"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT

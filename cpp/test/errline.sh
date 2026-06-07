@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 # Show the first g++ error + the offending source line for each named program.
-COMPILER=/mnt/d/packages/ball/cpp/build-wsl/compiler/ball_cpp_compile
-CONF=/mnt/d/packages/ball/tests/conformance
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+COMPILER=""
+for d in "$ROOT/cpp/build/compiler" "$ROOT/cpp/build-wsl/compiler"; do
+  for bin in "$d/ball_cpp_compile" "$d/Release/ball_cpp_compile" "$d/Debug/ball_cpp_compile"; do
+    [[ -x "$bin" ]] && COMPILER="$bin" && break 2
+  done
+done
+[[ -n "$COMPILER" ]] || { echo "ERROR: ball_cpp_compile not found."; exit 1; }
+CONF="$ROOT/tests/conformance"
 for n in "$@"; do
   echo "===== $n ====="
   "$COMPILER" "$CONF/$n.ball.json" > /tmp/x.cpp 2>/dev/null

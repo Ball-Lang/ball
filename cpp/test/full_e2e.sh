@@ -1,11 +1,38 @@
 #!/usr/bin/env bash
 # Comprehensive C++ e2e: compile + build + run EVERY conformance program with
 # an expected_output.txt, via direct g++ (fast, per-program timeout). Prints a
-# category-tagged failure summary so we can see what's left.
+# category-tagged failure summary.
+#
+# Usage: full_e2e.sh [--compiler PATH] [--root PATH]
+#   --compiler  path to ball_cpp_compile binary (default: auto-detect)
+#   --root      repo root (default: auto-detect from script location)
 set -u
-ROOT="/mnt/d/packages/ball"
-COMPILER="$ROOT/cpp/build-wsl/compiler/ball_cpp_compile"
+
+# Auto-detect repo root from script location (works in CI + local dev).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+
+# Auto-detect compiler: prefer build/ (CI), then build-wsl/ (local WSL dev).
+COMPILER=""
+for d in "$ROOT/cpp/build/compiler" "$ROOT/cpp/build-wsl/compiler"; do
+  for bin in "$d/ball_cpp_compile" "$d/Release/ball_cpp_compile" "$d/Debug/ball_cpp_compile"; do
+    [[ -x "$bin" ]] && COMPILER="$bin" && break 2
+  done
+done
+
+# CLI overrides
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --compiler) COMPILER="$2"; shift 2 ;;
+    --root) ROOT="$2"; shift 2 ;;
+    *) echo "Unknown arg: $1"; exit 1 ;;
+  esac
+done
+
 CONF="$ROOT/tests/conformance"
+[[ -n "$COMPILER" ]] || { echo "ERROR: ball_cpp_compile not found. Build first."; exit 1; }
+[[ -x "$COMPILER" ]] || { echo "ERROR: $COMPILER is not executable."; exit 1; }
+
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 pass=0; fail=0; skip=0
@@ -19,8 +46,7 @@ for prog in "$CONF"/*.ball.json; do
   if ! "$COMPILER" "$prog" > "$TMP/p.cpp" 2>"$TMP/cerr"; then
     COMPILE_ERR+=("$name"); ((fail++)); continue
   fi
-  # -O0: faster builds, avoids false timeouts on large generator programs
-  # (149) that are slow to optimize. Correctness is what we measure here.
+  # -O0: faster builds, avoids false timeouts on large generator programs.
   if ! timeout 120 g++ -std=c++20 -O0 "$TMP/p.cpp" -o "$TMP/p.bin" 2>"$TMP/gerr"; then
     GPP_ERR+=("$name: $(grep -m1 'error:' "$TMP/gerr" | sed -E 's/.*error: //' | head -c 80)")
     ((fail++)); continue
@@ -46,3 +72,9 @@ echo ""
 echo "Runtime timeouts (${#TIMEOUT[@]}): ${TIMEOUT[*]:-none}"
 echo ""
 echo "Output mismatches (${#MISMATCH[@]}): ${MISMATCH[*]:-none}"
+echo ""
+# Standard format line for CI conformance-matrix parsing.
+echo "Results: $pass passed, $fail failed, $total total"
+
+# Exit with failure if any program failed.
+[[ $fail -eq 0 ]]

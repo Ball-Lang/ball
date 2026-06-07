@@ -4093,8 +4093,11 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 if (f.name() == "entry") { has_entry = true; break; }
             }
             if (has_entry) {
-                // Build map by expanding entry fields: each entry has key+value subfields
-                std::string result = "[&]() { std::map<std::string,std::any> __m; ";
+                // Build map by expanding entry fields: each entry has key+value subfields.
+                // Emit an insertion-ordered, reference-semantic BallOrderedMap (NOT a
+                // key-sorted by-value std::map): map literals must preserve insertion
+                // order (Dart LinkedHashMap) and share their backing store across copies.
+                std::string result = "[&]() { BallOrderedMap __m; ";
                 for (const auto& f : call.input().message_creation().fields()) {
                     if (f.name() == "type_args") continue;
                     if (f.name() == "entry" && f.has_value() &&
@@ -4144,8 +4147,10 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                     }
                 }
                 if (elements_list != nullptr && only_elements_and_meta) {
+                    // Empty / elements-pattern map literal: same insertion-ordered,
+                    // reference-semantic BallOrderedMap as the entry-pattern site above.
                     std::string result =
-                        "[&]() { std::map<std::string,std::any> __m; ";
+                        "[&]() { BallOrderedMap __m; ";
                     if (elements_list->expr_case() ==
                             ball::v1::Expression::kLiteral &&
                         elements_list->literal().value_case() ==
@@ -4178,18 +4183,23 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             // and emitting them pollutes the map (off-by-one length, phantom
             // entries in iteration). The entry-pattern branch above already
             // skips type_args; do the same here.
-            std::string result = "std::map<std::string,std::any>{";
-            bool first = true;
+            // BallOrderedMap has NO initializer_list constructor, so emit the
+            // operator[]-based lambda form (identical shape to the entry/elements
+            // sites above) instead of brace-init. Keeps every map literal
+            // consistently insertion-ordered and reference-semantic.
+            std::string result = "[&]() { BallOrderedMap __m; ";
             for (const auto& f : call.input().message_creation().fields()) {
                 if (f.name() == "type_args" || f.name() == "__type_args__") continue;
-                if (!first) result += ", ";
-                result += "{\"" + f.name() + "\", std::any(" + compile_expr(f.value()) + ")}";
-                first = false;
+                result += "__m[\"" + f.name() + "\"] = std::any(" + compile_expr(f.value()) + "); ";
             }
-            result += "}";
+            result += "return __m; }()";
             return result;
         }
-        return "std::map<std::string,std::any>{}";
+        // Empty-map fallback: value-initialize an empty BallOrderedMap so the
+        // surrounding BallDyn(BallOrderedMap) wrap is insertion-ordered and
+        // reference-semantic (mirrors the BallDyn(BallOrderedMap{}) empties
+        // emitted elsewhere).
+        return "BallOrderedMap{}";
     }
 
     // ── Typed list ──

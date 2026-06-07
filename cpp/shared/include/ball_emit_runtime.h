@@ -526,6 +526,11 @@ struct BallGenerator {
 // Extension point for BallOrderedMap type matching (set by ball_dyn.h).
 inline bool (*_ball_object_type_matches_ext)(const std::any&, const std::string&) = nullptr;
 
+// Extension point for BallOrderedMap typed-map check (set by ball_dyn.h).
+// Inspects the first value's type so `is Map<K, V>` discriminates correctly
+// on insertion-ordered maps (used by ball_is_typed_map below).
+inline bool (*_ball_typed_map_ext)(const std::any&, const std::string&) = nullptr;
+
 // Check if a map value's __type__ matches a type name (walks __super__ chain).
 inline bool ball_object_type_matches(const std::any& value, const std::string& type) {
     auto& u = _BallDynUnwrapper::unwrap(value);
@@ -656,12 +661,12 @@ inline bool ball_is_typed_map(const std::any& value, const std::string& val_type
     } else {
         mptr = _ball_object_base_map(u);
     }
-    // Also check BallOrderedMap via the extension point
+    // Also check BallOrderedMap via the extension point, which inspects the
+    // first value's type (mirroring the BallMap path below) so a typed-map
+    // pattern `is Map<K, V>` discriminates by value type on ordered maps.
     if (!mptr) {
-        if (_ball_is_map_ext && _ball_is_map_ext(u)) {
-            // BallOrderedMap — accept for now (can't easily inspect element types)
-            return true;
-        }
+        if (_ball_typed_map_ext) return _ball_typed_map_ext(u, val_type);
+        if (_ball_is_map_ext && _ball_is_map_ext(u)) return true;
         return false;
     }
     if (mptr->empty()) return true;  // empty map matches any type

@@ -557,6 +557,13 @@ public:
             if (u.type() == typeid(BallObject)) {
                 std::any_cast<BallMap&>(_val)[key] = std::any(BallObjectRef(
                     std::make_shared<BallObject>(std::any_cast<const BallObject&>(u))));
+            } else if (u.type() == typeid(BallList)) {
+                // A raw BallList stored into a map must be wrapped in a shared
+                // BallListRef so later operator[] reads return BallDyns that share
+                // the same vector and in-place mutations (list_push, list[i]=, sort)
+                // persist. Mirrors the BallObject->BallObjectRef wrap above.
+                std::any_cast<BallMap&>(_val)[key] = std::any(BallListRef(
+                    std::make_shared<BallList>(std::any_cast<const BallList&>(u))));
             } else {
                 std::any_cast<BallMap&>(_val)[key] = u;
             }
@@ -564,6 +571,13 @@ public:
             if (u.type() == typeid(BallObject)) {
                 (*omp)[key] = std::any(BallObjectRef(
                     std::make_shared<BallObject>(std::any_cast<const BallObject&>(u))));
+            } else if (u.type() == typeid(BallList)) {
+                // Same raw-BallList->BallListRef wrap for the now-default ordered
+                // map type (the branch `groups[key] = []` hits once map literals
+                // are BallOrderedMap). Without it, `groups[key]` returns a fresh
+                // detached list each read and list_push no-ops.
+                (*omp)[key] = std::any(BallListRef(
+                    std::make_shared<BallList>(std::any_cast<const BallList&>(u))));
             } else {
                 (*omp)[key] = u;
             }
@@ -2115,6 +2129,25 @@ inline const bool _ball_ordered_map_extensions_registered = []() {
             return ball_object_type_matches(omp->entries_[sit->second].second, type);
         }
         return false;
+    };
+    // Typed-map discrimination for BallOrderedMap: mirror the BallMap path of
+    // ball_is_typed_map (empty->matches any; else inspect first value's concrete
+    // type; else delegate to ball_object_type_matches). Resolves `is Map<K,V>`
+    // checks on the now-default insertion-ordered map type with zero regression.
+    _ball_typed_map_ext = [](const std::any& u, const std::string& val_type) -> bool {
+        const BallOrderedMap* omp = _ballAnyOrderedMapPtr(u);
+        if (!omp) return false;
+        if (omp->entries_.empty()) return true;  // empty map matches any type
+        const auto& first_val =
+            _BallDynUnwrapper::unwrap(omp->entries_.front().second);
+        if (val_type == "int") return first_val.type() == typeid(int64_t);
+        if (val_type == "double") return first_val.type() == typeid(double);
+        if (val_type == "num")
+            return first_val.type() == typeid(int64_t) ||
+                   first_val.type() == typeid(double);
+        if (val_type == "String") return first_val.type() == typeid(std::string);
+        if (val_type == "bool") return first_val.type() == typeid(bool);
+        return ball_object_type_matches(first_val, val_type);
     };
     return true;
 }();

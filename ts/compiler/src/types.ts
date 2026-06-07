@@ -26,6 +26,12 @@ export interface Module {
 
 export interface ModuleImport {
   name: string;
+  inline?: InlineSource;
+}
+
+export interface InlineSource {
+  protoBytes?: string;
+  json?: string;
 }
 
 export interface FunctionDef {

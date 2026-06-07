@@ -3448,7 +3448,44 @@ function __isUnknownFnError(e: any): boolean {
       this.writeln(`${tgt} = Math.trunc(${tgt} / ${this.expr(value)});`);
       return;
     }
+    // Detect assign(target: X, value: list_concat(list: X, value: Y)) pattern
+    // (Dart's `X.addAll(Y)`). Emit in-place mutation instead of creating a new
+    // array, so callers sharing the same list reference see the appended elements.
+    if (op === "=" && value.call && isStd(value.call.module)) {
+      const inPlace = this.tryEmitInPlaceListMutation(target, value);
+      if (inPlace !== undefined) {
+        this.writeln(`${inPlace};`);
+        return;
+      }
+    }
     this.writeln(`${this.lvalueExpr(target)} ${op} ${this.expr(value)};`);
+  }
+
+  /**
+   * Detects `list_concat(list: X, value: Y)` where X is the same reference as
+   * [target] and emits in-place `X.push(...Y)` instead of `X = [...X, ...Y]`.
+   * Returns the expression string or undefined if the pattern doesn't match.
+   */
+  private tryEmitInPlaceListMutation(target: Expression, value: Expression): string | undefined {
+    const vc = value.call;
+    if (!vc) return undefined;
+    const fn = vc.function;
+    if (fn !== "list_concat") return undefined;
+    const vcFields = vc.input?.messageCreation?.fields ?? [];
+    let listExpr: Expression | undefined;
+    let appendExpr: Expression | undefined;
+    for (const f of vcFields) {
+      if (f.name === "list" || f.name === "left") listExpr = f.value;
+      if (f.name === "value" || f.name === "right" || f.name === "other") appendExpr = f.value;
+    }
+    if (!listExpr || !appendExpr) return undefined;
+    // Check target and list refer to the same variable/expression.
+    if (!sameRef(target, listExpr)) return undefined;
+    const tgt = this.lvalueExpr(target);
+    const rhs = this.expr(appendExpr);
+    // Emit: Array.isArray(Y) ? X.push(...Y) : X.push(Y)
+    // For safety, use a runtime check so both scalar and array args work.
+    return `__ball_push_all(${tgt}, ${rhs})`;
   }
 
   /**
@@ -3692,7 +3729,7 @@ function __isUnknownFnError(e: any): boolean {
     const builtinCtors = new Set([
       "RegExp", "Set", "Error", "TypeError", "RangeError",
       "DateTime", "Duration", "Uri", "BigInt", "Int64",
-      "BallDouble",
+      "BallDouble", "ByteData",
     ]);
     const shortTn = classTsName(tn);
 
@@ -4051,6 +4088,15 @@ function __isUnknownFnError(e: any): boolean {
         if (op === "~/=") {
           const tgt = this.lvalueExpr(f.get("target")!);
           return `(${tgt} = Math.trunc(${tgt} / ${this.expr(f.get("value")!)}))`;
+        }
+        // Detect assign(target: X, value: list_concat(list: X, value: Y))
+        // (Dart's `X.addAll(Y)`). Emit in-place push so list references are
+        // preserved for callers sharing the same array object.
+        const assignTarget = f.get("target");
+        const assignValue = f.get("value");
+        if (op === "=" && assignTarget && assignValue) {
+          const inPlace = this.tryEmitInPlaceListMutation(assignTarget, assignValue);
+          if (inPlace !== undefined) return `(${inPlace}, ${this.lvalueExpr(assignTarget)})`;
         }
         return `(${this.lvalueExpr(f.get("target")!)} ${op} ${this.expr(f.get("value")!)})`;
       }
@@ -5025,6 +5071,19 @@ function functionIsAsync(fn: FunctionDef): boolean {
   return fn.metadata?.["is_async"] === true;
 }
 
+/**
+ * Returns true when two Expression nodes refer to the same variable (by name)
+ * or the same field-access chain. Used to detect in-place mutation patterns
+ * like `assign(target: X, value: list_concat(list: X, value: Y))`.
+ */
+function sameRef(a: Expression, b: Expression): boolean {
+  if (a.reference && b.reference) return a.reference.name === b.reference.name;
+  if (a.fieldAccess && b.fieldAccess) {
+    return a.fieldAccess.field === b.fieldAccess.field && sameRef(a.fieldAccess.object, b.fieldAccess.object);
+  }
+  return false;
+}
+
 function field(call: FunctionCall, name: string): Expression | undefined {
   const fields = call.input?.messageCreation?.fields;
   if (!fields) return undefined;
@@ -5600,4 +5659,115 @@ function sanitize(name: string): string {
 /** Convenience: compile a Program directly. */
 export function compile(program: Program, options?: CompileOptions): string {
   return new BallCompiler(program).compile(options);
+}
+
+// ══════════════════════════════════════════════════���═════════════════════════
+// Library / Module compilation (no main, exported symbols)
+// ══════════════════════════════════════════════��═════════════════════════════
+
+export interface CompileModuleOptions {
+  /** Include the runtime preamble at the top of the output. Default true. */
+  includePreamble?: boolean;
+  /** Output file path hint (affects ts-morph's internal resolution). */
+  fileName?: string;
+  /**
+   * Namespace/module name for the output (used in header comments).
+   * Defaults to the Module's name.
+   */
+  moduleName?: string;
+}
+
+/**
+ * Compile a Ball Module (not a Program) to a TypeScript ESM library.
+ *
+ * This handles the ball_protobuf use case: the input is a Module facade
+ * with `moduleImports[].inline.json` containing sub-modules. The output
+ * is a single TypeScript file with:
+ * - No main() function or top-level invocation
+ * - All public functions exported via `export function`
+ * - All types/classes exported via `export class`
+ *
+ * @param module - A Ball Module (with optional inline sub-modules)
+ * @param options - Compilation options
+ * @returns TypeScript source string with ESM exports
+ */
+export function compileModule(module: Module, options?: CompileModuleOptions): string {
+  const { includePreamble = true, fileName = "library.ts", moduleName } = options ?? {};
+
+  // Expand the Module facade: extract inline sub-modules from moduleImports.
+  const allModules: Module[] = [];
+
+  for (const imp of module.moduleImports ?? []) {
+    if (imp.inline?.json) {
+      try {
+        const subMod: Module = JSON.parse(imp.inline.json);
+        allModules.push(subMod);
+      } catch {
+        // Skip malformed inline modules
+      }
+    }
+  }
+
+  // Add the facade module itself if it has non-base functions/types directly
+  if (module.functions?.some(f => !f.isBase) || (module.typeDefs?.length ?? 0) > 0) {
+    allModules.push(module);
+  }
+
+  // If there are no inline modules at all, treat the facade as the single module
+  if (allModules.length === 0) {
+    allModules.push(module);
+  }
+
+  // The dummy entry module has a unique name and a trivial main function.
+  // The BallCompiler will emit `function __ball_lib_main__() { return 0; }`
+  // followed by `__ball_lib_main__();` which we strip in post-processing.
+  const ENTRY_MOD = "__ball_lib_entry__";
+  const ENTRY_FN = "__ball_lib_main__";
+  const dummyEntryModule: Module = {
+    name: ENTRY_MOD,
+    functions: [{
+      name: ENTRY_FN,
+      body: { literal: { intValue: 0 } },
+    }],
+  };
+
+  // Build a synthetic Program combining all extracted modules
+  const syntheticProgram: Program = {
+    name: moduleName ?? module.name ?? "library",
+    version: "1.0.0",
+    modules: [...allModules, dummyEntryModule],
+    entryModule: ENTRY_MOD,
+    entryFunction: ENTRY_FN,
+  };
+
+  // Compile using the standard BallCompiler (gets all post-processing for free)
+  let output = new BallCompiler(syntheticProgram).compile({
+    includePreamble,
+    fileName,
+  });
+
+  // Post-process: strip the dummy main function and its invocation.
+  // The compiler renames the entry function to "main" regardless of its
+  // original name, and emits: `function main() { return 0; }\nmain();`
+  // or the async variant. We match both.
+  output = output.replace(
+    /^(?:export )?(?:async )?function main\(\)[^{]*\{[^}]*return 0;\s*\}\n?/m, ""
+  );
+  output = output.replace(/^(?:await )?main\(\);\n?/m, "");
+
+  // Add `export` keyword to all top-level declarations that are not already
+  // exported. We match declarations at column 0 (start of line).
+  output = output.replace(/^(function )/gm, "export $1");
+  output = output.replace(/^(class )/gm, "export $1");
+  output = output.replace(/^(enum )/gm, "export $1");
+  output = output.replace(/^(let )/gm, "export $1");
+  output = output.replace(/^(const )/gm, "export $1");
+
+  // Remove any duplicate `export export` from already-exported declarations
+  output = output.replace(/^export export /gm, "export ");
+
+  // Clean up excessive blank lines from removals
+  output = output.replace(/\n{3,}/g, "\n\n");
+
+  return output;
 }

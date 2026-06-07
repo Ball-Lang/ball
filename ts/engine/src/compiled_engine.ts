@@ -261,6 +261,24 @@ function __ball_concat(a: any, b: any): any {
   return [a, b];
 }
 
+// In-place collection append: mutates target by appending all elements.
+// For arrays: pushes elements (Dart List.addAll semantics).
+// For objects: merges keys (Dart Map.addAll semantics).
+// Preserves reference identity so callers sharing the same collection see changes.
+function __ball_push_all(target: any, items: any): void {
+  if (Array.isArray(target)) {
+    if (Array.isArray(items)) {
+      for (let i = 0; i < items.length; i++) target.push(items[i]);
+    } else if (items != null) {
+      target.push(items);
+    }
+  } else if (target && typeof target === 'object') {
+    if (items && typeof items === 'object' && !Array.isArray(items)) {
+      for (const k of Object.keys(items)) target[k] = items[k];
+    }
+  }
+}
+
 // ── BigInt / signed-64-bit integer support ──────────────────────
 // Dart int is signed 64-bit; JS Number loses precision above 2^53.
 // Arithmetic on BigInt values wraps to the signed 64-bit range and
@@ -401,10 +419,6 @@ const _nativeSet = Set;
 };
 (Set as any).from = (iter: any) => new _nativeSet(iter);
 (Set as any).of = (iter: any) => new _nativeSet(iter);
-// Polyfill Dart Set methods on JS Set prototype
-if (!(Set.prototype as any).contains) (Set.prototype as any).contains = Set.prototype.has;
-if (!(Set.prototype as any).includes) (Set.prototype as any).includes = Set.prototype.has;
-if (!(Set.prototype as any).remove) (Set.prototype as any).remove = Set.prototype.delete;
 // Ball encoder sometimes uses set_create for lists, then list_push on them.
 // Bridge the gap with push/indexOf/length on Set.
 if (!(Set.prototype as any).push) (Set.prototype as any).push = function(v: any) { this.add(v); return this.size; };
@@ -579,7 +593,6 @@ function __ball_cascade(target: any, ops: any[]): any {
   if (!ap.take) ap.take = function (n: any) { return this.slice(0, n); };
   if (!ap.skip) ap.skip = function (n: any) { return this.slice(n); };
   if (!ap.any) ap.any = function (fn: any) { return this.some(fn); };
-  if (!ap.every) ap.every = ap.every; // already exists
   if (!ap.fold) ap.fold = function (init: any, fn: any) { return this.reduce(fn, init); };
   if (!ap.followedBy) ap.followedBy = function (other: any) { return [...this, ...other]; };
   if (!ap.getRange) ap.getRange = function (start: any, end: any) { return this.slice(start, end); };
@@ -595,6 +608,7 @@ function __ball_cascade(target: any, ops: any[]): any {
   // Dart Set polyfills — Set.contains → Set.has, etc.
   const setp: any = Set.prototype;
   if (!setp.contains) setp.contains = function (v: any) { return this.has(v); };
+  if (!setp.includes) setp.includes = function (v: any) { return this.has(v); };
   if (!setp.toList) setp.toList = function () { return [...this]; };
   if (!setp.add) { /* Set already has .add */ }
   if (!setp.remove) setp.remove = function (v: any) { return this.delete(v); };
@@ -741,7 +755,6 @@ function __ball_cascade(target: any, ops: any[]): any {
   }
   // forEach — Dart Map.forEach. Works on plain objects.
   // Don't overwrite native Map.prototype.forEach.
-  const _nativeObjForEach = op2.forEach;
   Object.defineProperty(op2, 'forEach', {
     configurable: true, writable: true, enumerable: false,
     value: function (fn: any) {
@@ -1196,6 +1209,83 @@ const Future = {
   },
   value(v: any): Promise<any> { return Promise.resolve(v); },
 };
+
+// ── dart:typed_data shims (ByteData, Endian) ───────────────────────
+// ball_protobuf uses ByteData for IEEE 754 float/double bit conversion.
+// Dart's ByteData wraps a fixed-size byte buffer with typed get/set methods.
+const Endian = { little: true, big: false, host: true };
+
+class ByteData {
+  _view: DataView;
+  _length: number;
+  constructor(size: number) {
+    this._view = new DataView(new ArrayBuffer(size));
+    this._length = size;
+  }
+  get lengthInBytes(): number { return this._length; }
+  getUint8(i: number): number { return this._view.getUint8(i); }
+  setUint8(i: number, v: number): void { this._view.setUint8(i, v); }
+  getInt8(i: number): number { return this._view.getInt8(i); }
+  setInt8(i: number, v: number): void { this._view.setInt8(i, v); }
+  getUint16(i: number, endian?: any): number { return this._view.getUint16(i, endian === Endian.little); }
+  setUint16(i: number, v: number, endian?: any): void { this._view.setUint16(i, v, endian === Endian.little); }
+  getInt16(i: number, endian?: any): number { return this._view.getInt16(i, endian === Endian.little); }
+  setInt16(i: number, v: number, endian?: any): void { this._view.setInt16(i, v, endian === Endian.little); }
+  getUint32(i: number, endian?: any): number { return this._view.getUint32(i, endian === Endian.little); }
+  setUint32(i: number, v: number, endian?: any): void { this._view.setUint32(i, v, endian === Endian.little); }
+  getInt32(i: number, endian?: any): number { return this._view.getInt32(i, endian === Endian.little); }
+  setInt32(i: number, v: number, endian?: any): void { this._view.setInt32(i, v, endian === Endian.little); }
+  getFloat32(i: number, endian?: any): number { return this._view.getFloat32(i, endian === Endian.little); }
+  setFloat32(i: number, v: number, endian?: any): void { this._view.setFloat32(i, v, endian === Endian.little); }
+  getFloat64(i: number, endian?: any): number { return this._view.getFloat64(i, endian === Endian.little); }
+  setFloat64(i: number, v: number, endian?: any): void { this._view.setFloat64(i, v, endian === Endian.little); }
+  getUint64(i: number, endian?: any): bigint {
+    const lo = this._view.getUint32(i, endian === Endian.little);
+    const hi = this._view.getUint32(i + 4, endian === Endian.little);
+    return endian === Endian.little
+      ? BigInt(lo) | (BigInt(hi) << 32n)
+      : (BigInt(lo) << 32n) | BigInt(hi);
+  }
+  setUint64(i: number, v: bigint, endian?: any): void {
+    const lo = Number(v & 0xFFFFFFFFn);
+    const hi = Number((v >> 32n) & 0xFFFFFFFFn);
+    if (endian === Endian.little) {
+      this._view.setUint32(i, lo, true);
+      this._view.setUint32(i + 4, hi, true);
+    } else {
+      this._view.setUint32(i, hi, false);
+      this._view.setUint32(i + 4, lo, false);
+    }
+  }
+  getInt64(i: number, endian?: any): bigint {
+    const unsigned = this.getUint64(i, endian);
+    return unsigned >= 0x8000000000000000n ? unsigned - 0x10000000000000000n : unsigned;
+  }
+  setInt64(i: number, v: bigint, endian?: any): void {
+    this.setUint64(i, v < 0n ? v + 0x10000000000000000n : v, endian);
+  }
+  get buffer(): { asUint8List: (start?: number, length?: number) => number[] } {
+    const view = this._view;
+    return {
+      asUint8List: (start?: number, length?: number) => {
+        const s = start ?? 0;
+        const l = length ?? view.byteLength - s;
+        return [...new Uint8Array(view.buffer, s, l)];
+      },
+    };
+  }
+}
+
+// ── dart:convert shims (utf8, jsonEncode, jsonDecode) ───────────────
+// ball_protobuf uses utf8.encode/decode for string↔bytes and
+// jsonEncode/jsonDecode for JSON serialization.
+const utf8 = {
+  encode(s: string): number[] { return [...new TextEncoder().encode(s)]; },
+  decode(bytes: any): string { return new TextDecoder().decode(new Uint8Array(bytes)); },
+};
+
+function jsonEncode(obj: any): string { return JSON.stringify(obj); }
+function jsonDecode(s: string): any { return JSON.parse(s); }
 
 
 function __isUnknownFnError(e: any): boolean {
@@ -3942,7 +4032,7 @@ export class BallEngine {
     let superclass = typeDef.superclass;
     if ((!__ball_eq(superclass, null) && superclass.isNotEmpty)) {
       let qualifiedSuper = (superclass.includes(':') ? superclass : ((__ball_to_string(modPart) + ':') + __ball_to_string(superclass)));
-      names = __ball_concat(this._collectAllFieldNames(qualifiedSuper), this._collectAllFieldNames(qualifiedSuper));
+      __ball_push_all(names, this._collectAllFieldNames(qualifiedSuper));
     }
     for (const fieldName of typeDef.fieldNames) {
       if (!names.includes(fieldName)) {
@@ -4030,14 +4120,14 @@ export class BallEngine {
     let typeDef = this._findTypeDef(typeName);
     if (((!__ball_eq(typeDef, null) && !__ball_eq(typeDef.superclass, null)) && typeDef.superclass.isNotEmpty)) {
       let qualSuper = (typeDef.superclass.includes(':') ? typeDef.superclass : ((__ball_to_string(modPart) + ':') + __ball_to_string(typeDef.superclass)));
-      methods = __ball_concat(this._resolveTypeMethodsWithInheritance(qualSuper), this._resolveTypeMethodsWithInheritance(qualSuper));
+      __ball_push_all(methods, this._resolveTypeMethodsWithInheritance(qualSuper));
     }
     let mixins = this._getMixins(typeName);
     for (const mixin of mixins) {
       let qualMixin = (mixin.includes(':') ? mixin : ((__ball_to_string(modPart) + ':') + __ball_to_string(mixin)));
-      methods = __ball_concat(this._resolveTypeMethods(qualMixin), this._resolveTypeMethods(qualMixin));
+      __ball_push_all(methods, this._resolveTypeMethods(qualMixin));
     }
-    methods = __ball_concat(this._resolveTypeMethods(typeName), this._resolveTypeMethods(typeName));
+    __ball_push_all(methods, this._resolveTypeMethods(typeName));
     return methods;
   }
 
@@ -5731,10 +5821,10 @@ export class BallEngine {
                 r = await r;
               }
               if (false /* BallList is List in TS */) {
-                result = __ball_concat(r.items, r.items);
+                __ball_push_all(result, r.items);
               } else {
                 if (Array.isArray(r)) {
-                  result = __ball_concat(r, r);
+                  __ball_push_all(result, r);
                 } else {
                   result = (result.push(r), result);
                 }
@@ -5779,7 +5869,7 @@ export class BallEngine {
         }
         else if ((__sw === 'addAll')) {
           if (Array.isArray(arg0)) {
-            self = __ball_concat(arg0, arg0);
+            __ball_push_all(self, arg0);
           }
           return null;
         }
@@ -6624,7 +6714,7 @@ export class BallEngine {
             r = await r;
           }
           if (Array.isArray(r)) {
-            result = __ball_concat(r, r);
+            __ball_push_all(result, r);
           } else {
             result = (result.push(r), result);
           }
@@ -8202,7 +8292,7 @@ export class BallEngine {
       else if ((__sw === 'logical_or')) {
         let leftBindings = {};
         if (this._matchPattern(value, __ball_index(pattern, 'left'), leftBindings)) {
-          bindings = __ball_concat(leftBindings, leftBindings);
+          __ball_push_all(bindings, leftBindings);
           return true;
         }
         return this._matchPattern(value, __ball_index(pattern, 'right'), bindings);
@@ -8210,7 +8300,7 @@ export class BallEngine {
       else if ((__sw === 'logical_and')) {
         let tempBindings = {};
         if ((this._matchPattern(value, __ball_index(pattern, 'left'), tempBindings) && this._matchPattern(value, __ball_index(pattern, 'right'), tempBindings))) {
-          bindings = __ball_concat(tempBindings, tempBindings);
+          __ball_push_all(bindings, tempBindings);
           return true;
         }
         return false;
@@ -9009,7 +9099,7 @@ export class BallGenerator extends BallValue {
 
   yieldAll(items: any): any {
     const input = items;
-    return (this.values = __ball_concat(items, items));
+    return (__ball_push_all(this.values, items), this.values);
   }
 
   toString(): any {

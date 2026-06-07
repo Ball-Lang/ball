@@ -5756,12 +5756,16 @@ export function compileModule(module: Module, options?: CompileModuleOptions): s
           fn.name = newName;
         }
       }
-      // Rename calls within this module that reference the old name
+      // Rename calls AND references within this module that use the old name
       if (Object.keys(renames).length > 0) {
         const renameInExpr = (expr: any): void => {
           if (!expr || typeof expr !== "object") return;
           if (expr.call && renames[expr.call.function] && !expr.call.module) {
             expr.call.function = renames[expr.call.function];
+          }
+          // Also rename bare references (e.g. passing _toInt as a value to .map)
+          if (expr.reference && renames[expr.reference.name]) {
+            expr.reference.name = renames[expr.reference.name];
           }
           for (const v of Object.values(expr)) {
             if (Array.isArray(v)) v.forEach(renameInExpr);

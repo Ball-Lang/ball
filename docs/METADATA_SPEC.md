@@ -161,10 +161,14 @@ a late variable before assignment throws a runtime error.
 
 ### `__type_args__` (MessageCreation field)
 
-Legacy field in `MessageCreation.fields` carrying generic type arguments
-as a string (e.g. `"<int>"`). Used by the engine for reified generic type
-checks on objects. Being migrated to `MessageCreation.metadata.type_args`
-(structured TypeRef). Both formats are currently produced during transition.
+**Migrated.** Formerly a legacy field in `MessageCreation.fields` carrying
+generic type arguments as a string (e.g. `"<int>"`). Now replaced by
+structured `FunctionCall.type_args` (repeated `TypeRef`) and
+`MessageCreation.metadata.type_args`. The encoder no longer produces the
+`__type_args__` field; compilers retain a legacy fallback for old programs.
+The runtime engine reads from the structured metadata. See `proto/ball/v1/ball.proto`
+for the `TypeRef` message and `FunctionCall.type_args` / `MessageCreation.type_args`
+fields.
 
 ### Operator method names (`__op_*__`)
 

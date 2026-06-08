@@ -144,10 +144,10 @@ This spec costs nothing to add to the repo and immediately makes every new compi
 ## What you have (solid foundation)
 
 - Proto schema: `Program → Module → FunctionDefinition → Expression` tree, using `google.protobuf.DescriptorProto` for language-agnostic types. Smart.  
-- `std` module: 90+ universal base functions (including former `dart_std` ops), well categorized.  
+- `std` module: 118 declared base functions in `std.json` plus engine-registered functions (cascade, spread, invoke, etc.), well categorized.  
 - Universal `std` module: all constructs (including former `dart_std` ops like cascade, spread, invoke) route through `std`.  
-- Dart compiler/encoder/engine: clean reference implementation, all three programs working.  
-- Module import system with 4 source types and integrity hashing.
+- Dart compiler/encoder/engine: clean reference implementation, all three programs working. 277 conformance programs.  
+- Module import system with 5 source types (HTTP, File, Inline, Git, Registry) and integrity hashing.
 
 ---
 
@@ -180,49 +180,12 @@ The same logic applies to interface implementations: if `TypeDefinition` for B h
 
 ---
 
-### 1. `TypeDefinition` — Replace the `_meta_` Hack
+### 1. `TypeDefinition` — COMPLETED
 
-The `_meta_Foo` convention is a load-bearing workaround with no schema support. `TypeDefinition` follows the same pattern as `FunctionDefinition`: a name, a descriptor for its fields, type parameter names, and a metadata bag for everything else.
-
-Type parameter *names* are a schema-level concern because they are structural: the compiler needs `T` and `K` to emit `Map<K, V>` correctly. The bounds, variance, and constraints on those parameters are cosmetic hints for the target-language compiler and belong in `TypeParameter.metadata`.
-
-Everything else — `TypeKind`, `superclass`, `interfaces`, `mixins`, `visibility`, `is_abstract`, `is_sealed`, `is_final`, `doc`, `annotations` — is a cosmetic hint that goes in `TypeDefinition.metadata`.
-
-```proto
-// A type parameter placeholder for generic types (e.g. T, K, V).
-// Bounds, variance, and other constraints are cosmetic hints in metadata.
-message TypeParameter {
-  string                 name     = 1;  // e.g. "T", "K", "V"
-  google.protobuf.Struct metadata = 2;  // bounds, variance, covariance, etc.
-}
-
-// Defines a named type, mirroring the structure of FunctionDefinition.
-message TypeDefinition {
-  // Type name (unique within its module)
-  string                          name        = 1;
-
-  // Field definitions using protobuf's own descriptor format
-  google.protobuf.DescriptorProto descriptor  = 2;
-
-  // Generic type parameter names (e.g. T, K, V)
-  repeated TypeParameter          type_params = 3;
-
-  // Human-readable description
-  string                          description = 4;
-
-  // All cosmetic hints: kind ("class"|"struct"|"trait"|"interface"|...),
-  // superclass, interfaces, mixins, visibility, is_abstract, is_sealed,
-  // is_final, annotations, type_param_bounds
-  google.protobuf.Struct          metadata    = 5;
-}
-
-// Module: add
-//   repeated TypeDefinition type_defs = 8;
-// (keep existing repeated DescriptorProto types = 2 for backward compatibility
-//  or migrate and reserve field 2)
-```
-
-This is the single highest-impact schema change.
+> **Status: DONE.** `TypeDefinition`, `TypeParameter`, and `Module.type_defs` (field 8) are
+> now in the proto schema (`proto/ball/v1/ball.proto`). The legacy `Module.types` field (field 2)
+> and the `_meta_Foo` function hack have been removed and reserved. All type declarations
+> now go through `typeDefs[]`. See `IMPLEMENTING_A_COMPILER.md` for the current contract.
 
 ---
 
@@ -581,31 +544,11 @@ varargs_spread        → method(a, b, rest...)
 
 ---
 
-## Module-Level Declarations Missing from Schema
+## Module-Level Declarations — COMPLETED
 
-```proto
-// Add to Module:
-repeated TypeAlias type_aliases    = 11;
-repeated Constant  module_constants = 12;
-```
-
-```proto
-message TypeAlias {
-  string             name        = 1;  // alias name
-  string             target_type = 2;  // aliased type
-  repeated TypeParameter type_params = 3;
-  google.protobuf.Struct metadata = 4;  // cosmetics: visibility, C++ using, Rust type, TS type
-}
-
-message Constant {
-  string     name     = 1;
-  string     type     = 2;  // empty = infer
-  Expression value    = 3;
-  google.protobuf.Struct metadata = 4;  // cosmetics: visibility, annotations
-}
-```
-
-These enable: C++ `using MyVec = std::vector<int>`, Rust `type Result<T> = std::result::Result<T, MyError>`, TypeScript `type ID = string`, and module-level constants across all languages.
+> **Status: DONE.** `TypeAlias` (field 11) and `Constant` / `module_constants` (field 12)
+> are now in the proto schema (`proto/ball/v1/ball.proto`). These enable C++ `using`,
+> Rust `type`, TypeScript `type`, and module-level constants across all languages.
 
 ---
 
@@ -699,14 +642,14 @@ Run(program: Program) → BallValue
 
 ## Priority Order
 
-| Priority | Change | Category | Why now |
-|---|---|---|---|
-| 1 | First-class `TypeDefinition` (replace `_meta_` hack) | Schema | Mirrors `FunctionDefinition`; type param names needed for generic signatures |
-| 2 | `METADATA_SPEC.md` — standardize all metadata keys | Documentation | Covers annotations, visibility, mutability, params, output_unwrap, spread hints |
-| 3 | Extend `std` — strings and math | Std module | Only what every language in every environment has; no I/O, no collections |
-| 4 | `std_collections` module | Std module | List/map operations; separate because not universal across all runtimes |
-| 5 | `std_io` module | Std module | I/O, time, random, env; separate because unavailable in browser/WASM/embedded |
-| 6 | ~~Define language-specific modules~~ | ~~Language modules~~ | **Eliminated.** `dart_std` and `cpp_std` were removed; encoders expand language-specific constructs into universal `std` operations. Future languages should follow this pattern. |
-| 7 | `TypeAlias` + `Constant` in `Module` | Schema | Rust `type`, C++ `using`, module-level constants — currently inexpressible |
-| 8 | `ball.schema.json` + `BALL_JSON_SPEC.md` | Documentation | Required for non-protobuf language participation |
-| 9 | `IMPLEMENTING_A_COMPILER.md` contract | Documentation | Next compiler writer should not need to read Dart source code |
+| Priority | Change | Category | Status |
+| --- | --- | --- | --- |
+| 1 | ~~First-class `TypeDefinition`~~ | Schema | **DONE.** `TypeDefinition`, `TypeParameter`, `Module.type_defs` in proto. |
+| 2 | ~~`METADATA_SPEC.md`~~ | Documentation | **DONE.** `docs/METADATA_SPEC.md` exists. |
+| 3 | ~~Extend `std` — strings and math~~ | Std module | **DONE.** 118 base functions in `std.json` covering strings, math, control flow, etc. |
+| 4 | ~~`std_collections` module~~ | Std module | **DONE.** `std_collections` implemented with list/map/set ops. |
+| 5 | ~~`std_io` module~~ | Std module | **DONE.** `std_io` implemented (print, time, random, env, process). |
+| 6 | ~~Define language-specific modules~~ | ~~Language modules~~ | **Eliminated.** `dart_std` and `cpp_std` removed; encoders expand to universal `std`. |
+| 7 | ~~`TypeAlias` + `Constant` in `Module`~~ | Schema | **DONE.** `type_aliases` (field 11) and `module_constants` (field 12) in proto. |
+| 8 | `ball.schema.json` + `BALL_JSON_SPEC.md` | Documentation | Remaining. Required for non-protobuf language participation. |
+| 9 | ~~`IMPLEMENTING_A_COMPILER.md` contract~~ | Documentation | **DONE.** `docs/IMPLEMENTING_A_COMPILER.md` exists. |

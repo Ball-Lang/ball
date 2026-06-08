@@ -230,7 +230,7 @@ Golden FeatureSet resolution data (in `tests/editions/golden/`) is **pinned to p
 
 ### DELIMITED (Group) Message Encoding
 
-Support for `message_encoding=DELIMITED` (wiretype 3/4, group-style encoding) is **documented as a future enhancement**. Current implementations default to LENGTH_PREFIXED only.
+Support for `message_encoding=DELIMITED` (wiretype 3/4, group-style encoding) is **implemented** in the `ball_protobuf` runtime. `marshal.dart` emits START_GROUP/END_GROUP tags and `unmarshal.dart` consumes them, honoring the resolved `message_encoding` feature. This covers proto2 groups and editions `message_encoding = DELIMITED`.
 
 ### Closed Enum Unknown Field Handling
 
@@ -281,9 +281,10 @@ Feature Resolver Reference Implementation:
 - https://github.com/protocolbuffers/protobuf/blob/main/src/google/protobuf/feature_resolver.h
 
 Ball Implementation:
-- Engine source: `dart/shared/lib/protobuf/editions.dart` (editions resolver + FeatureSet model)
-- Edition model: `dart/shared/lib/protobuf/edition.dart` (Edition enum constants and conversion)
-- Legacy inference: `dart/shared/lib/protobuf/legacy_features.dart`
-- Codecs (marshal/unmarshal/JSON): `dart/shared/lib/protobuf/{marshal,unmarshal,json_codec}.dart`
+- Editions resolver + FeatureSet model: `dart/ball_protobuf/lib/editions.dart`
+- Edition enum constants and conversion: `dart/ball_protobuf/lib/edition.dart`
+- Legacy inference: integrated into `dart/ball_protobuf/lib/editions.dart` (the former `legacy_features.dart` was merged)
+- Codecs (marshal/unmarshal/JSON): `dart/ball_protobuf/lib/{marshal,unmarshal,json_codec}.dart`
 - Encoder generator: `dart/encoder/bin/gen_ball_protobuf.dart`
 - Published Ball program: `dart/shared/ball_protobuf.json` / `dart/shared/ball_protobuf.bin`
+- Cross-target portability proof: `tests/conformance/256_editions_resolver.ball.json` (passes on Dart, TS, and C++ engines)

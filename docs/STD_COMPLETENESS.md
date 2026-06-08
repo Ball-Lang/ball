@@ -57,7 +57,7 @@
 | bitwise_not | ✅ | ✅ | ✅ | ✅ |
 | left_shift | ✅ | ✅ | ✅ | ✅ |
 | right_shift | ✅ | ✅ | ✅ | ✅ |
-| unsigned_right_shift | ✅ | ✅ | ✅ | ❌ |
+| unsigned_right_shift | ✅ | ✅ | ✅ | ✅ |
 
 ### Increment/Decrement
 
@@ -86,7 +86,7 @@
 | Function | Dart Engine | Dart Compiler | C++ Engine | C++ Compiler |
 |----------|:-----------:|:-------------:|:----------:|:------------:|
 | null_coalesce | ✅ | ✅ | ✅ | ✅ |
-| null_check | ✅ | ✅ | ✅ | ⚠️ |
+| null_check | ✅ | ✅ | ✅ | ✅ |
 | null_aware_access | ✅ | ✅ | ✅ | ✅ |
 | null_aware_call | ✅ | ✅ | ✅ | ✅ |
 
@@ -100,7 +100,7 @@
 | while | ✅ | ✅ | ✅ | ✅ |
 | do_while | ✅ | ✅ | ✅ | ✅ |
 | switch | ✅ | ✅ | ✅ | ✅ |
-| switch_expr | ✅ | ✅ | ⚠️ | ❌ |
+| switch_expr | ✅ | ✅ | ⚠️ | ✅ |
 | try | ✅ | ✅ | ✅ | ✅ |
 | break | ✅ | ✅ | ✅ | ✅ |
 | continue | ✅ | ✅ | ✅ | ✅ |
@@ -135,7 +135,7 @@
 | Function | Dart Engine | Dart Compiler | C++ Engine | C++ Compiler |
 |----------|:-----------:|:-------------:|:----------:|:------------:|
 | throw | ✅ | ✅ | ✅ | ✅ |
-| rethrow | ✅ | ✅ | ✅ | ⚠️ |
+| rethrow | ✅ | ✅ | ✅ | ✅ |
 | assert | ✅ | ✅ | ✅ | ✅ |
 
 ### Async
@@ -143,8 +143,8 @@
 | Function | Dart Engine | Dart Compiler | C++ Engine | C++ Compiler |
 |----------|:-----------:|:-------------:|:----------:|:------------:|
 | await | ✅ | ✅ | ✅ | ✅ |
-| yield | ✅ | ✅ | ✅ | ⚠️ |
-| yield_each | ✅ | ✅ | ✅ | ⚠️ |
+| yield | ✅ | ✅ | ✅ | ✅ |
+| yield_each | ✅ | ✅ | ✅ | ✅ |
 
 ### Strings (28 functions)
 
@@ -208,7 +208,7 @@
 | math_atan2 | ✅ | ✅ | ✅ | ✅ |
 | math_min | ✅ | ✅ | ✅ | ✅ |
 | math_max | ✅ | ✅ | ✅ | ✅ |
-| math_clamp | ✅ | ✅ | ✅ | ⚠️ |
+| math_clamp | ✅ | ✅ | ✅ | ✅ |
 | math_pi | ✅ | ✅ | ✅ | ✅ |
 | math_e | ✅ | ✅ | ✅ | ✅ |
 | math_infinity | ✅ | ✅ | ✅ | ✅ |
@@ -363,11 +363,11 @@
 
 | Module | Dart Engine | Dart Compiler | C++ Engine | C++ Compiler |
 |--------|:-----------:|:-------------:|:----------:|:------------:|
-| std (core, incl. former dart_std) | 90/90 (100%) | 90/90 (100%) | 89/90 (99%) | 86/90 (96%) |
+| std (core, incl. former dart_std) | 90/90 (100%) | 90/90 (100%) | 89/90 (99%) | 88/90 (98%) |
 | std_collections | 43/43 (100%) | 43/43 (100%) | 43/43 (100%) | 43/43 (100%) |
 | std_io | 10/10 (100%) | 10/10 (100%) | 9/10 (90%) | 10/10 (100%) |
 | std_memory | 30/30 (100%) | 30/30 (100%) | 30/30 (100%) | 30/30 (100%) |
-| **Total** | **173/173 (100%)** | **173/173 (100%)** | **171/173 (99%)** | **169/173 (98%)** |
+| **Total** | **173/173 (100%)** | **173/173 (100%)** | **171/173 (99%)** | **171/173 (99%)** |
 
 ---
 
@@ -375,8 +375,8 @@
 
 | Module | Functions | Status |
 |--------|-----------|--------|
-| `std_convert` | json_encode, json_decode, utf8_encode, utf8_decode, base64_encode, base64_decode | Implemented (Dart engine + C++ engine) |
-| `std_time` | now, now_micros, format_timestamp, parse_timestamp, year, month, day, hour, minute, second | Implemented (Dart engine + C++ engine) |
+| `std_convert` | json_encode, json_decode, utf8_encode, utf8_decode, base64_encode, base64_decode | Implemented (Dart engine + TS engine + C++ engine) |
+| `std_time` | now, now_micros, format_timestamp, parse_timestamp, year, month, day, hour, minute, second | Implemented (Dart engine + TS engine + C++ engine) |
 | `std_fs` | file_read, file_write, file_exists, file_delete, dir_list, dir_create, etc. | Planned |
 | `std_concurrency` | thread_spawn, thread_join, mutex_*, atomic_*, scoped_lock | Planned |
 | `std_net` | http_get, http_post, tcp_connect, tcp_send, tcp_receive | Planned |

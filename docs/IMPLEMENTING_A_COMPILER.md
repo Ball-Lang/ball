@@ -61,7 +61,7 @@ Modules where **every** function has `isBase = true` are base modules.
 Your compiler must provide native implementations for these functions.
 
 Required base modules:
-- **`std`** — 118 universal functions (arithmetic, comparison, logic, control flow, strings, math, cascade, spread, invoke, etc.)
+- **`std`** — 118 declared base functions in `std.json` (arithmetic, comparison, logic, control flow, strings, math, etc.) plus additional engine-registered functions (`string_interpolation`, `cascade`, `null_aware_cascade`, `null_aware_access`, `spread`, `null_spread`, `invoke`, `paren`, etc.) that compilers and engines must also handle
 - **`std_collections`** — list/map/set operations (optional — not all runtimes)
 - **`std_io`** — console, process, time, random (optional — not all runtimes)
 
@@ -255,7 +255,12 @@ The program specifies `entryModule` and `entryFunction`. Generate a
 
 #### String & Conversion
 `concat`, `to_string`, `length`, `int_to_string`, `double_to_string`,
-`string_to_int`, `string_to_double`, `string_interpolation`
+`string_to_int`, `string_to_double`
+
+#### Engine-Registered std Functions (not in std.json but required)
+
+`string_interpolation`, `cascade`, `null_aware_cascade`, `null_aware_access`,
+`spread`, `null_spread`, `invoke`, `paren`
 
 #### Strings (pure manipulation)
 `string_length`, `string_is_empty`, `string_concat`, `string_contains`,
@@ -319,9 +324,9 @@ Environment: `env_get`, `args_get`
 
 ## Testing Your Compiler
 
-1. **Hello World** — `examples/hello_world.ball.json` should produce working output
-2. **Fibonacci** — `examples/fibonacci.ball.json` exercises recursion, comparison, arithmetic
-3. **Comprehensive** — `examples/comprehensive.ball.json` exercises classes, enums, control flow
+1. **Hello World** — `examples/hello_world/hello_world.ball.json` should produce working output
+2. **Fibonacci** — `examples/fibonacci/fibonacci.ball.json` exercises recursion, comparison, arithmetic
+3. **Comprehensive** — `examples/comprehensive/comprehensive.ball.json` exercises classes, enums, control flow
 4. **Round-trip** — encode a target-language file → ball → compile back → output matches
 
 ---

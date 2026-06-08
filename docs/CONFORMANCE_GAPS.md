@@ -77,14 +77,14 @@ The C++ compiled leg is wired into the CI conformance matrix (`conformance-matri
 `concat`, `to_string`, `string_to_int`, `string_to_lower`, `string_to_upper`
 - **Missing:** `int_to_string`, `double_to_string`, `string_to_double`
 
-### Strings (14/20)
+### Strings (16/21)
 `string_substring`, `string_trim`, `string_trim_start`, `string_trim_end`,
 `string_split`, `string_length`, `string_is_empty`, `string_index_of`,
 `string_last_index_of`, `string_starts_with`, `string_ends_with`,
 `string_replace`, `string_replace_all`, `string_pad_left`, `string_pad_right`,
 `string_repeat`
 - **Missing:** `string_char_at`, `string_char_code_at`, `string_from_char_code`,
-  `string_concat`, `string_contains`, `string_to_double`
+  `string_concat`, `string_contains`
 
 ### Math (10/31)
 `math_abs`, `math_ceil`, `math_clamp`, `math_floor`, `math_gcd`, `math_is_infinite`,
@@ -113,7 +113,6 @@ The C++ compiled leg is wired into the CI conformance matrix (`conformance-matri
 | `string_from_char_code` | `String.fromCharCode(c)` — static method, encoder needs routing |
 | `string_concat` | Duplicate of `concat` — semantically covered |
 | `string_contains` | `s.contains(x)` — routes to `list_contains` (encoder ambiguity) |
-| `string_to_double` | `double.parse(s)` — static method, encoder needs routing |
 
 ### Tier 3 — Math gaps (need `dart:math` import, encoder can't route)
 
@@ -191,7 +190,7 @@ Fixed field names: `startsWith`/`endsWith` use `left`/`right` (not
 |--------|-----------|:----------------:|-------|
 | `std` (core) | 118 | 67% (79/118) | See above |
 | `std_collections` | ~53 | ~30% | list/map ops exercised by many programs |
-| `std_io` | ~10 | ~5% | `print` only; time/random via std_time |
+| `std_io` | ~10 | ~5% | `print` is in `std`, not `std_io`; minimal `std_io` coverage (exit, env_get, args_get) |
 | `std_memory` | ~38 | 0% | Linear memory (C/C++ interop) |
 | `std_convert` | ~8 | ~80% | json/utf8/base64 now covered (conformance 185-191) |
 | `std_time` | ~6 | ~50% | format/parse timestamp covered (conformance 188) |

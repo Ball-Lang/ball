@@ -41,7 +41,7 @@ void evalExpr(Expression expr, Scope scope, Continuation k) {
 ```
 
 **Pros:** True async without language-level async/await in the engine.
-**Cons:** Complete rewrite of the engine (800+ lines). Every expression evaluation path changes. Hard to debug. Stack overflow risk for deep expressions unless trampolined.
+**Cons:** Complete rewrite of the engine (~7,600 lines across multiple files). Every expression evaluation path changes. Hard to debug. Stack overflow risk for deep expressions unless trampolined.
 
 ### Option B: Dart async/await in Engine
 
@@ -57,7 +57,7 @@ Future<BallValue> _evalExpression(Expression expr, Scope scope) async {
 ```
 
 **Pros:** Simplest conceptually. Dart's runtime handles scheduling.
-**Cons:** ~2x performance overhead from Future allocation on every expression eval. Changes the return type signature of 30+ methods. Requires careful handling of FlowSignals across async boundaries.
+**Cons:** ~2x performance overhead from Future allocation on every expression eval. Changes the return type signature of ~100 methods (engine is already async internally). Requires careful handling of FlowSignals across async boundaries.
 
 ### Option C: Selective Async (Recommended)
 

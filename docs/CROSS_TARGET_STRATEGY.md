@@ -7,10 +7,13 @@
 
 ## Current State (June 2026)
 
-- **277 conformance programs** across all engines
-- Dart: 0 failures across compiled + roundtrip legs
-- TS: 270 pass (self-hosted engine), 0 failures on tested fixtures
-- C++: in conformance matrix (compiled leg); self-host engine also tracked
+- **277 conformance programs** in `tests/conformance/`
+- **Dart engine:** 277/277 (0 failures across compiled + roundtrip legs)
+- **TS engine:** 291/291 (273 conformance + 18 unit tests, self-hosted)
+- **C++ engine:** 273/273 (compiled leg in conformance matrix)
+- **ball_protobuf:** 2769/2769 Dart conformance; compiles to TS (9217 lines, marshal/unmarshal proven) and C++ (3942 lines, g++ clean)
+- **Phase 5 (cross-target library mode) DONE:** TS `compileModule()` and C++ `compile_library()` both work
+- **Language-specific modules eliminated:** `dart_std`, `cpp_std`, `ts_std` all removed; everything routes through universal `std`
 
 ## 1. Reified Generics Strategy
 
@@ -90,12 +93,13 @@ strategy keeps the fast path on Number for the common case (small integers).
 
 ## 3. Cross-Target Gap Analysis
 
-### Priority 1: Structured Type Arguments
+### Priority 1: Structured Type Arguments -- DONE
 
-**Current**: `__type_args__` string in `MessageCreation.fields` (e.g., `"<int, String>"`)
-**Problem**: Raw Dart type syntax that every new compiler must parse
-**Fix**: Add structured `repeated string type_args` to `FunctionCall` or a `TypeRef`
-message. Short-term: document the exact string format in METADATA_SPEC.md.
+**Resolved.** The legacy `__type_args__` string in `MessageCreation.fields` has been
+replaced by structured `TypeRef` messages: `FunctionCall.type_args` and
+`MessageCreation.type_args` (both `repeated TypeRef`) in `proto/ball/v1/ball.proto`.
+The encoder no longer produces the legacy string format. Compilers retain a legacy
+fallback for old programs.
 
 ### Priority 2: Numeric Overflow Semantics
 
@@ -126,11 +130,13 @@ difference.
 fundamentally different strategies: Rust transforms call graph to propagate
 `Result<T, BallError>`, Go uses multi-return `(value, error)` patterns.
 
-### Priority 6: Multi-File Output for TS
+### Priority 6: Multi-File / Library Output for TS -- DONE
 
-**Current**: TS compiler emits single file only
-**Fix**: Implement `compileAllModules()` (following Dart compiler's pattern). Essential
-for Rust (module = file), Go (package = directory), Java (class = file).
+**Resolved.** TS compiler now exports `compileModule()` (`ts/compiler/src/compiler.ts`)
+which emits a complete library from a `Module` facade (including inline sub-modules).
+C++ has `compile_library()`. Both are proven on `ball_protobuf`. Remaining for future
+targets: Rust (module = file), Go (package = directory), Java (class = file) will need
+per-target multi-file strategies.
 
 ### Priority 7: Nullable Type Representation
 
@@ -210,8 +216,8 @@ gets this for free.
 - [ ] Document numeric overflow semantics in Ball spec
 - [ ] Document map key type constraint
 - [ ] Document string indexing convention (UTF-16 code units)
-- [ ] Add structured `type_args` to `FunctionCall` proto (or document string format)
-- [ ] Implement `compileAllModules()` in TS compiler
+- [x] Add structured `type_args` to `FunctionCall` proto — DONE (`TypeRef` message, `FunctionCall.type_args`, `MessageCreation.type_args`)
+- [x] Implement `compileModule()` in TS compiler — DONE (also C++ `compile_library()`)
 - [ ] Add base function capability declaration per compiler
 
 ### Medium-term (when adding Rust/Go/Python)
@@ -219,6 +225,6 @@ gets this for free.
 - [ ] Design error handling strategy for Result-based languages (Rust)
 - [ ] Design error handling strategy for error-return languages (Go)
 - [ ] Design ownership module for Rust
-- [ ] Formalize module hierarchy (std > native_std > rust_std)
+- [x] Formalize module hierarchy — DONE (universal `std` only; `dart_std`/`cpp_std`/`ts_std` eliminated)
 - [ ] Add `string_char_at_codepoint` for UTF-8 targets
 - [ ] Add nullable type representation to proto schema

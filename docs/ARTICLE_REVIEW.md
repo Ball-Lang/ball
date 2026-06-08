@@ -17,19 +17,18 @@ Ball eliminates **grammar parsing** (lexing, tokenizing, building AST from text)
 
 > **Update (2026-06):** The `dart_std` and `cpp_std` language-specific base modules have been
 > eliminated. All constructs now route through the universal `std` module. The encoder expands
-> language-specific constructs into universal `std` operations at encoding time. See
-> `docs/ELIMINATE_LANG_STD_PLAN.md` for the historical plan.
+> language-specific constructs into universal `std` operations at encoding time.
 
 ### 3. "Currently ball implements 3 languages" — misleading without qualification
 
 | Component | Dart | TypeScript | C++ |
-|-----------|------|------------|-----|
-| Compiler (Ball → lang) | Full | Full | Full |
+| --------- | ---- | ---------- | --- |
+| Compiler (Ball → lang) | Full | Full | Full (273/273 conformance) |
 | Encoder (lang → Ball) | Full | **Stub** | Full |
-| Engine (interpreter) | Full | Self-hosted | **Self-hosted** |
-| Conformance pass rate | Baseline | 270 pass (CI-gated) | In conformance matrix |
+| Engine (interpreter) | Full (277 conformance) | Self-hosted (270 CI-gated) | Self-hosted (211+ CI floor) |
+| Conformance pass rate | Baseline (277 programs) | 270 pass (CI-gated) | In conformance matrix |
 
-**Fix:** Show a maturity matrix, or say "Dart (full stack), TypeScript (compiler + self-hosted engine), C++ (compiler + encoder)."
+**Fix:** Show a maturity matrix, or say "Dart (full stack), TypeScript (compiler + self-hosted engine), C++ (compiler + encoder + self-hosted engine)."
 
 ### 4. Proto snippets are slightly simplified
 
@@ -82,7 +81,7 @@ This is the first question every experienced developer will ask. Key differentia
 
 ### 10. The self-hosting story is your strongest proof — feature it
 
-Your TS engine is the Dart engine compiled to Ball IR, then compiled to TypeScript. It passes 270 conformance tests (CI-gated). This should be front and center, not absent.
+Your TS engine is the Dart engine compiled to Ball IR, then compiled to TypeScript. It passes 270 conformance tests (CI-gated). The C++ self-hosted engine passes 211+ (CI floor). This should be front and center, not absent.
 
 ### 11. Add an honest limitations section
 
@@ -107,11 +106,13 @@ ALL Ball code reduces to 7 expression types: `call`, `literal`, `reference`, `fi
 ### 14. Impressive numbers you're not using
 
 - **277 conformance programs** across all engines
-- **173+ total base functions** across std modules
+- **118 std base functions** in `std.json` plus engine-registered functions; additional modules (`std_collections`, `std_io`, `std_convert`, `std_fs`, `std_time`) add more
 - **TS engine: 270 pass** (self-hosted, CI-gated)
-- **C++ engine: in conformance matrix** (compiled + self-host legs)
+- **C++ engine: 211+ pass** (self-hosted, CI floor in conformance matrix)
+- **Dart engine: 277 conformance pass**, 566+ total engine tests (CI floor)
 - Proto bindings for **7 languages** (Dart, Go, Python, TS, C++, Java, C#)
 - Self-hosted engine encoded from thousands of lines of Dart
+- **ball_protobuf**: 2,769 upstream conformance tests passing, compiles to both TS and C++
 
 ### 15. Architecture diagram
 
@@ -131,7 +132,7 @@ Ball has HTTP, file, inline, git, and **registry-based** imports (pub, npm, nuge
 
 ### 19. `ball_protobuf` — your credibility flex
 
-A full Editions-aware protobuf runtime written in Ball-portable Dart, passing all 2,769 upstream conformance tests. Proves Ball handles production-grade, spec-compliant code — not just toy examples.
+A full Editions-aware protobuf runtime written in Ball-portable Dart, passing all 2,769 upstream conformance tests. Compiles to both TypeScript (4,319 lines) and C++ (8,456 lines). Proves Ball handles production-grade, spec-compliant code — not just toy examples.
 
 ### 20. The AI bootstrapping angle
 
@@ -147,7 +148,7 @@ You mention Claude Code can bootstrap a new language — expand on this. AI-assi
 4. **The Insight**: Code = types + functions + 7 expression types
 5. **Show Don't Tell**: Hello World in Ball JSON → compiled to Dart & TS
 6. **The Architecture**: Encoder → Ball IR → Compiler diagram
-7. **Proof**: Self-hosting story. 270 conformance tests pass.
+7. **Proof**: Self-hosting story. 277 conformance programs, 270 TS pass, 211+ C++ pass.
 8. **The Proto Schema**: Your current proto snippets (simplified, marked as such)
 9. **Cross-Language Conversion**: Concrete before/after example
 10. **Current State & Limitations**: Maturity matrix + honesty

@@ -56,6 +56,13 @@ class DartCompiler {
   /// read by [_compileFieldAccess].
   final Set<String> _catchBoundVars = {};
 
+  /// References proven non-null within the current branch — e.g. the `else`
+  /// arm of a `x == null ? null : …` null-guard (the lowered form of a Dart
+  /// `x?.method()` on a nullable field). Dart never promotes *fields*, so the
+  /// guard alone doesn't make `x.call()` legal; we emit `x!.call()` instead.
+  /// Populated by [_compileInlineIf] / [_generateIf]; read by [_compileCall].
+  final Set<String> _nonNullRefs = {};
+
   /// Param-name aliases for the function currently being compiled.
   ///
   /// Ball's calling convention is "one input per function" with the
@@ -2259,7 +2266,12 @@ class DartCompiler {
       _wl('if (${_e(cond)}) {');
     }
     _depth++;
-    _generateBranchBody(then, hasReturn);
+    // `if (e is SomeClass)` promotes catch-bound `e` to a real object inside
+    // the then-branch; field accesses there are members, not map keys.
+    _withCatchVarPromoted(
+      _isPromotedCatchVar(cond),
+      () => _generateBranchBody(then, hasReturn),
+    );
     _depth--;
     if (els != null) {
       if (_isStdCall(els, 'if')) {
@@ -2269,7 +2281,11 @@ class DartCompiler {
       }
       _wl('} else {');
       _depth++;
-      _generateBranchBody(els, hasReturn);
+      // The `else` arm of `if (X == null)` knows `X` is non-null.
+      _withNonNullRef(
+        _nullEqualityGuardRef(cond),
+        () => _generateBranchBody(els, hasReturn),
+      );
       _depth--;
     }
     _wl('}');
@@ -2901,12 +2917,97 @@ class DartCompiler {
     }
     // When the receiver is a catch-bound variable from a Ball tag-typed catch,
     // the caught value is a Map. Dart Maps don't support dotted access so we
-    // emit `e['field']` instead of `e.field`.
+    // emit `e['field']` instead of `e.field`. Universal `Object` members
+    // (`runtimeType`, `hashCode`) exist on every value — including Maps — so
+    // they must stay dotted: `e['runtimeType']` would read a (missing) map key
+    // and yield null, breaking e.g. `e.runtimeType.toString() == catchType`.
+    const universalObjectMembers = {'runtimeType', 'hashCode'};
     if (fa.object.whichExpr() == Expression_Expr.reference &&
-        _catchBoundVars.contains(fa.object.reference.name)) {
+        _catchBoundVars.contains(fa.object.reference.name) &&
+        !universalObjectMembers.contains(fa.field_2)) {
       return _raw("${_emit(obj)}['${fa.field_2}']");
     }
     return obj.property(fa.field_2);
+  }
+
+  /// If [condition] is an `is`-check that promotes a catch-bound variable to a
+  /// concrete (non-Map) class — e.g. `e is BallException` — returns that
+  /// variable's name; otherwise null.
+  ///
+  /// A catch variable is treated as a thrown Map by default (so `e.field`
+  /// lowers to `e['field']`). But inside an `is <ClassType>` guard, Dart
+  /// promotes the variable to that class, where the throwing language really
+  /// did access a *member* (`e.typeName`), not a map key. We therefore
+  /// suppress the map-subscript rewrite within the promoted branch. `Map`/
+  /// `List`/`Set` promotions are excluded — those keep subscript semantics.
+  String? _isPromotedCatchVar(Expression condition) {
+    if (condition.whichExpr() != Expression_Expr.call) return null;
+    final call = condition.call;
+    if (!_isStdCall(condition, 'is')) return null;
+    final fields = _extractFields(call);
+    final value = fields['value'];
+    final type = _stringFieldValue(fields, 'type');
+    if (value == null || type == null) return null;
+    if (value.whichExpr() != Expression_Expr.reference) return null;
+    final name = value.reference.name;
+    if (!_catchBoundVars.contains(name)) return null;
+    // Collection types keep map/subscript semantics; only class promotions
+    // (real objects with real members) suppress the rewrite.
+    final bareType = type.split('<').first.trim();
+    if (bareType == 'Map' || bareType == 'List' || bareType == 'Set') {
+      return null;
+    }
+    return name;
+  }
+
+  /// Runs [body] with [varName] temporarily removed from [_catchBoundVars] so
+  /// field accesses on it compile to dotted member access. Restores afterward.
+  T _withCatchVarPromoted<T>(String? varName, T Function() body) {
+    if (varName == null || !_catchBoundVars.contains(varName)) return body();
+    _catchBoundVars.remove(varName);
+    try {
+      return body();
+    } finally {
+      _catchBoundVars.add(varName);
+    }
+  }
+
+  /// If [condition] is `X == null` (the lowered guard for a `?.` call), returns
+  /// the reference name `X` — known non-null in the `else` arm. Otherwise null.
+  String? _nullEqualityGuardRef(Expression condition) {
+    if (!_isStdCall(condition, 'equals')) return null;
+    final fields = _extractFields(condition.call);
+    final left = fields['left'], right = fields['right'];
+    if (left == null || right == null) return null;
+    final leftIsNull = _isNullLiteral(left);
+    final rightIsNull = _isNullLiteral(right);
+    // Exactly one side is the null literal; the other must be a reference.
+    final Expression other;
+    if (rightIsNull && !leftIsNull) {
+      other = left;
+    } else if (leftIsNull && !rightIsNull) {
+      other = right;
+    } else {
+      return null;
+    }
+    if (other.whichExpr() != Expression_Expr.reference) return null;
+    return other.reference.name;
+  }
+
+  bool _isNullLiteral(Expression e) =>
+      e.whichExpr() == Expression_Expr.literal &&
+      e.literal.whichValue() == Literal_Value.notSet;
+
+  /// Runs [body] with [varName] marked non-null (for the `else` arm of a
+  /// null-guard). Restores the prior membership afterward.
+  T _withNonNullRef<T>(String? varName, T Function() body) {
+    if (varName == null || _nonNullRefs.contains(varName)) return body();
+    _nonNullRefs.add(varName);
+    try {
+      return body();
+    } finally {
+      _nonNullRefs.remove(varName);
+    }
   }
 
   String _compileCall(FunctionCall call) {
@@ -2924,11 +3025,23 @@ class DartCompiler {
         final remaining = fields
             .where((f) => f.name != 'self' && f.name != '__type_args__')
             .toList();
-        final selfStr = _e(selfField.value);
+        var selfStr = _e(selfField.value);
         if (_inCascadeCompilation && selfStr == '__cascade_self__') {
           return remaining.isEmpty
               ? '${call.function}$typeArgs()'
               : '${call.function}$typeArgs(${_compileArgs(remaining)})';
+        }
+        // When the receiver was proven non-null in this branch (the `else`
+        // arm of a lowered `X?.call()` guard), assert it so invoking it
+        // type-checks: `X!.call()`. Dart promotes nullable *locals* in the
+        // guard's else arm but never *fields*; `.call()` (the `invoke` base
+        // function) is the construct that surfaces this — a field holding a
+        // nullable function. Restricting to `call` avoids redundant `!` on
+        // already-promoted locals (e.g. `local?.toString()`).
+        if (call.function == 'call' &&
+            selfField.value.whichExpr() == Expression_Expr.reference &&
+            _nonNullRefs.contains(selfField.value.reference.name)) {
+          selfStr = '$selfStr!';
         }
         return remaining.isEmpty
             ? '$selfStr.${call.function}$typeArgs()'
@@ -3985,8 +4098,22 @@ class DartCompiler {
     final c = f['condition'], t = f['then'], e = f['else'];
     if (c == null || t == null) return '/* invalid inline if */';
     final ce = _compileExpression(c);
-    final te = _compileExpression(t);
-    final ee = e != null ? _compileExpression(e) : cb.literalNull;
+    // `e is SomeClass ? e.member : ...` promotes `e` in the then-branch only,
+    // mirroring [_generateIf]; suppress the catch-var map-subscript rewrite
+    // there so member access stays dotted.
+    final te = _withCatchVarPromoted(
+      _isPromotedCatchVar(c),
+      () => _compileExpression(t),
+    );
+    // The `else` arm of `X == null ? null : …` knows `X` is non-null — the
+    // lowered form of a `X?.call()` null-aware call on a (non-promotable)
+    // field. Mark `X` non-null there so its receiver emits `X!`.
+    final ee = e != null
+        ? _withNonNullRef(
+            _nullEqualityGuardRef(c),
+            () => _compileExpression(e),
+          )
+        : cb.literalNull;
     return _emit(ce.conditional(te, ee).parenthesized);
   }
 

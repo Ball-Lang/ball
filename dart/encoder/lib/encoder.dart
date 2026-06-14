@@ -3756,9 +3756,18 @@ class DartEncoder {
     final methodName = section.methodName.name;
 
     // Known mutating methods that the compiler generates as cascades.
+    //
+    // `addAll` is deliberately NOT routed here: it exists on both `List` and
+    // `Map`, and this syntactic encoder cannot tell the receiver's type. The
+    // list route (`list_concat`) lowers to a list spread `[...a, ...b]`, which
+    // is wrong for a map receiver (e.g. `_ballUserMap()..addAll(fields)` →
+    // `[..._ballUserMap(), ...fields]`, a type error, and at runtime
+    // `_stdAsList` would mangle the map). Letting the single-section `..addAll`
+    // fall through to the general cascade-Block path preserves the literal
+    // `target.addAll(other)` method call, which Dart resolves correctly for
+    // both List and Map.
     const cascadeCollectionRoutes = <String, (String, String, String)>{
       'add': ('std_collections', 'list_push', 'list'),
-      'addAll': ('std_collections', 'list_concat', 'list'),
       'clear': ('std_collections', 'list_clear', 'list'),
       'insert': ('std_collections', 'list_insert', 'list'),
       'sort': ('std_collections', 'list_sort', 'list'),

@@ -9,8 +9,8 @@ name: Regression Gates
 # while quietly dropping pass counts (e.g. a test being skipped/deleted, or
 # a tally regressing from 156 -> 155). This workflow asserts hard floors:
 #
-#   * TS hand-written engine : exactly 270 passed / 0 failed
-#   * TS self-hosted compiler : exactly 270 passed / 0 failed (node --test suite)
+#   * TS self-hosted engine  : exactly 291 passed / 0 failed
+#   * TS self-hosted compiler : exactly 315 passed / 0 failed (node --test suite)
 #   * Dart engine            : 0 failed; pass count must not drop below DART_ENGINE_MIN_PASS
 #   * Dart encoder           : exactly DART_ENCODER_EXPECTED passed / 0 failed
 #   * Dart compiler          : exactly DART_COMPILER_EXPECTED passed / 0 failed
@@ -40,8 +40,8 @@ concurrency:
 
 # Pin the expected counts in one place so bumping the floor is a one-line edit.
 env:
-  TS_ENGINE_EXPECTED_PASS: "270"
-  TS_COMPILER_EXPECTED_PASS: "270"
+  TS_ENGINE_EXPECTED_PASS: "291"
+  TS_COMPILER_EXPECTED_PASS: "315"
   DART_ENGINE_MIN_PASS: "566"
   DART_ENCODER_EXPECTED: "116"
   DART_COMPILER_EXPECTED: "88"
@@ -78,7 +78,7 @@ jobs:
       # load and SKIPS its ~227 conformance subtests if it is missing — and the
       # file is gitignored. Generate it explicitly here (rather than relying on
       # engine_parse.test.ts's on-demand shell-out, which races module load) so
-      # the TS compiler gate exercises the full 269-test suite.
+      # the TS compiler gate exercises the full self-host suite.
       - name: Generate engine.ball.json (self-host source)
         run: cd dart && dart run encoder/tool/roundtrip_engine.dart --skip-analyze --save-program self_host/engine.ball.json
 
@@ -89,7 +89,7 @@ jobs:
       - name: Build @ball-lang/engine
         run: cd ts/engine && npm run build
 
-      - name: Engine — assert 269 passed / 0 failed
+      - name: Engine — assert 291 passed / 0 failed
         run: |
           set -o pipefail
           cd ts/engine
@@ -123,7 +123,7 @@ jobs:
       - name: Build @ball-lang/compiler
         run: cd ts/compiler && npm run build
 
-      - name: Compiler — assert 269 pass / 0 fail
+      - name: Compiler — assert 315 pass / 0 fail
         run: |
           set -o pipefail
           cd ts/compiler

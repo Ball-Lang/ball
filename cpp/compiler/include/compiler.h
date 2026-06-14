@@ -160,6 +160,10 @@ private:
     // The sanitized name of the class currently being emitted (empty outside
     // emit_struct). Used for super call resolution.
     std::string current_class_name_;
+    // True while compiling the body of a STATIC class method. A static method
+    // has no `this`, so compile_reference must not emit a `[this]`-capturing
+    // lambda when a sibling method is referenced as a value. (self-host engine #19)
+    bool in_static_method_ = false;
     // Maps class name to the set of abstract method basenames.
     std::unordered_map<std::string, std::unordered_set<std::string>> class_abstract_methods_;
     // Maps class name to factory constructor function names.

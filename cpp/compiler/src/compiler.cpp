@@ -627,7 +627,12 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     if (ball_type == "RegExp") return "ball_to_regex";
     if (ball_type == "Match" || ball_type == "RegExpMatch")
         return "std::smatch";
-    if (ball_type == "Duration") return "int64_t";
+    // Dart Duration → the runtime DurationType struct (a {int64_t milliseconds}
+    // aggregate). `Future.delayed(Duration(milliseconds: ms))` constructs it via
+    // a designated initializer `DurationType{.milliseconds = ms}` and passes it to
+    // `delayed(FutureType&, const DurationType&)`. Mapping to a bare int64_t made
+    // the designated initializer ill-formed under g++. (self-host engine #19)
+    if (ball_type == "Duration") return "DurationType";
     if (ball_type == "Iterable" || ball_type.find("Iterable<") == 0)
         return "std::vector<std::any>";
     // Stream<T> → synchronous list (async simulated as sync in C++)
@@ -795,6 +800,31 @@ static std::string ball_local_var_name(const std::string& sanitized) {
     static const std::set<std::string> shadowing = {
         "child", "bind", "union_", "intersection", "difference"};
     return shadowing.count(sanitized) ? sanitized + "_lv" : sanitized;
+}
+
+// True for type names the C++ runtime headers provide (the compiler does NOT
+// emit a struct body for them — see the `runtime_types` set used when emitting
+// type declarations). In the self-hosted engine these are realized as
+// map-backed BallDyn values, so their "fields" are bracket keys, not members of
+// a concrete C++ struct. Field access on such a (BallDyn) receiver must use
+// bracket notation. Accepts an optionally module-qualified name
+// ("main:_FlowSignal" or "_FlowSignal"). (self-host engine #19)
+static bool is_runtime_stub_type(const std::string& type_name) {
+    static const std::set<std::string> runtime_types = {
+        "BallException", "File", "JsonEncoder", "JsonDecoder",
+        "Map_from", "FunctionType",
+        "_FlowSignal", "_Scope", "BallRuntimeError", "BallFuture",
+        "BallGenerator", "_ExitSignal", "BallModuleHandler",
+        "StdModuleHandler", "BallObject", "List_filled",
+        "ByteData", "BallByteData", "Endian",
+    };
+    std::string bare = type_name;
+    auto colon = bare.find(':');
+    if (colon != std::string::npos) bare = bare.substr(colon + 1);
+    // Mirror sanitize_name's leading-character handling for these known names
+    // (they contain no characters sanitize_name would alter besides the module
+    // prefix already stripped above), so a direct set lookup suffices.
+    return runtime_types.count(bare) > 0;
 }
 
 // ================================================================
@@ -1116,15 +1146,27 @@ std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
             return "static_cast<BallDyn>(" + dynamic_self_expr_ + ")[\"" +
                    ref.name() + "\"s]";
     }
+    // `self`/`this`/`super` map to the implicit C++ receiver `(*this)` ONLY when
+    // they name the instance, NOT when they are an explicit method PARAMETER. A
+    // method may legitimately declare a parameter called `self` (e.g. the engine's
+    // `_dispatchBuiltinInstanceMethod(self, method, input)`); there `self` is a
+    // plain local and must resolve to the variable, not `(*this)` — otherwise the
+    // body's list ops compile to `ball_list_pop((*this))` on the BallEngine `this`
+    // (a hard g++ error). `declared_locals_` carries the current function's params
+    // + lets, so a hit there means the name shadows the implicit receiver.
+    // (self-host engine #19)
+    bool self_is_local = declared_locals_.count(ref.name()) > 0;
     // Dart's `this` → C++ `(*this)` (dereference the pointer for value semantics)
-    if (ref.name() == "this") return "(*this)";
+    if (ref.name() == "this" && !self_is_local) return "(*this)";
     // `self` inside a class method body → `(*this)` (the Ball IR uses `self`
     // as the implicit receiver in instance method bodies, equivalent to `this`).
-    if (ref.name() == "self" && !current_class_name_.empty()) return "(*this)";
+    if (ref.name() == "self" && !current_class_name_.empty() && !self_is_local)
+        return "(*this)";
     // `super` inside a class method body → `(*this)` (in C++, base class
     // fields/methods are directly accessible on `this`; the parent class
     // qualification is added at the call site for method dispatch).
-    if (ref.name() == "super" && !current_class_name_.empty()) return "(*this)";
+    if (ref.name() == "super" && !current_class_name_.empty() && !self_is_local)
+        return "(*this)";
     // Dart uninitialized sentinel → C++ default-initialized BallDyn
     if (ref.name() == "__no_init__") return "BallDyn()";
     // Dart sentinel object → unique dispatch-not-found marker (not null BallDyn)
@@ -1179,6 +1221,11 @@ std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
         if (is_getter_ref) {
             return sname + "()";
         }
+        // A static method has no `this`; capturing it is ill-formed under g++.
+        // The wrapped sibling is itself a static method (called unqualified), so
+        // no capture is needed there. (self-host engine #19)
+        if (in_static_method_)
+            return "[](auto __arg) mutable { return " + sname + "(__arg); }";
         return "[this](auto __arg) mutable { return " + sname + "(__arg); }";
     }
     // A boxed (closure-captured) local is a shared_ptr<BallDyn>; dereference it
@@ -1386,6 +1433,20 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
             if (generic_locals_.count(access.object().reference().name()) > 0)
                 skip_struct = true;
         }
+        // Field names that collide with BallDyn's no-arg accessor METHODS
+        // (`value()`, `fields()`, `kind()`, `values()`) must NOT take the
+        // struct-member path below: it would emit a bare `obj.value` which, on a
+        // BallDyn receiver (the runtime form of proto-shaped values such as a
+        // FieldAccess loop var, protobuf Value/Struct, or a map entry), names the
+        // member function `&BallDyn::value` instead of calling it — a hard
+        // compile error in the self-hosted engine. These fall through to bracket
+        // access (`obj["value"s]`), the path the NOTE above already documents as
+        // the intended behavior for proto-shaped values. (self-host engine #19)
+        {
+            std::string sf = sanitize_name(field);
+            if (sf == "value" || sf == "fields" || sf == "kind" || sf == "values")
+                skip_struct = true;
+        }
         if (!skip_struct) {
             std::string sfield = sanitize_name(field);
             bool is_getter = false;
@@ -1397,6 +1458,17 @@ std::string CppCompiler::compile_field_access(const ball::v1::FieldAccess& acces
                 // Check if field is a direct struct field on any user class.
                 for (const auto& [cls, td_ptr] : class_typedefs_) {
                     if (!td_ptr || !td_ptr->has_descriptor_()) continue;
+                    // Runtime/stub types (_FlowSignal, BallException, BallObject,
+                    // BallGenerator, _Scope, …) are realized as map-backed BallDyn
+                    // values in the self-hosted engine — they expose their fields
+                    // via bracket keys, NOT as members of a concrete C++ struct
+                    // (the struct, when one exists, stores them under different
+                    // internal keys like "__type__"). Emitting `obj.label` /
+                    // `obj.typeName` / `obj.completed` on the BallDyn receiver names
+                    // a non-existent member and fails to compile under g++. Skip
+                    // the member-access path for these owners so the field falls
+                    // through to bracket access. (self-host engine #19)
+                    if (is_runtime_stub_type(td_ptr->name())) continue;
                     for (const auto& fd : td_ptr->descriptor_().field()) {
                         if (sanitize_name(fd.name()) == sfield) {
                             is_plain_field = true;
@@ -1922,6 +1994,16 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
     // captured BY VALUE here (copying the shared_ptr keeps the cell alive after
     // the enclosing loop iteration ends), while everything else stays captured
     // by reference. So the capture clause is `[&, box1, box2, ...]`.
+    // This lambda's own parameter names. They SHADOW any enclosing local of the
+    // same name, so they must be treated as inner declarations: never captured,
+    // and never resolved as a boxed outer variable inside the body. Without this,
+    // a callback like `(i) => i` whose param name collides with an outer boxed
+    // `i` wrongly emitted `[&, i](BallDyn i){ return (*i); }` — capturing the
+    // param and dereferencing it as a box (a g++ error). (self-host engine #19)
+    std::unordered_set<std::string> own_params;
+    if (func.has_metadata())
+        for (const auto& p : extract_params(func.metadata())) own_params.insert(p);
+
     std::string capture = "&";
     if ((!boxed_vars_.empty() || !value_capture_vars_.empty()) && func.has_body()) {
         std::unordered_set<std::string> fvs;
@@ -1932,6 +2014,7 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
         // callback that declares its own `total`).
         std::unordered_set<std::string> inner_decls;
         _collect_declared_locals(func.body(), inner_decls);
+        for (const auto& p : own_params) inner_decls.insert(p);
         // Deterministic order for stable output. Both boxed locals (shared_ptr
         // copy keeps the cell alive) and value-capture function params
         // (std::function copy) are captured BY VALUE so they survive the frame.
@@ -1962,6 +2045,18 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
                     boxed_params_.insert(p);
                 }
             }
+        }
+    }
+    // A param this lambda did NOT box (above) shadows any enclosing boxed var of
+    // the same name: inside the body it is a plain BallDyn parameter, so it must
+    // be removed from boxed_vars_/boxed_params_ for the duration of body
+    // compilation (restored from saved_* at function exit). Otherwise a reference
+    // to the param resolves to `(*p)` (boxed deref) — a g++ error.
+    // (self-host engine #19)
+    for (const auto& p : own_params) {
+        if (!lambda_boxed_params.count(p)) {
+            boxed_vars_.erase(p);
+            boxed_params_.erase(p);
         }
     }
     std::string result = "[" + capture + "](";
@@ -3242,6 +3337,13 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 bool is_plain_field = false;
                 for (const auto& [cls, td_ptr] : class_typedefs_) {
                     if (!td_ptr || !td_ptr->has_descriptor_()) continue;
+                    // Runtime/stub types are map-backed BallDyn values in the
+                    // self-hosted engine; write their fields through ball_set
+                    // (bracket key) rather than a non-existent struct member —
+                    // `generator.completed = true` must not emit a member write
+                    // on a BallDyn. Mirrors the read path in compile_field_access.
+                    // (self-host engine #19)
+                    if (is_runtime_stub_type(td_ptr->name())) continue;
                     for (const auto& fd : td_ptr->descriptor_().field()) {
                         if (sanitize_name(fd.name()) == sfield) {
                             is_plain_field = true;
@@ -4323,13 +4425,22 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
 
     // ── String predicates / pad / trim / code units ──
     if (fn == "string_starts_with") {
-        return "(ball_to_string(" + get_message_field(call, "value") +
-               ").rfind(ball_to_string(" + get_message_field(call, "pattern") + "), 0) == 0)";
+        // The encoder (the single source of truth for Ball JSON) emits these with
+        // `left` (the receiver string) and `right` (the prefix) — the binary-op
+        // field convention — NOT value/pattern. Reading value/pattern produced
+        // BallDyn() (empty), so `s.startsWith(p)` compiled to `"".rfind("",0)==0`
+        // (always true), silently breaking every program that uses startsWith —
+        // including the self-host engine's `entry.key.startsWith(...)` instance-
+        // field filter (the print path read nothing). (self-host engine #19)
+        return "(ball_to_string(" + get_message_field(call, "left") +
+               ").rfind(ball_to_string(" + get_message_field(call, "right") +
+               "), 0) == 0)";
     }
     if (fn == "string_ends_with") {
         return "[](const std::string& s, const std::string& e){ return s.size() >= e.size() && "
                "s.compare(s.size() - e.size(), e.size(), e) == 0; }(ball_to_string(" +
-               get_message_field(call, "value") + "), ball_to_string(" + get_message_field(call, "pattern") + "))";
+               get_message_field(call, "left") + "), ball_to_string(" +
+               get_message_field(call, "right") + "))";
     }
     if (fn == "string_trim_start") {
         return "[](const std::string& s){ auto a = s.find_first_not_of(\" \\t\\n\\r\"); "
@@ -5026,6 +5137,52 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
                 return r;
             };
 
+            // Module-handler dispatch: `handler.handles(module)` /
+            // `handler.call(fn, input, engineFn)` are provided by the runtime as
+            // FREE functions `handles(handler, module)` / `call(handler, fn, …)`
+            // (the handler types are BallDyn-backed stubs — see runtime_excluded).
+            // The receiver `handler` is a BallDyn (e.g. a `moduleHandlers` loop
+            // var), so a bare member call `handler.handles(...)` names a missing
+            // BallDyn member. Route to the free function. Guarded on the method
+            // being owned exclusively by handler types AND on the runtime helper's
+            // exact arity (`handles` takes 1 arg, `call` takes 3) so an unrelated
+            // functor invocation such as `stdinReader.call()` (0 args) is NOT
+            // misrouted to the 4-arg free `call`. (self-host engine #19)
+            bool handler_arity_ok =
+                (func_name == "handles" && args.size() == 1) ||
+                (func_name == "call" && args.size() == 3);
+            if (handler_arity_ok && !is_super && !is_static_call) {
+                auto oit = method_to_classes_.find(func_name);
+                if (oit != method_to_classes_.end() && !oit->second.empty()) {
+                    bool all_handlers = true;
+                    for (const auto& c : oit->second) {
+                        std::string b = c;
+                        auto cc = b.find(':');
+                        if (cc != std::string::npos) b = b.substr(cc + 1);
+                        b = sanitize_name(b);
+                        if (b != "BallModuleHandler" && b != "StdModuleHandler") {
+                            all_handlers = false;
+                            break;
+                        }
+                    }
+                    if (all_handlers) {
+                        std::string ja = join_args();
+                        std::string r = func_name + "(" + self;
+                        if (!ja.empty()) r += ", " + ja;
+                        return r + ")";
+                    }
+                }
+            }
+            // A `.call(...)` that did NOT match the module-handler helper above
+            // (e.g. `stdinReader.call()` — invoking a stored callable) is a Dart
+            // functor invocation `self(args)`. The standalone `fn == "call"` case
+            // further below is unreachable here because `call` is also a (handler)
+            // user method, so handle the invocation form inside this block.
+            // (self-host engine #19)
+            if (func_name == "call" && !is_super && !is_static_call) {
+                return self + "(" + join_args() + ")";
+            }
+
             if (is_super) {
                 // Super call: find the parent class of the current class.
                 std::string super_class;
@@ -5059,7 +5216,28 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
                 std::string cls = *owners_it->second.begin();
                 auto cc = cls.find(':');
                 std::string cls_bare = cc != std::string::npos ? cls.substr(cc + 1) : cls;
-                return "ball_obj_as<" + sanitize_name(cls_bare) + ">(" + self +
+                // A handful of the self-hosted engine's runtime types provide
+                // certain "methods" as FREE functions taking the receiver as the
+                // first argument, NOT as members of the concrete C++ struct:
+                //   _Scope.child()          → child(scope)        (reference scope)
+                //   BallGenerator.yield_(v) → yield_(gen, v)      (shared yield list)
+                //   BallGenerator.yieldAll(xs) → yieldAll(gen, xs)
+                // `ball_obj_as<Struct>(self).method(...)` would name a non-existent
+                // member of the concrete struct and fail to compile under g++
+                // (MSVC happened to accept some of these). Emit the free call so
+                // dispatch goes through the runtime helper. (self-host engine #19)
+                std::string scls = sanitize_name(cls_bare);
+                if (func_name == "child" && scls == "_Scope") {
+                    return "child(" + self + ")";
+                }
+                if ((func_name == "yield_" || func_name == "yieldAll") &&
+                    scls == "BallGenerator") {
+                    std::string r = func_name + "(" + self;
+                    std::string ja = join_args();
+                    if (!ja.empty()) r += ", " + ja;
+                    return r + ")";
+                }
+                return "ball_obj_as<" + scls + ">(" + self +
                        ")." + func_name + "(" + join_args() + ")";
             }
             return self + "." + func_name + "(" + join_args() + ")";
@@ -5080,6 +5258,18 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
             }
         }
         return self + "(" + args + ")";
+    }
+
+    // Dart `x.cast<K, V>()` — returns a re-typed VIEW of a collection. In the
+    // dynamically-typed C++ runtime this is a no-op, handled by the free helper
+    // `cast(const BallDyn&, const std::string&)` (returns its first argument).
+    // That helper takes TWO arguments (value + target type name); the generic
+    // method fallback below would emit `cast(self)` with a single argument and
+    // fail to compile. The target type name is carried in FunctionCall.type_args
+    // (the first entry's `name`). (self-host engine #19)
+    if (fn == "cast" && !self.empty()) {
+        std::string tn = call.type_args_size() > 0 ? call.type_args(0).name() : "";
+        return "cast(" + self + ", \"" + cpp_escape_string(tn) + "\"s)";
     }
 
     // Fallback: treat as a user-defined function call passing self + args
@@ -5654,7 +5844,12 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                                 bool res_is_throw = case_body->block().result().expr_case() == ball::v1::Expression::kCall &&
                                     (case_body->block().result().call().function() == "throw" ||
                                      case_body->block().result().call().function() == "rethrow");
-                                if (res_is_throw) {
+                                // In a VOID function the switch is a plain
+                                // statement: emit the case-body result as a bare
+                                // statement, not `return <expr>` (returning a
+                                // value from a void function is a g++ error).
+                                // (self-host engine #19)
+                                if (res_is_throw || current_return_type_ == "void") {
                                     emit_line(compile_expr(case_body->block().result()) + ";");
                                 } else {
                                     emit_line("return " + compile_expr(case_body->block().result()) + ";");
@@ -5666,6 +5861,21 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                                  case_body->call().function() == "rethrow");
                             if (nonblk_is_throw) {
                                 emit_line(compile_expr(*case_body) + ";");
+                            } else if (current_return_type_ == "void") {
+                                // Void function: emit the case body as a bare
+                                // statement. An explicit Dart `return;` lowers to a
+                                // `/* return */` marker — turn it into a real
+                                // `return;` (early exit) rather than returning a
+                                // value. (self-host engine #19)
+                                auto body_code = compile_expr(*case_body);
+                                auto pos = body_code.find("/* return */ ");
+                                if (pos == 0) {
+                                    std::string val = body_code.substr(12);
+                                    if (!val.empty()) emit_line(val + ";");
+                                    emit_line("return;");
+                                } else {
+                                    emit_line(body_code + ";");
+                                }
                             } else {
                                 auto body_code = compile_expr(*case_body);
                                 auto pos = body_code.find("/* return */ ");
@@ -7375,6 +7585,10 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         bool needs_virtual = !is_static && !is_conv &&
                              (overridden_methods_.count(smethod_name) > 0 || is_abstract);
 
+        // While this method's body is compiled, tell compile_reference whether it
+        // may reference `this` (static methods may not). (self-host engine #19)
+        in_static_method_ = is_static;
+
         // Template prefix for generic methods
         if (func->has_metadata())
             emit_template_prefix_from_meta(func->metadata());
@@ -7431,6 +7645,20 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         auto param_specs = func->has_metadata()
                                ? extract_param_specs(func->metadata())
                                : std::vector<ParamSpec>{};
+        // Record this method's params + body locals so compile_reference can tell
+        // a parameter named `self`/`this`/`super` (e.g. the engine's
+        // `_dispatchBuiltinInstanceMethod(self, …)`) from the implicit receiver:
+        // a declared local must resolve to the variable, NOT `(*this)`. Without
+        // this the param `self` compiled to `(*this)` (the BallEngine object),
+        // so its list ops became `ball_list_pop((*this))` — a g++ error. Saved
+        // and restored around the body so sibling methods are unaffected.
+        // (self-host engine #19)
+        auto saved_declared_locals = declared_locals_;
+        auto saved_generic_locals = generic_locals_;
+        declared_locals_.clear();
+        generic_locals_.clear();
+        for (const auto& p : params) declared_locals_.insert(p);
+        if (func->has_body()) _collect_declared_locals(func->body(), declared_locals_);
         // Emit one method parameter. Required params stay `auto&&` (perfect
         // forwarding, matching the rest of the engine); an optional param is
         // pinned to a concrete type and — on its declaration — given its Dart
@@ -7470,6 +7698,8 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         // Abstract methods → pure virtual with no body.
         if (is_abstract) {
             out_ << ") = 0;\n";
+            declared_locals_ = saved_declared_locals;
+            generic_locals_ = saved_generic_locals;
             continue;
         }
 
@@ -7597,7 +7827,11 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             indent_--;
             emit_line("}");
         }
+        // Restore the enclosing local scope for the next method. (self-host #19)
+        declared_locals_ = saved_declared_locals;
+        generic_locals_ = saved_generic_locals;
     }
+    in_static_method_ = false;  // (self-host engine #19) leave method context
 
     // Check if any method is named "toString" (non-static, non-abstract).
     bool has_to_string = false;
@@ -7868,7 +8102,14 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         emit_indent();
         out_ << return_type << " " << name << "() {\n";
         indent_++;
-        emit_line("return BallDyn(BallGenerator{});");
+        // Return a bare BallGenerator: it implicitly converts to the declared
+        // return type (BallGenerator itself, or BallDyn via its std::any ctor).
+        // Wrapping in BallDyn(...) first does NOT convert back to a concrete
+        // BallGenerator return type. (self-host engine #19)
+        if (return_type == "BallGenerator")
+            emit_line("return BallGenerator{};");
+        else
+            emit_line("return BallDyn(BallGenerator{});");
         indent_--;
         emit_line("}\n");
         return;
@@ -8025,7 +8266,9 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         out_ << return_type << " " << name << "(BallDyn map, BallDyn key, BallDyn value) {\n";
         indent_++;
         emit_line("ball_set(map, std::string(ball_to_string(BallDyn(key))), std::any(BallDyn(value)));");
-        emit_line("return BallDyn();");
+        // Respect a `void` declared return type — `return BallDyn();` in a void
+        // function is a g++ error. (self-host engine #19)
+        if (return_type != "void") emit_line("return BallDyn();");
         indent_--;
         emit_line("}\n");
         return;
@@ -8190,7 +8433,8 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     if (name == "ballObjectSetField") {
         emit_line("ball_object_set_field(BallDyn(target), "
                   "ball_to_string(BallDyn(fieldName)), BallDyn(val));");
-        emit_line("return BallDyn();");
+        // Respect a `void` declared return type. (self-host engine #19)
+        if (return_type != "void") emit_line("return BallDyn();");
         indent_--;
         emit_line("}");
         emit_newline();

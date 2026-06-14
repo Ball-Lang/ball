@@ -17,6 +17,7 @@
 #include <regex>
 #include <fstream>
 #include <iomanip>
+#include <cstring>
 #include <cstdlib>
 #include <memory>
 #include <thread>
@@ -41,6 +42,15 @@ using namespace std::string_literals;
 
 #ifndef BALL_EMIT_RUNTIME_H
 #define BALL_EMIT_RUNTIME_H
+
+// std_time format/parse helpers below need C time + formatted I/O.
+// The compiler's emit_includes does not bring these in, and they are not
+// reliably pulled in elsewhere, so include them here. This header has an
+// include guard, so double-inclusion (engine path + spliced-program path)
+// is harmless.
+#include <ctime>
+#include <cstdio>
+#include <cstring>
 
 // Minimal Ball exception type used by `throw` / `try` to preserve
 // typed-catch semantics. Derives from std::exception so untyped
@@ -191,6 +201,18 @@ inline int64_t ball_double_to_int64(double d) {
     return r;
 }
 
+// ── Dart double property helpers (isNaN, isInfinite, isFinite, isNegative) ──
+// These accept double/int64_t directly. BallDyn overloads are in ball_dyn.h.
+inline bool ball_isNaN(double d) { return d != d; }
+inline bool ball_isInfinite(double d) { return !ball_isNaN(d) && (d > 1e308 || d < -1e308); }
+inline bool ball_isFinite(double d) { return !ball_isNaN(d) && !ball_isInfinite(d); }
+inline bool ball_isNegative(double d) { return std::signbit(d) != 0; }
+// int overloads (Dart: int is never NaN/Infinite)
+inline bool ball_isNaN(int64_t) { return false; }
+inline bool ball_isInfinite(int64_t) { return false; }
+inline bool ball_isFinite(int64_t) { return true; }
+inline bool ball_isNegative(int64_t v) { return v < 0; }
+
 // Forward declare for vector recursion before the template catch-all.
 template<typename T> inline std::string ball_to_string(const std::vector<T>& v);
 
@@ -201,6 +223,27 @@ using BallValue_RT = std::any;
 using BallMap_RT = std::map<std::string, std::any>;
 using BallList_RT = std::vector<std::any>;
 using BallFunc_RT = std::function<std::any(std::any)>;
+
+// Dart StringBuffer: a growable text buffer. shared_ptr-backed so that
+// `..write(a)..write(b)` cascades and writes through aliases accumulate into
+// the same string (reference semantics, like Dart). Defined before
+// ball_to_string so the stringify path can read it. (conformance 140/150)
+struct BallStringBuffer {
+    std::shared_ptr<std::string> buf = std::make_shared<std::string>();
+    BallStringBuffer() = default;
+    explicit BallStringBuffer(const std::string& initial)
+        : buf(std::make_shared<std::string>(initial)) {}
+    // Catch-all for types with operator std::string() (like BallDyn). Uses
+    // SFINAE to only participate when T is convertible to std::string but is
+    // NOT std::string itself (to avoid ambiguity with the overload above).
+    template<typename T, std::enable_if_t<
+        std::is_convertible_v<T, std::string> &&
+        !std::is_same_v<std::decay_t<T>, std::string> &&
+        !std::is_same_v<std::decay_t<T>, const char*> &&
+        !std::is_same_v<std::decay_t<T>, BallStringBuffer>, int> = 0>
+    explicit BallStringBuffer(const T& v)
+        : buf(std::make_shared<std::string>(static_cast<std::string>(v))) {}
+};
 
 // Helper to unwrap the inner std::any from a BallDyn stored in std::any.
 // On MSVC, implicit conversion of BallDyn to const std::any& may use
@@ -285,6 +328,8 @@ inline std::string ball_to_string(const std::any& v) {
     if (v.type() == typeid(bool)) return ball_to_string(std::any_cast<bool>(v));
     if (v.type() == typeid(std::string)) return std::any_cast<std::string>(v);
     if (v.type() == typeid(const char*)) return std::any_cast<const char*>(v);
+    if (v.type() == typeid(BallStringBuffer))
+        return *std::any_cast<const BallStringBuffer&>(v).buf;
     if (v.type() == typeid(BallList_RT)) return ball_to_string(std::any_cast<const BallList_RT&>(v));
     if (const BallList_RT* lp = _BallRefDeref::list(v)) return ball_to_string(*lp);
     if (v.type() == typeid(BallMap_RT)) {
@@ -523,6 +568,11 @@ struct BallGenerator {
 // Extension point for BallOrderedMap type matching (set by ball_dyn.h).
 inline bool (*_ball_object_type_matches_ext)(const std::any&, const std::string&) = nullptr;
 
+// Extension point for BallOrderedMap typed-map check (set by ball_dyn.h).
+// Inspects the first value's type so `is Map<K, V>` discriminates correctly
+// on insertion-ordered maps (used by ball_is_typed_map below).
+inline bool (*_ball_typed_map_ext)(const std::any&, const std::string&) = nullptr;
+
 // Check if a map value's __type__ matches a type name (walks __super__ chain).
 inline bool ball_object_type_matches(const std::any& value, const std::string& type) {
     auto& u = _BallDynUnwrapper::unwrap(value);
@@ -574,6 +624,146 @@ inline bool ball_object_type_matches(const std::any& value, const std::string& t
         super_obj = (ss != sm.end()) ? ss->second : std::any{};
     }
     return false;
+}
+
+// ── Concrete-struct type matching ──
+// Compiled classes are emitted as plain C++ structs (not BallMap-backed
+// objects), so `x is Vec2` on a concrete struct receiver cannot consult a
+// runtime `__type__` field. Each emitted struct exposes a static
+// `__ball_type_name()`; this template overload is a better match than the
+// `const std::any&` overload for any value carrying that trait, so a concrete
+// struct compares its declared type name against the requested type (walking
+// the same colon-stripping rules as map-backed objects). conformance 113.
+template <typename T>
+auto ball_object_type_matches(const T& value, const std::string& type)
+    -> decltype(T::__ball_type_name(), bool()) {
+    (void)value;
+    return ball_type_name_matches(T::__ball_type_name(), type);
+}
+
+// ── Reified generics: check __type_args__ on a map-backed object ──
+inline bool ball_type_args_match(const std::any& value, const std::string& expected) {
+    const auto& u = _BallDynUnwrapper::unwrap(value);
+    const BallMap_RT* mptr = nullptr;
+    if (u.type() == typeid(BallMap_RT)) {
+        mptr = &std::any_cast<const BallMap_RT&>(u);
+    } else {
+        mptr = _ball_object_base_map(u);
+    }
+    if (!mptr) return false;
+    auto it = mptr->find("__type_args__");
+    if (it == mptr->end()) return false;
+    const auto& tav = _BallDynUnwrapper::unwrap(it->second);
+    if (tav.type() == typeid(std::string)) {
+        return std::any_cast<const std::string&>(tav) == expected;
+    }
+    return false;
+}
+
+// ── Dart `identical(a, b)` — identity check, NOT equality ──
+// For doubles: identical(NaN, NaN) is true, identical(-0.0, 0.0) is false.
+// For ints/strings/bools: value equality. For objects: reference equality.
+inline bool ball_identical(const std::any& a, const std::any& b) {
+    const auto& ua = _BallDynUnwrapper::unwrap(a);
+    const auto& ub = _BallDynUnwrapper::unwrap(b);
+    if (!ua.has_value() && !ub.has_value()) return true;
+    if (!ua.has_value() || !ub.has_value()) return false;
+    // doubles: bitwise identity (NaN == NaN, -0.0 != 0.0)
+    if (ua.type() == typeid(double) && ub.type() == typeid(double)) {
+        double da = std::any_cast<double>(ua);
+        double db = std::any_cast<double>(ub);
+        // Use memcmp for bitwise comparison: NaN == NaN, -0.0 != 0.0
+        return std::memcmp(&da, &db, sizeof(double)) == 0;
+    }
+    // int: value equality
+    if (ua.type() == typeid(int64_t) && ub.type() == typeid(int64_t))
+        return std::any_cast<int64_t>(ua) == std::any_cast<int64_t>(ub);
+    // bool: value equality
+    if (ua.type() == typeid(bool) && ub.type() == typeid(bool))
+        return std::any_cast<bool>(ua) == std::any_cast<bool>(ub);
+    // string: value equality
+    if (ua.type() == typeid(std::string) && ub.type() == typeid(std::string))
+        return std::any_cast<const std::string&>(ua) == std::any_cast<const std::string&>(ub);
+    // Different types → not identical
+    if (ua.type() != ub.type()) return false;
+    // BallUserRef (shared_ptr<std::any>): compare pointer identity.
+    // Concrete user-class struct instances stored reference-semantically
+    // through BallUserRef share the same std::any when they originate from
+    // the same Dart object; `identical` must reflect that.
+    if (ua.type() == typeid(std::shared_ptr<std::any>)) {
+        return std::any_cast<const std::shared_ptr<std::any>&>(ua).get() ==
+               std::any_cast<const std::shared_ptr<std::any>&>(ub).get();
+    }
+    // For objects, fall back to pointer identity
+    return false;
+}
+
+// ── Reified generics: typed map check ──
+// Check if value is a map whose values match the given type name.
+// Checks the first entry's value type. Empty maps match any type.
+inline bool ball_is_typed_map(const std::any& value, const std::string& val_type) {
+    const auto& u = _BallDynUnwrapper::unwrap(value);
+    if (!u.has_value()) return false;
+    // Must be a map first
+    const BallMap_RT* mptr = nullptr;
+    if (u.type() == typeid(BallMap_RT)) {
+        mptr = &std::any_cast<const BallMap_RT&>(u);
+    } else {
+        mptr = _ball_object_base_map(u);
+    }
+    // Also check BallOrderedMap via the extension point, which inspects the
+    // first value's type (mirroring the BallMap path below) so a typed-map
+    // pattern `is Map<K, V>` discriminates by value type on ordered maps.
+    if (!mptr) {
+        if (_ball_typed_map_ext) return _ball_typed_map_ext(u, val_type);
+        if (_ball_is_map_ext && _ball_is_map_ext(u)) return true;
+        return false;
+    }
+    if (mptr->empty()) return true;  // empty map matches any type
+    // Check the first value's type
+    const auto& first_val = _BallDynUnwrapper::unwrap(mptr->begin()->second);
+    if (val_type == "int") return first_val.type() == typeid(int64_t);
+    if (val_type == "double") return first_val.type() == typeid(double);
+    if (val_type == "num") return first_val.type() == typeid(int64_t) || first_val.type() == typeid(double);
+    if (val_type == "String") return first_val.type() == typeid(std::string);
+    if (val_type == "bool") return first_val.type() == typeid(bool);
+    return ball_object_type_matches(first_val, val_type);
+}
+
+// ── Reified generics: typed list check ──
+// Check if value is a list whose elements match the given type name.
+// For homogeneous typed vectors (std::vector<int64_t>, etc.) check the C++
+// element type; for heterogeneous BallList (std::vector<std::any>) check the
+// first element's runtime type. Empty lists match any type.
+inline bool ball_is_typed_list(const std::any& value, const std::string& elem_type) {
+    const auto& u = _BallDynUnwrapper::unwrap(value);
+    if (!u.has_value()) return false;
+    // Homogeneous typed vectors
+    if (u.type() == typeid(std::vector<int64_t>))
+        return elem_type == "int" || elem_type == "num";
+    if (u.type() == typeid(std::vector<double>))
+        return elem_type == "double" || elem_type == "num";
+    if (u.type() == typeid(std::vector<std::string>))
+        return elem_type == "String";
+    if (u.type() == typeid(std::vector<bool>))
+        return elem_type == "bool";
+    // Heterogeneous BallList — check first element
+    const BallList_RT* lp = nullptr;
+    if (u.type() == typeid(BallList_RT)) {
+        lp = &std::any_cast<const BallList_RT&>(u);
+    } else {
+        lp = _BallRefDeref::list(u);
+    }
+    if (!lp) return false;
+    if (lp->empty()) return true;  // empty list matches any type
+    const auto& first = _BallDynUnwrapper::unwrap((*lp)[0]);
+    if (elem_type == "int") return first.type() == typeid(int64_t);
+    if (elem_type == "double") return first.type() == typeid(double);
+    if (elem_type == "num") return first.type() == typeid(int64_t) || first.type() == typeid(double);
+    if (elem_type == "String") return first.type() == typeid(std::string);
+    if (elem_type == "bool") return first.type() == typeid(bool);
+    // For object types, check __type__ on the first element
+    return ball_object_type_matches(first, elem_type);
 }
 
 // ================================================================
@@ -725,7 +915,13 @@ inline std::vector<std::any> ball_to_list(const std::vector<T>& v) {
     for (const auto& el : v) result.push_back(std::any(el));
     return result;
 }
-inline std::vector<std::any> ball_to_list(const std::any& v) {
+inline std::vector<std::any> ball_to_list(const std::any& raw) {
+    // A rest pattern lowers its subject to `ball_to_list(static_cast<std::any>(
+    // BallDyn(__subj)))`, which hands us a std::any wrapping a *BallDyn* (not a
+    // bare BallList). Without unwrapping, the type checks below all miss, the
+    // function returns {}, and `BallList(__l.begin()+1, __l.end())` underflows
+    // into a multi-exabyte allocation (std::length_error). conformance 252.
+    const std::any& v = _BallDynUnwrapper::unwrap(raw);
     if (v.type() == typeid(std::vector<std::any>))
         return std::any_cast<std::vector<std::any>>(v);
     if (const std::vector<std::any>* lp = _BallRefDeref::list(v))
@@ -1143,6 +1339,58 @@ inline std::string convert(const JsonEncoder&, const std::any& value) {
 inline std::any convert(const JsonDecoder&, const std::string& text) {
     size_t i = 0;
     return _ball_json_parse(text, i, 0);
+}
+
+// Single-argument JSON decode used by emitted std_convert.json_decode.
+// Parses numbers->int64/double, strings, bools, null, arrays->BallList_RT,
+// objects->BallMap_RT (mirrors _ball_json_encode's value model).
+inline std::any _ball_json_decode(const std::string& text) {
+    size_t i = 0;
+    return _ball_json_parse(text, i, 0);
+}
+
+// ── std_time helpers ──
+// Self-contained ISO-8601 (UTC, millisecond) format/parse matching the Dart
+// engine's DateTime.fromMillisecondsSinceEpoch(ms, isUtc:true).toIso8601String()
+// and DateTime.parse(value).millisecondsSinceEpoch. Uses only <ctime>/<cstdio>
+// (included above).
+inline std::string _ball_format_timestamp(int64_t ms) {
+    int64_t secs = ms / 1000;
+    int millis = static_cast<int>(ms % 1000);
+    if (millis < 0) { millis += 1000; secs -= 1; }
+    std::time_t t = static_cast<std::time_t>(secs);
+    std::tm g{};
+#if defined(_WIN32)
+    gmtime_s(&g, &t);
+#else
+    gmtime_r(&t, &g);
+#endif
+    char buf[40];
+    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
+        g.tm_year + 1900, g.tm_mon + 1, g.tm_mday,
+        g.tm_hour, g.tm_min, g.tm_sec, millis);
+    return std::string(buf);
+}
+inline int64_t _ball_parse_timestamp(const std::string& iso) {
+    int Y = 0, Mo = 0, D = 0, H = 0, Mi = 0, S = 0, frac = 0;
+    std::sscanf(iso.c_str(), "%d-%d-%dT%d:%d:%d", &Y, &Mo, &D, &H, &Mi, &S);
+    auto dot = iso.find('.');
+    if (dot != std::string::npos) {
+        std::string f;
+        size_t j = dot + 1;
+        while (j < iso.size() && iso[j] >= '0' && iso[j] <= '9') { f += iso[j]; ++j; }
+        while (f.size() < 3) f += '0';
+        frac = std::stoi(f.substr(0, 3));
+    }
+    std::tm g{};
+    g.tm_year = Y - 1900; g.tm_mon = Mo - 1; g.tm_mday = D;
+    g.tm_hour = H; g.tm_min = Mi; g.tm_sec = S;
+#if defined(_WIN32)
+    std::time_t t = _mkgmtime(&g);
+#else
+    std::time_t t = timegm(&g);
+#endif
+    return static_cast<int64_t>(t) * 1000 + frac;
 }
 
 // ── utf8 / base64 codec stubs ──
@@ -1670,6 +1918,383 @@ struct List_filled {
 };
 // BallDyn overload for List_filled — defined in ball_dyn.h after BallDyn class
 
+// ── Endian constants ──
+// Dart's `Endian.little` / `Endian.big` from dart:typed_data.
+// Represented as simple bool: true = little-endian, false = big-endian.
+struct EndianType {
+    bool isLittle;
+};
+// Dart's `Endian.little` and `Endian.big` are accessed as field accesses on
+// the `Endian` reference. The compiled code emits `Endian.little` / `Endian.big`.
+// We define a struct with non-static member constants so `Endian.little` works.
+struct EndianNamespace_ {
+    EndianType little{true};
+    EndianType big{false};
+    // Dart also has `Endian.host` — use platform endianness.
+    EndianType host() const {
+        uint16_t test = 1;
+        return EndianType{*reinterpret_cast<uint8_t*>(&test) == 1};
+    }
+};
+inline EndianNamespace_ Endian;
+
+// ── BallByteData ──
+// Dart's `ByteData` from dart:typed_data — a fixed-size byte buffer with
+// typed accessors for reading/writing integers and IEEE 754 floats at
+// arbitrary offsets with explicit endianness.
+//
+// Used by ball_protobuf for binary wire encoding of float/double fields.
+struct BallByteData {
+    std::vector<uint8_t> _bytes;
+
+    BallByteData() = default;
+    explicit BallByteData(int64_t size) : _bytes(static_cast<size_t>(size < 0 ? 0 : size), 0) {}
+    BallByteData(const std::any& size_val) {
+        int64_t n = 0;
+        const std::any& u = _BallDynUnwrapper::unwrap(size_val);
+        if (u.type() == typeid(int64_t)) n = std::any_cast<int64_t>(u);
+        else if (u.type() == typeid(double)) n = static_cast<int64_t>(std::any_cast<double>(u));
+        _bytes.resize(static_cast<size_t>(n < 0 ? 0 : n), 0);
+    }
+
+    int64_t lengthInBytes() const { return static_cast<int64_t>(_bytes.size()); }
+
+    // ── Single-byte access ──
+    void setUint8(int64_t offset, int64_t value) {
+        if (offset >= 0 && static_cast<size_t>(offset) < _bytes.size())
+            _bytes[static_cast<size_t>(offset)] = static_cast<uint8_t>(value & 0xFF);
+    }
+    int64_t getUint8(int64_t offset) const {
+        if (offset >= 0 && static_cast<size_t>(offset) < _bytes.size())
+            return static_cast<int64_t>(_bytes[static_cast<size_t>(offset)]);
+        return 0;
+    }
+
+    // ── 16-bit access ──
+    void setUint16(int64_t offset, int64_t value, EndianType endian = EndianType{false}) {
+        if (offset < 0 || static_cast<size_t>(offset) + 2 > _bytes.size()) return;
+        uint16_t v = static_cast<uint16_t>(value);
+        if (endian.isLittle) {
+            _bytes[offset] = static_cast<uint8_t>(v & 0xFF);
+            _bytes[offset + 1] = static_cast<uint8_t>((v >> 8) & 0xFF);
+        } else {
+            _bytes[offset] = static_cast<uint8_t>((v >> 8) & 0xFF);
+            _bytes[offset + 1] = static_cast<uint8_t>(v & 0xFF);
+        }
+    }
+    int64_t getUint16(int64_t offset, EndianType endian = EndianType{false}) const {
+        if (offset < 0 || static_cast<size_t>(offset) + 2 > _bytes.size()) return 0;
+        if (endian.isLittle) {
+            return static_cast<int64_t>(_bytes[offset]) |
+                   (static_cast<int64_t>(_bytes[offset + 1]) << 8);
+        } else {
+            return (static_cast<int64_t>(_bytes[offset]) << 8) |
+                   static_cast<int64_t>(_bytes[offset + 1]);
+        }
+    }
+
+    // ── 32-bit unsigned access ──
+    void setUint32(int64_t offset, int64_t value, EndianType endian = EndianType{false}) {
+        if (offset < 0 || static_cast<size_t>(offset) + 4 > _bytes.size()) return;
+        uint32_t v = static_cast<uint32_t>(value);
+        if (endian.isLittle) {
+            _bytes[offset]     = static_cast<uint8_t>(v & 0xFF);
+            _bytes[offset + 1] = static_cast<uint8_t>((v >> 8) & 0xFF);
+            _bytes[offset + 2] = static_cast<uint8_t>((v >> 16) & 0xFF);
+            _bytes[offset + 3] = static_cast<uint8_t>((v >> 24) & 0xFF);
+        } else {
+            _bytes[offset]     = static_cast<uint8_t>((v >> 24) & 0xFF);
+            _bytes[offset + 1] = static_cast<uint8_t>((v >> 16) & 0xFF);
+            _bytes[offset + 2] = static_cast<uint8_t>((v >> 8) & 0xFF);
+            _bytes[offset + 3] = static_cast<uint8_t>(v & 0xFF);
+        }
+    }
+    int64_t getUint32(int64_t offset, EndianType endian = EndianType{false}) const {
+        if (offset < 0 || static_cast<size_t>(offset) + 4 > _bytes.size()) return 0;
+        uint32_t v;
+        if (endian.isLittle) {
+            v = static_cast<uint32_t>(_bytes[offset]) |
+                (static_cast<uint32_t>(_bytes[offset + 1]) << 8) |
+                (static_cast<uint32_t>(_bytes[offset + 2]) << 16) |
+                (static_cast<uint32_t>(_bytes[offset + 3]) << 24);
+        } else {
+            v = (static_cast<uint32_t>(_bytes[offset]) << 24) |
+                (static_cast<uint32_t>(_bytes[offset + 1]) << 16) |
+                (static_cast<uint32_t>(_bytes[offset + 2]) << 8) |
+                static_cast<uint32_t>(_bytes[offset + 3]);
+        }
+        return static_cast<int64_t>(v);
+    }
+
+    // ── 32-bit signed access ──
+    void setInt32(int64_t offset, int64_t value, EndianType endian = EndianType{false}) {
+        setUint32(offset, value, endian);
+    }
+    int64_t getInt32(int64_t offset, EndianType endian = EndianType{false}) const {
+        int64_t u = getUint32(offset, endian);
+        // Sign-extend from 32 bits
+        if (u & 0x80000000LL) u |= ~0xFFFFFFFFLL;
+        return u;
+    }
+
+    // ── 64-bit unsigned access ──
+    void setUint64(int64_t offset, int64_t value, EndianType endian = EndianType{false}) {
+        if (offset < 0 || static_cast<size_t>(offset) + 8 > _bytes.size()) return;
+        uint64_t v = static_cast<uint64_t>(value);
+        if (endian.isLittle) {
+            for (int i = 0; i < 8; ++i)
+                _bytes[offset + i] = static_cast<uint8_t>((v >> (i * 8)) & 0xFF);
+        } else {
+            for (int i = 0; i < 8; ++i)
+                _bytes[offset + i] = static_cast<uint8_t>((v >> ((7 - i) * 8)) & 0xFF);
+        }
+    }
+    int64_t getUint64(int64_t offset, EndianType endian = EndianType{false}) const {
+        if (offset < 0 || static_cast<size_t>(offset) + 8 > _bytes.size()) return 0;
+        uint64_t v = 0;
+        if (endian.isLittle) {
+            for (int i = 0; i < 8; ++i)
+                v |= static_cast<uint64_t>(_bytes[offset + i]) << (i * 8);
+        } else {
+            for (int i = 0; i < 8; ++i)
+                v |= static_cast<uint64_t>(_bytes[offset + i]) << ((7 - i) * 8);
+        }
+        return static_cast<int64_t>(v);
+    }
+
+    // ── IEEE 754 float (32-bit) ──
+    void setFloat32(int64_t offset, double value, EndianType endian = EndianType{false}) {
+        if (offset < 0 || static_cast<size_t>(offset) + 4 > _bytes.size()) return;
+        float f = static_cast<float>(value);
+        uint8_t raw[4];
+        std::memcpy(raw, &f, 4);
+        if (endian.isLittle) {
+            // Native float is stored in platform endianness; we need little-endian.
+            // On little-endian platforms (x86/ARM): raw is already LE.
+            // On big-endian platforms: reverse the bytes.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            _bytes[offset]     = raw[3];
+            _bytes[offset + 1] = raw[2];
+            _bytes[offset + 2] = raw[1];
+            _bytes[offset + 3] = raw[0];
+#else
+            _bytes[offset]     = raw[0];
+            _bytes[offset + 1] = raw[1];
+            _bytes[offset + 2] = raw[2];
+            _bytes[offset + 3] = raw[3];
+#endif
+        } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            _bytes[offset]     = raw[0];
+            _bytes[offset + 1] = raw[1];
+            _bytes[offset + 2] = raw[2];
+            _bytes[offset + 3] = raw[3];
+#else
+            _bytes[offset]     = raw[3];
+            _bytes[offset + 1] = raw[2];
+            _bytes[offset + 2] = raw[1];
+            _bytes[offset + 3] = raw[0];
+#endif
+        }
+    }
+    double getFloat32(int64_t offset, EndianType endian = EndianType{false}) const {
+        if (offset < 0 || static_cast<size_t>(offset) + 4 > _bytes.size()) return 0.0;
+        uint8_t raw[4];
+        if (endian.isLittle) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            raw[0] = _bytes[offset + 3];
+            raw[1] = _bytes[offset + 2];
+            raw[2] = _bytes[offset + 1];
+            raw[3] = _bytes[offset];
+#else
+            raw[0] = _bytes[offset];
+            raw[1] = _bytes[offset + 1];
+            raw[2] = _bytes[offset + 2];
+            raw[3] = _bytes[offset + 3];
+#endif
+        } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            raw[0] = _bytes[offset];
+            raw[1] = _bytes[offset + 1];
+            raw[2] = _bytes[offset + 2];
+            raw[3] = _bytes[offset + 3];
+#else
+            raw[0] = _bytes[offset + 3];
+            raw[1] = _bytes[offset + 2];
+            raw[2] = _bytes[offset + 1];
+            raw[3] = _bytes[offset];
+#endif
+        }
+        float f;
+        std::memcpy(&f, raw, 4);
+        return static_cast<double>(f);
+    }
+
+    // ── IEEE 754 double (64-bit) ──
+    void setFloat64(int64_t offset, double value, EndianType endian = EndianType{false}) {
+        if (offset < 0 || static_cast<size_t>(offset) + 8 > _bytes.size()) return;
+        uint8_t raw[8];
+        std::memcpy(raw, &value, 8);
+        if (endian.isLittle) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            for (int i = 0; i < 8; ++i) _bytes[offset + i] = raw[7 - i];
+#else
+            for (int i = 0; i < 8; ++i) _bytes[offset + i] = raw[i];
+#endif
+        } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            for (int i = 0; i < 8; ++i) _bytes[offset + i] = raw[i];
+#else
+            for (int i = 0; i < 8; ++i) _bytes[offset + i] = raw[7 - i];
+#endif
+        }
+    }
+    double getFloat64(int64_t offset, EndianType endian = EndianType{false}) const {
+        if (offset < 0 || static_cast<size_t>(offset) + 8 > _bytes.size()) return 0.0;
+        uint8_t raw[8];
+        if (endian.isLittle) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            for (int i = 0; i < 8; ++i) raw[i] = _bytes[offset + 7 - i];
+#else
+            for (int i = 0; i < 8; ++i) raw[i] = _bytes[offset + i];
+#endif
+        } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            for (int i = 0; i < 8; ++i) raw[i] = _bytes[offset + i];
+#else
+            for (int i = 0; i < 8; ++i) raw[i] = _bytes[offset + 7 - i];
+#endif
+        }
+        double d;
+        std::memcpy(&d, raw, 8);
+        return d;
+    }
+
+    // ── BallDyn overloads for dynamic args ──
+    void setUint8(const std::any& offset, const std::any& value) {
+        int64_t o = 0, v = 0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        const std::any& vu = _BallDynUnwrapper::unwrap(value);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        if (vu.type() == typeid(int64_t)) v = std::any_cast<int64_t>(vu);
+        else if (vu.type() == typeid(double)) v = static_cast<int64_t>(std::any_cast<double>(vu));
+        setUint8(o, v);
+    }
+    int64_t getUint8(const std::any& offset) const {
+        int64_t o = 0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        return getUint8(o);
+    }
+    // Helper: extract EndianType from std::any (supports EndianType directly,
+    // or a BallDyn-wrapped EndianType, or a bool isLittle flag).
+    static EndianType _endianFromAny(const std::any& e) {
+        const std::any& eu = _BallDynUnwrapper::unwrap(e);
+        if (eu.type() == typeid(EndianType)) return std::any_cast<EndianType>(eu);
+        if (eu.type() == typeid(bool)) return EndianType{std::any_cast<bool>(eu)};
+        // Default: big-endian (matches proto wire format)
+        return EndianType{false};
+    }
+    void setFloat32(const std::any& offset, const std::any& value, const std::any& endian) {
+        setFloat32(offset, value, _endianFromAny(endian));
+    }
+    void setFloat32(const std::any& offset, const std::any& value, EndianType endian = EndianType{false}) {
+        int64_t o = 0;
+        double v = 0.0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        const std::any& vu = _BallDynUnwrapper::unwrap(value);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        if (vu.type() == typeid(double)) v = std::any_cast<double>(vu);
+        else if (vu.type() == typeid(int64_t)) v = static_cast<double>(std::any_cast<int64_t>(vu));
+        setFloat32(o, v, endian);
+    }
+    double getFloat32(const std::any& offset, const std::any& endian) const {
+        return getFloat32(offset, _endianFromAny(endian));
+    }
+    double getFloat32(const std::any& offset, EndianType endian = EndianType{false}) const {
+        int64_t o = 0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        return getFloat32(o, endian);
+    }
+    void setFloat64(const std::any& offset, const std::any& value, const std::any& endian) {
+        setFloat64(offset, value, _endianFromAny(endian));
+    }
+    void setFloat64(const std::any& offset, const std::any& value, EndianType endian = EndianType{false}) {
+        int64_t o = 0;
+        double v = 0.0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        const std::any& vu = _BallDynUnwrapper::unwrap(value);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        if (vu.type() == typeid(double)) v = std::any_cast<double>(vu);
+        else if (vu.type() == typeid(int64_t)) v = static_cast<double>(std::any_cast<int64_t>(vu));
+        setFloat64(o, v, endian);
+    }
+    double getFloat64(const std::any& offset, const std::any& endian) const {
+        return getFloat64(offset, _endianFromAny(endian));
+    }
+    double getFloat64(const std::any& offset, EndianType endian = EndianType{false}) const {
+        int64_t o = 0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        return getFloat64(o, endian);
+    }
+    void setUint32(const std::any& offset, const std::any& value, EndianType endian = EndianType{false}) {
+        int64_t o = 0, v = 0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        const std::any& vu = _BallDynUnwrapper::unwrap(value);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        if (vu.type() == typeid(int64_t)) v = std::any_cast<int64_t>(vu);
+        else if (vu.type() == typeid(double)) v = static_cast<int64_t>(std::any_cast<double>(vu));
+        setUint32(o, v, endian);
+    }
+    int64_t getUint32(const std::any& offset, EndianType endian = EndianType{false}) const {
+        int64_t o = 0;
+        const std::any& ou = _BallDynUnwrapper::unwrap(offset);
+        if (ou.type() == typeid(int64_t)) o = std::any_cast<int64_t>(ou);
+        else if (ou.type() == typeid(double)) o = static_cast<int64_t>(std::any_cast<double>(ou));
+        return getUint32(o, endian);
+    }
+
+    // ── buffer property (mimics Dart's ByteData.buffer) ──
+    // In Dart, `byteData.buffer.asUint8List()` returns a Uint8List view.
+    // We provide a nested struct with asUint8List() that returns the bytes as
+    // a BallList (vector<any> of int64_t byte values).
+    struct BufferView {
+        const std::vector<uint8_t>& bytes;
+        std::vector<std::any> asUint8List() const {
+            std::vector<std::any> result;
+            result.reserve(bytes.size());
+            for (uint8_t b : bytes) result.push_back(std::any(static_cast<int64_t>(b)));
+            return result;
+        }
+        std::vector<std::any> asUint8List(int64_t start, int64_t length) const {
+            std::vector<std::any> result;
+            size_t end = static_cast<size_t>(start + length);
+            if (end > bytes.size()) end = bytes.size();
+            for (size_t i = static_cast<size_t>(start); i < end; ++i)
+                result.push_back(std::any(static_cast<int64_t>(bytes[i])));
+            return result;
+        }
+    };
+    BufferView buffer() const { return BufferView{_bytes}; }
+    // Also support direct access pattern: `bd.buffer.asUint8List()` when compiled
+    // as a field access chain (the compiler emits `.buffer` then `.asUint8List()`).
+    BufferView get_buffer() const { return BufferView{_bytes}; }
+};
+
+// Free-function overloads so the compiled code `ByteData(n)` resolves.
+// The compiler emits `BallByteData{.arg0 = n}` or `BallByteData(n)`.
+inline BallByteData ByteData(int64_t size) { return BallByteData(size); }
+inline BallByteData ByteData(const std::any& size) { return BallByteData(size); }
+
 // ── BallObject ──
 // Dart: class BallObject extends BallMap { ... }
 // BallMap is std::map<std::string, std::any>.  We provide a correct C++
@@ -1887,6 +2512,15 @@ using BallScope = std::shared_ptr<BallMap>;
 // BallListRef, so its behavior and the direct-conformance baseline are unaffected.
 using BallListRef = std::shared_ptr<BallList>;
 
+// Reference-semantic user-class struct instances. Concrete (non-generic,
+// non-abstract) user classes are compiled as plain C++ structs — value types.
+// In Dart all objects are reference types, so two variables pointing at the same
+// object share mutations and `identical()` returns true. Wrapping the struct in
+// a shared_ptr<std::any> inside BallDyn gives Dart-compatible reference
+// semantics: copies of the BallDyn share the underlying struct, `ball_obj_as<T>`
+// dereferences transparently, and `ball_identical` compares pointers.
+using BallUserRef = std::shared_ptr<std::any>;
+
 // Unique marker for Dart engine `_sentinel` (dispatch not found). Must not
 // compare equal to null/empty BallDyn() returned by void builtin methods.
 struct BallDispatchNotFound {};
@@ -2010,6 +2644,9 @@ public:
         _val = BallListRef(std::make_shared<BallList>(std::move(l)));
     }
     BallDyn(BallFunc v) : _val(std::move(v)) {}
+    // StringBuffer — stored shared_ptr-backed (BallStringBuffer holds the
+    // shared_ptr) so writes through any alias accumulate (conformance 140/150).
+    BallDyn(BallStringBuffer v) : _val(std::move(v)) {}
     // List.filled(length, value) lowers to a List_filled aggregate (defined in
     // ball_emit_runtime.h, always spliced before this header in compiled programs).
     BallDyn(const List_filled& lf)
@@ -2021,6 +2658,9 @@ public:
     // would create self-referential `self` cycles).
     BallDyn(BallObject v) : _val(BallObjectRef(std::make_shared<BallObject>(std::move(v)))) {}
     BallDyn(BallObjectRef v) : _val(std::move(v)) {}
+    // Reference-semantic concrete user-class struct instance (BallUserRef).
+    // The shared_ptr<std::any> wraps the struct; copies of BallDyn share it.
+    BallDyn(BallUserRef v) : _val(std::move(v)) {}
 
     // ── Reference-semantic list accessors ──
     // Return a pointer to the underlying vector whether stored by-value (legacy /
@@ -2116,7 +2756,9 @@ public:
 
     // Truthiness (like JavaScript)
     bool has_value() const { return _val.has_value(); }
-    explicit operator bool() const {
+    // Non-explicit so BallDyn→bool is unambiguous (preferred over the two-step
+    // BallDyn→int64_t→bool or BallDyn→double→bool narrowing paths).
+    operator bool() const {
         if (!_val.has_value()) return false;
         if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val);
         if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val) != 0;
@@ -2144,6 +2786,22 @@ public:
             return ball_to_string(std::any_cast<double>(_val));
         }
         if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) ? "true" : "false";
+        // Dynamic (map-backed) user-class instance: if it carries a "__methods__"
+        // table with a "toString" closure, invoke it (Dart's toString()). This is
+        // how a generic/abstract class instance stringifies (e.g. Pair.toString).
+        if (const BallObject* op = _objPtr()) {
+            const BallMap& base = static_cast<const BallMap&>(*op);
+            auto mit = base.find("__methods__");
+            if (mit != base.end() && mit->second.type() == typeid(BallMap)) {
+                const BallMap& methods = std::any_cast<const BallMap&>(mit->second);
+                auto fit = methods.find("toString");
+                if (fit != methods.end() && fit->second.type() == typeid(BallFunc)) {
+                    std::any r = std::any_cast<const BallFunc&>(fit->second)(std::any{});
+                    return ball_to_string(r);
+                }
+            }
+            // No toString: fall through to the generic {key: value} map print.
+        }
         // List: Dart-style [a, b, c]
         if (const BallList* vp = _listPtr()) {
             const auto& v = *vp;
@@ -2214,6 +2872,8 @@ public:
             out += "}";
             return out;
         }
+        if (_val.type() == typeid(BallStringBuffer))
+            return *std::any_cast<const BallStringBuffer&>(_val).buf;
         return "<dynamic>";
     }
 
@@ -2315,6 +2975,13 @@ public:
             if (u.type() == typeid(BallObject)) {
                 std::any_cast<BallMap&>(_val)[key] = std::any(BallObjectRef(
                     std::make_shared<BallObject>(std::any_cast<const BallObject&>(u))));
+            } else if (u.type() == typeid(BallList)) {
+                // A raw BallList stored into a map must be wrapped in a shared
+                // BallListRef so later operator[] reads return BallDyns that share
+                // the same vector and in-place mutations (list_push, list[i]=, sort)
+                // persist. Mirrors the BallObject->BallObjectRef wrap above.
+                std::any_cast<BallMap&>(_val)[key] = std::any(BallListRef(
+                    std::make_shared<BallList>(std::any_cast<const BallList&>(u))));
             } else {
                 std::any_cast<BallMap&>(_val)[key] = u;
             }
@@ -2322,6 +2989,13 @@ public:
             if (u.type() == typeid(BallObject)) {
                 (*omp)[key] = std::any(BallObjectRef(
                     std::make_shared<BallObject>(std::any_cast<const BallObject&>(u))));
+            } else if (u.type() == typeid(BallList)) {
+                // Same raw-BallList->BallListRef wrap for the now-default ordered
+                // map type (the branch `groups[key] = []` hits once map literals
+                // are BallOrderedMap). Without it, `groups[key]` returns a fresh
+                // detached list each read and list_push no-ops.
+                (*omp)[key] = std::any(BallListRef(
+                    std::make_shared<BallList>(std::any_cast<const BallList&>(u))));
             } else {
                 (*omp)[key] = u;
             }
@@ -2395,6 +3069,24 @@ public:
     // Dart Map.containsKey parity for self-host engine (BallOrderedMapRef / BallMap).
     bool containsKey(const BallDyn& key) const { return count(key) > 0; }
     bool containsKey(const std::string& key) const { return count(key) > 0; }
+
+    // Dart Object.hashCode: int hashes to itself, others via std::hash on the
+    // underlying scalar/string. Used by user `hashCode` getters/overrides that
+    // combine field hashes (conformance 113).
+    int64_t hashCode() const {
+        // _val is never a nested BallDyn (the constructor peels those), so a
+        // direct type check on the underlying scalar/string is sufficient.
+        if (!_val.has_value()) return 0;
+        if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val);
+        if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) ? 1 : 0;
+        if (_val.type() == typeid(double))
+            return static_cast<int64_t>(
+                std::hash<double>{}(std::any_cast<double>(_val)));
+        if (_val.type() == typeid(std::string))
+            return static_cast<int64_t>(
+                std::hash<std::string>{}(std::any_cast<std::string>(_val)));
+        return 0;
+    }
 
     // Instance field write — routes through BallObject::setField when [this]
     // holds a BallObjectRef, otherwise falls back to map set().
@@ -2536,7 +3228,26 @@ public:
             }
             return true;
         }
+        // Numeric cross-type equality: Dart `0 == 0.0` is true. Compare an
+        // int64_t and a double by value before the strict type-mismatch reject
+        // (switch on a `num` subject with int patterns; conformance 225).
+        {
+            bool an = _val.type() == typeid(int64_t) || _val.type() == typeid(double);
+            bool bn = o._val.type() == typeid(int64_t) || o._val.type() == typeid(double);
+            if (an && bn && _val.type() != o._val.type()) {
+                double av = _val.type() == typeid(int64_t)
+                    ? (double)std::any_cast<int64_t>(_val) : std::any_cast<double>(_val);
+                double bv = o._val.type() == typeid(int64_t)
+                    ? (double)std::any_cast<int64_t>(o._val) : std::any_cast<double>(o._val);
+                return av == bv;
+            }
+        }
         if (_val.type() != o._val.type()) return false;
+        // BallUserRef: reference identity (Dart default `==` for objects).
+        if (_val.type() == typeid(BallUserRef)) {
+            return std::any_cast<const BallUserRef&>(_val).get() ==
+                   std::any_cast<const BallUserRef&>(o._val).get();
+        }
         if (_val.type() == typeid(BallDispatchNotFound)) return true;
         if (_val.type() == typeid(BallListRef) && o._val.type() == typeid(BallListRef)) {
             return std::any_cast<const BallListRef&>(_val) ==
@@ -2556,6 +3267,20 @@ public:
         if (_val.type() == typeid(double)) return std::any_cast<double>(_val) == std::any_cast<double>(o._val);
         if (_val.type() == typeid(bool)) return std::any_cast<bool>(_val) == std::any_cast<bool>(o._val);
         if (_val.type() == typeid(std::string)) return std::any_cast<const std::string&>(_val) == std::any_cast<const std::string&>(o._val);
+        // Structural map equality (both same type per the check above): enum
+        // values compile to `{index, _name}` maps and are compared through the
+        // BallDyn layer in switch statements (conformance 109).
+        if (_val.type() == typeid(BallMap)) {
+            const BallMap& ma = std::any_cast<const BallMap&>(_val);
+            const BallMap& mb = std::any_cast<const BallMap&>(o._val);
+            if (ma.size() != mb.size()) return false;
+            for (const auto& kv : ma) {
+                auto it = mb.find(kv.first);
+                if (it == mb.end()) return false;
+                if (BallDyn(kv.second) != BallDyn(it->second)) return false;
+            }
+            return true;
+        }
         return false;
     }
     bool operator!=(const BallDyn& o) const { return !(*this == o); }
@@ -2680,9 +3405,21 @@ public:
         if (_val.type() == typeid(int64_t)) return BallDyn(std::any_cast<int64_t>(_val) % v);
         return BallDyn(static_cast<int64_t>(static_cast<double>(*this)) % v);
     }
+    BallDyn operator+(double v) const {
+        return BallDyn(static_cast<double>(*this) + v);
+    }
+    BallDyn operator-(double v) const {
+        return BallDyn(static_cast<double>(*this) - v);
+    }
+    BallDyn operator*(double v) const {
+        return BallDyn(static_cast<double>(*this) * v);
+    }
     BallDyn operator/(double v) const {
         return BallDyn(static_cast<double>(*this) / v);
     }
+    friend BallDyn operator+(double v, const BallDyn& d) { return BallDyn(v + static_cast<double>(d)); }
+    friend BallDyn operator-(double v, const BallDyn& d) { return BallDyn(v - static_cast<double>(d)); }
+    friend BallDyn operator*(double v, const BallDyn& d) { return BallDyn(v * static_cast<double>(d)); }
     // Arithmetic with any other integral type — notably a `long long` literal
     // (`10LL`) on platforms where int64_t is `long` (gcc/Linux). Without these
     // the call is ambiguous between the int64_t and double overloads (both are
@@ -2741,6 +3478,22 @@ public:
     friend bool operator>(int64_t v, const BallDyn& d) { return BallDyn(v) > d; }
     friend bool operator<=(int64_t v, const BallDyn& d) { return BallDyn(v) <= d; }
     friend bool operator>=(int64_t v, const BallDyn& d) { return BallDyn(v) >= d; }
+
+    // Comparison with double. Without these, `someDouble < ballDyn` and
+    // `ballDyn < someDouble` resolved through the int64_t overloads above,
+    // forcing `static_cast<int64_t>(double)` on the operand — which is UB for
+    // non-finite values (Infinity/NaN) and lossy for large magnitudes. The
+    // bug surfaced as `1.0/0.0 > big` (Infinity > DBL_MAX) returning false:
+    // Infinity was truncated to INT64_MIN before the compare. Route through
+    // BallDyn(double) so the double-aware operator< is used. conformance 232.
+    bool operator<(double v) const { return *this < BallDyn(v); }
+    bool operator>(double v) const { return *this > BallDyn(v); }
+    bool operator<=(double v) const { return *this <= BallDyn(v); }
+    bool operator>=(double v) const { return *this >= BallDyn(v); }
+    friend bool operator<(double v, const BallDyn& d) { return BallDyn(v) < d; }
+    friend bool operator>(double v, const BallDyn& d) { return BallDyn(v) > d; }
+    friend bool operator<=(double v, const BallDyn& d) { return BallDyn(v) <= d; }
+    friend bool operator>=(double v, const BallDyn& d) { return BallDyn(v) >= d; }
 
     // Increment/decrement
     BallDyn& operator++() {
@@ -2828,6 +3581,54 @@ public:
         }
         return BallDyn();
     }
+
+    // ── Property-like accessors for compiled self-hosted engine ──
+    // The C++ compiler emits `.kind()`, `.value()`, `.fields()`, `.values()`
+    // as member function calls on BallDyn (and BALL_DYN_STUB derivatives).
+    // These delegate to operator[] on the underlying map, matching the Dart
+    // engine's property getter semantics on FlowSignal, protobuf
+    // Value/Struct/ListValue, and map-entry iteration variables.
+
+    // FlowSignal.kind — the signal type ("return", "break", "continue", "yield", etc.)
+    BallDyn kind() const { return (*this)[std::string("kind")]; }
+
+    // Protobuf Value-like / map-entry .value — the raw value
+    BallDyn value() const { return (*this)[std::string("value")]; }
+
+    // Protobuf Struct-like .fields — access the fields map. For a BallDyn
+    // wrapping a map, the fields ARE the map, so return self. For a map with
+    // a "fields" key (actual protobuf Struct JSON shape), return that entry.
+    BallDyn fields() const {
+        // If the underlying map has an explicit "fields" key, return it (protobuf
+        // Struct JSON: {"fields": {"key": {...}, ...}}).
+        BallDyn f = (*this)[std::string("fields")];
+        if (f.has_value()) return f;
+        // Otherwise the BallDyn itself IS the fields map (e.g. metadata).
+        return *this;
+    }
+
+    // BallGenerator.values / protobuf ListValue.values — access the values list.
+    BallDyn values() const {
+        // BallGenerator: return a copy of the accumulated values list.
+        if (_val.type() == typeid(BallGenerator)) {
+            return BallDyn(BallList(*std::any_cast<const BallGenerator&>(_val).values));
+        }
+        // Protobuf ListValue JSON shape: {"values": [...]}
+        BallDyn v = (*this)[std::string("values")];
+        if (v.has_value()) return v;
+        // If this IS a list, return self.
+        if (_isList()) return *this;
+        return BallDyn();
+    }
+
+    bool has(const BallDyn& key) const;
+    bool has(const std::string& key) const;
+    BallDyn lookup(const BallDyn& key) const;
+    BallDyn lookup(const std::string& key) const;
+    BallDyn yield_(const BallDyn& val) const;
+    BallDyn yieldAll(const BallDyn& items) const;
+    template<typename T>
+    void init(const T&) const {}
 };
 
 inline BallDyn ball_dispatch_not_found() {
@@ -2946,6 +3747,49 @@ inline BallDyn ball_map_put_if_absent(BallDyn&& m, const BallDyn& key, F ifAbsen
     return m.count(k) == 0 ? BallDyn(ifAbsent()) : m[k];
 }
 
+// StringBuffer write helpers — the compiler lowers `sb.write(x)` etc. to free
+// calls `write(sb, x)`. sb wraps a shared_ptr-backed BallStringBuffer, so all
+// appends through any alias accumulate into the same string (conformance
+// 140/150). Returns the buffer for cascade chaining.
+inline std::string* _ball_strbuf_ptr(const BallDyn& sb) {
+    std::any a = static_cast<std::any>(sb);
+    const std::any& u = _BallDynUnwrapper::unwrap(a);
+    if (u.type() == typeid(BallStringBuffer))
+        return std::any_cast<const BallStringBuffer&>(u).buf.get();
+    return nullptr;
+}
+inline BallDyn write(const BallDyn& sb, const BallDyn& value) {
+    if (auto* p = _ball_strbuf_ptr(sb)) *p += ball_to_string(value);
+    return sb;
+}
+inline BallDyn writeln(const BallDyn& sb, const BallDyn& value) {
+    if (auto* p = _ball_strbuf_ptr(sb)) { *p += ball_to_string(value); *p += "\n"; }
+    return sb;
+}
+inline BallDyn writeln(const BallDyn& sb) {
+    if (auto* p = _ball_strbuf_ptr(sb)) *p += "\n";
+    return sb;
+}
+inline BallDyn writeCharCode(const BallDyn& sb, const BallDyn& code) {
+    if (auto* p = _ball_strbuf_ptr(sb)) {
+        int64_t c = static_cast<int64_t>(code);
+        // UTF-16 code unit in the BMP → a single char (sufficient for the
+        // ASCII/Latin conformance cases). Astral planes are out of scope here.
+        p->push_back(static_cast<char>(c & 0xFF));
+    }
+    return sb;
+}
+inline BallDyn writeAll(const BallDyn& sb, const BallDyn& items) {
+    if (auto* p = _ball_strbuf_ptr(sb)) {
+        for (const auto& e : items) *p += ball_to_string(BallDyn(e));
+    }
+    return sb;
+}
+inline BallDyn ball_strbuf_clear(const BallDyn& sb) {
+    if (auto* p = _ball_strbuf_ptr(sb)) p->clear();
+    return sb;
+}
+
 // Generator yields — the engine calls `gen.yield_(v)` / `gen.yieldAll(xs)`,
 // which the compiler lowers to free calls `yield_(gen, v)` / `yieldAll(gen, xs)`.
 // gen wraps a BallGenerator (reference type), so pushes mutate the shared list.
@@ -2972,6 +3816,88 @@ inline BallDyn yieldAll(const BallDyn& gen, const BallDyn& items) {
         for (const auto& it : items) vals.push_back(static_cast<std::any>(it));
     }
     return BallDyn();
+}
+
+// ── Out-of-class definitions for BallDyn member methods ──
+// These are defined here (after the free functions and scope helpers they
+// depend on) because the class body can only forward-declare them.
+
+// Forward declarations for scope helpers (defined later in this file).
+inline bool _ball_scope_has_key(const BallDyn& scope, const std::string& key);
+inline BallScope _ball_get_parent_scope(const BallDyn& scope);
+
+// BallDyn::has — scope has-key check with parent chain walk.
+inline bool BallDyn::has(const BallDyn& key) const {
+    return has(static_cast<std::string>(key));
+}
+inline bool BallDyn::has(const std::string& key) const {
+    // Check current scope
+    if (_ball_scope_has_key(*this, key)) return true;
+    // Check _bindings sub-map
+    auto bindings = (*this)[std::string("_bindings")];
+    if (bindings.has_value() && BallDyn(bindings)[key].has_value()) return true;
+    // Walk parent chain via BallScope shared_ptr
+    BallScope parent = _ball_get_parent_scope(*this);
+    while (parent) {
+        if (parent->count(key) > 0) return true;
+        auto it = parent->find("__parent__");
+        if (it != parent->end() && it->second.type() == typeid(BallScope)) {
+            parent = std::any_cast<const BallScope&>(it->second);
+        } else {
+            break;
+        }
+    }
+    // Legacy fallback: __parent__ stored as value copy
+    if (!parent) {
+        auto parentVal = (*this)[std::string("__parent__")];
+        if (!parentVal.has_value()) parentVal = (*this)[std::string("_parent")];
+        if (parentVal.has_value()) return parentVal.has(key);
+    }
+    return false;
+}
+
+// BallDyn::lookup — scope key lookup with parent chain walk.
+inline BallDyn BallDyn::lookup(const BallDyn& key) const {
+    return lookup(static_cast<std::string>(key));
+}
+inline BallDyn BallDyn::lookup(const std::string& key) const {
+    // Check direct binding
+    if (_ball_scope_has_key(*this, key)) return (*this)[key];
+    // Check _bindings sub-map
+    auto bindings = (*this)[std::string("_bindings")];
+    if (bindings.has_value()) {
+        auto val = BallDyn(bindings)[key];
+        if (val.has_value()) return val;
+    }
+    // Walk parent chain via BallScope shared_ptr
+    BallScope parent = _ball_get_parent_scope(*this);
+    while (parent) {
+        auto it = parent->find(key);
+        if (it != parent->end()) return BallDyn(it->second);
+        auto pit = parent->find("__parent__");
+        if (pit != parent->end() && pit->second.type() == typeid(BallScope)) {
+            parent = std::any_cast<const BallScope&>(pit->second);
+        } else {
+            break;
+        }
+    }
+    // Legacy fallback
+    if (!parent) {
+        auto parentVal = (*this)[std::string("__parent__")];
+        if (!parentVal.has_value()) parentVal = (*this)[std::string("_parent")];
+        if (parentVal.has_value()) return parentVal.lookup(key);
+    }
+    return BallDyn();
+}
+
+// BallDyn::yield_ — delegate to the free yield_(gen, val).
+inline BallDyn BallDyn::yield_(const BallDyn& val) const {
+    return ::yield_(*this, val);
+}
+
+// BallDyn::yieldAll — delegate to the free yieldAll(gen, items).
+inline BallDyn BallDyn::yieldAll(const BallDyn& items) const {
+    return ::yieldAll(*this, items);
 }
 
 // Dart's Iterable.indexWhere(test) — first index where test(el) is truthy, else -1.
@@ -3182,6 +4108,30 @@ BALL_DYN_STUB(StdModuleHandler);
 
 #undef BALL_DYN_STUB
 
+// ── User-class method receiver recovery ──
+// A user-class instance may arrive as its concrete struct type (T) or boxed
+// inside a BallDyn (stored in a collection, returned from a cascade IIFE, or
+// aliased through an untyped `final x = obj` binding). `ball_obj_as<T>(self)`
+// yields a `T&` in both cases so `ball_obj_as<T>(self).method(...)` compiles
+// uniformly (conformance 111; also used for factory return conversion, 106).
+// When the value is stored reference-semantically via BallUserRef
+// (shared_ptr<std::any>), dereference through the shared_ptr first.
+template<class T> inline T& ball_obj_as(BallDyn& d) {
+    if (d._val.type() == typeid(BallUserRef))
+        return std::any_cast<T&>(*std::any_cast<BallUserRef&>(d._val));
+    return std::any_cast<T&>(d._val);
+}
+template<class T> inline const T& ball_obj_as(const BallDyn& d) {
+    if (d._val.type() == typeid(BallUserRef))
+        return std::any_cast<const T&>(*std::any_cast<const BallUserRef&>(d._val));
+    return std::any_cast<const T&>(d._val);
+}
+template<class T, class U,
+         std::enable_if_t<!std::is_same_v<std::decay_t<U>, BallDyn>, int> = 0>
+inline U&& ball_obj_as(U&& u) {
+    return std::forward<U>(u);
+}
+
 // ── ball_where / ball_map overloads for BallDyn ──
 template<typename F>
 inline BallList ball_where(const BallDyn& v, F pred) {
@@ -3246,7 +4196,7 @@ inline bool handles(const BallDyn& handler, const BallDyn& module) {
     return mod == "std" || mod == "dart_std" || mod == "std_collections" ||
            mod == "std_io" || mod == "std_memory" || mod == "std_convert" ||
            mod == "std_fs" || mod == "std_time" || mod == "std_concurrency" ||
-           mod == "cpp_std" || mod.empty();
+           mod.empty();
 }
 template<typename E>
 inline BallDyn call(const BallDyn& handler, const BallDyn& function, const BallDyn& input, E&& engine_fn) {
@@ -3359,6 +4309,36 @@ inline std::string ball_string_substring(const BallDyn& v, int64_t start, const 
 }
 inline int64_t ball_code_unit_at(const BallDyn& v, int64_t i) {
     return ball_u16_code_unit_at(static_cast<std::string>(v), i);
+}
+
+// ── Dart double property helpers (BallDyn overloads) ──
+inline bool ball_isNaN(const BallDyn& v) {
+    if (v._val.type() == typeid(double)) return ball_isNaN(std::any_cast<double>(v._val));
+    return false;
+}
+inline bool ball_isInfinite(const BallDyn& v) {
+    if (v._val.type() == typeid(double)) return ball_isInfinite(std::any_cast<double>(v._val));
+    return false;
+}
+inline bool ball_isFinite(const BallDyn& v) {
+    if (v._val.type() == typeid(double)) return ball_isFinite(std::any_cast<double>(v._val));
+    if (v._val.type() == typeid(int64_t)) return true;
+    return false;
+}
+inline bool ball_isNegative(const BallDyn& v) {
+    if (v._val.type() == typeid(double)) return ball_isNegative(std::any_cast<double>(v._val));
+    if (v._val.type() == typeid(int64_t)) return std::any_cast<int64_t>(v._val) < 0;
+    return false;
+}
+
+// ── Dart `identical(a, b)` — BallDyn overload ──
+inline bool ball_identical(const BallDyn& a, const BallDyn& b) {
+    return ball_identical(a._val, b._val);
+}
+
+// ── Reified generics: BallDyn overload ──
+inline bool ball_type_args_match(const BallDyn& value, const std::string& expected) {
+    return ball_type_args_match(value._val, expected);
 }
 
 // String concatenation
@@ -3488,6 +4468,17 @@ inline BallDyn ball_skip(const BallDyn& v, int64_t n) {
 // Defined here (end of ball_dyn.h) because they return a BallDyn; BallException
 // itself is declared earlier in ball_emit_runtime.h (always spliced first).
 inline BallDyn _ball_exception_to_dyn(const BallException& e) {
+    // A bare scalar throw (`throw "msg"` / `throw 42`) with no structured
+    // fields: the caught variable should BE that scalar so a filter like
+    // `catch (e) { if (e == "recoverable") ... }` matches Dart semantics
+    // (conformance 222). Structured throws keep the reified map shape.
+    if (e.has_payload && e.fields.empty()) {
+        const std::any& pu = _BallDynUnwrapper::unwrap(e.value);
+        if (pu.type() == typeid(std::string) || pu.type() == typeid(int64_t) ||
+            pu.type() == typeid(double) || pu.type() == typeid(bool)) {
+            BallDyn sv; sv._val = e.value; return sv;
+        }
+    }
     std::map<std::string, std::any> m;
     m["__type__"] = std::any(std::string("BallException"));
     m["typeName"] = std::any(e.type_name);
@@ -3568,6 +4559,25 @@ inline const bool _ball_ordered_map_extensions_registered = []() {
         }
         return false;
     };
+    // Typed-map discrimination for BallOrderedMap: mirror the BallMap path of
+    // ball_is_typed_map (empty->matches any; else inspect first value's concrete
+    // type; else delegate to ball_object_type_matches). Resolves `is Map<K,V>`
+    // checks on the now-default insertion-ordered map type with zero regression.
+    _ball_typed_map_ext = [](const std::any& u, const std::string& val_type) -> bool {
+        const BallOrderedMap* omp = _ballAnyOrderedMapPtr(u);
+        if (!omp) return false;
+        if (omp->entries_.empty()) return true;  // empty map matches any type
+        const auto& first_val =
+            _BallDynUnwrapper::unwrap(omp->entries_.front().second);
+        if (val_type == "int") return first_val.type() == typeid(int64_t);
+        if (val_type == "double") return first_val.type() == typeid(double);
+        if (val_type == "num")
+            return first_val.type() == typeid(int64_t) ||
+                   first_val.type() == typeid(double);
+        if (val_type == "String") return first_val.type() == typeid(std::string);
+        if (val_type == "bool") return first_val.type() == typeid(bool);
+        return ball_object_type_matches(first_val, val_type);
+    };
     return true;
 }();
 
@@ -3642,6 +4652,47 @@ inline BallDyn ball_map_values(const BallDyn& v) {
         }
     } catch (...) {}
     return BallDyn(BallList(r));
+}
+
+// std_collections.list_foreach: iterate a collection, invoking `fn` per element
+// for its side effects. Over a LIST, calls fn(item). Over a MAP, calls
+// fn({key, value, arg0:key, arg1:value}) per entry so the callback can bind the
+// key/value by name or positionally (mirrors the Dart engine). (conformance 116)
+template <typename F>
+inline BallDyn ball_foreach(const BallDyn& coll, F fn) {
+    // Split on callback ARITY at compile time: only the matching branch is
+    // instantiated, so a 2-arg map callback never has to compile `fn(item)`
+    // (and vice-versa) — both runtime branches of a plain `if` would otherwise
+    // be type-checked and fail for the wrong arity (conformance 119).
+    if constexpr (std::is_invocable_v<F, BallDyn, BallDyn>) {
+        // Dart `map.forEach((key, value) => …)` — a 2-arg callback.
+        BallDyn entries = ball_map_entries(coll);
+        for (size_t i = 0; i < entries.size(); i++) {
+            BallDyn ent = entries[static_cast<int64_t>(i)];
+            fn(BallDyn(ent["key"s]), BallDyn(ent["value"s]));
+        }
+    } else {
+        // 1-arg callback: list items, or map entries as `{key,value,arg0,arg1}`.
+        if (ball_is_map_dyn(coll)) {
+            BallDyn entries = ball_map_entries(coll);
+            for (size_t i = 0; i < entries.size(); i++) {
+                BallDyn ent = entries[static_cast<int64_t>(i)];
+                BallDyn k = ent["key"s];
+                BallDyn val = ent["value"s];
+                BallMap arg;
+                arg["key"] = static_cast<std::any>(k);
+                arg["value"] = static_cast<std::any>(val);
+                arg["arg0"] = static_cast<std::any>(k);
+                arg["arg1"] = static_cast<std::any>(val);
+                fn(BallDyn(arg));
+            }
+        } else {
+            for (size_t i = 0; i < coll.size(); i++) {
+                fn(coll[static_cast<int64_t>(i)]);
+            }
+        }
+    }
+    return BallDyn();
 }
 
 // ── fold free function ──
@@ -4003,22 +5054,54 @@ inline BallDyn ball_map_copy(const BallDyn& v) {
   return v;
 }
 
+// ── Dynamic user-class method dispatch ──
+// A "dynamic" user-class instance (generic / abstract / polymorphic) is a
+// map-backed BallObject (or plain BallMap) carrying a "__methods__" entry: a
+// BallMap from method name to a one-arg BallFunc closure that closes over the
+// instance's fields. ball_call_method looks the method up and invokes it.
+// Returns BallDyn() when the receiver has no such method (matches Dart's
+// noSuchMethod-as-null behavior for the cases the compiler emits).
+inline BallDyn ball_call_method(const BallDyn& recv, const std::string& name,
+                                const BallDyn& arg = BallDyn()) {
+  std::any ua = static_cast<std::any>(recv);
+  const std::any& u = _BallDynUnwrapper::unwrap(ua);
+  const BallMap* mp = nullptr;
+  if (u.type() == typeid(BallObject))
+    mp = &static_cast<const BallMap&>(std::any_cast<const BallObject&>(u));
+  else if (u.type() == typeid(BallObjectRef)) {
+    const auto& r = std::any_cast<const BallObjectRef&>(u);
+    mp = r ? &static_cast<const BallMap&>(*r) : nullptr;
+  } else if (u.type() == typeid(BallMap))
+    mp = &std::any_cast<const BallMap&>(u);
+  if (mp) {
+    auto mit = mp->find("__methods__");
+    if (mit != mp->end() && mit->second.type() == typeid(BallMap)) {
+      const BallMap& methods = std::any_cast<const BallMap&>(mit->second);
+      auto fit = methods.find(name);
+      if (fit != methods.end() && fit->second.type() == typeid(BallFunc))
+        return BallDyn(std::any_cast<const BallFunc&>(fit->second)(
+            static_cast<std::any>(arg)));
+    }
+  }
+  return BallDyn();
+}
+
 namespace {
 
 
 } // namespace
 
 int main() {
-    auto i = BallDyn(0LL);
+    auto i = BallDyn(static_cast<int64_t>(0));
     do {
         std::cout << ball_to_string(ball_to_string(i)) << std::endl;
-        ball_assign(i, (i + 1LL));
-    } while ((i < 3LL));
-    auto j = BallDyn(10LL);
+        ball_assign(i, (i + static_cast<int64_t>(1)));
+    } while ((i < static_cast<int64_t>(3)));
+    auto j = BallDyn(static_cast<int64_t>(10));
     do {
         std::cout << ball_to_string(ball_to_string(j)) << std::endl;
-        ball_assign(j, (j + 1LL));
-    } while ((j < 5LL));
+        ball_assign(j, (j + static_cast<int64_t>(1)));
+    } while ((j < static_cast<int64_t>(5)));
     std::cout << ball_to_string("done"s) << std::endl;
     return 0;
 }

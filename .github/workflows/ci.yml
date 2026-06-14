@@ -89,6 +89,14 @@ jobs:
       - name: Resolver tests
         run: cd dart/resolver && dart test
 
+      # engine_roundtrip.dart is a generated artifact (gitignored, like its
+      # engine_rt.* siblings). Regenerate it from the live engine so the parity
+      # test below has its import. Runs AFTER analyze/format so the generated
+      # file is never linted. --skip-analyze: the tool's own analyze pass is
+      # advisory (warnings only) and would slow the step.
+      - name: Regenerate round-tripped engine (self-host source)
+        run: cd dart/encoder && dart run tool/roundtrip_engine.dart --skip-analyze
+
       - name: Self-host parity (conformance via round-tripped engine)
         run: cd dart/self_host && dart test
 

@@ -10,7 +10,7 @@ name: Regression Gates
 # a tally regressing from 156 -> 155). This workflow asserts hard floors:
 #
 #   * TS self-hosted engine  : exactly 291 passed / 0 failed
-#   * TS self-hosted compiler : exactly 313 passed / 0 failed (node --test suite)
+#   * TS self-hosted compiler : exactly 315 passed / 0 failed (node --test suite)
 #   * Dart engine            : 0 failed; pass count must not drop below DART_ENGINE_MIN_PASS
 #   * Dart encoder           : exactly DART_ENCODER_EXPECTED passed / 0 failed
 #   * Dart compiler          : exactly DART_COMPILER_EXPECTED passed / 0 failed
@@ -41,7 +41,7 @@ concurrency:
 # Pin the expected counts in one place so bumping the floor is a one-line edit.
 env:
   TS_ENGINE_EXPECTED_PASS: "291"
-  TS_COMPILER_EXPECTED_PASS: "313"
+  TS_COMPILER_EXPECTED_PASS: "315"
   DART_ENGINE_MIN_PASS: "566"
   DART_ENCODER_EXPECTED: "116"
   DART_COMPILER_EXPECTED: "88"
@@ -123,7 +123,7 @@ jobs:
       - name: Build @ball-lang/compiler
         run: cd ts/compiler && npm run build
 
-      - name: Compiler — assert 313 pass / 0 fail
+      - name: Compiler — assert 315 pass / 0 fail
         run: |
           set -o pipefail
           cd ts/compiler

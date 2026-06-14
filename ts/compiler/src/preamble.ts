@@ -336,6 +336,33 @@ function __ball_math_abs(a: any): any {
   }
   return Math.abs(a);
 }
+// Greatest common divisor (Dart's int.gcd). Preserves BigInt (i64) inputs so
+// integer identities round-trip; falls back to Number arithmetic otherwise.
+function __ball_math_gcd(a: any, b: any): any {
+  if (typeof a === 'bigint' || typeof b === 'bigint') {
+    let x = __to_bigint(a); x = x < 0n ? -x : x;
+    let y = __to_bigint(b); y = y < 0n ? -y : y;
+    while (y) { const t = y; y = x % y; x = t; }
+    return __i64_wrap(x);
+  }
+  let x = Math.abs(Number(a)), y = Math.abs(Number(b));
+  while (y) { const t = y; y = x % y; x = t; }
+  return x;
+}
+// Least common multiple, derived from gcd. lcm(0, n) == lcm(n, 0) == 0.
+function __ball_math_lcm(a: any, b: any): any {
+  if (typeof a === 'bigint' || typeof b === 'bigint') {
+    const x = __to_bigint(a), y = __to_bigint(b);
+    if (x === 0n || y === 0n) return __i64_wrap(0n);
+    const g = __to_bigint(__ball_math_gcd(x, y));
+    const r = (x / g) * y;
+    return __i64_wrap(r < 0n ? -r : r);
+  }
+  const x = Number(a), y = Number(b);
+  if (x === 0 || y === 0) return 0;
+  const g = Number(__ball_math_gcd(x, y));
+  return Math.abs((x / g) * y);
+}
 
 // Dart-style Euclidean modulo: result is always non-negative.
 // JS % is remainder (can be negative), Dart % is Euclidean modulo.

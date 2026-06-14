@@ -4013,18 +4013,43 @@ function __isUnknownFnError(e: any): boolean {
         }
         return `''`;
       }
-      // Math
-      case "math_abs":   return `__ball_math_abs(${this.expr(f.get("value")!)})`;
-      case "math_round": return `Math.round(${this.expr(f.get("value")!)})`;
-      case "math_floor": return `Math.floor(${this.expr(f.get("value")!)})`;
-      case "math_ceil":  return `Math.ceil(${this.expr(f.get("value")!)})`;
-      case "math_trunc": return `Math.trunc(${this.expr(f.get("value")!)})`;
-      case "math_sqrt":  return `Math.sqrt(${this.expr(f.get("value")!)})`;
-      case "math_pow":   return `Math.pow(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
-      case "math_min":   return `Math.min(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
-      case "math_max":   return `Math.max(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
-      case "math_pi":    return "Math.PI";
-      case "math_e":     return "Math.E";
+      // Math — keep this list in sync with the Dart compiler's `_compileBaseCall`
+      // math handling (dart/compiler/lib/compiler.dart). Every `math_*` base
+      // function MUST resolve to an inline expression here; an unhandled name
+      // falls through to the bare `math_<name>(...)` default (undefined symbol).
+      case "math_abs":   return `__ball_math_abs(${this.expr(fg("value", "arg0")!)})`;
+      case "math_round": return `Math.round(${this.expr(fg("value", "arg0")!)})`;
+      case "math_floor": return `Math.floor(${this.expr(fg("value", "arg0")!)})`;
+      case "math_ceil":  return `Math.ceil(${this.expr(fg("value", "arg0")!)})`;
+      case "math_trunc": return `Math.trunc(${this.expr(fg("value", "arg0")!)})`;
+      case "math_sqrt":  return `Math.sqrt(${this.expr(fg("value", "arg0")!)})`;
+      case "math_exp":   return `Math.exp(${this.expr(fg("value", "arg0")!)})`;
+      case "math_log":   return `Math.log(${this.expr(fg("value", "arg0")!)})`;
+      case "math_log2":  return `(Math.log(${this.expr(fg("value", "arg0")!)}) / Math.LN2)`;
+      case "math_log10": return `(Math.log(${this.expr(fg("value", "arg0")!)}) / Math.LN10)`;
+      case "math_sin":   return `Math.sin(${this.expr(fg("value", "arg0")!)})`;
+      case "math_cos":   return `Math.cos(${this.expr(fg("value", "arg0")!)})`;
+      case "math_tan":   return `Math.tan(${this.expr(fg("value", "arg0")!)})`;
+      case "math_asin":  return `Math.asin(${this.expr(fg("value", "arg0")!)})`;
+      case "math_acos":  return `Math.acos(${this.expr(fg("value", "arg0")!)})`;
+      case "math_atan":  return `Math.atan(${this.expr(fg("value", "arg0")!)})`;
+      case "math_atan2": return `Math.atan2(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "math_pow":   return `Math.pow(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "math_min":   return `Math.min(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "math_max":   return `Math.max(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "math_gcd":   return `__ball_math_gcd(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "math_lcm":   return `__ball_math_lcm(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      // Engine values may be primitive numbers, BigInt i64s, or BallDouble
+      // wrappers, so coerce with Number(...) before applying number predicates —
+      // a bare `x === Infinity` would be false for a BallDouble(Infinity) box.
+      case "math_sign":        return `Math.sign(Number(${this.expr(fg("value", "arg0")!)}))`;
+      case "math_is_nan":      return `Number.isNaN(Number(${this.expr(fg("value", "arg0")!)}))`;
+      case "math_is_finite":   return `Number.isFinite(Number(${this.expr(fg("value", "arg0")!)}))`;
+      case "math_is_infinite": return `(Math.abs(Number(${this.expr(fg("value", "arg0")!)})) === Infinity)`;
+      case "math_pi":       return "Math.PI";
+      case "math_e":        return "Math.E";
+      case "math_infinity": return "Infinity";
+      case "math_nan":      return "NaN";
       case "print":      return `console.log(__ball_to_string(${this.expr(f.get("message")!)}))`;
       case "index":      return `__ball_index(${this.expr(f.get("target")!)}, ${this.expr(f.get("index")!)})`;
       case "null_coalesce": return `(${this.expr(f.get("left")!)} ?? ${this.expr(f.get("right")!)})`;

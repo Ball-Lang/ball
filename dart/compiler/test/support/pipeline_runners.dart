@@ -100,12 +100,9 @@ Future<String> runRecompiledDart(
   final allModules = compiler.compileAllModules();
   if (allModules.length > 1) {
     for (final entry in allModules.entries) {
-      File('${scratch.path}/${entry.key}.dart')
-          .writeAsStringSync(entry.value);
+      File('${scratch.path}/${entry.key}.dart').writeAsStringSync(entry.value);
     }
-    final entryFile = File(
-      '${scratch.path}/${program.entryModule}.dart',
-    );
+    final entryFile = File('${scratch.path}/${program.entryModule}.dart');
     return runDartNative(entryFile);
   }
   final dartSource = compiler.compile();

@@ -432,7 +432,8 @@ class DartCompiler {
 
       // Detect class members: explicit metadata kind OR name pattern
       // (e.g. "main:Animal.new" → constructor, "main:Animal.speak" → method).
-      final isClassMemberByName = func.name.contains(':') &&
+      final isClassMemberByName =
+          func.name.contains(':') &&
           func.name.substring(func.name.lastIndexOf(':') + 1).contains('.');
       if (kind == 'method' ||
           kind == 'constructor' ||
@@ -984,8 +985,12 @@ class DartCompiler {
           if (mKind == 'static_field') continue;
           if (mKind == 'constructor') {
             b.constructors.add(
-              _buildConstructor(descriptor.name, method, mMeta,
-                  classFields: meta['fields'] as List?),
+              _buildConstructor(
+                descriptor.name,
+                method,
+                mMeta,
+                classFields: meta['fields'] as List?,
+              ),
             );
           } else {
             b.methods.add(_buildMethod(descriptor.name, method, mMeta));
@@ -1136,7 +1141,8 @@ class DartCompiler {
             }
             // Non-nullable fields without an initializer need `late` in
             // null-safe Dart (they're set in the constructor body).
-            fb.late = isLate ||
+            fb.late =
+                isLate ||
                 (initializer == null &&
                     hasExplicitType &&
                     fieldType != null &&
@@ -1278,8 +1284,14 @@ class DartCompiler {
           if (mKind == 'static_field') {
             b.fields.add(_buildStaticField(method));
           } else if (mKind == 'constructor') {
-            b.constructors.add(_buildConstructor(td.name, method, mMeta,
-                classFields: meta['fields'] as List?));
+            b.constructors.add(
+              _buildConstructor(
+                td.name,
+                method,
+                mMeta,
+                classFields: meta['fields'] as List?,
+              ),
+            );
           } else {
             b.methods.add(_buildMethod(td.name, method, mMeta));
           }
@@ -1392,18 +1404,17 @@ class DartCompiler {
           b.body = _compileExpression(func.body).code;
         } else {
           b.body = cb.Code(
-            _captureBody(
-              () {
-                _generateFunctionBody(func.body, _hasNonVoidReturn(func));
-                // Async/generator functions: safety return for null-safety
-                // Async (not generator) non-void: safety return
-                if (isAsync && !isAsyncStar &&
-                    func.outputType.isNotEmpty &&
-                    _dartType(func.outputType) != 'void') {
-                  _wl('return null as dynamic;');
-                }
-              },
-            ),
+            _captureBody(() {
+              _generateFunctionBody(func.body, _hasNonVoidReturn(func));
+              // Async/generator functions: safety return for null-safety
+              // Async (not generator) non-void: safety return
+              if (isAsync &&
+                  !isAsyncStar &&
+                  func.outputType.isNotEmpty &&
+                  _dartType(func.outputType) != 'void') {
+                _wl('return null as dynamic;');
+              }
+            }),
           );
         }
         if (selfParamShadow) _selfShadowDepth--;
@@ -1455,20 +1466,26 @@ class DartCompiler {
       // initializing formals. This handles the common encoding pattern where
       // `MyClass(this.name)` becomes `params: [{name: 'input', type: 'String'}]`.
       final params = meta['params'];
-      final isSingleInput = params is List &&
+      final isSingleInput =
+          params is List &&
           params.length == 1 &&
           params[0] is Map &&
           (params[0] as Map)['name'] == 'input';
-      if (isSingleInput && classFields != null && classFields.isNotEmpty && meta['is_factory'] != true) {
+      if (isSingleInput &&
+          classFields != null &&
+          classFields.isNotEmpty &&
+          meta['is_factory'] != true) {
         b.requiredParameters.clear();
         b.optionalParameters.clear();
         for (final f in classFields) {
           if (f is Map) {
             final fieldName = f['name'] as String? ?? '';
-            b.requiredParameters.add(cb.Parameter((p) {
-              p.name = fieldName;
-              p.toThis = true;
-            }));
+            b.requiredParameters.add(
+              cb.Parameter((p) {
+                p.name = fieldName;
+                p.toThis = true;
+              }),
+            );
           }
         }
       }
@@ -2076,7 +2093,8 @@ class DartCompiler {
       // Async/generator functions with non-void return types need a safety
       // return to satisfy Dart null-safety when not all paths return.
       // Async (not generator) non-void: safety return
-      if (isAsync && !isAsyncStar &&
+      if (isAsync &&
+          !isAsyncStar &&
           rawReturnType != null &&
           rawReturnType != 'void') {
         _wl('return null as dynamic;');
@@ -2314,11 +2332,13 @@ class DartCompiler {
     // declaration before the for-loop. This implements Ball's shared-
     // variable semantics (unlike Dart's per-iteration binding).
     final initVarNames = _extractForInitVarNames(initExpr);
-    final needsHoist = initVarNames.isNotEmpty &&
+    final needsHoist =
+        initVarNames.isNotEmpty &&
         body != null &&
         _bodyContainsLambdaCapturing(body, initVarNames);
 
-    if (needsHoist && initExpr != null &&
+    if (needsHoist &&
+        initExpr != null &&
         initExpr.whichExpr() == Expression_Expr.block) {
       // Hoist variable declarations before the loop.
       for (final s in initExpr.block.statements) {
@@ -2326,7 +2346,9 @@ class DartCompiler {
           _wl('${_letDeclKeyword(s.let)} ${s.let.name} = ${_e(s.let.value)};');
         }
       }
-      final condStr = fields['condition'] != null ? _e(fields['condition']!) : '';
+      final condStr = fields['condition'] != null
+          ? _e(fields['condition']!)
+          : '';
       final updateStr = fields['update'] != null ? _e(fields['update']!) : '';
       _wl('for (; $condStr; $updateStr) {');
     } else {
@@ -2335,7 +2357,9 @@ class DartCompiler {
                 _renderForInit(initExpr) ??
                 _e(initExpr))
           : '';
-      final condStr = fields['condition'] != null ? _e(fields['condition']!) : '';
+      final condStr = fields['condition'] != null
+          ? _e(fields['condition']!)
+          : '';
       final updateStr = fields['update'] != null ? _e(fields['update']!) : '';
       _wl('for ($init; $condStr; $updateStr) {');
     }
@@ -2402,8 +2426,11 @@ class DartCompiler {
   /// Returns true if [expr] references any name in [varNames].
   /// When [insideLambda] is true, we're already inside a lambda and any
   /// reference to varNames counts as a capture.
-  bool _exprReferences(Expression expr, Set<String> varNames,
-      {bool insideLambda = false}) {
+  bool _exprReferences(
+    Expression expr,
+    Set<String> varNames, {
+    bool insideLambda = false,
+  }) {
     switch (expr.whichExpr()) {
       case Expression_Expr.reference:
         return insideLambda && varNames.contains(expr.reference.name);
@@ -2416,14 +2443,16 @@ class DartCompiler {
         return false;
       case Expression_Expr.call:
         if (expr.call.hasInput()) {
-          return _exprReferences(expr.call.input, varNames,
-              insideLambda: insideLambda);
+          return _exprReferences(
+            expr.call.input,
+            varNames,
+            insideLambda: insideLambda,
+          );
         }
         return false;
       case Expression_Expr.messageCreation:
         for (final f in expr.messageCreation.fields) {
-          if (_exprReferences(f.value, varNames,
-              insideLambda: insideLambda)) {
+          if (_exprReferences(f.value, varNames, insideLambda: insideLambda)) {
             return true;
           }
         }
@@ -2431,25 +2460,37 @@ class DartCompiler {
       case Expression_Expr.block:
         for (final s in expr.block.statements) {
           if (s.whichStmt() == Statement_Stmt.expression) {
-            if (_exprReferences(s.expression, varNames,
-                insideLambda: insideLambda)) {
+            if (_exprReferences(
+              s.expression,
+              varNames,
+              insideLambda: insideLambda,
+            )) {
               return true;
             }
           } else if (s.whichStmt() == Statement_Stmt.let && s.let.hasValue()) {
-            if (_exprReferences(s.let.value, varNames,
-                insideLambda: insideLambda)) {
+            if (_exprReferences(
+              s.let.value,
+              varNames,
+              insideLambda: insideLambda,
+            )) {
               return true;
             }
           }
         }
         if (expr.block.hasResult()) {
-          return _exprReferences(expr.block.result, varNames,
-              insideLambda: insideLambda);
+          return _exprReferences(
+            expr.block.result,
+            varNames,
+            insideLambda: insideLambda,
+          );
         }
         return false;
       case Expression_Expr.fieldAccess:
-        return _exprReferences(expr.fieldAccess.object, varNames,
-            insideLambda: insideLambda);
+        return _exprReferences(
+          expr.fieldAccess.object,
+          varNames,
+          insideLambda: insideLambda,
+        );
       default:
         return false;
     }
@@ -3020,8 +3061,13 @@ class DartCompiler {
       if (selfField != null) {
         final typeArgs = _callTypeArgsStr(call).isNotEmpty
             ? _callTypeArgsStr(call)
-            : (fields.where((f) => f.name == '__type_args__').firstOrNull
-                    ?.value.literal.stringValue ?? '');
+            : (fields
+                      .where((f) => f.name == '__type_args__')
+                      .firstOrNull
+                      ?.value
+                      .literal
+                      .stringValue ??
+                  '');
         final remaining = fields
             .where((f) => f.name != 'self' && f.name != '__type_args__')
             .toList();
@@ -3079,8 +3125,13 @@ class DartCompiler {
         final allFields = inp.messageCreation.fields;
         final typeArgs = _callTypeArgsStr(call).isNotEmpty
             ? _callTypeArgsStr(call)
-            : (allFields.where((f) => f.name == '__type_args__').firstOrNull
-                    ?.value.literal.stringValue ?? '');
+            : (allFields
+                      .where((f) => f.name == '__type_args__')
+                      .firstOrNull
+                      ?.value
+                      .literal
+                      .stringValue ??
+                  '');
         final args = allFields.where((f) => f.name != '__type_args__').toList();
         result = args.isEmpty
             ? '$modulePrefix$fnName$typeArgs()'
@@ -3239,12 +3290,14 @@ class DartCompiler {
       'string_replace' => _compileStringReplace(f, 'replaceFirst'),
       'string_replace_all' => _compileStringReplace(f, 'replaceAll'),
       'string_split' => _methodCall2(f, 'split'),
-      'string_repeat' => '(${_e(f['value'] ?? f['left']!)} * ${_e(f['count'] ?? f['right']!)})',
+      'string_repeat' =>
+        '(${_e(f['value'] ?? f['left']!)} * ${_e(f['count'] ?? f['right']!)})',
       'string_pad_left' => _compileStringPad(f, 'padLeft'),
       'string_pad_right' => _compileStringPad(f, 'padRight'),
-      'string_join' => f.containsKey('separator')
-          ? '${_e(f['list']!)}.join(${_e(f['separator']!)})'
-          : '${_e(f['list']!)}.join()',
+      'string_join' =>
+        f.containsKey('separator')
+            ? '${_e(f['list']!)}.join(${_e(f['separator']!)})'
+            : '${_e(f['list']!)}.join()',
       // ── Regex ───────────────────────────────────────────────
       'regex_match' => _compileRegexMatch(f),
       'regex_find' => _compileRegexFind(f, all: false),
@@ -3301,7 +3354,8 @@ class DartCompiler {
       'hour' => '${_e(f['value'] ?? f['self'] ?? call.input)}.hour',
       'minute' => '${_e(f['value'] ?? f['self'] ?? call.input)}.minute',
       'second' => '${_e(f['value'] ?? f['self'] ?? call.input)}.second',
-      'millisecond' => '${_e(f['value'] ?? f['self'] ?? call.input)}.millisecond',
+      'millisecond' =>
+        '${_e(f['value'] ?? f['self'] ?? call.input)}.millisecond',
       'weekday' => '${_e(f['value'] ?? f['self'] ?? call.input)}.weekday',
       _ => '/* unsupported: std.${call.function} */',
     };
@@ -3543,11 +3597,12 @@ class DartCompiler {
       'list_slice' => () {
         // Use the raw field list (not the deduplicated map) because the
         // encoder may emit duplicate 'value' keys for start and end args.
-        final rawFields = call.hasInput() &&
+        final rawFields =
+            call.hasInput() &&
                 call.input.whichExpr() == Expression_Expr.messageCreation
             ? call.input.messageCreation.fields
-                .where((fld) => fld.name != 'list')
-                .toList()
+                  .where((fld) => fld.name != 'list')
+                  .toList()
             : <FieldValuePair>[];
         if (rawFields.length >= 2) {
           return '${_e(f['list']!)}.sublist(${_e(rawFields[0].value)}, ${_e(rawFields[1].value)})';
@@ -4109,10 +4164,7 @@ class DartCompiler {
     // lowered form of a `X?.call()` null-aware call on a (non-promotable)
     // field. Mark `X` non-null there so its receiver emits `X!`.
     final ee = e != null
-        ? _withNonNullRef(
-            _nullEqualityGuardRef(c),
-            () => _compileExpression(e),
-          )
+        ? _withNonNullRef(_nullEqualityGuardRef(c), () => _compileExpression(e))
         : cb.literalNull;
     return _emit(ce.conditional(te, ee).parenthesized);
   }
@@ -4418,7 +4470,8 @@ class DartCompiler {
       }
     }
     // Ensure exhaustiveness for Dart null-safety (only when cases exist)
-    if (!hasDefault && buf.length > 20) buf.write("_ => throw StateError('non-exhaustive'),\n");
+    if (!hasDefault && buf.length > 20)
+      buf.write("_ => throw StateError('non-exhaustive'),\n");
     buf.write('}');
     return buf.toString();
   }
@@ -4442,8 +4495,9 @@ class DartCompiler {
             final ef = _fieldsToMap(elem.messageCreation.fields);
             final name = _stringFieldValue(ef, 'name');
             final patternExpr = ef['pattern'];
-            final subPattern =
-                patternExpr != null ? _compilePatternExpr(patternExpr) : null;
+            final subPattern = patternExpr != null
+                ? _compilePatternExpr(patternExpr)
+                : null;
             if (name != null && subPattern != null) {
               parts.add('$name: $subPattern');
             } else if (subPattern != null) {
@@ -4697,7 +4751,8 @@ class DartCompiler {
       typeArgs = typeArgsField?.value.literal.stringValue ?? '';
     }
     // Const: prefer metadata.is_const, fall back to legacy __const__ field.
-    final isConst = (msg.hasMetadata() &&
+    final isConst =
+        (msg.hasMetadata() &&
             msg.metadata.fields['is_const']?.boolValue == true) ||
         msg.fields.any(
           (f) =>
@@ -5035,7 +5090,8 @@ class DartCompiler {
     // When the value is a call to a sync*/async* generator function, the
     // declared variable type may be `List<T>` but the actual return is
     // `Iterable<T>` or `Stream<T>`. Rewrite the type to match.
-    if (type != null && valueExpr != null &&
+    if (type != null &&
+        valueExpr != null &&
         valueExpr.whichExpr() == Expression_Expr.call &&
         !_isBaseModule(valueExpr.call.module)) {
       final calledFn = valueExpr.call.function;

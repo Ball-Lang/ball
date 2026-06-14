@@ -1456,9 +1456,7 @@ extension BallEngineStd on BallEngine {
     final generator =
         m['generator'] ?? m['callback'] ?? m['function'] ?? m['arg1'];
     if (generator is! Function) {
-      throw BallRuntimeError(
-        'std.list_generate: generator is not callable',
-      );
+      throw BallRuntimeError('std.list_generate: generator is not callable');
     }
     _trackMemoryAllocation(length * _ballPointerBytes);
     final result = <Object?>[];
@@ -1684,8 +1682,9 @@ extension BallEngineStd on BallEngine {
       for (final entry in entriesList) {
         final entryMap = _stdAsMap(entry);
         if (entryMap != null) {
-          final key =
-              await _ballToStringAsync(entryMap['key'] ?? entryMap['name']);
+          final key = await _ballToStringAsync(
+            entryMap['key'] ?? entryMap['name'],
+          );
           result[key] = entryMap['value'];
         }
       }
@@ -1695,8 +1694,9 @@ extension BallEngineStd on BallEngine {
     if (entriesMap != null) {
       // Single entry (not wrapped in a list).
       _trackMemoryAllocation(_ballMapEntryBytes);
-      final key =
-          await _ballToStringAsync(entriesMap['key'] ?? entriesMap['name']);
+      final key = await _ballToStringAsync(
+        entriesMap['key'] ?? entriesMap['name'],
+      );
       return _ballUserMap()..[key] = entriesMap['value'];
     }
     return _ballUserMap();
@@ -2094,7 +2094,8 @@ extension BallEngineStd on BallEngine {
     if (v is double) return v.toString();
     if (v is BallDouble) return v.toString();
     if (_isBallFuture(v)) return _ballToStringSimple(_unwrapBallFuture(v));
-    if (v is BallList) return '[${v.items.map(_ballToStringSimple).join(', ')}]';
+    if (v is BallList)
+      return '[${v.items.map(_ballToStringSimple).join(', ')}]';
     if (v is List) return '[${v.map(_ballToStringSimple).join(', ')}]';
     // Enum values: format as EnumName.valueName.
     final map = _stdAsMap(v);

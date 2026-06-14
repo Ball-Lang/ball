@@ -252,8 +252,7 @@ Future<Directory> _writePackage(
 
   // Write each compiled module.
   for (final MapEntry(key: moduleName, value: source) in modules.entries) {
-    if (moduleName == 'std' ||
-        moduleName == '__assets__') {
+    if (moduleName == 'std' || moduleName == '__assets__') {
       continue;
     }
     final relPath = PackageEncoder.moduleNameToFilePath(moduleName);

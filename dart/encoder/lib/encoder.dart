@@ -232,11 +232,7 @@ class DartEncoder {
   ///
   /// Use after a sequence of [encodeModule] calls to obtain the shared base
   /// modules for a whole package.
-  ({
-    Module stdModule,
-    Module? collectionsModule,
-    Module? protoModule,
-  })
+  ({Module stdModule, Module? collectionsModule, Module? protoModule})
   buildStdModules() => (
     stdModule: _buildStdModule(),
     collectionsModule: _buildCollectionsModule(),
@@ -2355,7 +2351,8 @@ class DartEncoder {
         // Detect compiler-generated catch pattern:
         //   catch (__ball_e) { ... }
         // or catch (__ball_e, __ball_st) { ... }
-        final isSyntheticCatch = clause.exceptionType == null &&
+        final isSyntheticCatch =
+            clause.exceptionType == null &&
             clause.exceptionParameter != null &&
             clause.exceptionParameter!.name.lexeme == '__ball_e';
 
@@ -2501,10 +2498,7 @@ class DartEncoder {
     catchFields.add(
       FieldValuePair()
         ..name = 'body'
-        ..value = _encodeBlock(
-          stmts.sublist(bodyStart),
-          hasReturn: false,
-        ),
+        ..value = _encodeBlock(stmts.sublist(bodyStart), hasReturn: false),
     );
     return Expression()
       ..messageCreation = (MessageCreation()..fields.addAll(catchFields));
@@ -2662,8 +2656,8 @@ class DartEncoder {
               );
               results.add(
                 Expression()
-                  ..messageCreation =
-                      (MessageCreation()..fields.addAll(catchFields2)),
+                  ..messageCreation = (MessageCreation()
+                    ..fields.addAll(catchFields2)),
               );
               break;
             }
@@ -2732,7 +2726,7 @@ class DartEncoder {
   /// Extract variable name and body statements from a tag-catch then-branch:
   ///   { final e = __ball_e; <optional stack alias>; <body...> }
   ({String varName, String? stackName, List<ast.Statement> bodyStatements})?
-      _extractTagBranchBody(ast.Statement thenStmt, String? outerStackAlias) {
+  _extractTagBranchBody(ast.Statement thenStmt, String? outerStackAlias) {
     List<ast.Statement> stmts;
     if (thenStmt is ast.Block) {
       stmts = thenStmt.statements;
@@ -2959,8 +2953,10 @@ class DartEncoder {
             !inner.isNullAware &&
             inner.cascadeSections[0] is ast.MethodInvocation) {
           final section = inner.cascadeSections[0] as ast.MethodInvocation;
-          final result =
-              _tryEncodeCascadeAsCollectionCall(inner.target, section);
+          final result = _tryEncodeCascadeAsCollectionCall(
+            inner.target,
+            section,
+          );
           if (result != null) return result;
         }
         // Multi-section or non-routed cascades still need the paren wrapper.
@@ -3652,8 +3648,8 @@ class DartEncoder {
     _setTypeArgsField(msg, typeArgSrc);
     // Preserve const keyword for const constructor calls in metadata.
     if (expr.keyword?.lexeme == 'const') {
-      msg.ensureMetadata().fields['is_const'] =
-          structpb.Value()..boolValue = true;
+      msg.ensureMetadata().fields['is_const'] = structpb.Value()
+        ..boolValue = true;
     }
 
     return Expression()..messageCreation = msg;
@@ -3722,8 +3718,9 @@ class DartEncoder {
         ..value = targetExpr
         ..metadata = (structpb.Struct()..fields.addAll(metaFields)));
 
-    final sectionStmts =
-        sections.map((s) => Statement()..expression = s).toList();
+    final sectionStmts = sections
+        .map((s) => Statement()..expression = s)
+        .toList();
 
     if (expr.isNullAware) {
       _usedBaseFunctions.addAll(['if', 'equals']);
@@ -3813,7 +3810,8 @@ class DartEncoder {
         ..module = module
         ..function = fnName
         ..input = (Expression()
-          ..messageCreation = (MessageCreation()..fields.addAll(routedFields))));
+          ..messageCreation = (MessageCreation()
+            ..fields.addAll(routedFields))));
 
     // Mutating methods: wrap in assign so non-mutating runtimes hold the
     // new/mutated collection.
@@ -4564,8 +4562,9 @@ class DartEncoder {
 
     final name = typeStr.substring(0, angleBracketStart).trim();
     // Strip the outer angle brackets: `<int, String>` → `int, String`
-    final innerStr =
-        typeStr.substring(angleBracketStart + 1, typeStr.length - 1).trim();
+    final innerStr = typeStr
+        .substring(angleBracketStart + 1, typeStr.length - 1)
+        .trim();
     final typeArgs = _splitTopLevelCommas(innerStr).map(_parseTypeRef).toList();
 
     return TypeRef()
@@ -4629,8 +4628,7 @@ class DartEncoder {
   /// source string. Used for constructor calls (MessageCreation without a
   /// FunctionCall) where the structured TypeRef cannot be placed on
   /// FunctionCall.typeArgs.
-  static void _setTypeArgsMetadata(
-      MessageCreation msg, String? typeArgsSrc) {
+  static void _setTypeArgsMetadata(MessageCreation msg, String? typeArgsSrc) {
     if (typeArgsSrc == null || typeArgsSrc.isEmpty) return;
     final refs = _parseTypeArgs(typeArgsSrc);
     if (refs.isEmpty) return;
@@ -4730,15 +4728,16 @@ class DartEncoder {
     final tempName = '__naa_${_tempVarCounter++}';
     return Expression()
       ..block = (Block()
-        ..statements.add(Statement()
-          ..let = (LetBinding()
-            ..name = tempName
-            ..value = targetExpr
-            ..metadata = (structpb.Struct()
-              ..fields['kind'] =
-                  (structpb.Value()..stringValue = 'null_aware_access')
-              ..fields['field'] =
-                  (structpb.Value()..stringValue = field))))
+        ..statements.add(
+          Statement()
+            ..let = (LetBinding()
+              ..name = tempName
+              ..value = targetExpr
+              ..metadata = (structpb.Struct()
+                ..fields['kind'] = (structpb.Value()
+                  ..stringValue = 'null_aware_access')
+                ..fields['field'] = (structpb.Value()..stringValue = field))),
+        )
         ..result = _buildNullGuard(
           () => _refExpr(tempName),
           Expression()
@@ -4784,15 +4783,17 @@ class DartEncoder {
     final tempName = '__nac_${_tempVarCounter++}';
     return Expression()
       ..block = (Block()
-        ..statements.add(Statement()
-          ..let = (LetBinding()
-            ..name = tempName
-            ..value = targetExpr
-            ..metadata = (structpb.Struct()
-              ..fields['kind'] =
-                  (structpb.Value()..stringValue = 'null_aware_call')
-              ..fields['method'] =
-                  (structpb.Value()..stringValue = methodName))))
+        ..statements.add(
+          Statement()
+            ..let = (LetBinding()
+              ..name = tempName
+              ..value = targetExpr
+              ..metadata = (structpb.Struct()
+                ..fields['kind'] = (structpb.Value()
+                  ..stringValue = 'null_aware_call')
+                ..fields['method'] = (structpb.Value()
+                  ..stringValue = methodName))),
+        )
         ..result = _buildNullGuard(
           () => _refExpr(tempName),
           buildInnerCall(() => _refExpr(tempName)),

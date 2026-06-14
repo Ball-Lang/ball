@@ -25,8 +25,8 @@ extension BallEngineEval on BallEngine {
   }
 
   static List<String>? _extractMetadataTypeArgs(MessageCreation msg) {
-    if (!msg.hasMetadata() ||
-        !msg.metadata.fields.containsKey('type_args')) return null;
+    if (!msg.hasMetadata() || !msg.metadata.fields.containsKey('type_args'))
+      return null;
     return msg.metadata.fields['type_args']!.listValue.values
         .map(_typeRefValueToString)
         .toList();
@@ -1099,7 +1099,8 @@ extension BallEngineEval on BallEngine {
 
         if (!instanceFields.containsKey('__type_args__')) {
           final metaTypeArgs = _extractMetadataTypeArgs(msg);
-          if (metaTypeArgs != null) instanceFields['__type_args__'] = metaTypeArgs;
+          if (metaTypeArgs != null)
+            instanceFields['__type_args__'] = metaTypeArgs;
         }
 
         final methods = _resolveTypeMethodsWithInheritance(msg.typeName);
@@ -1205,8 +1206,7 @@ extension BallEngineEval on BallEngine {
           if (metaTA2 != null) {
             fields['__type_args__'] = metaTA2;
           } else {
-            final genMatch =
-                RegExp(r'^(\w+)<(.+)>$').firstMatch(msg.typeName);
+            final genMatch = RegExp(r'^(\w+)<(.+)>$').firstMatch(msg.typeName);
             if (genMatch != null) {
               fields['__type__'] = genMatch.group(1)!;
               fields['__type_args__'] = _splitTypeArgs(genMatch.group(2)!);

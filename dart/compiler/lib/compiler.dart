@@ -1376,6 +1376,10 @@ class DartCompiler {
         final savedInsideInstance = _insideInstanceMethod;
         _inGenerator = isSyncStar || isAsyncStar;
         _insideInstanceMethod = !isStatic;
+        // A parameter literally named `self` shadows the implicit receiver for
+        // the whole body, so `self` references must stay `self`, not `this`.
+        final selfParamShadow = _paramsDeclareSelf(meta);
+        if (selfParamShadow) _selfShadowDepth++;
         if (isExpressionBody && !mustUseBlockForm) {
           b.lambda = true;
           b.body = _compileExpression(func.body).code;
@@ -1395,6 +1399,7 @@ class DartCompiler {
             ),
           );
         }
+        if (selfParamShadow) _selfShadowDepth--;
         _inGenerator = savedInGen;
         _insideInstanceMethod = savedInsideInstance;
       } else {
@@ -1482,6 +1487,14 @@ class DartCompiler {
         // expression references `n` which no longer exists. Demote to
         // block form so `_generateFunctionBody` emits the alias prologue.
         final mustUseBlockForm = _pendingParamAliases.isNotEmpty;
+        // A constructor body runs in instance context, so a `self` reference
+        // (the encoder's spelling of the `this` keyword) resolves to `this`.
+        // Factory constructors are an exception: they have no instance, so
+        // `self` there is the locally-created instance variable, not `this`.
+        final savedInsideInstance = _insideInstanceMethod;
+        _insideInstanceMethod = !isFactory;
+        final selfParamShadow = _paramsDeclareSelf(meta);
+        if (selfParamShadow) _selfShadowDepth++;
         if (isExpressionBody && !mustUseBlockForm) {
           b.lambda = true;
           b.body = _compileExpression(func.body).code;
@@ -1490,6 +1503,8 @@ class DartCompiler {
             _captureBody(() => _generateFunctionBody(func.body, isFactory)),
           );
         }
+        if (selfParamShadow) _selfShadowDepth--;
+        _insideInstanceMethod = savedInsideInstance;
       } else {
         // External/body-less/empty-body constructors must still clear
         // stashed aliases so they don't leak into the next member.
@@ -1520,6 +1535,19 @@ class DartCompiler {
       }
     }
     return parts;
+  }
+
+  /// True when the function's encoded parameter list contains a parameter
+  /// literally named `self`. Such a parameter shadows the implicit instance
+  /// receiver, so `self` references in the body must resolve to it (stay
+  /// `self`) rather than being rewritten to `this`.
+  bool _paramsDeclareSelf(Map<String, Object?> meta) {
+    final params = meta['params'];
+    if (params is! List) return false;
+    for (final p in params) {
+      if (p is Map && p['name'] == 'self') return true;
+    }
+    return false;
   }
 
   void _addParameters(dynamic builder, Map<String, Object?> meta) {
@@ -1772,7 +1800,20 @@ class DartCompiler {
     }
 
     // Normal block generation (no goto/label).
+    // A `let self = …` binding shadows the implicit receiver from that point
+    // on, so increment the shadow depth for subsequent statements (and the
+    // result) and restore it after the block. Mirrors the engine's lexical
+    // scope chain, where the local `self` shadows the bound receiver.
+    var selfBindings = 0;
     for (final stmt in block.statements) {
+      if (stmt.whichStmt() == Statement_Stmt.let && stmt.let.name == 'self') {
+        // The binding's value is compiled with the *outer* `self` still in
+        // scope, so emit the let first, then begin shadowing.
+        _generateStatement(stmt);
+        _selfShadowDepth++;
+        selfBindings++;
+        continue;
+      }
       _generateStatement(stmt);
     }
     if (block.hasResult()) {
@@ -1783,6 +1824,7 @@ class DartCompiler {
         _wl(hasReturn ? 'return ${_e(block.result)};' : '${_e(block.result)};');
       }
     }
+    _selfShadowDepth -= selfBindings;
   }
 
   /// Emits a goto-simulating switch block:
@@ -2834,7 +2876,9 @@ class DartCompiler {
         Expression_Expr.call => _raw(_compileCall(expr.call)),
         Expression_Expr.literal => _compileLiteral(expr.literal),
         Expression_Expr.reference => cb.refer(
-          (_insideInstanceMethod && expr.reference.name == 'self')
+          (_insideInstanceMethod &&
+                  _selfShadowDepth == 0 &&
+                  expr.reference.name == 'self')
               ? 'this'
               : expr.reference.name,
         ),
@@ -2957,6 +3001,19 @@ class DartCompiler {
   bool _inGenerator = false;
   bool _inCascadeCompilation = false;
   bool _insideInstanceMethod = false;
+
+  /// Depth count of lexical scopes (parameters or `let` bindings) that declare
+  /// a local variable literally named `self`, shadowing the implicit instance
+  /// receiver. While > 0, a `self` reference resolves to that local — NOT to
+  /// `this` — so the `self → this` rewrite in [_compileExpression] is
+  /// suppressed. This mirrors the engine, which resolves `self` through the
+  /// lexical scope chain (so a `let self = …` shadows the bound receiver).
+  ///
+  /// The encoder maps both the `this` keyword and any identifier named `self`
+  /// to `reference("self")`, so without this guard the compiler cannot tell a
+  /// genuine receiver from a user variable that happens to be named `self`
+  /// (e.g. `_dispatchBuiltinInstanceMethod(Object? self, …)` in the engine).
+  int _selfShadowDepth = 0;
 
   /// True when we're inside a `std.await(value: ...)` expression. Suppresses
   /// auto-await to avoid emitting `await await fn()`.
@@ -3881,8 +3938,18 @@ class DartCompiler {
   /// `__cascade_self__.field`  →  `field`
   /// `__cascade_self__[i]`     →  `[i]` (rare, handled separately)
   /// anything else             →  normal compile
+  ///
+  /// The strip ONLY applies inside true `..` cascade emission
+  /// ([_inCascadeCompilation], set by [_compileCascade]). When a cascade is
+  /// instead lowered to a Block — `{ let __cascade_self__ = target; …; result }`
+  /// (the encoder's [_encodeCascade] path) — `__cascade_self__` is a *real*
+  /// local variable, so `__cascade_self__.field = v` must stay intact rather
+  /// than collapse to a bare `field = v` (which would dangle, e.g. the
+  /// `Expression()..call = loopCall` cascade in the engine). Mirrors the same
+  /// `_inCascadeCompilation` guard in [_compileFieldAccess].
   String _compileCascadeAwareTarget(Expression target) {
-    if (target.whichExpr() == Expression_Expr.fieldAccess) {
+    if (_inCascadeCompilation &&
+        target.whichExpr() == Expression_Expr.fieldAccess) {
       final fa = target.fieldAccess;
       if (fa.object.whichExpr() == Expression_Expr.reference &&
           fa.object.reference.name == '__cascade_self__') {
@@ -4539,12 +4606,19 @@ class DartCompiler {
 
   String _compileBlockExpression(Block block) {
     final buf = StringBuffer('(() {\n');
+    // A `let self = …` binding shadows the implicit receiver for the rest of
+    // the block (see [_generateBlockStatements]).
+    var selfBindings = 0;
     for (final stmt in block.statements) {
       if (stmt.whichStmt() == Statement_Stmt.let) {
         buf.write(
           '${_letDeclKeyword(stmt.let)} ${stmt.let.name} = '
           '${_e(stmt.let.value)};\n',
         );
+        if (stmt.let.name == 'self') {
+          _selfShadowDepth++;
+          selfBindings++;
+        }
       } else if (stmt.whichStmt() == Statement_Stmt.expression) {
         final expr = stmt.expression;
         if (_isStdControl(expr)) {
@@ -4559,6 +4633,7 @@ class DartCompiler {
     if (block.hasResult()) {
       buf.write('return ${_e(block.result)};\n');
     }
+    _selfShadowDepth -= selfBindings;
     buf.write('})()');
     return buf.toString();
   }

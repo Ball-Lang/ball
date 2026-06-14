@@ -184,8 +184,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install protobuf (system)
-        run: sudo apt-get update && sudo apt-get install -y libprotobuf-dev protobuf-compiler
+      # NOTE: deliberately do NOT install a system protobuf. The checked-in
+      # generated code in cpp/shared/gen/ targets the pinned protobuf
+      # BALL_PROTOBUF_TAG (v34.1) and requires headers (runtime_version.h)
+      # absent from Ubuntu apt's older libprotobuf-dev. CMake FetchContents the
+      # matching version (same as ci.yml's C++ build).
 
       - name: Configure CMake
         run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release

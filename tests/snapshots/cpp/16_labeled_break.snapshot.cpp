@@ -3722,6 +3722,27 @@ inline void ball_add_all(BallDyn& dst, const BallDyn& src) {
     }
 }
 
+// addAll into a BallOrderedMap receiver. A cascade whose target is an
+// insertion-ordered map literal (`{}..addAll(other)`) emits a named
+// `BallOrderedMap __cascade_self__` local, which does NOT bind to the
+// `ball_add_all(BallDyn&, …)` overload above. Merge the source map's entries
+// directly so the ordered map is mutated in place. (self-host engine #19)
+inline void ball_add_all(BallOrderedMap& dst, const BallDyn& src) {
+    std::any s = static_cast<std::any>(src);
+    const std::any& su = _BallDynUnwrapper::unwrap(s);
+    if (!su.has_value()) return;
+    if (su.type() == typeid(BallOrderedMap)) {
+        for (const auto& [k, v] : std::any_cast<const BallOrderedMap&>(su))
+            dst[k] = v;
+    } else if (su.type() == typeid(BallMap)) {
+        for (const auto& [k, v] : std::any_cast<const BallMap&>(su)) dst[k] = v;
+    } else if (su.type() == typeid(std::unordered_map<std::string, std::any>)) {
+        for (const auto& [k, v] :
+             std::any_cast<const std::unordered_map<std::string, std::any>&>(su))
+            dst[k] = v;
+    }
+}
+
 // list.clear() / map.clear() — mutate the receiver in place to empty.
 inline void ball_clear(BallDyn& v) {
     if (BallList* lp = v._listPtr()) lp->clear();
@@ -4117,14 +4138,28 @@ BALL_DYN_STUB(StdModuleHandler);
 // When the value is stored reference-semantically via BallUserRef
 // (shared_ptr<std::any>), dereference through the shared_ptr first.
 template<class T> inline T& ball_obj_as(BallDyn& d) {
-    if (d._val.type() == typeid(BallUserRef))
-        return std::any_cast<T&>(*std::any_cast<BallUserRef&>(d._val));
-    return std::any_cast<T&>(d._val);
+    // BallDyn-derived stub types (_Scope, _FlowSignal, BallModuleHandler, …) ARE
+    // BallDyns: their data lives in BallDyn::_val (a BallMap/scope), and their
+    // "methods" are BallDyn members. Unwrapping `_val` with `any_cast<T&>` would
+    // throw bad_any_cast (the any holds a BallMap, not a T). Instead reinterpret
+    // the BallDyn as the stub so `.has()/.lookup()/.set()/.child()` dispatch
+    // against the SAME `_val` (mutations persist). (self-host engine #19)
+    if constexpr (std::is_base_of_v<BallDyn, T>) {
+        return static_cast<T&>(d);
+    } else {
+        if (d._val.type() == typeid(BallUserRef))
+            return std::any_cast<T&>(*std::any_cast<BallUserRef&>(d._val));
+        return std::any_cast<T&>(d._val);
+    }
 }
 template<class T> inline const T& ball_obj_as(const BallDyn& d) {
-    if (d._val.type() == typeid(BallUserRef))
-        return std::any_cast<const T&>(*std::any_cast<const BallUserRef&>(d._val));
-    return std::any_cast<const T&>(d._val);
+    if constexpr (std::is_base_of_v<BallDyn, T>) {
+        return static_cast<const T&>(d);
+    } else {
+        if (d._val.type() == typeid(BallUserRef))
+            return std::any_cast<const T&>(*std::any_cast<const BallUserRef&>(d._val));
+        return std::any_cast<const T&>(d._val);
+    }
 }
 template<class T, class U,
          std::enable_if_t<!std::is_same_v<std::decay_t<U>, BallDyn>, int> = 0>

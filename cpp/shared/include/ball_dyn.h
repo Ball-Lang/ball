@@ -491,6 +491,12 @@ public:
     // Field/index access via operator[]
     // Returns a copy of the field value. For mutation, use the set() method.
     BallDyn operator[](const std::string& key) const {
+        // Defeat MSVC's BallDyn-in-any double-wrap: if _val is itself a wrapped
+        // BallDyn (e.g. std::any(BallDyn(BallObjectRef)) after scope round-trips),
+        // the type checks below all miss and field access returns empty. Unwrap
+        // once and recurse so _objPtr/map/scope dispatch sees the real value.
+        const std::any& __uv = _BallDynUnwrapper::unwrap(_val);
+        if (&__uv != &_val) return BallDyn(__uv)[key];
         if (_val.type() == typeid(BallGenerator)) {
             if (key == "values")
                 return BallDyn(BallList(*std::any_cast<const BallGenerator&>(_val).values));
@@ -527,6 +533,8 @@ public:
 
     // Index access for vectors and strings
     BallDyn operator[](int64_t idx) const {
+        const std::any& __uv = _BallDynUnwrapper::unwrap(_val);
+        if (&__uv != &_val) return BallDyn(__uv)[idx];
         if (const BallList* vp = _listPtr()) {
             const auto& v = *vp;
             if (idx >= 0 && static_cast<size_t>(idx) < v.size())
@@ -563,7 +571,27 @@ public:
     void set(const std::string& key, const std::any& value) {
         const std::any& u = _BallDynUnwrapper::unwrap(value);
         if (_val.type() == typeid(BallScope)) {
-            (*std::any_cast<BallScope&>(_val))[key] = u;
+            // Lexical assignment (mirror BallDyn::lookup / Dart _Scope.set): write
+            // the variable in its DECLARING scope. If the current scope owns the
+            // key, set here; otherwise walk the __parent__ chain to the owner;
+            // if no scope owns it, bind locally. Without this walk, assigning a
+            // loop variable from inside a child block scope (a while/do-while
+            // body) shadows it locally, so the loop condition keeps reading the
+            // stale outer value and the loop never terminates.
+            BallScope sc = std::any_cast<BallScope&>(_val);
+            if (sc->count(key) == 0) {
+                BallScope cur = sc;
+                while (cur) {
+                    auto pit = cur->find("__parent__");
+                    if (pit != cur->end() && pit->second.type() == typeid(BallScope)) {
+                        cur = std::any_cast<const BallScope&>(pit->second);
+                        if (cur && cur->count(key) > 0) { (*cur)[key] = u; return; }
+                    } else {
+                        break;
+                    }
+                }
+            }
+            (*sc)[key] = u;
         } else if (BallObject* op = _objPtr()) {
             // Mutate through the shared handle so all holders observe the write.
             op->__op_set_index__(key, u);
@@ -627,6 +655,8 @@ public:
 
     // BallDyn-keyed access: convert key to string and delegate
     BallDyn operator[](const BallDyn& key) const {
+        const std::any& __uvk = _BallDynUnwrapper::unwrap(_val);
+        if (&__uvk != &_val) return BallDyn(__uvk)[key];
         // An integer key on a list/string must use positional indexing — the
         // engine's `list[i]` read passes _toInt(i) as a BallDyn(int64_t), and
         // stringifying it ("3") would miss list elements entirely. Maps stay
@@ -1300,6 +1330,18 @@ inline BallMap _ballAnyToMap(const std::any& v) {
         }
         return r;
     }
+    // Insertion-ordered map, by value OR shared_ptr-backed (the engine builds
+    // instance fields / records as a BallOrderedMap that becomes a
+    // BallOrderedMapRef once wrapped in a BallDyn). Without this case every
+    // BallObject built from such a field set would lose ALL its fields.
+    if (u.type() == typeid(BallOrderedMap) || u.type() == typeid(BallOrderedMapRef)) {
+        const BallOrderedMap* omp = (u.type() == typeid(BallOrderedMap))
+            ? &std::any_cast<const BallOrderedMap&>(u)
+            : std::any_cast<const BallOrderedMapRef&>(u).get();
+        BallMap r;
+        if (omp) for (const auto& [k, val] : omp->entries_) r[k] = val;
+        return r;
+    }
     return {};
 }
 
@@ -1313,6 +1355,14 @@ inline void ball_add_all(BallDyn& dst, const BallDyn& src) {
         for (const auto& [k, v] : std::any_cast<const BallMap&>(su)) dst.set(k, v);
     } else if (su.type() == typeid(std::unordered_map<std::string, std::any>)) {
         for (const auto& [k, v] : std::any_cast<const std::unordered_map<std::string, std::any>&>(su)) dst.set(k, v);
+    } else if (su.type() == typeid(BallOrderedMap)) {
+        // Insertion-ordered map source (the engine's untyped MessageCreation
+        // builds its field set as a BallOrderedMap). Without this the merge
+        // copies nothing and every untyped message creation yields an empty map.
+        for (const auto& [k, v] : std::any_cast<const BallOrderedMap&>(su).entries_) dst.set(k, v);
+    } else if (su.type() == typeid(BallOrderedMapRef)) {
+        if (const BallOrderedMapRef& ref = std::any_cast<const BallOrderedMapRef&>(su))
+            for (const auto& [k, v] : ref->entries_) dst.set(k, v);
     } else if (const BallList* lp = _ballAnyListPtr(su)) {
         for (const auto& el : *lp) dst.push_back(el);
     }
@@ -1330,6 +1380,9 @@ inline void ball_add_all(BallOrderedMap& dst, const BallDyn& src) {
     if (su.type() == typeid(BallOrderedMap)) {
         for (const auto& [k, v] : std::any_cast<const BallOrderedMap&>(su))
             dst[k] = v;
+    } else if (su.type() == typeid(BallOrderedMapRef)) {
+        if (const BallOrderedMapRef& ref = std::any_cast<const BallOrderedMapRef&>(su))
+            for (const auto& [k, v] : ref->entries_) dst[k] = v;
     } else if (su.type() == typeid(BallMap)) {
         for (const auto& [k, v] : std::any_cast<const BallMap&>(su)) dst[k] = v;
     } else if (su.type() == typeid(std::unordered_map<std::string, std::any>)) {

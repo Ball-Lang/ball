@@ -45,7 +45,7 @@ env:
   DART_ENGINE_MIN_PASS: "566"
   DART_ENCODER_EXPECTED: "116"
   DART_COMPILER_EXPECTED: "88"
-  CPP_SELFHOST_MIN_PASS: "211"
+  CPP_SELFHOST_MIN_PASS: "245"
 
 jobs:
   # ──────────────────────────────────────────────────

@@ -153,6 +153,13 @@ private:
     // the lambda so the callable copies and survives the call frame
     // (conformance 224 — `partialApply(fn, first) => (x) => fn(first, x)`).
     std::unordered_set<std::string> value_capture_vars_;
+    // Parameters of the function/method currently being emitted (raw Ball names).
+    // A lambda that escapes its defining frame and reads one of these by `[&]`
+    // would dangle it (e.g. the engine's `_evalLambda(func, scope)` returns a
+    // closure that reads func/scope, then is invoked later by list_foreach/sort).
+    // compile_lambda value-captures the enclosing-method params it references so
+    // the BallDyn copies keep the scope chain / AST alive past the frame.
+    std::unordered_set<std::string> current_fn_params_;
     // Set of all enum type names (sanitized, e.g. "Color").
     std::unordered_set<std::string> enum_names_;
     // Maps class name to its TypeDefinition for field lookups.

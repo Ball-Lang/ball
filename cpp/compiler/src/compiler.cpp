@@ -2026,6 +2026,33 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
         for (const auto& name : captured)
             capture += ", " + ball_local_var_name(sanitize_name(name));
     }
+    // Escaping-closure safety net. A Ball lambda is a first-class value that can
+    // outlive the frame that built it (stored in a var/list, returned, or passed
+    // to list_foreach/sort/map and invoked LATER). The `[&]` default then dangles
+    // any enclosing local/param the body reads — most importantly the engine's
+    // own `_evalLambda(func, scope)` closure, whose func/scope params are NOT
+    // boxed by the nested-lambda pre-pass (its async lowering hides them), so
+    // every Ball callback silently no-ops or crashes (0xC0000005). Capture every
+    // enclosing local/param this body references BY VALUE: BallDyn copies just
+    // bump shared_ptr refcounts on the scope chain / AST, keeping them alive past
+    // the frame. Mutated-and-shared locals are already boxed above (their
+    // shared_ptr cell is what gets copied), so this never breaks write-back; `&`
+    // stays the default so anything not enumerated is still captured.
+    if (func.has_body() && !current_fn_params_.empty()) {
+        std::unordered_set<std::string> esc_fvs;
+        _collect_referenced_names(func.body(), esc_fvs);
+        std::unordered_set<std::string> own;
+        for (const auto& p : own_params) own.insert(p);
+        std::set<std::string> by_value;
+        for (const auto& name : esc_fvs) {
+            if (!current_fn_params_.count(name)) continue;  // only enclosing-method params
+            if (own.count(name)) continue;                  // shadowed by this lambda's own param
+            if (boxed_vars_.count(name) || value_capture_vars_.count(name)) continue;  // already handled
+            by_value.insert(name);
+        }
+        for (const auto& name : by_value)
+            capture += ", " + ball_local_var_name(sanitize_name(name));
+    }
     // Recursive closure conversion: a parameter of THIS lambda captured by a
     // NESTED lambda must outlive this frame. Box it (shared_ptr<BallDyn>) and
     // rename the C++ parameter to <name>__p so the inner lambda captures the
@@ -4875,6 +4902,18 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
     if (fn == "floor") {
         return "static_cast<int64_t>(std::floor(static_cast<double>(" + self + ")))";
     }
+    if (fn == "remainder") {
+        // Dart num.remainder is the TRUNCATED remainder (a - (a~/b)*b), NOT the
+        // IEEE std::remainder (round-to-nearest). Emitting a bare `remainder(...)`
+        // also resolved ambiguously under clang-cl/MSVC. Implement it explicitly,
+        // type-preserving (int stays int) like the other numeric methods.
+        return "[](BallDyn _a, BallDyn _b) -> BallDyn {"
+               " if(_a.type()==typeid(int64_t)&&_b.type()==typeid(int64_t)){"
+               "  int64_t ai=static_cast<int64_t>(_a), bi=static_cast<int64_t>(_b);"
+               "  return BallDyn(bi==0?int64_t(0):static_cast<int64_t>(ai-(ai/bi)*bi)); }"
+               " return BallDyn(std::fmod(static_cast<double>(_a), static_cast<double>(_b))); }("
+               + self + ", " + arg0 + ")";
+    }
     if (fn == "toStringAsFixed") {
         return "[](double v, int64_t d){"
                "std::ostringstream o; o<<std::fixed<<std::setprecision(d)<<v;"
@@ -7655,9 +7694,12 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         // (self-host engine #19)
         auto saved_declared_locals = declared_locals_;
         auto saved_generic_locals = generic_locals_;
+        auto saved_fn_params = current_fn_params_;
         declared_locals_.clear();
         generic_locals_.clear();
+        current_fn_params_.clear();
         for (const auto& p : params) declared_locals_.insert(p);
+        for (const auto& p : params) current_fn_params_.insert(p);
         if (func->has_body()) _collect_declared_locals(func->body(), declared_locals_);
         // Emit one method parameter. Required params stay `auto&&` (perfect
         // forwarding, matching the rest of the engine); an optional param is
@@ -7700,6 +7742,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             out_ << ") = 0;\n";
             declared_locals_ = saved_declared_locals;
             generic_locals_ = saved_generic_locals;
+            current_fn_params_ = saved_fn_params;
             continue;
         }
 
@@ -7830,6 +7873,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         // Restore the enclosing local scope for the next method. (self-host #19)
         declared_locals_ = saved_declared_locals;
         generic_locals_ = saved_generic_locals;
+        current_fn_params_ = saved_fn_params;
     }
     in_static_method_ = false;  // (self-host engine #19) leave method context
 
@@ -8403,6 +8447,11 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
             compute_boxed_vars(func.body(), params, mapped_types);
         }
     }
+    // Record this function's params so nested escaping closures can value-capture
+    // the ones they read (see compile_lambda). Raw Ball names, matching the names
+    // _collect_referenced_names returns.
+    current_fn_params_.clear();
+    for (const auto& p : params) current_fn_params_.insert(p);
 
     // Extract param specs for optional-param handling (matching forward decl).
     auto fn_param_specs = func.has_metadata()
@@ -8683,6 +8732,7 @@ void CppCompiler::emit_main(const ball::v1::FunctionDefinition& entry) {
     generic_locals_.clear();
     if (entry.has_body()) _collect_declared_locals(entry.body(), declared_locals_);
     if (entry.has_body()) compute_boxed_vars(entry.body(), {});
+    current_fn_params_.clear();  // main takes no params; no enclosing-param capture
 
     if (entry.has_body()) {
         if (entry.body().expr_case() == ball::v1::Expression::kBlock) {

@@ -258,12 +258,11 @@ jobs:
           fi
 
   # ──────────────────────────────────────────────────
-  # C++ self-host tally gate — the compiled Ball engine (engine_rt.cpp)
-  # must pass EVERY conformance fixture: 0 fail, 0 timeout, 0 crash.
-  #
-  # Equivalent of cpp/test/run_selfhost_tally.sh, re-pointed at the Linux
-  # single-config binary path. It emits the same `PASS=N` summary line, then
-  # requires that nothing is non-passing.
+  # C++ self-host gate — the compiled Ball engine (engine_rt.cpp) must pass
+  # EVERY conformance fixture: 0 fail, 0 timeout, 0 crash. Each fixture is its
+  # own CTest test, run in its own process (cpp/test/CMakeLists.txt), so a
+  # crash/hang fails only that fixture; CTest fails the job if any is non-pass.
+  # (Job id/name kept stable for branch-protection required-check matching.)
   # ──────────────────────────────────────────────────
   cpp-selfhost-tally:
     name: C++ Self-Host Tally (every fixture must pass)
@@ -313,59 +312,22 @@ jobs:
       - name: Build self-host conformance binary
         run: cmake --build cpp/ci-build --config Release --target test_selfhost_conformance
 
-      - name: Run per-fixture tally and require all fixtures pass
-        run: |
-          set -uo pipefail
-
-          # Locate the built binary. Single-config generators (Make/Ninja) emit
-          # cpp/ci-build/test/test_selfhost_conformance; multi-config generators
-          # would put it under a config subdir. Search both.
-          exe=""
-          for candidate in \
-            cpp/ci-build/test/test_selfhost_conformance \
-            cpp/ci-build/test/Release/test_selfhost_conformance; do
-            if [ -x "$candidate" ]; then exe="$candidate"; break; fi
-          done
-          if [ -z "$exe" ]; then
-            echo "::error::Could not find test_selfhost_conformance binary under cpp/ci-build/test"
-            find cpp/ci-build/test -maxdepth 2 -type f -name 'test_selfhost_conformance*' || true
-            exit 1
-          fi
-          echo "Using binary: $exe"
-
-          # Per-fixture isolated-process tally (mirrors run_selfhost_tally.sh):
-          # the in-process harness dies on the first stack-overflowing fixture,
-          # so each fixture runs in its own process via BALL_TEST_FILTER.
-          pass=0; fail=0; timeout=0; crash=0
-          fails=()
-          for f in tests/conformance/*.ball.json; do
-            name=$(basename "$f" .ball.json)
-            # `|| true`: under GitHub's `bash -e`, a fixture that crashes
-            # (SIGFPE/SIGSEGV/stack overflow) makes this command substitution
-            # exit non-zero and would abort the whole tally — defeating the
-            # per-fixture isolation. Swallow it so the crash is counted (below)
-            # and the loop continues to the remaining fixtures.
-            out=$(BALL_TEST_FILTER="$name" "$exe" 2>/dev/null || true)
-            if   echo "$out" | grep -q "  PASS: $name ";    then pass=$((pass+1))
-            elif echo "$out" | grep -q "  TIMEOUT: $name "; then timeout=$((timeout+1)); fails+=("$name:TIMEOUT")
-            elif echo "$out" | grep -q "  FAIL: $name ";    then fail=$((fail+1));    fails+=("$name")
-            else crash=$((crash+1)); fails+=("$name:CRASH"); fi
-          done
-
-          # Same summary line emitted by run_selfhost_tally.sh.
-          echo "PASS=$pass FAIL=$fail TIMEOUT=$timeout CRASH=$crash"
-          if [ "${#fails[@]}" -gt 0 ]; then
-            echo "--- non-pass ---"
-            printf '%s\n' "${fails[@]}"
-          fi
-
-          echo ""
-          if [ "$pass" -eq 0 ]; then
-            echo "::error::C++ self-host tally found 0 passing fixtures — did the binary run?"
-            exit 1
-          fi
-          if [ "$fail" != "0" ] || [ "$timeout" != "0" ] || [ "$crash" != "0" ]; then
-            echo "::error::C++ self-host is not all-green: $fail failed, $timeout timed out, $crash crashed. See the non-pass list above. Every fixture must pass."
-            exit 1
-          fi
-          echo "C++ self-host: all $pass fixtures passed."
+      - name: Run self-host conformance (per-fixture, isolated, via CTest)
+        # Each conformance fixture is its own CTest test (label "selfhost"), run
+        # in its own process on the binary's main thread — see
+        # cpp/test/CMakeLists.txt. CTest provides the cross-platform process
+        # isolation + per-test timeout (1200s), and exits non-zero if ANY fixture
+        # fails, times out, or crashes — so a single stack-overflowing fixture
+        # fails only its own test instead of killing the whole run.
+        # Run SEQUENTIALLY (no -j): the self-host engine is a slow std::any
+        # tree-walker and several fixtures are CPU/memory-heavy (the heaviest,
+        # 143_perfect_number, ~110s alone — more on slower CI runners). Parallel
+        # runs make them contend for cores/RAM, swap, and blow the timeout;
+        # sequential keeps each fixture at its predictable solo cost — well under
+        # the 1200s budget — at the same wall-clock as the old per-fixture loop.
+        # --no-tests=error guards against the self-host tests not being
+        # registered (e.g. engine_rt missing). Replaces that hand-rolled loop.
+        run: >-
+          ctest --test-dir cpp/ci-build -C Release
+          -L selfhost
+          --output-on-failure --no-tests=error

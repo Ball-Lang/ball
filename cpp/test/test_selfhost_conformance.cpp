@@ -29,18 +29,13 @@
 
 #include <filesystem>
 #include <chrono>
-#include <thread>
-#include <atomic>
-#include <future>
-#include <functional>
 #ifdef _WIN32
+// Neutralize the windows.h GetMessage macro so it cannot clash with protobuf's
+// Message API (windows.h can be pulled in transitively on MSVC builds).
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #undef GetMessage
-#include <process.h>
-#else
-#include <pthread.h>
 #endif
 
 #ifndef BALL_CONFORMANCE_DIR
@@ -48,43 +43,6 @@
 #endif
 
 namespace fs = std::filesystem;
-
-// Launch `fn` on a DETACHED worker thread with a stack large enough for the
-// self-host interpreter's deep native recursion. On POSIX the default thread
-// stack (~8 MB) overflows on deep fixtures — an uncatchable SIGSEGV that kills
-// the whole in-process ctest run (per-fixture isolated runs survive because the
-// deep work runs on the MAIN thread, which gets a 256 MB stack from the linker;
-// see cpp/test/CMakeLists.txt). So on POSIX we size the worker stack explicitly
-// to 256 MB to match the main thread. On Windows std::thread already honors the
-// 256 MB PE-header reserve, so the default is correct there.
-static void launch_detached_worker(std::function<void()> fn) {
-#if defined(_WIN32)
-  std::thread(std::move(fn)).detach();
-#else
-  constexpr size_t kStackBytes = 256ull * 1024 * 1024;
-  pthread_attr_t attr;
-  pthread_attr_init(&attr);
-  pthread_attr_setstacksize(&attr, kStackBytes);
-  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-  auto* heap_fn = new std::function<void()>(fn);  // copy; original kept for fallback
-  pthread_t tid;
-  const int rc = pthread_create(
-      &tid, &attr,
-      [](void* p) -> void* {
-        auto* f = static_cast<std::function<void()>*>(p);
-        (*f)();
-        delete f;
-        return nullptr;
-      },
-      heap_fn);
-  pthread_attr_destroy(&attr);
-  if (rc != 0) {
-    // Never silently drop a fixture: fall back to a default-stack thread.
-    delete heap_fn;
-    std::thread(std::move(fn)).detach();
-  }
-#endif
-}
 
 // ============================================================
 // Protobuf → BallDyn (std::any map tree) converter
@@ -454,7 +412,7 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
     return true;
 }
 
-int main() {
+int main(int argc, char** argv) {
     std::cout << "Ball Self-Hosted Engine Conformance Tests\n"
               << "==========================================\n";
 
@@ -487,21 +445,25 @@ int main() {
     std::sort(cases.begin(), cases.end(),
               [](auto& a, auto& b) { return a.name < b.name; });
 
-    // Per-test timeout in seconds. The self-host engine is slower than native
-    // Dart (std::any-boxed interpretation), so genuinely heavy fixtures need a
-    // generous budget to produce the CORRECT result — they are NOT skipped.
-    constexpr int TIMEOUT_SECONDS = 300;
-
     // NO skip-list. Every conformance fixture must pass; the host-knob fixtures
     // (196/197/201/202) that have no expected_output.txt are run as behavioral
     // limit-checks below (see host_knobs() / run_one), mirroring
     // dart/engine/test/conformance_test.dart.
 
-    // Filter: if BALL_TEST_FILTER env var set, only run matching tests
-    const char* test_filter = std::getenv("BALL_TEST_FILTER");
+    // Select a single fixture by EXACT stem. CTest passes it as argv[1] (one
+    // `selfhost/<fixture>` test per fixture — see cpp/test/CMakeLists.txt); the
+    // BALL_TEST_FILTER env var is also honored for back-compat. Empty => run
+    // all (local convenience). Per-fixture process isolation and the per-test
+    // timeout are provided by CTest, not an in-process worker thread.
+    std::string only;
+    if (argc > 1 && argv[1] && *argv[1]) {
+        only = argv[1];
+    } else if (const char* env = std::getenv("BALL_TEST_FILTER")) {
+        only = env;
+    }
 
     for (auto& tc : cases) {
-        if (test_filter && tc.name.find(test_filter) == std::string::npos) {
+        if (!only.empty() && tc.name != only) {
             tests_skipped_val++;
             continue;
         }
@@ -514,36 +476,21 @@ int main() {
         std::string failure_msg;
         auto start = std::chrono::high_resolution_clock::now();
 
-        // Run test in a thread with timeout. Step counter should prevent infinite loops,
-        // but as a safety net we use a thread timeout as well.
+        // Run directly on the MAIN thread, which gets the 256 MB linker stack
+        // (cpp/test/CMakeLists.txt) the tree-walking interpreter needs. The old
+        // harness ran each fixture on a detached worker thread for an in-process
+        // timeout, but on POSIX a worker gets the small default pthread stack
+        // (not the linker reserve), so a deep fixture overflowed it — an
+        // uncatchable SIGSEGV that killed the whole run. CTest now isolates each
+        // fixture in its own process and enforces the timeout, so a crash or
+        // hang fails only that fixture.
         bool passed = false;
-        bool timed_out = false;
-        {
-            auto promise = std::make_shared<std::promise<bool>>();
-            auto fut = promise->get_future();
-            auto fm_ptr = std::make_shared<std::string>();
-            auto prog = tc.program;
-            auto exp = tc.expected;
-            auto nm = tc.name;
-            launch_detached_worker([promise, fm_ptr, prog, exp, nm]() {
-                try {
-                    std::string fm;
-                    bool ok = run_one(prog, exp, nm, fm);
-                    *fm_ptr = fm;
-                    promise->set_value(ok);
-                } catch (...) {
-                    *fm_ptr = "unexpected crash";
-                    try { promise->set_value(false); } catch (...) {}
-                }
-            });
-            auto status = fut.wait_for(std::chrono::seconds(TIMEOUT_SECONDS));
-            if (status == std::future_status::timeout) {
-                timed_out = true;
-                failure_msg = "TIMEOUT after " + std::to_string(TIMEOUT_SECONDS) + "s";
-            } else {
-                passed = fut.get();
-                failure_msg = *fm_ptr;
-            }
+        try {
+            passed = run_one(tc.program, tc.expected, tc.name, failure_msg);
+        } catch (const std::exception& e) {
+            failure_msg = std::string("unexpected C++ exception: ") + e.what();
+        } catch (...) {
+            failure_msg = "unexpected C++ exception";
         }
 
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -552,10 +499,6 @@ int main() {
         if (passed) {
             tests_passed++;
             std::cout << "  PASS: " << tc.name << " (" << elapsed.count() << "ms)\n";
-        } else if (timed_out) {
-            tests_failed++;
-            failures.push_back(tc.name + ": " + failure_msg);
-            std::cout << "  TIMEOUT: " << tc.name << " (" << elapsed.count() << "ms)\n";
         } else {
             tests_failed++;
             failures.push_back(tc.name + ": " + failure_msg);
@@ -577,5 +520,16 @@ int main() {
         }
     }
 
-    return 0;  // Don't fail the build — this is a progress-tracking test suite
+    // A specific fixture was requested but no runnable case matched — it has no
+    // expected_output.txt and is not a host-knob (an undocumented orphan).
+    // Fail loudly rather than silently pass.
+    if (!only.empty() && tests_run == 0) {
+        std::cerr << "::error:: no runnable self-host conformance case named '"
+                  << only << "'\n";
+        return 1;
+    }
+
+    // Real exit code: CTest treats non-zero as a failed test. Each fixture is
+    // its own CTest test, so this fails exactly the fixtures that failed.
+    return tests_failed > 0 ? 1 : 0;
 }

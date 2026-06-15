@@ -6587,14 +6587,20 @@ inline void ball_object_set_field(BallDyn obj, const std::string& field,
 // recognizes std::map<string, any> (a std::map<string, string> would not be
 // read as a map, so every lookup returned a null BallDyn and the operator
 // override never fired). Values are std::string wrapped in std::any.
+// Values are the CANONICAL Ball operator method names (`__op_add__`, …) the
+// Dart encoder emits (see _canonicalOperatorName) and the Dart engine's
+// _stdFunctionToOperator (engine_std.dart) — NOT the raw lexemes. With raw
+// lexemes, freshly-encoded operator methods (named `__op_*__`) were never found
+// and dispatch wrongly fell through to primitive arithmetic/equality. Mirrors
+// the Dart map exactly (no `not_equals`: Dart has no separate `operator !=`).
 const std::map<std::string, std::any> _stdFunctionToOperator = {
-  {"equals", std::any(std::string("=="))}, {"not_equals", std::any(std::string("!="))},
-  {"add", std::any(std::string("+"))}, {"subtract", std::any(std::string("-"))},
-  {"multiply", std::any(std::string("*"))}, {"divide", std::any(std::string("~/"))},
-  {"divide_double", std::any(std::string("/"))}, {"modulo", std::any(std::string("%"))},
-  {"less_than", std::any(std::string("<"))}, {"greater_than", std::any(std::string(">"))},
-  {"lte", std::any(std::string("<="))}, {"gte", std::any(std::string(">="))},
-  {"index", std::any(std::string("[]"))}
+  {"equals", std::any(std::string("__op_eq__"))},
+  {"add", std::any(std::string("__op_add__"))}, {"subtract", std::any(std::string("__op_sub__"))},
+  {"multiply", std::any(std::string("__op_mul__"))}, {"divide", std::any(std::string("__op_idiv__"))},
+  {"divide_double", std::any(std::string("__op_div__"))}, {"modulo", std::any(std::string("__op_mod__"))},
+  {"less_than", std::any(std::string("__op_lt__"))}, {"greater_than", std::any(std::string("__op_gt__"))},
+  {"lte", std::any(std::string("__op_le__"))}, {"gte", std::any(std::string("__op_ge__"))},
+  {"index", std::any(std::string("__op_get_index__"))}
 };
 
 // Built-in type names (used by _evalReference to skip class lookups)

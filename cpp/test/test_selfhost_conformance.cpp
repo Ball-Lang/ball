@@ -32,12 +32,15 @@
 #include <thread>
 #include <atomic>
 #include <future>
+#include <functional>
 #ifdef _WIN32
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #undef GetMessage
 #include <process.h>
+#else
+#include <pthread.h>
 #endif
 
 #ifndef BALL_CONFORMANCE_DIR
@@ -45,6 +48,43 @@
 #endif
 
 namespace fs = std::filesystem;
+
+// Launch `fn` on a DETACHED worker thread with a stack large enough for the
+// self-host interpreter's deep native recursion. On POSIX the default thread
+// stack (~8 MB) overflows on deep fixtures — an uncatchable SIGSEGV that kills
+// the whole in-process ctest run (per-fixture isolated runs survive because the
+// deep work runs on the MAIN thread, which gets a 256 MB stack from the linker;
+// see cpp/test/CMakeLists.txt). So on POSIX we size the worker stack explicitly
+// to 256 MB to match the main thread. On Windows std::thread already honors the
+// 256 MB PE-header reserve, so the default is correct there.
+static void launch_detached_worker(std::function<void()> fn) {
+#if defined(_WIN32)
+  std::thread(std::move(fn)).detach();
+#else
+  constexpr size_t kStackBytes = 256ull * 1024 * 1024;
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+  pthread_attr_setstacksize(&attr, kStackBytes);
+  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+  auto* heap_fn = new std::function<void()>(fn);  // copy; original kept for fallback
+  pthread_t tid;
+  const int rc = pthread_create(
+      &tid, &attr,
+      [](void* p) -> void* {
+        auto* f = static_cast<std::function<void()>*>(p);
+        (*f)();
+        delete f;
+        return nullptr;
+      },
+      heap_fn);
+  pthread_attr_destroy(&attr);
+  if (rc != 0) {
+    // Never silently drop a fixture: fall back to a default-stack thread.
+    delete heap_fn;
+    std::thread(std::move(fn)).detach();
+  }
+#endif
+}
 
 // ============================================================
 // Protobuf → BallDyn (std::any map tree) converter
@@ -485,7 +525,7 @@ int main() {
             auto prog = tc.program;
             auto exp = tc.expected;
             auto nm = tc.name;
-            std::thread worker([promise, fm_ptr, prog, exp, nm]() {
+            launch_detached_worker([promise, fm_ptr, prog, exp, nm]() {
                 try {
                     std::string fm;
                     bool ok = run_one(prog, exp, nm, fm);
@@ -496,7 +536,6 @@ int main() {
                     try { promise->set_value(false); } catch (...) {}
                 }
             });
-            worker.detach();
             auto status = fut.wait_for(std::chrono::seconds(TIMEOUT_SECONDS));
             if (status == std::future_status::timeout) {
                 timed_out = true;

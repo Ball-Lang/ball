@@ -152,6 +152,24 @@ jobs:
           fi
           echo "All shared Ball artifacts are up to date."
 
+      # Every conformance .ball.json must be sourced from a src/<name>.dart, or
+      # be an explicitly documented carve-out (tests/conformance/CARVEOUTS.md).
+      - name: Assert conformance fixtures are sourced (no orphans)
+        run: cd dart/encoder && dart run bin/check_conformance_sources.dart
+
+      # Every conformance .ball.json must be a fresh generator output, never
+      # hand-edited. Regenerate from src and fail on drift.
+      - name: Regenerate conformance corpus
+        run: cd dart/encoder && dart run bin/generate_conformance.dart
+
+      - name: Assert conformance corpus is up to date
+        run: |
+          if ! git diff --exit-code -- 'tests/conformance/*.ball.json'; then
+            echo "::error::A conformance .ball.json is stale. Regenerate with 'cd dart/encoder && dart run bin/generate_conformance.dart' and commit — these files must never be hand-edited (see tests/conformance/CARVEOUTS.md for the only exceptions)."
+            exit 1
+          fi
+          echo "Conformance corpus is up to date."
+
   # ──────────────────────────────────────────────────
   # Protobuf Codegen — the protoc-gen-ball / -connect / -grpc plugins
   # (dart/ball_protobuf_gen) + the transport runtime (dart/ball_rpc).

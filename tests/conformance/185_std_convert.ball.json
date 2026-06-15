@@ -1,17 +1,17 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "std_convert",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "map_create",
           "isBase": true
         },
         {
-          "name": "set_create",
+          "name": "assign",
           "isBase": true
         },
         {
@@ -19,10 +19,11 @@
           "isBase": true
         },
         {
-          "name": "assign",
+          "name": "print",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -47,14 +48,18 @@
           "name": "json_encode",
           "inputType": "JsonEncodeInput",
           "outputType": "string",
+          "description": "Encode value to JSON string",
           "isBase": true
         },
         {
           "name": "json_decode",
           "inputType": "JsonDecodeInput",
+          "outputType": "",
+          "description": "Decode JSON string to value (map/list/scalar)",
           "isBase": true
         }
       ],
+      "description": "Standard conversion module. JSON, UTF-8, base64 encoding/decoding.",
       "typeDefs": [
         {
           "name": "JsonEncodeInput",
@@ -64,7 +69,6 @@
               {
                 "name": "value",
                 "number": 1,
-                "label": "LABEL_OPTIONAL",
                 "type": "TYPE_MESSAGE",
                 "typeName": ".ball.v1.Expression"
               }
@@ -79,13 +83,16 @@
               {
                 "name": "value",
                 "number": 1,
-                "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
               }
             ]
           }
         }
       ]
+    },
+    {
+      "name": "dart.convert",
+      "description": "Imported from dart:convert"
     },
     {
       "name": "main",
@@ -102,18 +109,26 @@
                     "value": {
                       "call": {
                         "module": "std",
-                        "function": "set_create",
+                        "function": "map_create",
                         "input": {
                           "messageCreation": {
                             "typeName": "",
-                            "fields": []
+                            "fields": [
+                              {
+                                "name": "type_args",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "String, Object"
+                                  }
+                                }
+                              }
+                            ]
                           }
                         }
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "Map<String, Object>"
+                      "keyword": "var"
                     }
                   }
                 },
@@ -244,7 +259,6 @@
                                   "function": "json_encode",
                                   "input": {
                                     "messageCreation": {
-                                      "typeName": "JsonEncodeInput",
                                       "fields": [
                                         {
                                           "name": "value",
@@ -283,7 +297,6 @@
                                   "function": "json_decode",
                                   "input": {
                                     "messageCreation": {
-                                      "typeName": "JsonDecodeInput",
                                       "fields": [
                                         {
                                           "name": "value",
@@ -307,6 +320,9 @@
                 }
               ]
             }
+          },
+          "metadata": {
+            "kind": "function"
           }
         }
       ],
@@ -315,9 +331,16 @@
           "name": "std"
         },
         {
-          "name": "std_convert"
+          "name": "dart.convert"
         }
-      ]
+      ],
+      "metadata": {
+        "dart_imports": [
+          {
+            "uri": "dart:convert"
+          }
+        ]
+      }
     }
   ],
   "entryModule": "main",

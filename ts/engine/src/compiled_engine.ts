@@ -6261,6 +6261,15 @@ export class BallEngine {
         }));
       }), 'multiply': ((i) => {
         const input = i;
+        let __ball_rec_0 = this._extractBinaryArgs(i);
+        let l = __ball_rec_0[0];
+        let r = __ball_rec_0[1];
+        if ((typeof l === 'string')) {
+          return this._repeatString(l, this._toInt(r));
+        }
+        if ((typeof l === 'string')) {
+          return this._repeatString(l.value, this._toInt(r));
+        }
         return this._stdBinary(i, ((a, b) => {
           return __ball_mul(a, b);
         }));
@@ -6554,7 +6563,14 @@ export class BallEngine {
       }), 'list_index_of': ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
-        return this._stdAsList(__ball_index(m, 'list')).indexOf(__ball_index(m, 'value'));
+        let coll = __ball_index(m, 'list');
+        let needle = __ball_index(m, 'value');
+        if (((typeof coll === 'string') || (typeof coll === 'string'))) {
+          let s = ((typeof coll === 'string') ? coll.value : coll);
+          let n = ((typeof needle === 'string') ? needle.value : needle);
+          return s.indexOf(n);
+        }
+        return this._stdAsList(coll).indexOf(needle);
       }), 'list_map': (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
@@ -8566,19 +8582,27 @@ export class BallEngine {
   }
 
   _stdAdd(input: any): any {
-    let __ball_rec_0 = this._extractBinaryArgs(input);
-    let left = __ball_rec_0[0];
-    let right = __ball_rec_0[1];
+    let __ball_rec_1 = this._extractBinaryArgs(input);
+    let left = __ball_rec_1[0];
+    let right = __ball_rec_1[1];
     if (((typeof left === 'string') || (typeof right === 'string'))) {
       return (__ball_to_string((left ?? '')) + __ball_to_string((right ?? '')));
     }
     return __ball_add(this._toNum(left), this._toNum(right));
   }
 
+  _repeatString(s: any, count: any): any {
+    let out = '';
+    for (var k = 0; (k < count); (k++)) {
+      out = (__ball_to_string(out) + __ball_to_string(s));
+    }
+    return out;
+  }
+
   _stdBinary(input: any, op: any): any {
-    let __ball_rec_1 = this._extractBinaryArgs(input);
-    let left = __ball_rec_1[0];
-    let right = __ball_rec_1[1];
+    let __ball_rec_2 = this._extractBinaryArgs(input);
+    let left = __ball_rec_2[0];
+    let right = __ball_rec_2[1];
     const __lBD = left instanceof BallDouble;
     const __rBD = right instanceof BallDouble;
     const __result = op(this._toNum(left), this._toNum(right));
@@ -8587,39 +8611,39 @@ export class BallEngine {
   }
 
   _stdBinaryInt(input: any, op: any): any {
-    let __ball_rec_2 = this._extractBinaryArgs(input);
-    let left = __ball_rec_2[0];
-    let right = __ball_rec_2[1];
+    let __ball_rec_3 = this._extractBinaryArgs(input);
+    let left = __ball_rec_3[0];
+    let right = __ball_rec_3[1];
     return op(this._toInt(left), this._toInt(right));
   }
 
   _stdBinaryDouble(input: any, op: any): any {
     const __origOp2 = op;
     op = (a: any, b: any) => new BallDouble(__origOp2(a instanceof BallDouble ? a.value : a, b instanceof BallDouble ? b.value : b));
-    let __ball_rec_3 = this._extractBinaryArgs(input);
-    let left = __ball_rec_3[0];
-    let right = __ball_rec_3[1];
+    let __ball_rec_4 = this._extractBinaryArgs(input);
+    let left = __ball_rec_4[0];
+    let right = __ball_rec_4[1];
     return op(this._toDouble(left), this._toDouble(right));
   }
 
   _stdBinaryComp(input: any, op: any): any {
-    let __ball_rec_4 = this._extractBinaryArgs(input);
-    let left = __ball_rec_4[0];
-    let right = __ball_rec_4[1];
+    let __ball_rec_5 = this._extractBinaryArgs(input);
+    let left = __ball_rec_5[0];
+    let right = __ball_rec_5[1];
     return op(this._toNum(left), this._toNum(right));
   }
 
   _stdBinaryBool(input: any, op: any): any {
-    let __ball_rec_5 = this._extractBinaryArgs(input);
-    let left = __ball_rec_5[0];
-    let right = __ball_rec_5[1];
+    let __ball_rec_6 = this._extractBinaryArgs(input);
+    let left = __ball_rec_6[0];
+    let right = __ball_rec_6[1];
     return op(this._toBool(left), this._toBool(right));
   }
 
   _stdBinaryAny(input: any, op: any): any {
-    let __ball_rec_6 = this._extractBinaryArgs(input);
-    let left = __ball_rec_6[0];
-    let right = __ball_rec_6[1];
+    let __ball_rec_7 = this._extractBinaryArgs(input);
+    let left = __ball_rec_7[0];
+    let right = __ball_rec_7[1];
     return op(left, right);
   }
 
@@ -8634,9 +8658,9 @@ export class BallEngine {
   }
 
   _stdConcat(input: any): any {
-    let __ball_rec_7 = this._extractBinaryArgs(input);
-    let left = __ball_rec_7[0];
-    let right = __ball_rec_7[1];
+    let __ball_rec_8 = this._extractBinaryArgs(input);
+    let left = __ball_rec_8[0];
+    let right = __ball_rec_8[1];
     let result = (__ball_to_string(left) + __ball_to_string(right));
     this._trackMemoryAllocation(__ball_mul(result.length, _ballStringCodeUnitBytes));
     return result;
@@ -8913,9 +8937,9 @@ export class BallEngine {
   }
 
   _stdMathBinary(input: any, op: any): any {
-    let __ball_rec_8 = this._extractBinaryArgs(input);
-    let left = __ball_rec_8[0];
-    let right = __ball_rec_8[1];
+    let __ball_rec_9 = this._extractBinaryArgs(input);
+    let left = __ball_rec_9[0];
+    let right = __ball_rec_9[1];
     return op(this._toDouble(left), this._toDouble(right));
   }
 
@@ -8989,22 +9013,22 @@ export class BallEngine {
 
   _utf8Encode(s: any): any {
     const input = s;
-    return utf8.encode(s);
+    return [...new TextEncoder().encode(s)];
   }
 
   _utf8Decode(bytes: any): any {
     const input = bytes;
-    return utf8.decode(bytes);
+    return new TextDecoder().decode(new Uint8Array(bytes));
   }
 
   _base64Encode(bytes: any): any {
     const input = bytes;
-    return base64.encode(bytes);
+    return btoa(String.fromCharCode(...bytes));
   }
 
   _base64Decode(s: any): any {
     const input = s;
-    return base64.decode(s);
+    return [...atob(s)].map(c => c.charCodeAt(0));
   }
 
   _checkSandbox(op: any): any {

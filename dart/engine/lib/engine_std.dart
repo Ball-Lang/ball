@@ -222,7 +222,17 @@ extension BallEngineStd on BallEngine {
       // Arithmetic
       'add': _stdAdd,
       'subtract': (i) => _stdBinary(i, (a, b) => a - b),
-      'multiply': (i) => _stdBinary(i, (a, b) => a * b),
+      'multiply': (i) {
+        // Polymorphic over strings: `'ab' * 3` repeats (Dart String * int).
+        // The encoder routes `*` to multiply regardless of operand type.
+        // Build the repeat via interpolation (not the `*` operator), which is
+        // self-host-portable — raw `String * int` would compile to a numeric
+        // `*` on the C++/TS self-host engines (cf. _stdAdd avoiding `+`).
+        final (l, r) = _extractBinaryArgs(i);
+        if (l is String) return _repeatString(l, _toInt(r));
+        if (l is BallString) return _repeatString(l.value, _toInt(r));
+        return _stdBinary(i, (a, b) => a * b);
+      },
       'divide': (i) => _stdBinaryInt(i, (a, b) => a ~/ b),
       'divide_double': (i) => _stdBinaryDouble(i, (a, b) => a / b),
       'modulo': (i) => _stdBinary(i, (a, b) => a % b),
@@ -417,7 +427,17 @@ extension BallEngineStd on BallEngine {
       },
       'list_index_of': (i) {
         final m = _stdAsMap(i)!;
-        return (_stdAsList(m['list'])!).indexOf(m['value']);
+        final coll = m['list'];
+        final needle = m['value'];
+        // Polymorphic over strings: `'abc'.indexOf('b')` is encoded as
+        // list_index_of (the syntactic encoder cannot tell a String receiver
+        // from a List one). Delegate to String.indexOf for string receivers.
+        if (coll is String || coll is BallString) {
+          final s = coll is BallString ? coll.value : coll as String;
+          final n = needle is BallString ? needle.value : needle as String;
+          return s.indexOf(n);
+        }
+        return (_stdAsList(coll)!).indexOf(needle);
       },
       'list_map': (i) async {
         final m = _stdAsMap(i)!;
@@ -2169,6 +2189,17 @@ extension BallEngineStd on BallEngine {
       return '${left ?? ''}${right ?? ''}';
     }
     return _toNum(left) + _toNum(right);
+  }
+
+  /// Repeats [s] [count] times using interpolation. Self-host-portable: avoids
+  /// the `String * int` operator (which the C++/TS compilers lower to a numeric
+  /// `*`). Zero/negative counts yield the empty string.
+  String _repeatString(String s, int count) {
+    var out = '';
+    for (var k = 0; k < count; k++) {
+      out = '$out$s';
+    }
+    return out;
   }
 
   Object? _stdBinary(Object? input, num Function(num, num) op) {

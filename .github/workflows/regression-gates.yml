@@ -1,22 +1,20 @@
 name: Regression Gates
 
-# Numeric pass-count gates so green suites cannot silently regress.
+# Strict all-green gates. Every suite must run to completion with ZERO failures
+# and ZERO skips — there are NO pass-count floors, "expected" counts, or
+# minimum-to-pass thresholds. A "minimum number of tests to pass" tolerates
+# hidden failures, and a skipped test hides a problem just as much as a failing
+# one. Both are unacceptable: any failing OR skipped test fails the gate.
 #
-# This is intentionally SEPARATE from ci.yml (which runs the full build +
-# test matrix and fails on any non-zero exit) and conformance-matrix.yml
-# (which prints a parity table). Those existing workflows already catch a
-# suite that goes red. What they do NOT catch is a suite that stays green
-# while quietly dropping pass counts (e.g. a test being skipped/deleted, or
-# a tally regressing from 156 -> 155). This workflow asserts hard floors:
+#   * TS self-hosted engine        : 0 failed; every reported test passed (passed == total)
+#   * TS self-hosted compiler      : 0 failed; 0 skipped (node --test)
+#   * Dart engine/encoder/compiler : 0 failed; 0 skipped
+#   * C++ self-host tally          : 0 fail; 0 timeout; 0 crash (every fixture passes)
 #
-#   * TS self-hosted engine  : exactly 291 passed / 0 failed
-#   * TS self-hosted compiler : exactly 315 passed / 0 failed (node --test suite)
-#   * Dart engine            : 0 failed; pass count must not drop below DART_ENGINE_MIN_PASS
-#   * Dart encoder           : exactly DART_ENCODER_EXPECTED passed / 0 failed
-#   * Dart compiler          : exactly DART_COMPILER_EXPECTED passed / 0 failed
-#                              (--exclude-tags slow, matching ci.yml)
-#   * C++ self-host tally     : PASS must not drop below CPP_SELFHOST_MIN_PASS
-#                              — blocking only when the Linux native build is green
+# This is intentionally SEPARATE from ci.yml (full build + test matrix) and
+# conformance-matrix.yml (parity table). Those fail on a non-zero exit; this
+# additionally refuses to let a suite stay green while silently dropping or
+# skipping tests.
 #
 # Action versions verified 2026-05-25 against the upstream release pages:
 #   actions/checkout       v6  (latest v6.0.2)
@@ -38,20 +36,10 @@ concurrency:
   group: regression-gates-${{ github.ref }}
   cancel-in-progress: true
 
-# Pin the expected counts in one place so bumping the floor is a one-line edit.
-env:
-  TS_ENGINE_EXPECTED_PASS: "291"
-  TS_COMPILER_EXPECTED_PASS: "315"
-  DART_ENGINE_MIN_PASS: "566"
-  DART_ENCODER_EXPECTED: "116"
-  DART_COMPILER_EXPECTED: "88"
-  CPP_SELFHOST_MIN_PASS: "245"
-
 jobs:
   # ──────────────────────────────────────────────────
   # TypeScript regression gate — engine + compiler must each
-  # report exactly TS_ENGINE_EXPECTED_PASS / TS_COMPILER_EXPECTED_PASS
-  # passed / 0 failed.
+  # run every test with 0 failed and 0 skipped.
   # ──────────────────────────────────────────────────
   ts-regression:
     name: TS Regression Gate (engine + compiler)
@@ -78,7 +66,7 @@ jobs:
       # load and SKIPS its ~227 conformance subtests if it is missing — and the
       # file is gitignored. Generate it explicitly here (rather than relying on
       # engine_parse.test.ts's on-demand shell-out, which races module load) so
-      # the TS compiler gate exercises the full self-host suite.
+      # the TS compiler gate exercises the full self-host suite with no skips.
       - name: Generate engine.ball.json (self-host source)
         run: cd dart && dart run encoder/tool/roundtrip_engine.dart --skip-analyze --save-program self_host/engine.ball.json
 
@@ -89,41 +77,40 @@ jobs:
       - name: Build @ball-lang/engine
         run: cd ts/engine && npm run build
 
-      - name: Engine — assert 291 passed / 0 failed
+      - name: Engine — assert 0 failed and every test passed
         run: |
           set -o pipefail
           cd ts/engine
-          # The test runner already exits non-zero on any failure; we additionally
-          # assert the exact pass count so a dropped/skipped test is caught too.
           output=$(npm test 2>&1) || { echo "$output"; echo "::error::TS engine suite exited non-zero"; exit 1; }
           echo "$output"
 
           passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)' | tail -1)
-          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)'      | tail -1)
+          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)'        | tail -1)
+          total=$(echo "$output"  | grep -oP ', \K\d+(?= total)'         | tail -1)
 
-          if [ -z "$passed" ] || [ -z "$failed" ]; then
-            echo "::error::Could not parse the 'Results: N passed, M failed' line from TS engine output"
+          if [ -z "$passed" ] || [ -z "$failed" ] || [ -z "$total" ]; then
+            echo "::error::Could not parse the 'Results: N passed, M failed, T total' line from TS engine output"
             exit 1
           fi
 
-          echo "TS engine: $passed passed, $failed failed (expected ${TS_ENGINE_EXPECTED_PASS} / 0)"
+          echo "TS engine: $passed passed, $failed failed, $total total"
           if [ "$failed" != "0" ]; then
-            echo "::error::TS engine has $failed failing test(s)"
+            echo "::error::TS engine has $failed failing test(s) — every test must pass"
             exit 1
           fi
-          if [ "$passed" != "${TS_ENGINE_EXPECTED_PASS}" ]; then
-            echo "::error::TS engine pass count regressed: got $passed, expected ${TS_ENGINE_EXPECTED_PASS}. If this is an intentional change, update TS_ENGINE_EXPECTED_PASS in .github/workflows/regression-gates.yml."
+          if [ "$passed" != "$total" ]; then
+            echo "::error::TS engine: only $passed of $total tests passed — $((total - passed)) did not run/pass (skipped or errored). No skipping allowed."
             exit 1
           fi
 
-      # ── @ball-lang/compiler — uses `node --test`, prints "# pass N" / "# fail N"
+      # ── @ball-lang/compiler — uses `node --test`, prints "# pass N" / "# fail N" / "# skipped N"
       - name: Install @ball-lang/compiler
         run: cd ts/compiler && npm ci
 
       - name: Build @ball-lang/compiler
         run: cd ts/compiler && npm run build
 
-      - name: Compiler — assert 315 pass / 0 fail
+      - name: Compiler — assert 0 fail and 0 skipped
         run: |
           set -o pipefail
           cd ts/compiler
@@ -131,31 +118,33 @@ jobs:
           echo "$output"
 
           # node --test summary line varies by reporter:
-          #   * TAP reporter (non-TTY direct invocation): "# pass N" / "# fail N"
-          #   * spec reporter (the default when run via npm):  "ℹ pass N" / "ℹ fail N"
-          # Match either form by anchoring on the trailing "pass"/"fail" keyword.
-          passed=$(echo "$output" | grep -oP '(^# pass |pass )\K\d+' | tail -1)
-          failed=$(echo "$output" | grep -oP '(^# fail |fail )\K\d+' | tail -1)
+          #   * TAP reporter (non-TTY direct invocation): "# pass N" / "# fail N" / "# skipped N"
+          #   * spec reporter (the default when run via npm):  "ℹ pass N" / "ℹ fail N" / "ℹ skipped N"
+          # Match either form by anchoring on the trailing keyword.
+          passed=$(echo "$output"  | grep -oP '(^# pass |pass )\K\d+'       | tail -1)
+          failed=$(echo "$output"  | grep -oP '(^# fail |fail )\K\d+'       | tail -1)
+          skipped=$(echo "$output" | grep -oP '(^# skipped |skipped )\K\d+' | tail -1)
 
           if [ -z "$passed" ] || [ -z "$failed" ]; then
             echo "::error::Could not parse the '# pass N' / '# fail N' summary from TS compiler output"
             exit 1
           fi
+          skipped=${skipped:-0}
 
-          echo "TS compiler: $passed pass, $failed fail (expected ${TS_COMPILER_EXPECTED_PASS} / 0)"
+          echo "TS compiler: $passed pass, $failed fail, $skipped skipped"
           if [ "$failed" != "0" ]; then
-            echo "::error::TS compiler has $failed failing test(s)"
+            echo "::error::TS compiler has $failed failing test(s) — every test must pass"
             exit 1
           fi
-          if [ "$passed" != "${TS_COMPILER_EXPECTED_PASS}" ]; then
-            echo "::error::TS compiler pass count regressed: got $passed, expected ${TS_COMPILER_EXPECTED_PASS}. If this is an intentional change, update TS_COMPILER_EXPECTED_PASS in .github/workflows/regression-gates.yml."
+          if [ "$skipped" != "0" ]; then
+            echo "::error::TS compiler has $skipped skipped test(s) — no skipping allowed"
             exit 1
           fi
 
   # ──────────────────────────────────────────────────
   # Dart regression gate — engine, encoder, and compiler must each
-  # report 0 failures and the expected pass counts (matching ci.yml
-  # conventions: compiler excludes @Tags(['slow'])).
+  # run every test with 0 failed and 0 skipped (compiler excludes
+  # @Tags(['slow']) to match ci.yml; excluded tests are not run, not skipped).
   # ──────────────────────────────────────────────────
   dart-regression:
     name: Dart Regression Gate (engine + encoder + compiler)
@@ -178,109 +167,97 @@ jobs:
       - name: Install & build @ball-lang/compiler
         run: cd ts/compiler && npm ci && npm run build
 
-      - name: Engine — assert 0 failed and pass floor
+      - name: Engine — assert 0 failed and 0 skipped
         run: |
           set -o pipefail
           cd dart/engine
           output=$(dart test --reporter expanded 2>&1) || { echo "$output"; echo "::error::Dart engine suite exited non-zero"; exit 1; }
           echo "$output"
 
-          if echo "$output" | grep -q "All tests passed"; then
-            passed=$(echo "$output" | grep -oP '\+(\d+)' | tail -1 | grep -oP '\d+')
-            failed="0"
-          else
-            passed=$(echo "$output" | grep -oP '\+(\d+)' | tail -1 | grep -oP '\d+' || echo "")
-            failed=$(echo "$output" | grep -oP '(?<![+~])-(\d+)' | tail -1 | grep -oP '\d+' || echo "0")
-          fi
+          passed=$(echo "$output"  | grep -oP '\+\K\d+'            | tail -1)
+          failed=$(echo "$output"  | grep -oP '(?<![+~])-\K\d+'    | tail -1)
+          skipped=$(echo "$output" | grep -oP '~\K\d+'             | tail -1)
+          failed=${failed:-0}; skipped=${skipped:-0}
 
-          if [ -z "$passed" ] || [ -z "$failed" ]; then
-            echo "::error::Could not parse Dart engine pass/fail counts"
+          if [ -z "$passed" ]; then
+            echo "::error::Could not parse Dart engine pass count"
             exit 1
           fi
 
-          echo "Dart engine: $passed passed, $failed failed (floor: ${DART_ENGINE_MIN_PASS}, require 0 failed)"
+          echo "Dart engine: $passed passed, $failed failed, $skipped skipped"
           if [ "$failed" != "0" ]; then
-            echo "::error::Dart engine has $failed failing test(s)"
+            echo "::error::Dart engine has $failed failing test(s) — every test must pass"
             exit 1
           fi
-          if [ "$passed" -lt "${DART_ENGINE_MIN_PASS}" ]; then
-            echo "::error::Dart engine pass count regressed: got $passed, must be >= ${DART_ENGINE_MIN_PASS}. If this is an intentional change, update DART_ENGINE_MIN_PASS in .github/workflows/regression-gates.yml."
+          if [ "$skipped" != "0" ]; then
+            echo "::error::Dart engine has $skipped skipped test(s) — no skipping allowed"
             exit 1
           fi
 
-      - name: Encoder — assert expected pass / 0 failed
+      - name: Encoder — assert 0 failed and 0 skipped
         run: |
           set -o pipefail
           cd dart/encoder
           output=$(dart test --reporter expanded 2>&1) || { echo "$output"; echo "::error::Dart encoder suite exited non-zero"; exit 1; }
           echo "$output"
 
-          if echo "$output" | grep -q "All tests passed"; then
-            passed=$(echo "$output" | grep -oP '\+(\d+)' | tail -1 | grep -oP '\d+')
-            failed="0"
-          else
-            passed=$(echo "$output" | grep -oP '\+(\d+)' | tail -1 | grep -oP '\d+' || echo "")
-            failed=$(echo "$output" | grep -oP '(?<![+~])-(\d+)' | tail -1 | grep -oP '\d+' || echo "0")
-          fi
+          passed=$(echo "$output"  | grep -oP '\+\K\d+'            | tail -1)
+          failed=$(echo "$output"  | grep -oP '(?<![+~])-\K\d+'    | tail -1)
+          skipped=$(echo "$output" | grep -oP '~\K\d+'             | tail -1)
+          failed=${failed:-0}; skipped=${skipped:-0}
 
-          if [ -z "$passed" ] || [ -z "$failed" ]; then
-            echo "::error::Could not parse Dart encoder pass/fail counts"
+          if [ -z "$passed" ]; then
+            echo "::error::Could not parse Dart encoder pass count"
             exit 1
           fi
 
-          echo "Dart encoder: $passed passed, $failed failed (expected ${DART_ENCODER_EXPECTED} / 0)"
+          echo "Dart encoder: $passed passed, $failed failed, $skipped skipped"
           if [ "$failed" != "0" ]; then
-            echo "::error::Dart encoder has $failed failing test(s)"
+            echo "::error::Dart encoder has $failed failing test(s) — every test must pass"
             exit 1
           fi
-          if [ "$passed" != "${DART_ENCODER_EXPECTED}" ]; then
-            echo "::error::Dart encoder pass count regressed: got $passed, expected ${DART_ENCODER_EXPECTED}. If this is an intentional change, update DART_ENCODER_EXPECTED in .github/workflows/regression-gates.yml."
+          if [ "$skipped" != "0" ]; then
+            echo "::error::Dart encoder has $skipped skipped test(s) — no skipping allowed"
             exit 1
           fi
 
-      - name: Compiler — assert expected pass / 0 fail (exclude slow)
+      - name: Compiler — assert 0 failed and 0 skipped (exclude slow)
         run: |
           set -o pipefail
           cd dart/compiler
           output=$(dart test --reporter expanded --exclude-tags slow 2>&1) || { echo "$output"; echo "::error::Dart compiler suite exited non-zero"; exit 1; }
           echo "$output"
 
-          if echo "$output" | grep -q "All tests passed"; then
-            passed=$(echo "$output" | grep -oP '\+(\d+)' | tail -1 | grep -oP '\d+')
-            failed="0"
-          else
-            passed=$(echo "$output" | grep -oP '\+(\d+)' | tail -1 | grep -oP '\d+' || echo "")
-            failed=$(echo "$output" | grep -oP '(?<![+~])-(\d+)' | tail -1 | grep -oP '\d+' || echo "0")
-          fi
+          passed=$(echo "$output"  | grep -oP '\+\K\d+'            | tail -1)
+          failed=$(echo "$output"  | grep -oP '(?<![+~])-\K\d+'    | tail -1)
+          skipped=$(echo "$output" | grep -oP '~\K\d+'             | tail -1)
+          failed=${failed:-0}; skipped=${skipped:-0}
 
-          if [ -z "$passed" ] || [ -z "$failed" ]; then
-            echo "::error::Could not parse Dart compiler pass/fail counts"
+          if [ -z "$passed" ]; then
+            echo "::error::Could not parse Dart compiler pass count"
             exit 1
           fi
 
-          echo "Dart compiler: $passed passed, $failed failed (expected ${DART_COMPILER_EXPECTED} / 0)"
+          echo "Dart compiler: $passed passed, $failed failed, $skipped skipped"
           if [ "$failed" != "0" ]; then
-            echo "::error::Dart compiler has $failed failing test(s)"
+            echo "::error::Dart compiler has $failed failing test(s) — every test must pass"
             exit 1
           fi
-          if [ "$passed" != "${DART_COMPILER_EXPECTED}" ]; then
-            echo "::error::Dart compiler pass count regressed: got $passed, expected ${DART_COMPILER_EXPECTED}. If this is an intentional change, update DART_COMPILER_EXPECTED in .github/workflows/regression-gates.yml."
+          if [ "$skipped" != "0" ]; then
+            echo "::error::Dart compiler has $skipped skipped test(s) — no skipping allowed"
             exit 1
           fi
 
   # ──────────────────────────────────────────────────
   # C++ self-host tally gate — the compiled Ball engine (engine_rt.cpp)
-  # must keep passing at least CPP_SELFHOST_MIN_PASS of the 227 conformance
-  # fixtures. This job only runs (and is blocking) once cpp-conformance has
-  # built successfully on Linux — i.e. the native C++ build is green.
+  # must pass EVERY conformance fixture: 0 fail, 0 timeout, 0 crash.
   #
-  # Equivalent of cpp/test/run_selfhost_tally.sh, but re-pointed at the Linux
-  # single-config binary path (the checked-in script hard-codes the Windows
-  # MSVC `cpp/build3/test/Release/*.exe` path). It emits the same `PASS=N`
-  # summary line that the script does, then enforces the floor.
+  # Equivalent of cpp/test/run_selfhost_tally.sh, re-pointed at the Linux
+  # single-config binary path. It emits the same `PASS=N` summary line, then
+  # requires that nothing is non-passing.
   # ──────────────────────────────────────────────────
   cpp-selfhost-tally:
-    name: C++ Self-Host Tally (PASS >= 211)
+    name: C++ Self-Host Tally (every fixture must pass)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -314,7 +291,7 @@ jobs:
       - name: Build self-host conformance binary
         run: cmake --build cpp/ci-build --config Release --target test_selfhost_conformance
 
-      - name: Run per-fixture tally and enforce PASS floor
+      - name: Run per-fixture tally and require all fixtures pass
         run: |
           set -uo pipefail
 
@@ -355,13 +332,18 @@ jobs:
 
           # Same summary line emitted by run_selfhost_tally.sh.
           echo "PASS=$pass FAIL=$fail TIMEOUT=$timeout CRASH=$crash"
-          echo "--- non-pass ---"
-          printf '%s\n' "${fails[@]}"
+          if [ "${#fails[@]}" -gt 0 ]; then
+            echo "--- non-pass ---"
+            printf '%s\n' "${fails[@]}"
+          fi
 
           echo ""
-          echo "C++ self-host tally: $pass passed (floor: ${CPP_SELFHOST_MIN_PASS}, of conformance fixtures)"
-          if [ "$pass" -lt "${CPP_SELFHOST_MIN_PASS}" ]; then
-            echo "::error::C++ self-host PASS regressed: got $pass, must be >= ${CPP_SELFHOST_MIN_PASS}. See the non-pass list above. If this is an intentional change, update CPP_SELFHOST_MIN_PASS in .github/workflows/regression-gates.yml."
+          if [ "$pass" -eq 0 ]; then
+            echo "::error::C++ self-host tally found 0 passing fixtures — did the binary run?"
             exit 1
           fi
-          echo "C++ self-host tally floor satisfied."
+          if [ "$fail" != "0" ] || [ "$timeout" != "0" ] || [ "$crash" != "0" ]; then
+            echo "::error::C++ self-host is not all-green: $fail failed, $timeout timed out, $crash crashed. See the non-pass list above. Every fixture must pass."
+            exit 1
+          fi
+          echo "C++ self-host: all $pass fixtures passed."

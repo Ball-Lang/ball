@@ -22,7 +22,7 @@ Core invariants are defined once in CLAUDE.md → Core Invariants — Never Viol
 
 ## Critical Known Issues
 
-C++/self-host gaps are tracked in `docs/SELF_HOST_STATUS.md` (kept current); the CI floor is in `.github/workflows/regression-gates.yml`.
+C++/self-host gaps are tracked in `docs/SELF_HOST_STATUS.md` (kept current); the strict all-green CI gates are in `.github/workflows/regression-gates.yml`.
 
 ## File Organization
 

@@ -171,8 +171,8 @@ jobs:
   # ──────────────────────────────────────────────────
   # Upstream protobuf conformance — drive ball_protobuf's feature-aware codecs
   # through the REAL protobuf conformance_test_runner for the proto2, proto3,
-  # and edition2023 TestAllTypes messages (2513 pass; expected failures tracked
-  # in conformance/failure_list_ball.txt). POSIX-only runner (fork/pipe) → Ubuntu.
+  # and edition2023 TestAllTypes messages (every registered test must pass — no
+  # tolerated-failure list). POSIX-only runner (fork/pipe) → Ubuntu.
   # ──────────────────────────────────────────────────
   editions-conformance-upstream:
     name: Upstream Conformance (Editions)
@@ -217,12 +217,10 @@ jobs:
           echo "runner: $runner"
           # The program walks up from CWD (repo root) to find the checked-in
           # FileDescriptorSet, so it needs no args — this runner build takes the
-          # test program as the final positional arg (no `--` separator). Tests
-          # we don't yet pass are listed in failure_list_ball.txt; the runner
-          # exits non-zero on any UNEXPECTED pass or failure, so the list must
-          # stay exact (burn it down as codec/bridge gaps are fixed).
+          # test program as the final positional arg (no `--` separator). There
+          # is NO tolerated-failure list: the runner exits non-zero on ANY
+          # conformance failure, so ball_protobuf must pass every case.
           "$runner" --maximum_edition 2023 \
-            --failure_list dart/ball_protobuf/conformance/failure_list_ball.txt \
             ./ball_conformance
 
   # ──────────────────────────────────────────────────

@@ -190,8 +190,17 @@ jobs:
       # absent from Ubuntu apt's older libprotobuf-dev. CMake FetchContents the
       # matching version (same as ci.yml's C++ build).
 
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: cpp-compiled-matrix
+          max-size: 1G
+
+      - name: Install ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
       - name: Configure CMake
-        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build Ball→C++ compiler
         run: cmake --build cpp/build --config Release --target ball_cpp_compile -j$(nproc)

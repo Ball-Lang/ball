@@ -50,6 +50,13 @@ jobs:
         with:
           sdk: stable
 
+      - name: Cache Dart pub
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
       # Node is needed by the Dart-side TsCompiler wrapper, which
       # shells out to @ball-lang/compiler (ts/compiler/). Without the
       # dist build the wrapper throws.
@@ -117,6 +124,13 @@ jobs:
         with:
           sdk: stable
 
+      - name: Cache Dart pub
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
       - name: Install dependencies
         run: cd dart && dart pub get
 
@@ -149,6 +163,16 @@ jobs:
         with:
           setup_only: true
 
+      # Compiler cache so the FetchContent protobuf+abseil build (the dominant
+      # cost) is reused across runs. ccache on Linux/macOS, sccache on Windows
+      # (MSVC). Manages its own GitHub Actions cache save/restore.
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: cpp-${{ matrix.os }}
+          variant: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
+          max-size: 1G
+
       - name: Install nlohmann-json (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
@@ -160,7 +184,7 @@ jobs:
       # Windows: nlohmann-json is fetched by CMake FetchContent
 
       - name: Configure CMake
-        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} -DCMAKE_CXX_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
 
       - name: Build all targets
         run: cmake --build cpp/build --config Release
@@ -185,8 +209,23 @@ jobs:
         with:
           sdk: stable
 
-      - name: Install nlohmann-json
-        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
+      - name: Cache Dart pub
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      # ccache makes the protobuf+abseil conformance build a near-instant
+      # rebuild on warm runs (this is the slowest job in CI — 45-min budget).
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: cpp-conformance
+          max-size: 1G
+
+      - name: Install nlohmann-json + ninja
+        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev ninja-build
 
       - name: Install dependencies
         run: cd dart && dart pub get
@@ -195,7 +234,7 @@ jobs:
       # conformance harness). It statically links the TestAllTypes* descriptors,
       # so we need not feed it our .proto — it already knows the message types.
       - name: Configure CMake (conformance runner)
-        run: cmake -S cpp -B cpp/build-conformance -Dprotobuf_BUILD_CONFORMANCE=ON -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S cpp -B cpp/build-conformance -G Ninja -Dprotobuf_BUILD_CONFORMANCE=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       # Bounded parallelism (-j 2): an unbounded `-j` spawns dozens of protobuf's
       # huge translation units at once (command_line_interface.cc etc.) and
@@ -236,9 +275,20 @@ jobs:
         with:
           sdk: stable
 
+      - name: Cache Dart pub
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ts/engine/package-lock.json
+            ts/compiler/package-lock.json
 
       # Dart is needed to regenerate engine.ball.json for the engine
       # self-host parse test under ts/compiler/test/engine_parse.test.ts.

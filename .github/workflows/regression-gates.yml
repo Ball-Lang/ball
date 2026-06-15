@@ -275,18 +275,31 @@ jobs:
         with:
           setup_only: true
 
-      - name: Install nlohmann-json
-        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: cpp-selfhost
+          max-size: 1G
+
+      - name: Install nlohmann-json + ninja
+        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev ninja-build
 
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
 
+      - name: Cache Dart pub
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
       - name: Bootstrap Dart workspace (engine_rt generation)
         run: cd dart && dart pub get
 
       - name: Configure CMake (bootstrap compiler)
-        run: cmake -S cpp -B cpp/ci-build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S cpp -B cpp/ci-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build ball_cpp_compile
         run: cmake --build cpp/ci-build --config Release --target ball_cpp_compile
@@ -295,7 +308,7 @@ jobs:
         run: dart run dart/compiler/tool/compile_engine_cpp.dart --monolithic
 
       - name: Configure CMake (enable self-host target)
-        run: cmake -S cpp -B cpp/ci-build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S cpp -B cpp/ci-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build self-host conformance binary
         run: cmake --build cpp/ci-build --config Release --target test_selfhost_conformance

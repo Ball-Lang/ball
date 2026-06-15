@@ -174,9 +174,12 @@ jobs:
           output=$(dart test --reporter expanded 2>&1) || { echo "$output"; echo "::error::Dart engine suite exited non-zero"; exit 1; }
           echo "$output"
 
-          passed=$(echo "$output"  | grep -oP '\+\K\d+'            | tail -1)
-          failed=$(echo "$output"  | grep -oP '(?<![+~])-\K\d+'    | tail -1)
-          skipped=$(echo "$output" | grep -oP '~\K\d+'             | tail -1)
+          # `|| true` on each: under `bash -e` + pipefail a grep with no match
+          # exits non-zero (e.g. an all-green run has no `-N`/`~N`), which would
+          # otherwise abort the step before the count checks run.
+          passed=$(echo "$output"  | grep -oP '\+\K\d+'            | tail -1 || true)
+          failed=$(echo "$output"  | grep -oP '(?<![+~])-\K\d+'    | tail -1 || true)
+          skipped=$(echo "$output" | grep -oP '~\K\d+'             | tail -1 || true)
           failed=${failed:-0}; skipped=${skipped:-0}
 
           if [ -z "$passed" ]; then
@@ -201,9 +204,12 @@ jobs:
           output=$(dart test --reporter expanded 2>&1) || { echo "$output"; echo "::error::Dart encoder suite exited non-zero"; exit 1; }
           echo "$output"
 
-          passed=$(echo "$output"  | grep -oP '\+\K\d+'            | tail -1)
-          failed=$(echo "$output"  | grep -oP '(?<![+~])-\K\d+'    | tail -1)
-          skipped=$(echo "$output" | grep -oP '~\K\d+'             | tail -1)
+          # `|| true` on each: under `bash -e` + pipefail a grep with no match
+          # exits non-zero (e.g. an all-green run has no `-N`/`~N`), which would
+          # otherwise abort the step before the count checks run.
+          passed=$(echo "$output"  | grep -oP '\+\K\d+'            | tail -1 || true)
+          failed=$(echo "$output"  | grep -oP '(?<![+~])-\K\d+'    | tail -1 || true)
+          skipped=$(echo "$output" | grep -oP '~\K\d+'             | tail -1 || true)
           failed=${failed:-0}; skipped=${skipped:-0}
 
           if [ -z "$passed" ]; then
@@ -228,9 +234,12 @@ jobs:
           output=$(dart test --reporter expanded --exclude-tags slow 2>&1) || { echo "$output"; echo "::error::Dart compiler suite exited non-zero"; exit 1; }
           echo "$output"
 
-          passed=$(echo "$output"  | grep -oP '\+\K\d+'            | tail -1)
-          failed=$(echo "$output"  | grep -oP '(?<![+~])-\K\d+'    | tail -1)
-          skipped=$(echo "$output" | grep -oP '~\K\d+'             | tail -1)
+          # `|| true` on each: under `bash -e` + pipefail a grep with no match
+          # exits non-zero (e.g. an all-green run has no `-N`/`~N`), which would
+          # otherwise abort the step before the count checks run.
+          passed=$(echo "$output"  | grep -oP '\+\K\d+'            | tail -1 || true)
+          failed=$(echo "$output"  | grep -oP '(?<![+~])-\K\d+'    | tail -1 || true)
+          skipped=$(echo "$output" | grep -oP '~\K\d+'             | tail -1 || true)
           failed=${failed:-0}; skipped=${skipped:-0}
 
           if [ -z "$passed" ]; then

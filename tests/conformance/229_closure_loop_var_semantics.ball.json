@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "229_closure_loop_var_semantics",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
@@ -23,11 +23,11 @@
           "isBase": true
         },
         {
-          "name": "list_push",
+          "name": "add",
           "isBase": true
         },
         {
-          "name": "add",
+          "name": "list_push",
           "isBase": true
         },
         {
@@ -156,19 +156,6 @@
                   }
                 },
                 {
-                  "let": {
-                    "name": "i",
-                    "value": {
-                      "literal": {
-                        "intValue": "0"
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var"
-                    }
-                  }
-                },
-                {
                   "expression": {
                     "call": {
                       "module": "std",
@@ -177,6 +164,28 @@
                         "messageCreation": {
                           "typeName": "",
                           "fields": [
+                            {
+                              "name": "init",
+                              "value": {
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "i",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "0"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            },
                             {
                               "name": "condition",
                               "value": {

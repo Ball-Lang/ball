@@ -73,7 +73,11 @@ Future<void> main() async {
       final ballFile = File('${outDir.path}/$baseName.ball.json');
       final expectedFile = File('${outDir.path}/$baseName.expected_output.txt');
 
-      ballFile.writeAsStringSync(jsonStr);
+      // Trailing newline so the file is POSIX-clean and byte-stable against the
+      // committed copies (which end with '\n'); without it every regenerated
+      // .ball.json shows a spurious one-line diff. The conformance comparator
+      // trimRights output anyway, so it never affects results.
+      ballFile.writeAsStringSync('$jsonStr\n');
       expectedFile.writeAsStringSync(expectedOutput);
 
       stdout.writeln('OK');

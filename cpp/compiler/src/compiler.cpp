@@ -1606,6 +1606,26 @@ std::string CppCompiler::compile_message_creation(const ball::v1::MessageCreatio
             }
             return "BallList{}";
         }
+        // List.filled(count, value) → a vector of `count` copies of `value`.
+        // Dart's List.filled shares the same element reference across all slots.
+        // Without this, the reified-generics branch below swallows List.filled
+        // into a 4-key {__type__,__type_args__,arg0,arg1} map, so `.length`
+        // returns 4 and iteration yields map entries instead of elements.
+        // (self-host conformance 198_large_collection / 187_list_filled / 94_prime_sieve)
+        if (bare == "List.filled") {
+            std::string len, val;
+            for (const auto& f : msg.fields()) {
+                if (f.name() == "__type_args__" || f.name() == "__const__") continue;
+                if (f.name() == "arg0" || f.name() == "count" || f.name() == "length")
+                    len = compile_expr(f.value());
+                else if (f.name() == "arg1" || f.name() == "value")
+                    val = compile_expr(f.value());
+            }
+            if (!len.empty())
+                return "std::vector<std::any>(static_cast<size_t>(static_cast<int64_t>(" +
+                       len + ")), std::any(BallDyn(" +
+                       (val.empty() ? "BallDyn()" : val) + ")))";
+        }
         // Map.from / Map.of → copy
         if (bare == "Map.from" || bare == "Map.of") {
             if (msg.fields().empty()) return "BallMap{}";
@@ -2015,6 +2035,46 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
         std::unordered_set<std::string> inner_decls;
         _collect_declared_locals(func.body(), inner_decls);
         for (const auto& p : own_params) inner_decls.insert(p);
+        // Also exclude params bound by NESTED lambdas — they are local to those
+        // lambdas, never free vars of THIS one. _collect_referenced_names (and
+        // _collect_lambda_free_vars) descend into nested lambdas and report their
+        // params as referenced names, so a binary-op callback `(a,b)=>a-b` would
+        // leak a,b into the enclosing method-lambda's capture once
+        // compute_boxed_vars runs for the method, emitting `[&, a, b]` over
+        // undeclared identifiers. (self-host 155/224 — the method boxing pre-pass)
+        {
+            std::function<void(const ball::v1::Expression&)> add_nested =
+                [&](const ball::v1::Expression& ex) {
+                    using E = ball::v1::Expression;
+                    switch (ex.expr_case()) {
+                        case E::kLambda:
+                            if (ex.lambda().has_metadata())
+                                for (const auto& p : extract_params(ex.lambda().metadata()))
+                                    inner_decls.insert(p);
+                            if (ex.lambda().has_body()) add_nested(ex.lambda().body());
+                            return;
+                        case E::kBlock:
+                            for (const auto& s : ex.block().statements()) {
+                                if (s.has_let()) add_nested(s.let().value());
+                                else if (s.has_expression()) add_nested(s.expression());
+                            }
+                            if (ex.block().has_result()) add_nested(ex.block().result());
+                            return;
+                        case E::kCall:
+                            if (ex.call().has_input()) add_nested(ex.call().input());
+                            return;
+                        case E::kMessageCreation:
+                            for (const auto& f : ex.message_creation().fields())
+                                if (f.has_value()) add_nested(f.value());
+                            return;
+                        case E::kFieldAccess:
+                            if (ex.field_access().has_object()) add_nested(ex.field_access().object());
+                            return;
+                        default: return;
+                    }
+                };
+            add_nested(func.body());
+        }
         // Deterministic order for stable output. Both boxed locals (shared_ptr
         // copy keeps the cell alive) and value-capture function params
         // (std::function copy) are captured BY VALUE so they survive the frame.
@@ -2038,15 +2098,97 @@ std::string CppCompiler::compile_lambda(const ball::v1::FunctionDefinition& func
     // the frame. Mutated-and-shared locals are already boxed above (their
     // shared_ptr cell is what gets copied), so this never breaks write-back; `&`
     // stays the default so anything not enumerated is still captured.
-    if (func.has_body() && !current_fn_params_.empty()) {
+    if (func.has_body() &&
+        (!current_fn_params_.empty() || !current_loop_vars_.empty() ||
+         !current_fn_locals_.empty())) {
         std::unordered_set<std::string> esc_fvs;
         _collect_referenced_names(func.body(), esc_fvs);
         std::unordered_set<std::string> own;
         for (const auto& p : own_params) own.insert(p);
+        // Also exclude names declared (let) inside THIS lambda's body: an inner
+        // local shadows an enclosing loop var / method param / method let of the
+        // same name, so it must not be value-captured (it would be `[&, x]` over
+        // an undeclared identifier — the inner local is in scope by name).
+        std::unordered_set<std::string> inner_decls2;
+        _collect_declared_locals(func.body(), inner_decls2);
+        for (const auto& p : own_params) inner_decls2.insert(p);
+        // Also exclude every name bound INSIDE this lambda's body by a nested
+        // lambda PARAM or a std `for_in`/`for_each` LOOP VARIABLE. Such names are
+        // local to the nested construct — never free vars of THIS lambda — but
+        // _collect_referenced_names surfaces them in esc_fvs, and they may collide
+        // with an enclosing method `let` of the same name now tracked in
+        // current_fn_locals_. Without this, a std-collection handler such as
+        // `(i) => { for (e in list) result = [...result, cb(e)]; }` (loop var `e`)
+        // or `(i) => _stdBinary(i, (a,b) => a-b)` (nested params a,b) leaks those
+        // names into the OUTER `(i)` lambda's capture: `[&, e](BallDyn i)` /
+        // `[&, a, b](BallDyn i)` over identifiers declared only in the inner
+        // construct (a g++/clang "undeclared identifier" error). Mirrors the
+        // nested-param exclusion in the boxed/value-capture block above, extended
+        // to for_in/for_each loop vars. (self-host 155/224 + std handlers)
+        {
+            std::function<void(const ball::v1::Expression&)> add_inner =
+                [&](const ball::v1::Expression& ex) {
+                    using E = ball::v1::Expression;
+                    switch (ex.expr_case()) {
+                        case E::kLambda:
+                            if (ex.lambda().has_metadata())
+                                for (const auto& p : extract_params(ex.lambda().metadata()))
+                                    inner_decls2.insert(p);
+                            if (ex.lambda().has_body()) add_inner(ex.lambda().body());
+                            return;
+                        case E::kBlock:
+                            for (const auto& s : ex.block().statements()) {
+                                if (s.has_let()) add_inner(s.let().value());
+                                else if (s.has_expression()) add_inner(s.expression());
+                            }
+                            if (ex.block().has_result()) add_inner(ex.block().result());
+                            return;
+                        case E::kCall: {
+                            // std for_in / for_each bind their loop variable via a
+                            // `variable` string field in the call's messageCreation
+                            // input; record it as an inner declaration.
+                            const auto& fn = ex.call().function();
+                            if ((fn == "for_in" || fn == "for_each") && ex.call().has_input()) {
+                                const auto* ve = get_message_field_expr(ex.call(), "variable");
+                                if (ve && ve->expr_case() == ball::v1::Expression::kLiteral)
+                                    inner_decls2.insert(ve->literal().string_value());
+                            }
+                            if (ex.call().has_input()) add_inner(ex.call().input());
+                            return;
+                        }
+                        case E::kMessageCreation:
+                            for (const auto& f : ex.message_creation().fields())
+                                if (f.has_value()) add_inner(f.value());
+                            return;
+                        case E::kFieldAccess:
+                            if (ex.field_access().has_object()) add_inner(ex.field_access().object());
+                            return;
+                        case E::kLiteral:
+                            if (ex.literal().value_case() == ball::v1::Literal::kListValue)
+                                for (const auto& el : ex.literal().list_value().elements())
+                                    add_inner(el);
+                            return;
+                        default: return;
+                    }
+                };
+            add_inner(func.body());
+        }
         std::set<std::string> by_value;
         for (const auto& name : esc_fvs) {
-            if (!current_fn_params_.count(name)) continue;  // only enclosing-method params
-            if (own.count(name)) continue;                  // shadowed by this lambda's own param
+            // Capture enclosing-METHOD params (their `[&]` would dangle the
+            // engine's scope chain / AST) OR enclosing for_in/for_each LOOP
+            // VARS (a fresh per-iteration stack local the escaping closure
+            // would otherwise dangle — _resolveTypeMethods' module/func) OR
+            // enclosing-METHOD `let`s (the class-method emit path runs no
+            // compute_boxed_vars, so a tear-off closure capturing modName /
+            // topLevel / ctorEntry dangles them — _evalReference's top-level /
+            // constructor tear-offs).
+            if (!current_fn_params_.count(name) &&
+                !current_loop_vars_.count(name) &&
+                !current_fn_locals_.count(name))
+                continue;
+            if (own.count(name)) continue;          // shadowed by this lambda's own param
+            if (inner_decls2.count(name)) continue;  // shadowed by an inner `let`
             if (boxed_vars_.count(name) || value_capture_vars_.count(name)) continue;  // already handled
             by_value.insert(name);
         }
@@ -3903,6 +4045,38 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 if (mc != std::string::npos) mtn = mtn.substr(mc + 1);
                 if (!mtn.empty() && mtn != "BallException") type_name = mtn;
             }
+            // If any non-metadata field carries a RUNTIME expression (not a
+            // string literal) — e.g. the engine's
+            // `throw BallRuntimeError(error?.toString() ?? 'Unknown async error')`
+            // — the literal-only path below would DROP it and set the message to
+            // the bare type name. Preserve the real payload via
+            // _ball_make_exception so a catch reads e["value"] / e.message.
+            // (self-host 236_async_error_propagation / 208_async_chain_rethrow / 84_exception_chain)
+            {
+                const ball::v1::Expression* payload = nullptr;
+                const ball::v1::Expression* first_runtime = nullptr;
+                for (const auto& f : val_expr->message_creation().fields()) {
+                    if (f.name() == "__type" || f.name() == "__type_args__" ||
+                        f.name() == "__const__")
+                        continue;
+                    bool is_str_lit =
+                        f.value().expr_case() == ball::v1::Expression::kLiteral &&
+                        f.value().literal().value_case() ==
+                            ball::v1::Literal::kStringValue;
+                    if (!is_str_lit) {
+                        if (!first_runtime) first_runtime = &f.value();
+                        if (f.name() == "value" || f.name() == "message" ||
+                            f.name() == "arg0") {
+                            payload = &f.value();
+                            break;
+                        }
+                    }
+                }
+                if (!payload) payload = first_runtime;
+                if (payload)
+                    return "throw _ball_make_exception(\"" + type_name + "\"s, " +
+                           compile_expr(*payload) + ")";
+            }
             // Built-in Dart exceptions store the first positional ctor arg as
             // `.message`; the catch reads `e.message` (conformance 146).
             static const std::set<std::string> kBuiltinExc = {
@@ -5740,6 +5914,11 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                 auto iter = get_message_field(call, "iterable");
                 emit_line("for (auto " + sanitize_name(var_name) + " : BallDyn(" + iter + ")) {");
                 indent_++;
+                // Track this loop var so a nested closure that escapes the loop
+                // iteration value-captures it (snapshot) instead of dangling it
+                // under `[&]`. See current_loop_vars_ and compile_lambda.
+                const bool loop_var_was_present = current_loop_vars_.count(var_name) > 0;
+                current_loop_vars_.insert(var_name);
                 auto* body_expr = get_message_field_expr(call, "body");
                 if (body_expr) {
                     if (body_expr->expr_case() == ball::v1::Expression::kBlock) {
@@ -5755,6 +5934,7 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                         compile_statement(inner);
                     }
                 }
+                if (!loop_var_was_present) current_loop_vars_.erase(var_name);
                 if (!loop_label.empty()) {
                     emit_line("__ball_continue_" + loop_label + ":;");
                 }
@@ -6432,11 +6612,22 @@ inline BallDyn ball_concat(const BallDyn& a, const BallDyn& b) {
   auto ba0 = static_cast<std::any>(b);
   const std::any& aa = _BallDynUnwrapper::unwrap(aa0);
   const std::any& ba = _BallDynUnwrapper::unwrap(ba0);
-  // Map concat: merge maps
-  if (aa.type() == typeid(BallMap) || ba.type() == typeid(BallMap)) {
+  // Map concat: merge maps. Recognize plain BallMap AND insertion-ordered
+  // BallOrderedMap / BallOrderedMapRef (and unordered_map). The engine builds a
+  // pattern's `bindings` as an ordered map, so `bindings.addAll(tempBindings)`
+  // lowered to ball_concat must MERGE them — the old typeid(BallMap)-only guard
+  // missed ordered maps and fell through to the list branch, returning an empty
+  // list and dropping every binding. (self-host conformance 258_logical_and_pattern)
+  auto is_any_map = [](const std::any& x) {
+    return x.type() == typeid(BallMap) ||
+           x.type() == typeid(BallOrderedMap) ||
+           x.type() == typeid(BallOrderedMapRef) ||
+           x.type() == typeid(std::unordered_map<std::string, std::any>);
+  };
+  if (is_any_map(aa) || is_any_map(ba)) {
     BallMap result;
-    try { auto ma = std::any_cast<BallMap>(aa); for (auto& p : ma) result[p.first] = p.second; } catch(...) {}
-    try { auto mb = std::any_cast<BallMap>(ba); for (auto& p : mb) result[p.first] = p.second; } catch(...) {}
+    for (auto& p : _ballAnyToMap(aa)) result[p.first] = p.second;
+    for (auto& p : _ballAnyToMap(ba)) result[p.first] = p.second;
     return BallDyn(result);
   }
   // List concat — deref shared_ptr-backed (reference-semantic) lists. Builds a
@@ -6496,7 +6687,11 @@ inline BallDyn ball_wrap_list(const std::vector<std::string>& v) {
   for (const auto& s : v) result.push_back(std::any(s));
   return BallDyn(result);
 }
-
+)";
+    // NOTE: the emitted runtime preamble is split across two adjacent string
+    // literals here so neither exceeds MSVC's 16380-byte single-literal limit
+    // (C2026). The two out_<< emissions concatenate to one contiguous block.
+    out_ << R"(
 // elementAt helper (Iterable.elementAt)
 inline BallDyn elementAt(const BallDyn& list, int64_t index) {
   return list[index];
@@ -7695,12 +7890,25 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         auto saved_declared_locals = declared_locals_;
         auto saved_generic_locals = generic_locals_;
         auto saved_fn_params = current_fn_params_;
+        auto saved_fn_locals = current_fn_locals_;
         declared_locals_.clear();
         generic_locals_.clear();
         current_fn_params_.clear();
+        current_fn_locals_.clear();
         for (const auto& p : params) declared_locals_.insert(p);
         for (const auto& p : params) current_fn_params_.insert(p);
         if (func->has_body()) _collect_declared_locals(func->body(), declared_locals_);
+        // Record this method's `let` names so compile_lambda's escaping-closure
+        // safety net can VALUE-CAPTURE (snapshot) the ones a returned/stored
+        // tear-off closure reads — this path runs no compute_boxed_vars, so they
+        // are otherwise dangled by `[&]`. Params are excluded (already covered by
+        // current_fn_params_). (self-host 155/224)
+        if (func->has_body()) {
+            std::unordered_set<std::string> method_locals;
+            _collect_declared_locals(func->body(), method_locals);
+            for (const auto& l : method_locals)
+                if (!current_fn_params_.count(l)) current_fn_locals_.insert(l);
+        }
         // Emit one method parameter. Required params stay `auto&&` (perfect
         // forwarding, matching the rest of the engine); an optional param is
         // pinned to a concrete type and — on its declaration — given its Dart
@@ -7743,6 +7951,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
             declared_locals_ = saved_declared_locals;
             generic_locals_ = saved_generic_locals;
             current_fn_params_ = saved_fn_params;
+            current_fn_locals_ = saved_fn_locals;
             continue;
         }
 
@@ -7874,6 +8083,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         declared_locals_ = saved_declared_locals;
         generic_locals_ = saved_generic_locals;
         current_fn_params_ = saved_fn_params;
+        current_fn_locals_ = saved_fn_locals;
     }
     in_static_method_ = false;  // (self-host engine #19) leave method context
 
@@ -8452,6 +8662,10 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
     // _collect_referenced_names returns.
     current_fn_params_.clear();
     for (const auto& p : params) current_fn_params_.insert(p);
+    // Top-level functions run compute_boxed_vars above (captured `let`s are
+    // BOXED, write-back-safe), so the safety net's method-let snapshot must not
+    // fire here — clear it to avoid leaking stale class-method state.
+    current_fn_locals_.clear();
 
     // Extract param specs for optional-param handling (matching forward decl).
     auto fn_param_specs = func.has_metadata()
@@ -8733,6 +8947,7 @@ void CppCompiler::emit_main(const ball::v1::FunctionDefinition& entry) {
     if (entry.has_body()) _collect_declared_locals(entry.body(), declared_locals_);
     if (entry.has_body()) compute_boxed_vars(entry.body(), {});
     current_fn_params_.clear();  // main takes no params; no enclosing-param capture
+    current_fn_locals_.clear();  // main runs compute_boxed_vars; lets are boxed
 
     if (entry.has_body()) {
         if (entry.body().expr_case() == ball::v1::Expression::kBlock) {

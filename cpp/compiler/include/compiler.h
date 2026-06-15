@@ -160,6 +160,37 @@ private:
     // compile_lambda value-captures the enclosing-method params it references so
     // the BallDyn copies keep the scope chain / AST alive past the frame.
     std::unordered_set<std::string> current_fn_params_;
+    // Names (raw Ball) of for_in / for_each loop variables of ENCLOSING loops in
+    // the function/method currently being emitted. A for_in loop var is a fresh
+    // stack local per iteration (`for (auto module : ...)`); it is neither a
+    // `let` nor a method param, so compute_boxed_vars never boxes it and the
+    // current_fn_params_ safety net never sees it. A closure that escapes the
+    // loop iteration (stored/returned — e.g. the engine's _resolveTypeMethods
+    // builds method closures over the iterated `module`/`func` and returns them
+    // in __methods__) would then dangle that loop local under `[&]` → access
+    // violation when the method is later invoked. compile_lambda VALUE-CAPTURES
+    // (snapshots) any of these the body reads, which is safe because for_in vars
+    // are per-iteration read-only bindings; the BallDyn copy keeps that
+    // iteration's value alive past the frame. Pushed/popped around each for_in /
+    // for_each body so sibling loops are unaffected.
+    std::unordered_set<std::string> current_loop_vars_;
+    // Names (raw Ball) of method-local `let`s of the ENCLOSING method currently
+    // being emitted via the class-method path (emit_struct's method loop). That
+    // path does NOT run compute_boxed_vars, so a method-local `let` captured by a
+    // lambda that ESCAPES the method (returned/stored, then invoked later) is
+    // neither boxed nor value-captured — it dangles under the default `[&]` →
+    // garbage read (`<any>`) or access violation (0xC0000005). This is exactly
+    // how the engine's `_evalReference` builds top-level / constructor tear-off
+    // closures: `final modName = topLevel.module; return (input) => _callFunction(
+    // modName, topLevel.func, input);` captures the method-local lets modName /
+    // topLevel / ctorEntry. compile_lambda VALUE-CAPTURES (snapshots) any of these
+    // the body reads; safe because these engine lets are single-assignment
+    // (`final`/read-only) — the BallDyn copy keeps the let's value (and any
+    // shared_ptr-backed scope/AST it points at) alive past the method frame.
+    // Empty in emit_function / emit_main, where compute_boxed_vars already boxes
+    // captured lets (so the safety net's boxed_vars_ guard skips them anyway).
+    // (self-host 155_pipeline_compose / 224_currying_partial_apply)
+    std::unordered_set<std::string> current_fn_locals_;
     // Set of all enum type names (sanitized, e.g. "Color").
     std::unordered_set<std::string> enum_names_;
     // Maps class name to its TypeDefinition for field lookups.

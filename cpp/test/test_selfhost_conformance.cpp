@@ -253,8 +253,29 @@ static std::string read_file_str(const fs::path& p) {
     return ss.str();
 }
 
+// Host-knob fixtures have no expected_output.txt — they validate the engine's
+// resource-limit BEHAVIOR. The harness constructs the engine with the limit and
+// asserts a specific BallRuntimeError is thrown, mirroring
+// dart/engine/test/conformance_test.dart (the Dart reference does the same).
+struct HostKnob {
+    int64_t timeoutMs = 0;        // >0 ⇒ set engine.timeoutMs
+    int64_t maxMemoryBytes = 0;   // >0 ⇒ set engine.maxMemoryBytes
+    bool sandbox = false;         // ⇒ set engine.sandbox = true
+    bool validateLimits = false;  // ⇒ call engine._validateProgramLimits()
+    const char* expectError = ""; // thrown message must contain this substring
+};
+static const std::map<std::string, HostKnob>& host_knobs() {
+    static const std::map<std::string, HostKnob> m = {
+        {"196_timeout",          HostKnob{1, 0, false, false, "Execution timeout exceeded"}},
+        {"197_memory_limit",     HostKnob{0, 1000, false, false, "Memory limit exceeded"}},
+        {"201_input_validation", HostKnob{0, 0, false, true, "Too many modules"}},
+        {"202_sandbox_mode",     HostKnob{0, 0, true, false, "Sandbox violation"}},
+    };
+    return m;
+}
+
 static bool run_one(const fs::path& program_path, const fs::path& expected_path,
-                    std::string& failure_msg) {
+                    const std::string& test_name, std::string& failure_msg) {
     // Parse the self-describing Any envelope -> Program protobuf.
     auto json = read_file_str(program_path);
     ball::v1::Program program;
@@ -301,6 +322,34 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
         // Build lookup tables (indexes functions, types, etc.)
         engine._buildLookupTables();
         engine._initTopLevelVariables();
+
+        // Host-knob behavioral fixtures: set the resource limit, then run (or
+        // validate) and require the matching BallRuntimeError — instead of an
+        // output comparison (these fixtures have no expected_output.txt).
+        {
+            auto knob_it = host_knobs().find(test_name);
+            if (knob_it != host_knobs().end()) {
+                const HostKnob& k = knob_it->second;
+                if (k.timeoutMs) engine.timeoutMs = BallDyn(k.timeoutMs);
+                if (k.maxMemoryBytes) engine.maxMemoryBytes = BallDyn(k.maxMemoryBytes);
+                engine.sandbox = k.sandbox;
+                std::string thrown;
+                try {
+                    if (k.validateLimits) engine._validateProgramLimits();
+                    engine.run();
+                } catch (const BallException& be) {
+                    thrown = std::string(be.what());
+                    thrown += " " + be.type_name;
+                    for (auto& [kk, vv] : be.fields) thrown += " " + vv;
+                } catch (const std::exception& e) {
+                    thrown = e.what();
+                }
+                if (thrown.find(k.expectError) != std::string::npos) return true;
+                failure_msg = "host-knob limit not enforced: expected error containing \"" +
+                              std::string(k.expectError) + "\" but got: \"" + thrown + "\"";
+                return false;
+            }
+        }
 
         // Debug: check the key
         auto entryMod = ball_to_string(BallDyn(programAny)["entryModule"s]._val);
@@ -388,50 +437,31 @@ int main() {
             auto expected = p.parent_path() / (stem + ".expected_output.txt");
             if (fs::exists(expected)) {
                 cases.push_back({p, expected, stem});
+            } else if (host_knobs().count(stem)) {
+                // Host-knob behavioral fixture (no expected_output.txt): run_one
+                // checks the thrown limit error instead of comparing output.
+                cases.push_back({p, expected, stem});
             }
         }
     }
     std::sort(cases.begin(), cases.end(),
               [](auto& a, auto& b) { return a.name < b.name; });
 
-    // Per-test timeout in seconds. Tests that exceed this are killed and
-    // reported as TIMEOUT. This replaces the old whitelist approach.
-    constexpr int TIMEOUT_SECONDS = 60;
+    // Per-test timeout in seconds. The self-host engine is slower than native
+    // Dart (std::any-boxed interpretation), so genuinely heavy fixtures need a
+    // generous budget to produce the CORRECT result — they are NOT skipped.
+    constexpr int TIMEOUT_SECONDS = 300;
 
-    // Skip list: programs that exceed practical time limits in the
-    // self-hosted engine (double-interpretation performance collapse).
-    // The Dart engine fixes for toString recursion (108) and exception
-    // stringification (84) are in place, but these tests remain too slow
-    // for the C++ self-host due to double-interpretation overhead.
-    static const std::vector<std::string> skip_list = {
-        // Performance: double-interpretation makes these exceed timeout.
-        "95_fibonacci_memo",        // memoization map lookups too slow
-        "136_string_pattern_match", // >30s string operations
-        "144_lcm_computation",      // modulo-heavy loops too slow
-        // Fixed in Dart engine (toString/exception recursion guards) but
-        // still too slow for double-interpreted C++ self-host.
-        "108_class_tostring",       // toString dispatch overhead
-        "84_exception_chain",       // exception catch/stringify overhead
-        // Host-knob fixtures: need BallEngine ctor args (timeoutMs/maxMemoryBytes/
-        // sandbox) the IR can't express, so they run unbounded — cannot pass in
-        // self-host (mirrors the Dart-roundtrip skip-list in SELF_HOST_STATUS.md).
-        "196_timeout",
-        "197_memory_limit",
-        "200_resource_exhaustion_protection",
-        "201_input_validation",
-        "202_sandbox_mode",
-    };
+    // NO skip-list. Every conformance fixture must pass; the host-knob fixtures
+    // (196/197/201/202) that have no expected_output.txt are run as behavioral
+    // limit-checks below (see host_knobs() / run_one), mirroring
+    // dart/engine/test/conformance_test.dart.
 
     // Filter: if BALL_TEST_FILTER env var set, only run matching tests
     const char* test_filter = std::getenv("BALL_TEST_FILTER");
 
     for (auto& tc : cases) {
-        bool skip = false;
-        for (auto& prefix : skip_list) {
-            if (tc.name.find(prefix) == 0) { skip = true; break; }
-        }
-        if (test_filter && tc.name.find(test_filter) == std::string::npos) { skip = true; }
-        if (skip) {
+        if (test_filter && tc.name.find(test_filter) == std::string::npos) {
             tests_skipped_val++;
             continue;
         }
@@ -454,10 +484,11 @@ int main() {
             auto fm_ptr = std::make_shared<std::string>();
             auto prog = tc.program;
             auto exp = tc.expected;
-            std::thread worker([promise, fm_ptr, prog, exp]() {
+            auto nm = tc.name;
+            std::thread worker([promise, fm_ptr, prog, exp, nm]() {
                 try {
                     std::string fm;
-                    bool ok = run_one(prog, exp, fm);
+                    bool ok = run_one(prog, exp, nm, fm);
                     *fm_ptr = fm;
                     promise->set_value(ok);
                 } catch (...) {

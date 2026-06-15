@@ -632,6 +632,12 @@ inline bool ball_type_args_match(const std::any& value, const std::string& expec
     return false;
 }
 
+// Forward declaration so ball_identical (below) can compare BallObjectRef
+// (shared_ptr<BallObject>) pointer identity. The full BallObject definition
+// appears later in this header; shared_ptr<BallObject>.get() needs only an
+// incomplete type, so the forward declaration is sufficient here.
+struct BallObject;
+
 // ── Dart `identical(a, b)` — identity check, NOT equality ──
 // For doubles: identical(NaN, NaN) is true, identical(-0.0, 0.0) is false.
 // For ints/strings/bools: value equality. For objects: reference equality.
@@ -665,6 +671,16 @@ inline bool ball_identical(const std::any& a, const std::any& b) {
     if (ua.type() == typeid(std::shared_ptr<std::any>)) {
         return std::any_cast<const std::shared_ptr<std::any>&>(ua).get() ==
                std::any_cast<const std::shared_ptr<std::any>&>(ub).get();
+    }
+    // BallObjectRef (shared_ptr<BallObject>): the engine represents map-backed
+    // user-class instances reference-semantically — copies of the BallDyn share
+    // the same BallObject through the shared_ptr, so `identical` is pointer
+    // identity on the shared_ptr. Without this, two references to the SAME
+    // instance (e.g. a factory constructor returning its cached object twice)
+    // fell through to the object default below and compared false. (self-host 106)
+    if (ua.type() == typeid(std::shared_ptr<BallObject>)) {
+        return std::any_cast<const std::shared_ptr<BallObject>&>(ua).get() ==
+               std::any_cast<const std::shared_ptr<BallObject>&>(ub).get();
     }
     // For objects, fall back to pointer identity
     return false;

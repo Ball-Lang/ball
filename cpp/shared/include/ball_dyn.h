@@ -1641,36 +1641,74 @@ inline std::string ball_group(const BallDyn& match, int64_t idx) {
 // bind/child/resolve overloads for BallDyn.
 // Exact-match string-key overloads beat std::bind (ADL template) for emitted
 // `bind(scope, "self"s, self)` — fixes the self-binding gate in method bodies.
+// Definition of the jsonEncode(BallDyn) overload forward-declared in
+// ball_emit_runtime.h ("defined in ball_dyn.h"). It was never actually defined,
+// which only surfaced once _validateProgramLimits (which reaches it via
+// writeToBuffer) became linker-reachable — the engine's program-size limit
+// check. Delegate to the std::any overload (a best-effort byte-size estimate).
+inline std::string jsonEncode(const BallDyn& value) {
+    return jsonEncode(value._val);
+}
+
+// Local-only scope write for DECLARATIONS (let / params / loop vars / pattern
+// bindings). Unlike BallDyn::set — which performs LEXICAL ASSIGNMENT and walks
+// the __parent__ chain to the scope that already owns the name — a declaration
+// must ALWAYS bind in the CURRENT scope, so an inner block's `let x` SHADOWS an
+// outer `x` instead of overwriting it. Mirrors Dart _Scope.bind (writes to the
+// local _bindings). Without this, after BallDyn::set learned to walk parents,
+// every `let` in a nested block leaked to the enclosing scope.
+// (self-host conformance 55_scope_variable)
+inline void _ball_bind_local(BallDyn& scope, const std::string& name, const std::any& value) {
+    const std::any& u = _BallDynUnwrapper::unwrap(value);
+    if (scope._val.type() == typeid(BallScope)) {
+        (*std::any_cast<BallScope&>(scope._val))[name] = u;
+        return;
+    }
+    if (scope._val.type() == typeid(BallMap)) {
+        std::any_cast<BallMap&>(scope._val)[name] = u;
+        return;
+    }
+    if (scope._val.type() == typeid(BallOrderedMap)) {
+        std::any_cast<BallOrderedMap&>(scope._val)[name] = u;
+        return;
+    }
+    if (scope._val.type() == typeid(BallOrderedMapRef)) {
+        auto& ref = std::any_cast<BallOrderedMapRef&>(scope._val);
+        if (ref) (*ref)[name] = u;
+        return;
+    }
+    scope.set(name, value);  // object / not-yet-allocated scope: fall back
+}
 inline BallDyn ball_scope_bind(BallDyn& scope, const std::string& name, const BallDyn& value) {
-    scope.set(name, value._val);
+    _ball_bind_local(scope, name, value._val);
     return BallDyn();
 }
 inline BallDyn ball_scope_bind(BallDyn& scope, const BallDyn& name, const BallDyn& value) {
-    scope.set(static_cast<std::string>(name), value._val);
+    _ball_bind_local(scope, static_cast<std::string>(name), value._val);
     return BallDyn();
 }
 inline BallDyn bind(BallDyn& scope, const std::any& name, const std::any& value) {
-    scope.set(ball_to_string(name), value);
+    _ball_bind_local(scope, ball_to_string(name), value);
     return BallDyn();
 }
 inline BallDyn bind(BallDyn& scope, const BallDyn& name, const BallDyn& value) {
-    scope.set(static_cast<std::string>(name), value._val);
+    _ball_bind_local(scope, static_cast<std::string>(name), value._val);
     return BallDyn();
 }
 inline BallDyn bind(BallDyn& scope, const std::string& name, const BallDyn& value) {
-    scope.set(name, value._val);
+    _ball_bind_local(scope, name, value._val);
     return BallDyn();
 }
 inline BallDyn bind(BallDyn& scope, const std::string& name, const std::any& value) {
-    scope.set(name, value);
+    _ball_bind_local(scope, name, value);
     return BallDyn();
 }
 inline BallDyn bind(BallDyn& scope, const char* name, const BallDyn& value) {
-    scope.set(std::string(name), value._val);
+    _ball_bind_local(scope, std::string(name), value._val);
     return BallDyn();
 }
 inline BallDyn bind(BallDyn& scope, const char* name, const std::any& value) {
-    scope.set(std::string(name), value);
+    _ball_bind_local(scope, std::string(name), value);
     return BallDyn();
 }
 // child() creates a new scope linked to the parent with reference semantics.

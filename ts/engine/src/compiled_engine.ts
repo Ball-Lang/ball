@@ -4304,9 +4304,13 @@ export class BallEngine {
     let update = __ball_index(fields, 'update');
     let body = __ball_index(fields, 'body');
     let forScope = scope.child();
+    let loopVars = [];
     if (!__ball_eq(initExpr, null)) {
       if (__ball_eq(whichExpr(initExpr), Expression_Expr.block)) {
         for (const stmt of initExpr.block.statements) {
+          if (__ball_eq(whichStmt(stmt), Statement_Stmt.let)) {
+            loopVars = (loopVars.push(stmt.let.name), loopVars);
+          }
           await this._evalStatement(stmt, forScope);
         }
       } else {
@@ -4336,6 +4340,7 @@ export class BallEngine {
                 }
               }
             }
+            loopVars = (loopVars.push(varName), loopVars);
             forScope.bind(varName, parsed);
           }
         } else {
@@ -4344,14 +4349,18 @@ export class BallEngine {
       }
     }
     while (true) {
+      let iterScope = forScope.child();
+      for (const v of loopVars) {
+        iterScope.bind(v, forScope.lookup(v));
+      }
       if (!__ball_eq(condition, null)) {
-        let condVal = await this._evalExpression(condition, forScope);
+        let condVal = await this._evalExpression(condition, iterScope);
         if (!this._toBool(condVal)) {
           break;
         }
       }
       if (!__ball_eq(body, null)) {
-        let result = await this._evalExpression(body, forScope);
+        let result = await this._evalExpression(body, iterScope);
         if ((result instanceof _FlowSignal)) {
           if (__ball_eq(result.kind, 'return')) {
             return result;
@@ -4363,6 +4372,9 @@ export class BallEngine {
             break;
           }
         }
+      }
+      for (const v of loopVars) {
+        forScope.bind(v, iterScope.lookup(v));
       }
       if (!__ball_eq(update, null)) {
         await this._evalExpression(update, forScope);
@@ -5330,9 +5342,13 @@ export class BallEngine {
     let update = __ball_index(fields, 'update');
     let body = __ball_index(fields, 'body');
     let forScope = scope.child();
+    let loopVars = [];
     if (!__ball_eq(initExpr, null)) {
       if (__ball_eq(whichExpr(initExpr), Expression_Expr.block)) {
         for (const stmt of initExpr.block.statements) {
+          if (__ball_eq(whichStmt(stmt), Statement_Stmt.let)) {
+            loopVars = (loopVars.push(stmt.let.name), loopVars);
+          }
           await this._evalStatement(stmt, forScope);
         }
       } else {
@@ -5343,6 +5359,7 @@ export class BallEngine {
             let varName = match.group(1);
             let rawVal = match.group(2).trim();
             let parsed = ((int.tryParse(rawVal) ?? double.tryParse(rawVal)) ?? ((__ball_eq(rawVal, 'true') ? true : (__ball_eq(rawVal, 'false') ? false : rawVal))));
+            loopVars = (loopVars.push(varName), loopVars);
             forScope.bind(varName, parsed);
           }
         } else {
@@ -5351,14 +5368,18 @@ export class BallEngine {
       }
     }
     while (true) {
+      let iterScope = forScope.child();
+      for (const v of loopVars) {
+        iterScope.bind(v, forScope.lookup(v));
+      }
       if (!__ball_eq(condition, null)) {
-        let condVal = await this._evalExpression(condition, forScope);
+        let condVal = await this._evalExpression(condition, iterScope);
         if (!this._toBool(condVal)) {
           break;
         }
       }
       if (!__ball_eq(body, null)) {
-        let result = await this._evalExpression(body, forScope);
+        let result = await this._evalExpression(body, iterScope);
         if ((result instanceof _FlowSignal)) {
           if (__ball_eq(result.kind, 'return')) {
             return result;
@@ -5367,20 +5388,19 @@ export class BallEngine {
             if (__ball_eq(result.kind, 'break')) {
               break;
             }
-            if (__ball_eq(result.kind, 'continue')) {
-              if (!__ball_eq(update, null)) {
-                await this._evalExpression(update, forScope);
+          } else {
+            if ((!__ball_eq(result.label, null) && !(result.label.length === 0))) {
+              return result;
+            } else {
+              if (__ball_eq(result.kind, 'break')) {
+                break;
               }
-              continue;
             }
           }
-          if ((!__ball_eq(result.label, null) && !(result.label.length === 0))) {
-            return result;
-          }
-          if (__ball_eq(result.kind, 'break')) {
-            break;
-          }
         }
+      }
+      for (const v of loopVars) {
+        forScope.bind(v, iterScope.lookup(v));
       }
       if (!__ball_eq(update, null)) {
         await this._evalExpression(update, forScope);

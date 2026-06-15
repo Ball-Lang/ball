@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "208_async_chain_rethrow",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
@@ -15,11 +15,19 @@
           "isBase": true
         },
         {
+          "name": "return",
+          "isBase": true
+        },
+        {
           "name": "await",
           "isBase": true
         },
         {
-          "name": "add",
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
           "isBase": true
         },
         {
@@ -116,7 +124,7 @@
             "is_async": true,
             "params": [
               {
-                "name": "input",
+                "name": "n",
                 "type": "int"
               }
             ]
@@ -143,7 +151,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "await",
+                                  "function": "return",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -152,10 +160,26 @@
                                           "name": "value",
                                           "value": {
                                             "call": {
-                                              "function": "innerFail",
+                                              "module": "std",
+                                              "function": "await",
                                               "input": {
-                                                "literal": {
-                                                  "intValue": "0"
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "call": {
+                                                          "function": "innerFail",
+                                                          "input": {
+                                                            "literal": {
+                                                              "intValue": "0"
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
                                                 }
                                               }
                                             }
@@ -203,7 +227,7 @@
                                                                   "value": {
                                                                     "call": {
                                                                       "module": "std",
-                                                                      "function": "add",
+                                                                      "function": "concat",
                                                                       "input": {
                                                                         "messageCreation": {
                                                                           "typeName": "",
@@ -219,8 +243,24 @@
                                                                             {
                                                                               "name": "right",
                                                                               "value": {
-                                                                                "reference": {
-                                                                                  "name": "e"
+                                                                                "call": {
+                                                                                  "module": "std",
+                                                                                  "function": "to_string",
+                                                                                  "input": {
+                                                                                    "messageCreation": {
+                                                                                      "typeName": "",
+                                                                                      "fields": [
+                                                                                        {
+                                                                                          "name": "value",
+                                                                                          "value": {
+                                                                                            "reference": {
+                                                                                              "name": "e"
+                                                                                            }
+                                                                                          }
+                                                                                        }
+                                                                                      ]
+                                                                                    }
+                                                                                  }
                                                                                 }
                                                                               }
                                                                             }
@@ -275,7 +315,7 @@
             "is_async": true,
             "params": [
               {
-                "name": "input",
+                "name": "n",
                 "type": "int"
               }
             ]
@@ -283,7 +323,7 @@
         },
         {
           "name": "main",
-          "outputType": "void",
+          "outputType": "Future<void>",
           "body": {
             "block": {
               "statements": [
@@ -357,7 +397,7 @@
                                                           "value": {
                                                             "call": {
                                                               "module": "std",
-                                                              "function": "add",
+                                                              "function": "concat",
                                                               "input": {
                                                                 "messageCreation": {
                                                                   "typeName": "",
@@ -373,8 +413,24 @@
                                                                     {
                                                                       "name": "right",
                                                                       "value": {
-                                                                        "reference": {
-                                                                          "name": "err"
+                                                                        "call": {
+                                                                          "module": "std",
+                                                                          "function": "to_string",
+                                                                          "input": {
+                                                                            "messageCreation": {
+                                                                              "typeName": "",
+                                                                              "fields": [
+                                                                                {
+                                                                                  "name": "value",
+                                                                                  "value": {
+                                                                                    "reference": {
+                                                                                      "name": "err"
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              ]
+                                                                            }
+                                                                          }
                                                                         }
                                                                       }
                                                                     }

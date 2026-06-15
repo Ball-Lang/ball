@@ -1,13 +1,17 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "173_async_multiple_futures",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "multiply",
+          "isBase": true
+        },
+        {
+          "name": "await",
           "isBase": true
         },
         {
@@ -15,10 +19,11 @@
           "isBase": true
         },
         {
-          "name": "multiply",
+          "name": "print",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -33,6 +38,40 @@
               }
             ]
           }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         }
       ]
     },
@@ -40,58 +79,16 @@
       "name": "main",
       "functions": [
         {
-          "name": "asyncTriple",
-          "inputType": "int",
-          "outputType": "int",
-          "body": {
-            "call": {
-              "module": "std",
-              "function": "multiply",
-              "input": {
-                "messageCreation": {
-                  "fields": [
-                    {
-                      "name": "left",
-                      "value": {
-                        "reference": {
-                          "name": "n"
-                        }
-                      }
-                    },
-                    {
-                      "name": "right",
-                      "value": {
-                        "literal": {
-                          "intValue": "3"
-                        }
-                      }
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "metadata": {
-            "kind": "function",
-            "is_async": true,
-            "params": [
-              {
-                "name": "n",
-                "type": "int"
-              }
-            ]
-          }
-        },
-        {
           "name": "asyncDouble",
           "inputType": "int",
-          "outputType": "int",
+          "outputType": "Future<int>",
           "body": {
             "call": {
               "module": "std",
               "function": "multiply",
               "input": {
                 "messageCreation": {
+                  "typeName": "",
                   "fields": [
                     {
                       "name": "left",
@@ -126,8 +123,52 @@
           }
         },
         {
+          "name": "asyncTriple",
+          "inputType": "int",
+          "outputType": "Future<int>",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "multiply",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "n"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "intValue": "3"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "is_async": true,
+            "params": [
+              {
+                "name": "n",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
           "name": "main",
-          "outputType": "void",
+          "outputType": "Future<void>",
           "body": {
             "block": {
               "statements": [
@@ -136,15 +177,22 @@
                     "name": "first",
                     "value": {
                       "call": {
-                        "function": "asyncDouble",
+                        "module": "std",
+                        "function": "await",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
-                                "name": "arg0",
+                                "name": "value",
                                 "value": {
-                                  "literal": {
-                                    "intValue": "10"
+                                  "call": {
+                                    "function": "asyncDouble",
+                                    "input": {
+                                      "literal": {
+                                        "intValue": "10"
+                                      }
+                                    }
                                   }
                                 }
                               }
@@ -154,8 +202,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "int"
+                      "keyword": "final"
                     }
                   }
                 },
@@ -164,15 +211,22 @@
                     "name": "second",
                     "value": {
                       "call": {
-                        "function": "asyncTriple",
+                        "module": "std",
+                        "function": "await",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
-                                "name": "arg0",
+                                "name": "value",
                                 "value": {
-                                  "literal": {
-                                    "intValue": "5"
+                                  "call": {
+                                    "function": "asyncTriple",
+                                    "input": {
+                                      "literal": {
+                                        "intValue": "5"
+                                      }
+                                    }
                                   }
                                 }
                               }
@@ -182,8 +236,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "int"
+                      "keyword": "final"
                     }
                   }
                 },
@@ -196,6 +249,7 @@
                         "function": "add",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
                                 "name": "left",
@@ -219,8 +273,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "int"
+                      "keyword": "final"
                     }
                   }
                 },
@@ -251,7 +304,8 @@
             }
           },
           "metadata": {
-            "kind": "function"
+            "kind": "function",
+            "is_async": true
           }
         }
       ],

@@ -7118,6 +7118,26 @@ export class BallEngine {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
+          if ((typeof v === 'string')) {
+            return (v.length === 0);
+          }
+          if ((typeof v === 'string')) {
+            return (v.value.length === 0);
+          }
+          let l = this._stdAsList(v);
+          if (!__ball_eq(l, null)) {
+            return (l.length === 0);
+          }
+          let m = this._stdAsMap(v);
+          if (!__ball_eq(m, null)) {
+            return (m.length === 0);
+          }
+          if ((v instanceof Set)) {
+            return (v.length === 0);
+          }
+          if (Array.isArray(v)) {
+            return (v.length === 0);
+          }
           return (v.length === 0);
         }));
       }), 'string_concat': this._stdConcat.bind(this), 'string_contains': ((i) => {

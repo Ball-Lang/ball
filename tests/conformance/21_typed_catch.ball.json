@@ -1,15 +1,11 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "21_typed_catch",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
-        {
-          "name": "print",
-          "isBase": true
-        },
         {
           "name": "try",
           "isBase": true
@@ -17,8 +13,13 @@
         {
           "name": "throw",
           "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -33,6 +34,20 @@
               }
             ]
           }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         }
       ]
     },
@@ -41,21 +56,22 @@
       "functions": [
         {
           "name": "main",
+          "outputType": "void",
           "body": {
-            "call": {
-              "module": "std",
-              "function": "try",
-              "input": {
-                "messageCreation": {
-                  "typeName": "",
-                  "fields": [
-                    {
-                      "name": "body",
-                      "value": {
-                        "block": {
-                          "statements": [
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "try",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
                             {
-                              "expression": {
+                              "name": "body",
+                              "value": {
                                 "call": {
                                   "module": "std",
                                   "function": "throw",
@@ -67,17 +83,7 @@
                                           "name": "value",
                                           "value": {
                                             "messageCreation": {
-                                              "typeName": "",
-                                              "fields": [
-                                                {
-                                                  "name": "__type",
-                                                  "value": {
-                                                    "literal": {
-                                                      "stringValue": "NotFound"
-                                                    }
-                                                  }
-                                                }
-                                              ]
+                                              "typeName": "main:NotFound"
                                             }
                                           }
                                         }
@@ -86,99 +92,35 @@
                                   }
                                 }
                               }
-                            }
-                          ]
-                        }
-                      }
-                    },
-                    {
-                      "name": "catches",
-                      "value": {
-                        "literal": {
-                          "listValue": {
-                            "elements": [
-                              {
-                                "messageCreation": {
-                                  "typeName": "",
-                                  "fields": [
-                                    {
-                                      "name": "type",
-                                      "value": {
-                                        "literal": {
-                                          "stringValue": "FormatException"
-                                        }
-                                      }
-                                    },
-                                    {
-                                      "name": "variable",
-                                      "value": {
-                                        "literal": {
-                                          "stringValue": "e"
-                                        }
-                                      }
-                                    },
-                                    {
-                                      "name": "body",
-                                      "value": {
-                                        "block": {
-                                          "statements": [
+                            },
+                            {
+                              "name": "catches",
+                              "value": {
+                                "literal": {
+                                  "listValue": {
+                                    "elements": [
+                                      {
+                                        "messageCreation": {
+                                          "fields": [
                                             {
-                                              "expression": {
-                                                "call": {
-                                                  "module": "std",
-                                                  "function": "print",
-                                                  "input": {
-                                                    "messageCreation": {
-                                                      "typeName": "PrintInput",
-                                                      "fields": [
-                                                        {
-                                                          "name": "message",
-                                                          "value": {
-                                                            "literal": {
-                                                              "stringValue": "wrong-handler"
-                                                            }
-                                                          }
-                                                        }
-                                                      ]
-                                                    }
-                                                  }
+                                              "name": "type",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "NotFound"
                                                 }
                                               }
-                                            }
-                                          ]
-                                        }
-                                      }
-                                    }
-                                  ]
-                                }
-                              },
-                              {
-                                "messageCreation": {
-                                  "typeName": "",
-                                  "fields": [
-                                    {
-                                      "name": "type",
-                                      "value": {
-                                        "literal": {
-                                          "stringValue": "NotFound"
-                                        }
-                                      }
-                                    },
-                                    {
-                                      "name": "variable",
-                                      "value": {
-                                        "literal": {
-                                          "stringValue": "e"
-                                        }
-                                      }
-                                    },
-                                    {
-                                      "name": "body",
-                                      "value": {
-                                        "block": {
-                                          "statements": [
+                                            },
                                             {
-                                              "expression": {
+                                              "name": "variable",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "e"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "body",
+                                              "value": {
                                                 "call": {
                                                   "module": "std",
                                                   "function": "print",
@@ -203,25 +145,40 @@
                                           ]
                                         }
                                       }
-                                    }
-                                  ]
+                                    ]
+                                  }
                                 }
                               }
-                            ]
-                          }
+                            }
+                          ]
                         }
                       }
                     }
-                  ]
+                  }
                 }
-              }
+              ]
             }
+          },
+          "metadata": {
+            "kind": "function"
           }
         }
       ],
       "moduleImports": [
         {
           "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:NotFound",
+          "descriptor": {
+            "name": "main:NotFound"
+          },
+          "description": "Class metadata for main:NotFound",
+          "metadata": {
+            "kind": "class"
+          }
         }
       ]
     }

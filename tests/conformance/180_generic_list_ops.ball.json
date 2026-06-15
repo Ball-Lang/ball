@@ -7,14 +7,15 @@
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "is",
           "isBase": true
         },
         {
-          "name": "is",
+          "name": "print",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -68,8 +69,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "List<int>"
+                      "keyword": "var"
                     }
                   }
                 },
@@ -100,8 +100,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "List<String>"
+                      "keyword": "var"
                     }
                   }
                 },
@@ -114,6 +113,7 @@
                         "function": "is",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
                                 "name": "value",
@@ -137,8 +137,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "bool"
+                      "keyword": "var"
                     }
                   }
                 },
@@ -174,6 +173,7 @@
                         "function": "is",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
                                 "name": "value",
@@ -197,8 +197,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "bool"
+                      "keyword": "var"
                     }
                   }
                 },
@@ -234,6 +233,7 @@
                         "function": "is",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
                                 "name": "value",
@@ -257,8 +257,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "bool"
+                      "keyword": "var"
                     }
                   }
                 },

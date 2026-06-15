@@ -975,7 +975,22 @@ extension BallEngineStd on BallEngine {
 
       // ── Strings ──────────────────────────────────────────────────
       'string_length': (i) => _stdConvert(i, (v) => (v as String).length),
-      'string_is_empty': (i) => _stdConvert(i, (v) => (v as String).isEmpty),
+      // Polymorphic isEmpty: the encoder emits `string_is_empty` for every
+      // `.isEmpty` / `.isNotEmpty` (it is syntactic and cannot tell a String
+      // receiver from a List/Set/Map), so this op must accept any collection
+      // rather than `(v as String)` — otherwise list/set/map `.isEmpty` throws a
+      // String cast error (conformance 97/115/123/195/199/237).
+      'string_is_empty': (i) => _stdConvert(i, (v) {
+        if (v is String) return v.isEmpty;
+        if (v is BallString) return v.value.isEmpty;
+        final l = _stdAsList(v);
+        if (l != null) return l.isEmpty;
+        final m = _stdAsMap(v);
+        if (m != null) return m.isEmpty;
+        if (v is Set) return v.isEmpty;
+        if (v is Iterable) return v.isEmpty;
+        return (v as String).isEmpty;
+      }),
       'string_concat': _stdConcat,
       'string_contains': (i) =>
           _stdBinaryAny(i, (a, b) => (a as String).contains(b as String)),

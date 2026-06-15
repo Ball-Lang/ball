@@ -31,6 +31,14 @@
           "isBase": true
         },
         {
+          "name": "string_is_empty",
+          "isBase": true
+        },
+        {
+          "name": "not",
+          "isBase": true
+        },
+        {
           "name": "list_push",
           "isBase": true
         },
@@ -83,6 +91,20 @@
                 "number": 2,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
               }
             ]
           }
@@ -411,13 +433,40 @@
                                         {
                                           "name": "right",
                                           "value": {
-                                            "fieldAccess": {
-                                              "object": {
-                                                "reference": {
-                                                  "name": "value"
+                                            "call": {
+                                              "module": "std",
+                                              "function": "not",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "string_is_empty",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "value",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "value"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
                                                 }
-                                              },
-                                              "field": "isNotEmpty"
+                                              }
                                             }
                                           }
                                         }

@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "124_frequency_counter",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
@@ -11,7 +11,7 @@
           "isBase": true
         },
         {
-          "name": "map_create",
+          "name": "set_create",
           "isBase": true
         },
         {
@@ -44,6 +44,10 @@
         },
         {
           "name": "list_to_list",
+          "isBase": true
+        },
+        {
+          "name": "concat",
           "isBase": true
         },
         {
@@ -187,7 +191,7 @@
                     "value": {
                       "call": {
                         "module": "std",
-                        "function": "map_create",
+                        "function": "set_create",
                         "input": {
                           "messageCreation": {
                             "typeName": "",
@@ -475,7 +479,7 @@
                                           "value": {
                                             "call": {
                                               "module": "std",
-                                              "function": "add",
+                                              "function": "concat",
                                               "input": {
                                                 "messageCreation": {
                                                   "typeName": "",
@@ -485,7 +489,7 @@
                                                       "value": {
                                                         "call": {
                                                           "module": "std",
-                                                          "function": "add",
+                                                          "function": "concat",
                                                           "input": {
                                                             "messageCreation": {
                                                               "typeName": "",
@@ -608,7 +612,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "add",
+                                  "function": "concat",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",

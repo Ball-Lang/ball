@@ -7,14 +7,19 @@
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "concat",
           "isBase": true
         },
         {
-          "name": "concat",
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -23,6 +28,40 @@
             "field": [
               {
                 "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
@@ -38,27 +77,22 @@
         {
           "name": "main:Animal.new",
           "outputType": "main:Animal",
-          "body": {
-            "reference": {
-              "name": "input"
-            }
-          },
           "metadata": {
             "kind": "constructor",
             "params": [
               {
-                "name": "input",
-                "type": "String"
+                "name": "name",
+                "is_this": true
               }
             ]
           }
         },
         {
-          "name": "main:Animal.speak",
+          "name": "main:Animal.describe",
           "outputType": "String",
           "body": {
-            "literal": {
-              "stringValue": "..."
+            "reference": {
+              "name": "name"
             }
           },
           "metadata": {
@@ -68,11 +102,6 @@
         {
           "name": "main:Dog.new",
           "outputType": "main:Dog",
-          "body": {
-            "reference": {
-              "name": "name"
-            }
-          },
           "metadata": {
             "kind": "constructor",
             "initializers": [
@@ -90,7 +119,7 @@
           }
         },
         {
-          "name": "main:Dog.speak",
+          "name": "main:Dog.describe",
           "outputType": "String",
           "body": {
             "call": {
@@ -98,17 +127,43 @@
               "function": "concat",
               "input": {
                 "messageCreation": {
+                  "typeName": "",
                   "fields": [
                     {
                       "name": "left",
                       "value": {
-                        "fieldAccess": {
-                          "object": {
-                            "reference": {
-                              "name": "super"
+                        "call": {
+                          "module": "std",
+                          "function": "to_string",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "call": {
+                                      "function": "describe",
+                                      "input": {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "self",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "super"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
                             }
-                          },
-                          "field": "name"
+                          }
                         }
                       }
                     },
@@ -126,8 +181,7 @@
             }
           },
           "metadata": {
-            "kind": "method",
-            "is_override": true
+            "kind": "method"
           }
         },
         {
@@ -136,6 +190,67 @@
           "body": {
             "block": {
               "statements": [
+                {
+                  "let": {
+                    "name": "a",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Animal",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "stringValue": "Rex"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Animal"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "describe",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "a"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
                 {
                   "let": {
                     "name": "d",
@@ -172,36 +287,8 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "d"
-                                    }
-                                  },
-                                  "field": "name"
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
                                 "call": {
-                                  "function": "speak",
+                                  "function": "describe",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
@@ -252,6 +339,7 @@
               }
             ]
           },
+          "description": "Class metadata for main:Animal",
           "metadata": {
             "kind": "class",
             "fields": [
@@ -267,6 +355,7 @@
           "descriptor": {
             "name": "main:Dog"
           },
+          "description": "Class metadata for main:Dog",
           "metadata": {
             "kind": "class",
             "superclass": "Animal"

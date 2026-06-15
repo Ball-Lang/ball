@@ -1,15 +1,11 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "211_nested_closures_currying",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
-        {
-          "name": "return",
-          "isBase": true
-        },
         {
           "name": "add",
           "isBase": true
@@ -81,6 +77,7 @@
         {
           "name": "adder",
           "inputType": "int",
+          "outputType": "Function",
           "body": {
             "block": {
               "statements": [
@@ -93,115 +90,96 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "int"
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "return",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "",
-                          "fields": [
-                            {
-                              "name": "value",
-                              "value": {
-                                "lambda": {
-                                  "name": "",
-                                  "body": {
-                                    "lambda": {
-                                      "name": "",
-                                      "body": {
-                                        "call": {
-                                          "module": "std",
-                                          "function": "add",
-                                          "input": {
-                                            "messageCreation": {
-                                              "typeName": "",
-                                              "fields": [
-                                                {
-                                                  "name": "left",
-                                                  "value": {
-                                                    "call": {
-                                                      "module": "std",
-                                                      "function": "add",
-                                                      "input": {
-                                                        "messageCreation": {
-                                                          "typeName": "",
-                                                          "fields": [
-                                                            {
-                                                              "name": "left",
-                                                              "value": {
-                                                                "reference": {
-                                                                  "name": "a"
-                                                                }
-                                                              }
-                                                            },
-                                                            {
-                                                              "name": "right",
-                                                              "value": {
-                                                                "reference": {
-                                                                  "name": "b"
-                                                                }
-                                                              }
-                                                            }
-                                                          ]
-                                                        }
-                                                      }
-                                                    }
-                                                  }
-                                                },
-                                                {
-                                                  "name": "right",
-                                                  "value": {
-                                                    "reference": {
-                                                      "name": "c"
-                                                    }
-                                                  }
-                                                }
-                                              ]
-                                            }
-                                          }
-                                        }
-                                      },
-                                      "metadata": {
-                                        "kind": "lambda",
-                                        "expression_body": true,
-                                        "has_return": true,
-                                        "params": [
-                                          {
-                                            "name": "c",
-                                            "type": "int"
-                                          }
-                                        ]
-                                      }
-                                    }
-                                  },
-                                  "metadata": {
-                                    "kind": "lambda",
-                                    "expression_body": true,
-                                    "has_return": true,
-                                    "params": [
-                                      {
-                                        "name": "b",
-                                        "type": "int"
-                                      }
-                                    ]
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
+                      "keyword": "var"
                     }
                   }
                 }
-              ]
+              ],
+              "result": {
+                "lambda": {
+                  "name": "",
+                  "body": {
+                    "lambda": {
+                      "name": "",
+                      "body": {
+                        "call": {
+                          "module": "std",
+                          "function": "add",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "add",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "left",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "a"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "right",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "b"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "reference": {
+                                      "name": "c"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "metadata": {
+                        "kind": "lambda",
+                        "expression_body": true,
+                        "has_return": true,
+                        "params": [
+                          {
+                            "name": "c",
+                            "type": "int"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "metadata": {
+                    "kind": "lambda",
+                    "expression_body": true,
+                    "has_return": true,
+                    "params": [
+                      {
+                        "name": "b",
+                        "type": "int"
+                      }
+                    ]
+                  }
+                }
+              }
             }
           },
           "metadata": {

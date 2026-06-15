@@ -108,6 +108,51 @@ jobs:
         run: cd dart/self_host && dart test
 
   # ──────────────────────────────────────────────────
+  # Ball artifact freshness — every committed Ball artifact must be GENERATED
+  # from its Dart source, never hand-edited. Regenerate the deterministic shared
+  # artifacts and fail if any drifted from the checked-in copy. The .json (text)
+  # outputs are gated; each generator writes the sibling .bin in the same run,
+  # so a fresh .json implies a fresh .bin (and avoids any binary cross-platform
+  # serialization nondeterminism in the gate).
+  # ──────────────────────────────────────────────────
+  ball-freshness:
+    name: Ball Artifact Freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Cache Dart pub
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: cd dart && dart pub get
+
+      - name: Regenerate shared Ball artifacts
+        run: |
+          ( cd dart/shared  && dart run bin/gen_std.dart . )
+          ( cd dart/shared  && dart run bin/gen_ball_proto.dart . )
+          ( cd dart/encoder && dart run bin/gen_ball_protobuf.dart ../shared )
+
+      - name: Assert no drift
+        run: |
+          if ! git diff --exit-code -- \
+              dart/shared/std.json \
+              dart/shared/ball_proto.json \
+              dart/shared/ball_protobuf.json; then
+            echo "::error::A committed Ball artifact is stale. Regenerate it (see CLAUDE.md 'Build & Test' / 'Typical Feature Workflow') and commit the result — these files must never be hand-edited."
+            exit 1
+          fi
+          echo "All shared Ball artifacts are up to date."
+
+  # ──────────────────────────────────────────────────
   # Protobuf Codegen — the protoc-gen-ball / -connect / -grpc plugins
   # (dart/ball_protobuf_gen) + the transport runtime (dart/ball_rpc).
   # Each package is analyzed and tested FROM ITS OWN PACKAGE DIRECTORY

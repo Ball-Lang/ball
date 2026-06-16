@@ -5361,11 +5361,10 @@ interface StructuredPatternResult {
 }
 
 /** Known pattern kinds that compileStructuredPattern can handle.
- *  Unknown kinds (e.g. LogicalOrPattern) should fall through to the
- *  text-based pattern handling instead. */
+ *  Unknown kinds should fall through to the text-based pattern handling. */
 const KNOWN_PATTERN_KINDS = new Set([
   "ConstPattern", "VarPattern", "var", "WildcardPattern", "wildcard", "_",
-  "ListPattern", "RestPattern", "rest", "record",
+  "ListPattern", "RestPattern", "rest", "record", "LogicalOrPattern",
 ]);
 
 /** Generate a JS type-check condition for a Dart type name against `subject`.
@@ -5427,6 +5426,27 @@ function compileStructuredPattern(
       const typeName = fields.get("type")?.literal?.stringValue;
       const cond = typeName ? typeCheckCondition(typeName, subject) : "true";
       return { condition: cond, bindings: [] };
+    }
+    case "LogicalOrPattern": {
+      // `p1 || p2` matches if EITHER alternative matches. Recurse both operands
+      // and OR their conditions so STRUCTURED alternatives (typed wildcards,
+      // const, nested or) work. Without this, the or-pattern fell back to a text
+      // path that mis-handled some typed alternatives — e.g. `double _` in
+      // `case bool _ || double _:` never matched (conformance 303). Bindings are
+      // unioned. Falls through (undefined) if an operand isn't structured.
+      const left = fields.get("left");
+      const right = fields.get("right");
+      if (left && right) {
+        const lr = compileStructuredPattern(left, subject, exprFn);
+        const rr = compileStructuredPattern(right, subject, exprFn);
+        if (lr && rr) {
+          return {
+            condition: `(${lr.condition} || ${rr.condition})`,
+            bindings: [...lr.bindings, ...rr.bindings],
+          };
+        }
+      }
+      return undefined;
     }
     case "ListPattern": {
       const elementsExpr = fields.get("elements");

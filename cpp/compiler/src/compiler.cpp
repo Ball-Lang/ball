@@ -2926,7 +2926,32 @@ static std::optional<StructuredPatternResult> _compileStructuredPattern(
         return StructuredPatternResult{nullCheck, {}};
     }
 
-    // LogicalOrPattern: handled separately via _collectOrPatternValues
+    // LogicalOrPattern: `p1 || p2` matches if EITHER alternative matches. Recurse
+    // both operands and OR their conditions, so STRUCTURED alternatives (typed
+    // wildcards, const, nested or) are handled. The legacy _collectOrPatternValues
+    // fallback only harvested ConstPattern *values*, so a typed alternative like
+    // `case int _ || String _:` emitted a dead compare against the cosmetic
+    // pattern string and never matched (conformance 303). Bindings are unioned
+    // (Dart requires both branches bind the same vars; typed-wildcard/const
+    // alternatives bind none). If an operand isn't structured, fall through to
+    // the value-collection path.
+    if (kind == "LogicalOrPattern") {
+        auto* left = _patternField(patternExpr, "left");
+        auto* right = _patternField(patternExpr, "right");
+        if (left && right) {
+            auto lr = _compileStructuredPattern(*left, subject, exprFn);
+            auto rr = _compileStructuredPattern(*right, subject, exprFn);
+            if (lr && rr) {
+                std::vector<std::pair<std::string, std::string>> binds =
+                    lr->bindings;
+                for (const auto& b : rr->bindings) binds.push_back(b);
+                return StructuredPatternResult{
+                    "(" + lr->condition + " || " + rr->condition + ")", binds};
+            }
+        }
+        return std::nullopt;
+    }
+
     // Unknown kind: return nullopt to fall through to text-based handling
     return std::nullopt;
 }

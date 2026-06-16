@@ -9260,7 +9260,7 @@ export class StdModuleHandler extends BallModuleHandler {
 
   handles(module: any): any {
     const input = module;
-    return (((module === 'std') || (module === 'std_collections') || (module === 'std_io') || (module === 'std_memory') || (module === 'std_convert') || (module === 'std_fs') || (module === 'std_time') || (module === 'std_concurrency')) ? (true) : false);
+    return (((((((((module === 'std') || (module === 'std_collections')) || (module === 'std_io')) || (module === 'std_memory')) || (module === 'std_convert')) || (module === 'std_fs')) || (module === 'std_time')) || (module === 'std_concurrency')) ? (true) : false);
   }
 
   init(engine: any): any {

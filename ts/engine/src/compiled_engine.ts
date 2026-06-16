@@ -4,6 +4,15 @@
 // Base class for all Ball runtime values.
 class BallValue {}
 
+// A cast pattern (value as T) ASSERTS the runtime type — it throws on a type
+// mismatch (Dart semantics), it does NOT refute / fall through. Conjoined into a
+// switch-case condition by the compiler; returns true when the type check passed,
+// else throws a catchable error. (conformance 302_cast_patterns)
+function ball_cast_assert(ok: boolean, t: string): boolean {
+  if (!ok) throw new Error('TypeError: type cast failed: not a ' + t);
+  return true;
+}
+
 // ── Ball container runtime types ────────────────────────────────────
 //
 // The self-hosted engine IR models class instances as 'BallObject extends
@@ -8393,7 +8402,7 @@ export class BallEngine {
       else if ((__sw === 'cast')) {
         let typeName = __ball_index(pattern, 'type');
         if ((!__ball_eq(typeName, null) && !this._matchesTypePattern(value, typeName))) {
-          return false;
+          throw new BallException('TypeError', ('type cast failed: not a ' + __ball_to_string(typeName)));
         }
         let subpattern = __ball_index(pattern, 'pattern');
         if ((!__ball_eq(subpattern, null) && !this._matchPattern(value, subpattern, bindings))) {

@@ -5364,7 +5364,7 @@ interface StructuredPatternResult {
  *  Unknown kinds should fall through to the text-based pattern handling. */
 const KNOWN_PATTERN_KINDS = new Set([
   "ConstPattern", "VarPattern", "var", "WildcardPattern", "wildcard", "_",
-  "ListPattern", "RestPattern", "rest", "record", "LogicalOrPattern",
+  "ListPattern", "RestPattern", "rest", "record", "LogicalOrPattern", "CastPattern",
 ]);
 
 /** Generate a JS type-check condition for a Dart type name against `subject`.
@@ -5447,6 +5447,29 @@ function compileStructuredPattern(
         }
       }
       return undefined;
+    }
+    case "CastPattern": {
+      // A cast pattern (subpat as T) ASSERTS the runtime type — it matches
+      // structurally (like its sub-pattern) but THROWS on a mismatch (Dart
+      // semantics), it does NOT refute. Conjoin ball_cast_assert(<typecheck>,
+      // "T") into the condition, short-circuited by the sub-pattern's own
+      // condition (so e.g. [var x as int] only asserts after the list shape
+      // matched). The assert also makes the case emit `if (cond)` rather than a
+      // bare catch-all. (conformance 302)
+      const castType = fields.get("type")?.literal?.stringValue;
+      const subpat = fields.get("pattern");
+      let sub: StructuredPatternResult = { condition: "true", bindings: [] };
+      if (subpat) {
+        const s = compileStructuredPattern(subpat, subject, exprFn);
+        if (s) sub = s;
+      }
+      if (castType) {
+        return {
+          condition: `(${sub.condition} && ball_cast_assert(${typeCheckCondition(castType, subject)}, ${JSON.stringify(castType)}))`,
+          bindings: sub.bindings,
+        };
+      }
+      return sub;
     }
     case "ListPattern": {
       const elementsExpr = fields.get("elements");

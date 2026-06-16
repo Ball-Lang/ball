@@ -2878,11 +2878,28 @@ static std::optional<StructuredPatternResult> _compileStructuredPattern(
     // the cast is implicit via BallDyn)
     // IR: typeName="CastPattern", fields: pattern (sub-pattern), type (string)
     if (kind == "CastPattern") {
+        // A cast pattern `subpat as T` ASSERTS the runtime type: it matches
+        // structurally (like its sub-pattern) but THROWS on a type mismatch
+        // (Dart semantics) — it does NOT refute / fall through. Compile the
+        // sub-pattern, then conjoin a ball_cast_assert(<typecheck>, "T") that
+        // throws when the type doesn't match. The sub-pattern's own condition
+        // short-circuits first, so e.g. `[var x as int]` only asserts the
+        // element after the list shape matched. The assert also makes the case
+        // emit `if (cond)` rather than a bare catch-all block (no dangling
+        // `else`). (conformance 302)
+        std::string typeName = _patternStringField(patternExpr, "type");
         auto* subpattern = _patternField(patternExpr, "pattern");
+        StructuredPatternResult sub{"true", {}};
         if (subpattern) {
-            return _compileStructuredPattern(*subpattern, subject, exprFn);
+            auto s = _compileStructuredPattern(*subpattern, subject, exprFn);
+            if (s) sub = *s;
         }
-        return StructuredPatternResult{"true", {}};
+        if (!typeName.empty()) {
+            sub.condition = "(" + sub.condition + " && ball_cast_assert(" +
+                            _typeCheckCondition(typeName, subject) + ", \"" +
+                            typeName + "\"))";
+        }
+        return sub;
     }
 
     // NullCheckPattern: matches if subject is non-null, then matches inner pattern
@@ -6505,10 +6522,25 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                                 compile_statement(s);
                             }
                             if (cc.body->block().has_result()) {
-                                emit_line(compile_expr(cc.body->block().result()) + ";");
+                                // A catch body ending in `return X` lowers X to a
+                                // `/* return */ X` marker; emit a REAL return so
+                                // the catch doesn't silently fall through (it was
+                                // emitted as a no-op expression statement before).
+                                // (conformance 302_cast_patterns)
+                                auto rc = compile_expr(cc.body->block().result());
+                                if (rc.find("/* return */ ") == 0) {
+                                    emit_line("return " + rc.substr(12) + ";");
+                                } else {
+                                    emit_line(rc + ";");
+                                }
                             }
                         } else {
-                            emit_line(compile_expr(*cc.body) + ";");
+                            auto rc = compile_expr(*cc.body);
+                            if (rc.find("/* return */ ") == 0) {
+                                emit_line("return " + rc.substr(12) + ";");
+                            } else {
+                                emit_line(rc + ";");
+                            }
                         }
                     };
 
@@ -6888,6 +6920,14 @@ inline int64_t ball_to_int64(double v) { return ball_double_to_int64(v); }
 inline int64_t ball_to_int64(const BallDyn& v) {
   return ball_is_int(v) ? static_cast<int64_t>(v)
                         : ball_double_to_int64(static_cast<double>(v));
+}
+// ball_cast_assert: a cast pattern `value as T` ASSERTS the runtime type — it
+// throws a catchable TypeError on a mismatch (it does NOT refute / fall through
+// to the next case). Conjoined into a switch-case condition so the case still
+// matches structurally while the assertion runs as a side effect. (conformance 302)
+inline bool ball_cast_assert(bool ok, const std::string& t) {
+  if (!ok) throw BallException("TypeError"s, "type cast failed: not a "s + t);
+  return true;
 }
 )";
     // NOTE: the emitted runtime preamble is split across two adjacent string

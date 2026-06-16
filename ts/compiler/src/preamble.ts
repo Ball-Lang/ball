@@ -17,6 +17,15 @@ export const TS_RUNTIME_PREAMBLE = String.raw`// ── Ball runtime preamble (g
 // Base class for all Ball runtime values.
 class BallValue {}
 
+// A cast pattern (value as T) ASSERTS the runtime type — it throws on a type
+// mismatch (Dart semantics), it does NOT refute / fall through. Conjoined into a
+// switch-case condition by the compiler; returns true when the type check passed,
+// else throws a catchable error. (conformance 302_cast_patterns)
+function ball_cast_assert(ok: boolean, t: string): boolean {
+  if (!ok) throw new Error('TypeError: type cast failed: not a ' + t);
+  return true;
+}
+
 // ── Ball container runtime types ────────────────────────────────────
 //
 // The self-hosted engine IR models class instances as 'BallObject extends

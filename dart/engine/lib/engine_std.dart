@@ -2013,7 +2013,10 @@ extension BallEngineStd on BallEngine {
         // { __pattern_kind__: 'cast', type: 'int', name: 'x' }
         final typeName = pattern['type'] as String?;
         if (typeName != null && !_matchesTypePattern(value, typeName)) {
-          return false;
+          // Cast patterns ASSERT: `value as T` throws on a type mismatch — it
+          // does NOT refute / fall through to the next case. Match native Dart
+          // semantics across every target. (conformance 302_cast_patterns)
+          throw BallException('TypeError', 'type cast failed: not a $typeName');
         }
         final subpattern = pattern['pattern'];
         if (subpattern != null && !_matchPattern(value, subpattern, bindings)) {

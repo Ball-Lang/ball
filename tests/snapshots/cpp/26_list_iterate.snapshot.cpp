@@ -5087,6 +5087,14 @@ inline int64_t ball_to_int64(const BallDyn& v) {
   return ball_is_int(v) ? static_cast<int64_t>(v)
                         : ball_double_to_int64(static_cast<double>(v));
 }
+// ball_cast_assert: a cast pattern `value as T` ASSERTS the runtime type — it
+// throws a catchable TypeError on a mismatch (it does NOT refute / fall through
+// to the next case). Conjoined into a switch-case condition so the case still
+// matches structurally while the assertion runs as a side effect. (conformance 302)
+inline bool ball_cast_assert(bool ok, const std::string& t) {
+  if (!ok) throw BallException("TypeError"s, "type cast failed: not a "s + t);
+  return true;
+}
 
 // elementAt helper (Iterable.elementAt)
 inline BallDyn elementAt(const BallDyn& list, int64_t index) {

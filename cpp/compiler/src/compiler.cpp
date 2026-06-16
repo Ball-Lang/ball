@@ -864,7 +864,19 @@ std::string CppCompiler::cpp_escape_string(const std::string& s) {
             case '\n': result += "\\n"; break;
             case '\r': result += "\\r"; break;
             case '\t': result += "\\t"; break;
-            default:   result += c; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20 ||
+                    static_cast<unsigned char>(c) == 0x7f) {
+                    // Escape C0 control bytes as 3-digit octal (see compile_literal).
+                    unsigned char uc = static_cast<unsigned char>(c);
+                    result += '\\';
+                    result += static_cast<char>('0' + ((uc >> 6) & 7));
+                    result += static_cast<char>('0' + ((uc >> 3) & 7));
+                    result += static_cast<char>('0' + (uc & 7));
+                } else {
+                    result += c;
+                }
+                break;
         }
     }
     return result;
@@ -901,7 +913,23 @@ std::string CppCompiler::compile_literal(const ball::v1::Literal& lit) {
                     case '\n': result += "\\n"; break;
                     case '\r': result += "\\r"; break;
                     case '\t': result += "\\t"; break;
-                    default: result += c; break;
+                    default:
+                        if (static_cast<unsigned char>(c) < 0x20 ||
+                            static_cast<unsigned char>(c) == 0x7f) {
+                            // Escape C0 control bytes (incl. NUL/BEL) — emitting
+                            // them raw corrupts the C++ literal (MSVC drops a raw
+                            // NUL or errors C2001). 3-digit octal self-terminates
+                            // (\xN would greedily eat a following hex digit).
+                            // (conformance 249)
+                            unsigned char uc = static_cast<unsigned char>(c);
+                            result += '\\';
+                            result += static_cast<char>('0' + ((uc >> 6) & 7));
+                            result += static_cast<char>('0' + ((uc >> 3) & 7));
+                            result += static_cast<char>('0' + (uc & 7));
+                        } else {
+                            result += c;
+                        }
+                        break;
                 }
             }
             result += "\"s";
@@ -3607,7 +3635,10 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     }
     if (fn == "to_int") {
         auto v = get_message_field(call, "value");
-        return "static_cast<int64_t>(" + v + ")";
+        // Clamp out-of-range double->int (a bare static_cast is UB per
+        // [conv.fpint] → INT64_MIN on x86-64); int64 identity keeps large ints
+        // lossless rather than round-tripping through double. (conformance 216)
+        return "ball_to_int64(" + v + ")";
     }
     if (fn == "to_double") {
         auto v = get_message_field(call, "value");
@@ -4105,6 +4136,14 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 "HttpException", "SocketException"};
             bool builtin = kBuiltinExc.count(type_name) > 0;
             std::string fields_init;
+            // Resolve positional argN field names to the thrown type's ctor
+            // param names (NotFound's arg0 -> "detail") so a typed catch reading
+            // `e.detail` finds the value. Without this the payload is keyed
+            // "arg0" and `e.fields.at("detail")` throws out_of_range, escaping
+            // main -> terminate (conformance 24). Uses the FULL declared type
+            // name; mirrors the stub-type path's lookup_ctor_params use.
+            std::vector<std::string> ctor_params =
+                lookup_ctor_params(val_expr->message_creation().type_name());
             for (const auto& f : val_expr->message_creation().fields()) {
                 if (f.value().expr_case() == ball::v1::Expression::kLiteral &&
                     f.value().literal().value_case() ==
@@ -4114,6 +4153,13 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                         type_name = val;
                     } else {
                         std::string fname = f.name();
+                        if (fname.size() > 3 && fname.compare(0, 3, "arg") == 0) {
+                            try {
+                                size_t idx = std::stoul(fname.substr(3));
+                                if (idx < ctor_params.size()) fname = ctor_params[idx];
+                            } catch (...) {
+                            }
+                        }
                         if (builtin && fname == "arg0") fname = "message";
                         if (!fields_init.empty()) fields_init += ", ";
                         fields_init += "{\"" + cpp_escape_string(fname) + "\"s, \"" + cpp_escape_string(val) + "\"s}";
@@ -5541,7 +5587,22 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                     ball::v1::Expression::kMessageCreation) {
                 for (const auto& f :
                      stmt.let().value().call().input().message_creation().fields()) {
-                    if (f.name() == "elements") { has_elements = true; break; }
+                    if (f.name() == "elements") {
+                        // Only a NON-EMPTY elements list is a real set/map
+                        // comprehension; an empty list literal is the encoder's
+                        // `{}` empty-map placeholder, which must fall through to
+                        // the BallOrderedMap{} override below (else it stays an
+                        // empty list and string-keyed ball_set silently no-ops —
+                        // conformance 78/124/125/181). The override is gated on a
+                        // "Map" let-type, so empty Set literals are unaffected.
+                        const auto& ev = f.value();
+                        has_elements =
+                            !(ev.expr_case() == ball::v1::Expression::kLiteral &&
+                              ev.literal().value_case() ==
+                                  ball::v1::Literal::kListValue &&
+                              ev.literal().list_value().elements_size() == 0);
+                        break;
+                    }
                 }
             }
             auto mit = stmt.let().metadata().fields().find("type");
@@ -6791,6 +6852,17 @@ inline BallDyn ball_to_dyn(T&& x) {
   } else {
     return BallDyn(std::forward<T>(x));
   }
+}
+// ball_to_int64: Dart `.toInt()` / int(...) conversion. The int64 identity
+// overload keeps large ints lossless (no double round-trip); the double overload
+// CLAMPS out-of-range values to INT64_MIN/MAX rather than the UB a bare
+// static_cast<int64_t>(double) yields ([conv.fpint] -> INT64_MIN on x86-64).
+// Emitted AFTER the BallDyn class so the const BallDyn& overload is well-formed.
+inline int64_t ball_to_int64(int64_t v) { return v; }
+inline int64_t ball_to_int64(double v) { return ball_double_to_int64(v); }
+inline int64_t ball_to_int64(const BallDyn& v) {
+  return ball_is_int(v) ? static_cast<int64_t>(v)
+                        : ball_double_to_int64(static_cast<double>(v));
 }
 )";
     // NOTE: the emitted runtime preamble is split across two adjacent string

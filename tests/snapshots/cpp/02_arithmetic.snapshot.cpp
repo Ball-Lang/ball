@@ -5076,6 +5076,17 @@ inline BallDyn ball_to_dyn(T&& x) {
     return BallDyn(std::forward<T>(x));
   }
 }
+// ball_to_int64: Dart `.toInt()` / int(...) conversion. The int64 identity
+// overload keeps large ints lossless (no double round-trip); the double overload
+// CLAMPS out-of-range values to INT64_MIN/MAX rather than the UB a bare
+// static_cast<int64_t>(double) yields ([conv.fpint] -> INT64_MIN on x86-64).
+// Emitted AFTER the BallDyn class so the const BallDyn& overload is well-formed.
+inline int64_t ball_to_int64(int64_t v) { return v; }
+inline int64_t ball_to_int64(double v) { return ball_double_to_int64(v); }
+inline int64_t ball_to_int64(const BallDyn& v) {
+  return ball_is_int(v) ? static_cast<int64_t>(v)
+                        : ball_double_to_int64(static_cast<double>(v));
+}
 
 // elementAt helper (Iterable.elementAt)
 inline BallDyn elementAt(const BallDyn& list, int64_t index) {

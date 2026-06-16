@@ -63,8 +63,10 @@ void main() {
       'src/<name>.dart nor a CARVEOUTS.md entry:',
     );
     for (final o in orphans) {
-      stderr.writeln('  - $o  (add tests/conformance/src/$o.dart, or list it '
-          'in CARVEOUTS.md with a justification)');
+      stderr.writeln(
+        '  - $o  (add tests/conformance/src/$o.dart, or list it '
+        'in CARVEOUTS.md with a justification)',
+      );
     }
   }
   if (staleCarveouts.isNotEmpty) {

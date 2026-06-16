@@ -3340,9 +3340,11 @@ class DartEncoder {
             ..function = convertTopLevelFn
             ..input = (Expression()
               ..messageCreation = (MessageCreation()
-                ..fields.add(FieldValuePair()
-                  ..name = 'value'
-                  ..value = args.first.value))));
+                ..fields.add(
+                  FieldValuePair()
+                    ..name = 'value'
+                    ..value = args.first.value,
+                ))));
       }
 
       // Implicit constructor call (no `new` keyword, uppercase method name):
@@ -3412,9 +3414,11 @@ class DartEncoder {
             ..function = convertFn
             ..input = (Expression()
               ..messageCreation = (MessageCreation()
-                ..fields.add(FieldValuePair()
-                  ..name = 'value'
-                  ..value = args.first.value))));
+                ..fields.add(
+                  FieldValuePair()
+                    ..name = 'value'
+                    ..value = args.first.value,
+                ))));
       }
     }
 

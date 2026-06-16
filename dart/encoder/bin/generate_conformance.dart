@@ -92,7 +92,9 @@ Future<void> main() async {
         // Step 3: Write output files. Trailing newline so the file is
         // POSIX-clean and byte-stable against the committed copies (which end
         // with '\n'); the conformance comparator trimRights output anyway.
-        File('${outDir.path}/$baseName.ball.json').writeAsStringSync('$jsonStr\n');
+        File(
+          '${outDir.path}/$baseName.ball.json',
+        ).writeAsStringSync('$jsonStr\n');
         File(
           '${outDir.path}/$baseName.expected_output.txt',
         ).writeAsStringSync(expectedOutput);

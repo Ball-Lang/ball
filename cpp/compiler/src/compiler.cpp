@@ -2462,8 +2462,16 @@ static std::optional<StructuredPatternResult> _compileStructuredPattern(
                 val->literal().value_case() == ball::v1::Literal::VALUE_NOT_SET) {
                 return StructuredPatternResult{"!" + subject + ".has_value()", {}};
             }
+            // Wrap the case value with ball_to_dyn(...), NOT BallDyn(...) or
+            // static_cast<BallDyn>(...): when the value is a user-type enum
+            // (e.g. `Color::red`), both casts are rejected (MSVC C2440
+            // 'ambiguous'; g++ likewise) because the enum's user-defined
+            // `operator BallDyn()` ties with the Enum->std::any->BallDyn ctor
+            // path. ball_to_dyn detects the conversion operator and calls it
+            // explicitly for enums, while plain int/string/bool literals fall
+            // back to a normal BallDyn construction.
             return StructuredPatternResult{
-                "BallDyn(" + subject + ") == BallDyn(" + exprFn(*val) + ")", {}};
+                "BallDyn(" + subject + ") == ball_to_dyn(" + exprFn(*val) + ")", {}};
         }
         return StructuredPatternResult{"true", {}};
     }
@@ -2483,9 +2491,17 @@ static std::optional<StructuredPatternResult> _compileStructuredPattern(
         return StructuredPatternResult{cond, binds};
     }
 
-    // WildcardPattern / wildcard / _: always matches, no bindings
+    // WildcardPattern / wildcard / _: matches any value without binding a name,
+    // but may carry a type test (`case int _:` encodes as WildcardPattern{type}).
+    // Emit the type-check condition when a type is present so the case lowers to
+    // `if (<typecheck>) { ... }` rather than an unconditional catch-all `{ ... }`
+    // — the latter leaves a following case's `else` dangling (g++/clang reject
+    // it as "'else' without a previous 'if'"; conformance 183_type_patterns).
     if (kind == "WildcardPattern" || kind == "wildcard" || kind == "_") {
-        return StructuredPatternResult{"true", {}};
+        std::string typeName = _patternStringField(patternExpr, "type");
+        std::string cond =
+            typeName.empty() ? "true" : _typeCheckCondition(typeName, subject);
+        return StructuredPatternResult{cond, {}};
     }
 
     // ListPattern: check list type, length, and recursively match elements.
@@ -3868,10 +3884,10 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         return "[](BallDyn _v) -> BallDyn { return BallDyn(static_cast<double>(_v) != static_cast<double>(_v)); }(" + get_message_field(call, "value") + ")";
     }
     if (fn == "math_is_finite") {
-        return "[](BallDyn _v) -> BallDyn { auto d=static_cast<double>(_v); return BallDyn(d==d && d!=1.0/0.0 && d!=-1.0/0.0); }(" + get_message_field(call, "value") + ")";
+        return "[](BallDyn _v) -> BallDyn { return BallDyn(std::isfinite(static_cast<double>(_v))); }(" + get_message_field(call, "value") + ")";
     }
     if (fn == "math_is_infinite") {
-        return "[](BallDyn _v) -> BallDyn { auto d=static_cast<double>(_v); return BallDyn(d==1.0/0.0 || d==-1.0/0.0); }(" + get_message_field(call, "value") + ")";
+        return "[](BallDyn _v) -> BallDyn { return BallDyn(std::isinf(static_cast<double>(_v))); }(" + get_message_field(call, "value") + ")";
     }
     if (fn == "math_gcd") {
         return "[](BallDyn _a, BallDyn _b) -> BallDyn { auto a=std::abs(static_cast<int64_t>(_a)); auto b=std::abs(static_cast<int64_t>(_b)); while(b){auto t=b;b=a%b;a=t;} return BallDyn(a); }(" + get_message_field(call, "left") + "," + get_message_field(call, "right") + ")";
@@ -4217,7 +4233,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                     std::string cond;
                     for (size_t oi = 0; oi < or_vals.size(); oi++) {
                         if (oi > 0) cond += " || ";
-                        cond += "BallDyn(__subj) == BallDyn(" + compile_expr(*or_vals[oi]) + ")";
+                        cond += "BallDyn(__subj) == ball_to_dyn(" + compile_expr(*or_vals[oi]) + ")";
                     }
                     result += indent_str() + "  if (" + cond + ") return " + body + ";\n";
                     continue;
@@ -4228,7 +4244,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             // match value in a `value` field (no `pattern`/`pattern_expr`).
             // Emit a direct equality check. (conformance 169, 170)
             if (value_expr && pattern.empty() && !pattern_expr_ptr) {
-                result += indent_str() + "  if (BallDyn(__subj) == BallDyn(" +
+                result += indent_str() + "  if (BallDyn(__subj) == ball_to_dyn(" +
                           compile_expr(*value_expr) + ")) return " + body + ";\n";
                 continue;
             }
@@ -4249,7 +4265,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 if (sp == "\"_\"s" || sp == "\"default\"s") {
                     result += indent_str() + "  return " + body + ";\n";
                 } else {
-                    result += indent_str() + "  if (BallDyn(__subj) == BallDyn(" + sp + ")) return " + body + ";\n";
+                    result += indent_str() + "  if (BallDyn(__subj) == ball_to_dyn(" + sp + ")) return " + body + ";\n";
                 }
             }
         }
@@ -5807,6 +5823,10 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                 // expression falls through to the default path.
                 auto* init_expr = get_message_field_expr(call, "init");
                 std::string init;
+                // When the loop variable is captured by an escaping closure it is
+                // boxed (shared_ptr<BallDyn>); record its sanitized name so the
+                // body gets a FRESH per-iteration cell (Dart for-loop semantics).
+                std::string boxed_loop_var;
                 if (init_expr &&
                     init_expr->expr_case() == ball::v1::Expression::kLiteral &&
                     init_expr->literal().value_case() == ball::v1::Literal::kStringValue) {
@@ -5866,7 +5886,25 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                         const auto& let_stmt = init_e->block().statements(0).let();
                         auto var_name = ball_local_var_name(sanitize_name(let_stmt.name()));
                         auto val = compile_expr(let_stmt.value());
-                        init = "auto " + var_name + " = " + val;
+                        if (boxed_vars_.count(let_stmt.name())) {
+                            // The loop var is captured by an escaping closure
+                            // (e.g. `for (var i…) fns.add(() => i)`). It is boxed
+                            // as a shared_ptr<BallDyn> (compile_reference derefs it
+                            // as `(*i)` in cond/update/body), so the header
+                            // declaration must allocate a cell — `auto i =
+                            // static_cast<int64_t>(0)` would be ill-formed (you
+                            // cannot deref an int64). The header cell drives the
+                            // loop; the body gets a FRESH cell each iteration so
+                            // each closure captures THAT iteration's value (Dart
+                            // gives 10,11,12 — not one shared 13,13,13).
+                            // (conformance 229)
+                            init = "auto " + var_name +
+                                   " = std::make_shared<BallDyn>(BallDyn(" + val +
+                                   "))";
+                            boxed_loop_var = var_name;
+                        } else {
+                            init = "auto " + var_name + " = " + val;
+                        }
                     } else {
                         init = get_message_field(call, "init");
                     }
@@ -5875,6 +5913,27 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                 auto update = get_message_field(call, "update");
                 emit_line("for (" + init + "; " + cond + "; " + update + ") {");
                 indent_++;
+                // Per-iteration fresh binding for a closure-captured loop var: the
+                // header cell (`boxed_loop_var`) persists across iterations and
+                // drives cond/update; here we alias it, then SHADOW it with a fresh
+                // cell seeded from its current value. Body references resolve to the
+                // fresh cell, so a closure made this iteration freezes this value.
+                // After the body we carry any body-mutation back to the header cell
+                // (matching the engine's iterScope→forScope carry-over) so the
+                // header's update advances from the right value. (conformance 229)
+                if (!boxed_loop_var.empty()) {
+                    // Nested block so the fresh `i` SHADOWS the for-init `i`
+                    // (re-declaring it at the body's top level would be a
+                    // redefinition — the for-init var's scope extends into the
+                    // body). cond/update still bind the header cell.
+                    emit_line("{");
+                    indent_++;
+                    emit_line("auto& __ball_box_persist_" + boxed_loop_var + " = " +
+                              boxed_loop_var + ";");
+                    emit_line("auto " + boxed_loop_var +
+                              " = std::make_shared<BallDyn>(BallDyn(*__ball_box_persist_" +
+                              boxed_loop_var + "));");
+                }
                 auto* body_expr = get_message_field_expr(call, "body");
                 if (body_expr) {
                     if (body_expr->expr_case() == ball::v1::Expression::kBlock) {
@@ -5895,6 +5954,15 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                 }
                 if (!loop_label.empty()) {
                     emit_line("__ball_continue_" + loop_label + ":;");
+                }
+                // Carry the (possibly body-mutated) fresh cell back to the header
+                // cell BEFORE the header's update runs, so a `for` body that
+                // reassigns the loop var still advances correctly. (conformance 229)
+                if (!boxed_loop_var.empty()) {
+                    emit_line("*__ball_box_persist_" + boxed_loop_var + " = *" +
+                              boxed_loop_var + ";");
+                    indent_--;
+                    emit_line("}");  // close the per-iteration shadow block
                 }
                 indent_--;
                 emit_line("}");
@@ -6176,7 +6244,7 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                                     } else {
                                         // Include any fall-through patterns
                                         for (auto& pp : pending_patterns) {
-                                            cond += " || BallDyn(__switch_subj) == BallDyn(" + pp + ")";
+                                            cond += " || BallDyn(__switch_subj) == ball_to_dyn(" + pp + ")";
                                         }
                                         pending_patterns.clear();
                                         if (first_case) emit_line("if (" + cond + ") {");
@@ -6203,20 +6271,20 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                                     pending_patterns.clear();
                                     for (size_t oi = 0; oi < or_vals.size(); oi++) {
                                         if (oi > 0) cond += " || ";
-                                        cond += "BallDyn(__switch_subj) == BallDyn(" + compile_expr(*or_vals[oi]) + ")";
+                                        cond += "BallDyn(__switch_subj) == ball_to_dyn(" + compile_expr(*or_vals[oi]) + ")";
                                     }
                                 } else if (or_vals.size() == 1) {
-                                    cond = "BallDyn(__switch_subj) == BallDyn(" + compile_expr(*or_vals[0]) + ")";
+                                    cond = "BallDyn(__switch_subj) == ball_to_dyn(" + compile_expr(*or_vals[0]) + ")";
                                 }
                             }
                             if (cond.empty() && case_val) {
                                 auto cv = normalize_pattern(compile_expr(*case_val));
-                                cond = "BallDyn(__switch_subj) == BallDyn(" + cv + ")";
+                                cond = "BallDyn(__switch_subj) == ball_to_dyn(" + cv + ")";
                             }
                             if (cond.empty()) continue;
                             // Include any fall-through patterns
                             for (auto& pp : pending_patterns) {
-                                cond += " || BallDyn(__switch_subj) == BallDyn(" + pp + ")";
+                                cond += " || BallDyn(__switch_subj) == ball_to_dyn(" + pp + ")";
                             }
                             pending_patterns.clear();
                             if (first_case) emit_line("if (" + cond + ") {");
@@ -6496,6 +6564,8 @@ void CppCompiler::emit_includes() {
     emit_line("#include <thread>");
     emit_line("#include <chrono>");
     emit_line("#include <random>");
+    emit_line("#include <type_traits>");
+    emit_line("#include <utility>");
     emit_newline();
     emit_line("using namespace std::string_literals;");
     emit_newline();
@@ -6692,6 +6762,35 @@ inline BallDyn ball_wrap_list(const std::vector<std::string>& v) {
   BallList result;
   for (const auto& s : v) result.push_back(std::any(s));
   return BallDyn(result);
+}
+)";
+    // ball_to_dyn: convert an arbitrary value to BallDyn for switch/equality.
+    // A user-type enum is emitted as a struct with `operator BallDyn() const`;
+    // such a value CANNOT be wrapped with `BallDyn(x)` NOR
+    // `static_cast<BallDyn>(x)` — both perform direct-initialization with
+    // identical overload resolution, and the enum's user-defined
+    // `operator BallDyn()` ties with the `Enum -> std::any -> BallDyn(std::any)`
+    // ctor path, an ambiguous user-defined conversion sequence (MSVC C2440
+    // 'ambiguous call'; g++ rejects likewise). This helper detects the
+    // conversion operator via a std::void_t trait and calls it explicitly for
+    // enums, falling back to a plain BallDyn construction for
+    // int/string/bool/BallDyn values. A trait (not a requires-expression) is
+    // used because MSVC mis-evaluates `requires { x.operator BallDyn(); }` for
+    // conversion-operator detection.
+    out_ << R"(
+template <class T, class = void>
+struct _ball_has_dyn_op : std::false_type {};
+template <class T>
+struct _ball_has_dyn_op<
+    T, std::void_t<decltype(std::declval<const T&>().operator BallDyn())>>
+    : std::true_type {};
+template <class T>
+inline BallDyn ball_to_dyn(T&& x) {
+  if constexpr (_ball_has_dyn_op<std::decay_t<T>>::value) {
+    return x.operator BallDyn();
+  } else {
+    return BallDyn(std::forward<T>(x));
+  }
 }
 )";
     // NOTE: the emitted runtime preamble is split across two adjacent string

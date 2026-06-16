@@ -5368,6 +5368,23 @@ const KNOWN_PATTERN_KINDS = new Set([
   "ListPattern", "RestPattern", "rest", "record",
 ]);
 
+/** Generate a JS type-check condition for a Dart type name against `subject`.
+ *  Shared by the VarPattern and WildcardPattern arms so a typed binder
+ *  (`case int x:`) and a typed wildcard (`case int _:`) test the type
+ *  identically — they previously diverged, leaving the wildcard untyped. */
+function typeCheckCondition(typeName: string, subject: string): string {
+  switch (typeName) {
+    case "int": return `(typeof ${subject} === 'number' && Number.isInteger(${subject}))`;
+    case "double": return `(${subject} instanceof BallDouble || (typeof ${subject} === 'number' && !Number.isInteger(${subject})))`;
+    case "num": case "number": return `(typeof ${subject} === 'number' || ${subject} instanceof BallDouble)`;
+    case "String": case "string": return `(typeof ${subject} === 'string')`;
+    case "bool": case "boolean": return `(typeof ${subject} === 'boolean')`;
+    case "List": return `Array.isArray(${subject})`;
+    case "Map": return `(typeof ${subject} === 'object' && ${subject} !== null && !Array.isArray(${subject}))`;
+    default: return `(${subject} instanceof ${typeName} || (typeof ${subject} === 'object' && ${subject}?.['__type__'] === '${typeName}'))`;
+  }
+}
+
 /**
  * Compile a structured pattern_expr into a condition string and variable bindings.
  * Handles ConstPattern, ListPattern, VarPattern, RestPattern, and record patterns.
@@ -5394,26 +5411,23 @@ function compileStructuredPattern(
       const typeName = fields.get("type")?.literal?.stringValue;
       // When a VarPattern has a type annotation (e.g. "double d"),
       // generate a type-check condition instead of a catch-all.
-      let cond = "true";
-      if (typeName) {
-        switch (typeName) {
-          case "int": cond = `(typeof ${subject} === 'number' && Number.isInteger(${subject}))`; break;
-          case "double": cond = `(${subject} instanceof BallDouble || (typeof ${subject} === 'number' && !Number.isInteger(${subject})))`; break;
-          case "num": case "number": cond = `(typeof ${subject} === 'number' || ${subject} instanceof BallDouble)`; break;
-          case "String": case "string": cond = `(typeof ${subject} === 'string')`; break;
-          case "bool": case "boolean": cond = `(typeof ${subject} === 'boolean')`; break;
-          case "List": cond = `Array.isArray(${subject})`; break;
-          case "Map": cond = `(typeof ${subject} === 'object' && ${subject} !== null && !Array.isArray(${subject}))`; break;
-          default: cond = `(${subject} instanceof ${typeName} || (typeof ${subject} === 'object' && ${subject}?.['__type__'] === '${typeName}'))`; break;
-        }
-      }
+      const cond = typeName ? typeCheckCondition(typeName, subject) : "true";
       if (name) return { condition: cond, bindings: [{ varName: name, expr: subject }] };
       return { condition: cond, bindings: [] };
     }
     case "WildcardPattern":
     case "wildcard":
-    case "_":
-      return { condition: "true", bindings: [] };
+    case "_": {
+      // A wildcard may still carry a type test (`case int _:` encodes as
+      // WildcardPattern{type:"int"}). Emit the type-check when a type is
+      // present (no binding); only an untyped `_` is an unconditional
+      // catch-all. Without this the whole switch collapsed to the first
+      // typed-wildcard case (silent wrong output — was int/int/int/int on
+      // 183_type_patterns). Mirrors the C++ compiler fix.
+      const typeName = fields.get("type")?.literal?.stringValue;
+      const cond = typeName ? typeCheckCondition(typeName, subject) : "true";
+      return { condition: cond, bindings: [] };
+    }
     case "ListPattern": {
       const elementsExpr = fields.get("elements");
       const elements = elementsExpr?.literal?.listValue?.elements ?? [];

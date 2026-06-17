@@ -2,7 +2,7 @@ name: ball_resolver
 description: >-
   Module resolver for Ball programs that fetches, verifies, and caches modules
   from HTTP, file, git, inline, and registry sources with integrity checking.
-version: 0.3.0
+version: 0.4.0
 homepage: https://github.com/ball-lang/ball
 repository: https://github.com/ball-lang/ball
 issue_tracker: https://github.com/ball-lang/ball/issues
@@ -18,7 +18,7 @@ environment:
 resolution: workspace
 
 dependencies:
-  ball_base: ^0.3.0
+  ball_base: ^0.4.0
   http: ^1.2.0
   archive: ^4.0.0
   crypto: ^3.0.0

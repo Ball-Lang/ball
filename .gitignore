@@ -22,8 +22,8 @@ pubspec.lock
 # Commit the Dart workspace lock so CI resolves the SAME, known-good dependency
 # versions as local. Without it, `dart pub get` fresh-resolves newer deps, which
 # has repeatedly broken CI (analyzer error churn, BallDouble/num, formatter drift)
-# while passing locally.
-!dart/pubspec.lock
+# while passing locally. The workspace root is the repo root (see /pubspec.yaml).
+!/pubspec.lock
 build/
 
 # ----------------------------------

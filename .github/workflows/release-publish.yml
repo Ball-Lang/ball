@@ -26,10 +26,8 @@ jobs:
 
       - uses: dart-lang/setup-dart@v1
 
-      - name: Bootstrap workspace
-        working-directory: dart
-        run: dart pub get
-
+      # The Dart pub-workspace / Melos root is the repo root, so melos-action
+      # (which runs `melos bootstrap` from the workspace root) works directly.
       # melos-action with `publish: true` parses $GITHUB_REF (a tag ref
       # like refs/tags/ball_base-v0.1.0), extracts the package name,
       # and runs `melos publish --scope=<name>` with OIDC auth.
@@ -39,5 +37,4 @@ jobs:
       #   Tag pattern: <package_name>-v{{version}}
       - uses: bluefireteam/melos-action@v3
         with:
-          melos-working-dir: dart
           publish: true

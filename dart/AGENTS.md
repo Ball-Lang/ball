@@ -18,7 +18,7 @@ When working in the Dart packages. The Dart implementation is the **reference** 
 | `dart/self_host` | Engine self-encoded as Ball (CI artifact) | N/A |
 | `dart/scripts` | Build/generation tooling | N/A |
 
-All packages use workspace resolution (`resolution: workspace`). Run `dart pub get` from `dart/` root. Melos is configured at `dart/pubspec.yaml`.
+All packages use workspace resolution (`resolution: workspace`). The pub-workspace + Melos root is the **repo root** (`/pubspec.yaml`); run `dart pub get` and `melos …` from there. Per-package commands still work from each package dir (pub resolves upward).
 
 ## Testing
 

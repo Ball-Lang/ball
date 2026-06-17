@@ -36,8 +36,9 @@ This repo is large and cross-cutting (one Dart change ripples through the encode
 ## Build & Test
 
 ```bash
-# Dart — workspace resolution; run from dart/ root
-cd dart && dart pub get
+# Dart — the pub-workspace + Melos root is the REPO ROOT (/pubspec.yaml);
+# the packages live under dart/. Run `dart pub get` and `melos …` from root.
+dart pub get                                   # resolves the whole workspace
 cd dart/engine && dart test                    # full engine test suite
 cd dart/engine && dart test --name "pattern"   # single test by name
 cd dart/encoder && dart test                   # encoder tests

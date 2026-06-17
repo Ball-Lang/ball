@@ -1,18 +1,22 @@
-name: ball_dart_workspace
+name: ball_workspace
 environment:
   sdk: ^3.9.0
 
+# Dart is Ball's reference language (compiler + encoder + engine + CLI + std),
+# so the Dart pub workspace / Melos root lives at the repo root. The actual
+# packages live under dart/; everything else (ts/, cpp/, proto/, …) is owned by
+# its own toolchain. Run `dart pub get` and `melos …` from the repo root.
 workspace:
-  - ball_protobuf
-  - ball_protobuf_gen
-  - ball_rpc
-  - shared
-  - compiler
-  - encoder
-  - engine
-  - cli
-  - resolver
-  - self_host
+  - dart/ball_protobuf
+  - dart/ball_protobuf_gen
+  - dart/ball_rpc
+  - dart/shared
+  - dart/compiler
+  - dart/encoder
+  - dart/engine
+  - dart/cli
+  - dart/resolver
+  - dart/self_host
 
 dev_dependencies:
   melos: ^7.8.2
@@ -54,32 +58,32 @@ melos:
 
     regen-std:
       description: Regenerate std.json and std.bin from std.dart
-      run: cd shared && dart run bin/gen_std.dart
+      run: cd dart/shared && dart run bin/gen_std.dart
 
     regen-protobuf:
       description: Regenerate ball_protobuf.json and ball_protobuf.bin from protobuf Dart sources
-      run: cd encoder && dart run bin/gen_ball_protobuf.dart
+      run: cd dart/encoder && dart run bin/gen_ball_protobuf.dart
 
     regen-protos:
       description: Regenerate protobuf bindings via buf
-      run: cd .. && buf generate proto/
+      run: buf generate proto/
 
     validate-roundtrip:
       description: Run round-trip validation on all 20 top pub packages
-      run: cd encoder && dart run ball_encoder:roundtrip_top20
+      run: cd dart/encoder && dart run ball_encoder:roundtrip_top20
 
     co19:
       description: Run co19 conformance validation (default 500 tests)
-      run: cd encoder && dart run ball_encoder:co19_validate --limit 500
+      run: cd dart/encoder && dart run ball_encoder:co19_validate --limit 500
 
     audit:
       description: Run ball audit on examples
-      run: dart run ball_cli:ball audit ../examples/hello_world/hello_world.ball.json
+      run: cd dart && dart run ball_cli:ball audit ../examples/hello_world/hello_world.ball.json
 
     self-host:
       description: Phase 1 parity + Phase 2 TS-native compile of engine.dart
       run: |
-        cd self_host && dart test
+        cd dart/self_host && dart test
         cd ../../ts/compiler && npm test
 
     pub-publish-dry:

@@ -25,22 +25,18 @@ jobs:
 
       - uses: dart-lang/setup-dart@v1
 
-      - name: Bootstrap workspace
-        working-directory: dart
-        run: dart pub get
-
+      # The Dart pub-workspace / Melos root is the repo root, so melos-action
+      # (which runs `melos bootstrap` from the workspace root) works directly.
       # melos-action with `tag: true` creates <package_name>-v<version>
       # tags for every package whose version changed since the last tag.
       - uses: bluefireteam/melos-action@v3
         with:
-          melos-working-dir: dart
           tag: true
 
       # Dispatch release-publish.yml once per freshly-tagged package,
       # in dependency order. `--no-published` skips packages whose
       # version is already on pub.dev (e.g. republishing unchanged).
       - name: Dispatch per-package publish workflows
-        working-directory: dart
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

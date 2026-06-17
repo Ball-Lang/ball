@@ -7,14 +7,19 @@
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "multiply",
           "isBase": true
         },
         {
-          "name": "multiply",
+          "name": "await",
+          "isBase": true
+        },
+        {
+          "name": "print",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -23,6 +28,40 @@
             "field": [
               {
                 "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
@@ -38,13 +77,14 @@
         {
           "name": "step1",
           "inputType": "int",
-          "outputType": "int",
+          "outputType": "Future<int>",
           "body": {
             "call": {
               "module": "std",
               "function": "multiply",
               "input": {
                 "messageCreation": {
+                  "typeName": "",
                   "fields": [
                     {
                       "name": "left",
@@ -81,13 +121,14 @@
         {
           "name": "step2",
           "inputType": "int",
-          "outputType": "int",
+          "outputType": "Future<int>",
           "body": {
             "call": {
               "module": "std",
               "function": "multiply",
               "input": {
                 "messageCreation": {
+                  "typeName": "",
                   "fields": [
                     {
                       "name": "left",
@@ -123,7 +164,7 @@
         },
         {
           "name": "main",
-          "outputType": "void",
+          "outputType": "Future<void>",
           "body": {
             "block": {
               "statements": [
@@ -132,27 +173,41 @@
                     "name": "result",
                     "value": {
                       "call": {
-                        "function": "step2",
+                        "module": "std",
+                        "function": "await",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
-                                "name": "arg0",
+                                "name": "value",
                                 "value": {
                                   "call": {
-                                    "function": "step1",
+                                    "function": "step2",
                                     "input": {
-                                      "messageCreation": {
-                                        "fields": [
-                                          {
-                                            "name": "arg0",
-                                            "value": {
-                                              "literal": {
-                                                "intValue": "5"
+                                      "call": {
+                                        "module": "std",
+                                        "function": "await",
+                                        "input": {
+                                          "messageCreation": {
+                                            "typeName": "",
+                                            "fields": [
+                                              {
+                                                "name": "value",
+                                                "value": {
+                                                  "call": {
+                                                    "function": "step1",
+                                                    "input": {
+                                                      "literal": {
+                                                        "intValue": "5"
+                                                      }
+                                                    }
+                                                  }
+                                                }
                                               }
-                                            }
+                                            ]
                                           }
-                                        ]
+                                        }
                                       }
                                     }
                                   }
@@ -164,8 +219,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "int"
+                      "keyword": "final"
                     }
                   }
                 },
@@ -196,7 +250,8 @@
             }
           },
           "metadata": {
-            "kind": "function"
+            "kind": "function",
+            "is_async": true
           }
         }
       ],

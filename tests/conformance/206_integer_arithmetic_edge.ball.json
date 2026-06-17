@@ -1,17 +1,17 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "206_integer_arithmetic_edge",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "to_string",
           "isBase": true
         },
         {
-          "name": "to_string",
+          "name": "print",
           "isBase": true
         },
         {
@@ -19,11 +19,11 @@
           "isBase": true
         },
         {
-          "name": "modulo",
+          "name": "negate",
           "isBase": true
         },
         {
-          "name": "negate",
+          "name": "modulo",
           "isBase": true
         },
         {
@@ -47,6 +47,7 @@
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -55,6 +56,40 @@
             "field": [
               {
                 "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
@@ -70,6 +105,7 @@
         {
           "name": "show",
           "inputType": "int",
+          "outputType": "void",
           "body": {
             "call": {
               "module": "std",
@@ -86,6 +122,7 @@
                           "function": "to_string",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
                                   "name": "value",
@@ -118,6 +155,7 @@
         },
         {
           "name": "main",
+          "outputType": "void",
           "body": {
             "block": {
               "statements": [
@@ -131,6 +169,7 @@
                           "function": "divide",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
                                   "name": "left",
@@ -166,12 +205,29 @@
                           "function": "divide",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
                                   "name": "left",
                                   "value": {
-                                    "literal": {
-                                      "intValue": "-17"
+                                    "call": {
+                                      "module": "std",
+                                      "function": "negate",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "17"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
                                     }
                                   }
                                 },
@@ -201,12 +257,29 @@
                           "function": "modulo",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
                                   "name": "left",
                                   "value": {
-                                    "literal": {
-                                      "intValue": "-17"
+                                    "call": {
+                                      "module": "std",
+                                      "function": "negate",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "17"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
                                     }
                                   }
                                 },
@@ -236,6 +309,7 @@
                           "function": "modulo",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
                                   "name": "left",
@@ -248,8 +322,24 @@
                                 {
                                   "name": "right",
                                   "value": {
-                                    "literal": {
-                                      "intValue": "-5"
+                                    "call": {
+                                      "module": "std",
+                                      "function": "negate",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "5"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
                                     }
                                   }
                                 }
@@ -271,6 +361,7 @@
                           "function": "bitwise_and",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
                                   "name": "left",
@@ -306,6 +397,7 @@
                           "function": "bitwise_or",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
                                   "name": "left",
@@ -341,6 +433,7 @@
                           "function": "bitwise_xor",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
                                   "name": "left",
@@ -376,6 +469,7 @@
                           "function": "left_shift",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
                                   "name": "left",
@@ -411,6 +505,7 @@
                           "function": "right_shift",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
                                   "name": "left",
@@ -446,6 +541,7 @@
                           "function": "negate",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
                                   "name": "value",
@@ -465,6 +561,9 @@
                 }
               ]
             }
+          },
+          "metadata": {
+            "kind": "function"
           }
         }
       ],

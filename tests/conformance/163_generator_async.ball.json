@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "163_generator_async",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
@@ -24,6 +24,14 @@
         },
         {
           "name": "yield",
+          "isBase": true
+        },
+        {
+          "name": "await",
+          "isBase": true
+        },
+        {
+          "name": "list_to_list",
           "isBase": true
         },
         {
@@ -84,6 +92,16 @@
       ]
     },
     {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_to_list",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
+    },
+    {
       "name": "main",
       "functions": [
         {
@@ -93,20 +111,6 @@
           "body": {
             "block": {
               "statements": [
-                {
-                  "let": {
-                    "name": "max",
-                    "value": {
-                      "reference": {
-                        "name": "input"
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "int"
-                    }
-                  }
-                },
                 {
                   "expression": {
                     "call": {
@@ -274,7 +278,7 @@
             "is_async_star": true,
             "params": [
               {
-                "name": "input",
+                "name": "max",
                 "type": "int"
               }
             ]
@@ -282,10 +286,59 @@
         },
         {
           "name": "main",
-          "outputType": "void",
+          "outputType": "Future<void>",
           "body": {
             "block": {
               "statements": [
+                {
+                  "let": {
+                    "name": "all",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "await",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "",
+                            "fields": [
+                              {
+                                "name": "value",
+                                "value": {
+                                  "call": {
+                                    "module": "std_collections",
+                                    "function": "list_to_list",
+                                    "input": {
+                                      "messageCreation": {
+                                        "fields": [
+                                          {
+                                            "name": "list",
+                                            "value": {
+                                              "call": {
+                                                "function": "asyncRange",
+                                                "input": {
+                                                  "literal": {
+                                                    "intValue": "5"
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var"
+                    }
+                  }
+                },
                 {
                   "expression": {
                     "call": {
@@ -298,33 +351,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "await",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "fieldAccess": {
-                                              "object": {
-                                                "call": {
-                                                  "function": "asyncRange",
-                                                  "input": {
-                                                    "literal": {
-                                                      "intValue": "5"
-                                                    }
-                                                  }
-                                                }
-                                              },
-                                              "field": "length"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "all"
                                     }
-                                  }
+                                  },
+                                  "field": "length"
                                 }
                               }
                             }
@@ -346,33 +379,13 @@
                             {
                               "name": "message",
                               "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "await",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "fieldAccess": {
-                                              "object": {
-                                                "call": {
-                                                  "function": "asyncRange",
-                                                  "input": {
-                                                    "literal": {
-                                                      "intValue": "5"
-                                                    }
-                                                  }
-                                                }
-                                              },
-                                              "field": "first"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "all"
                                     }
-                                  }
+                                  },
+                                  "field": "first"
                                 }
                               }
                             }

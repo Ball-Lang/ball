@@ -31,6 +31,14 @@
           "isBase": true
         },
         {
+          "name": "string_is_empty",
+          "isBase": true
+        },
+        {
+          "name": "not",
+          "isBase": true
+        },
+        {
           "name": "list_push",
           "isBase": true
         },
@@ -319,13 +327,40 @@
                                                     {
                                                       "name": "condition",
                                                       "value": {
-                                                        "fieldAccess": {
-                                                          "object": {
-                                                            "reference": {
-                                                              "name": "current"
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "not",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "value",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "module": "std",
+                                                                      "function": "string_is_empty",
+                                                                      "input": {
+                                                                        "messageCreation": {
+                                                                          "typeName": "",
+                                                                          "fields": [
+                                                                            {
+                                                                              "name": "value",
+                                                                              "value": {
+                                                                                "reference": {
+                                                                                  "name": "current"
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
                                                             }
-                                                          },
-                                                          "field": "isNotEmpty"
+                                                          }
                                                         }
                                                       }
                                                     },
@@ -516,13 +551,40 @@
                             {
                               "name": "condition",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "current"
+                                "call": {
+                                  "module": "std",
+                                  "function": "not",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "string_is_empty",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "current"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "isNotEmpty"
+                                  }
                                 }
                               }
                             },

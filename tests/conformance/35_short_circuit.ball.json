@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "35_short_circuit",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {

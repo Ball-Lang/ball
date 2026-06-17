@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "241_generic_list_covariance",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
@@ -47,20 +47,6 @@
           "body": {
             "block": {
               "statements": [
-                {
-                  "let": {
-                    "name": "items",
-                    "value": {
-                      "reference": {
-                        "name": "input"
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "List<dynamic>"
-                    }
-                  }
-                },
                 {
                   "expression": {
                     "call": {
@@ -124,7 +110,7 @@
             "kind": "function",
             "params": [
               {
-                "name": "input",
+                "name": "items",
                 "type": "List<Object>"
               }
             ]
@@ -135,43 +121,24 @@
           "inputType": "T",
           "outputType": "List<T>",
           "body": {
-            "block": {
-              "statements": [
-                {
-                  "let": {
-                    "name": "value",
-                    "value": {
-                      "reference": {
-                        "name": "input"
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "T"
+            "literal": {
+              "listValue": {
+                "elements": [
+                  {
+                    "reference": {
+                      "name": "value"
                     }
                   }
-                }
-              ],
-              "result": {
-                "literal": {
-                  "listValue": {
-                    "elements": [
-                      {
-                        "reference": {
-                          "name": "value"
-                        }
-                      }
-                    ]
-                  }
-                }
+                ]
               }
             }
           },
           "metadata": {
             "kind": "function",
+            "expression_body": true,
             "params": [
               {
-                "name": "input",
+                "name": "value",
                 "type": "T"
               }
             ],
@@ -273,7 +240,13 @@
                                         "literal": {
                                           "intValue": "42"
                                         }
-                                      }
+                                      },
+                                      "typeArgs": [
+                                        {
+                                          "name": "Object",
+                                          "nullable": false
+                                        }
+                                      ]
                                     }
                                   },
                                   "field": "first"
@@ -306,7 +279,13 @@
                                         "literal": {
                                           "stringValue": "x"
                                         }
-                                      }
+                                      },
+                                      "typeArgs": [
+                                        {
+                                          "name": "String",
+                                          "nullable": false
+                                        }
+                                      ]
                                     }
                                   },
                                   "field": "first"
@@ -349,7 +328,13 @@
                                                     "literal": {
                                                       "doubleValue": 3.5
                                                     }
-                                                  }
+                                                  },
+                                                  "typeArgs": [
+                                                    {
+                                                      "name": "num",
+                                                      "nullable": false
+                                                    }
+                                                  ]
                                                 }
                                               },
                                               "field": "first"

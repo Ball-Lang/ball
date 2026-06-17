@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "242_generic_fn_chains",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
@@ -15,7 +15,7 @@
           "isBase": true
         },
         {
-          "name": "add",
+          "name": "concat",
           "isBase": true
         },
         {
@@ -83,40 +83,21 @@
           "inputType": "List<T>",
           "outputType": "T",
           "body": {
-            "block": {
-              "statements": [
-                {
-                  "let": {
-                    "name": "items",
-                    "value": {
-                      "reference": {
-                        "name": "input"
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "List<T>"
-                    }
-                  }
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "items"
                 }
-              ],
-              "result": {
-                "fieldAccess": {
-                  "object": {
-                    "reference": {
-                      "name": "items"
-                    }
-                  },
-                  "field": "first"
-                }
-              }
+              },
+              "field": "first"
             }
           },
           "metadata": {
             "kind": "function",
+            "expression_body": true,
             "params": [
               {
-                "name": "input",
+                "name": "items",
                 "type": "List<T>"
               }
             ],
@@ -380,7 +361,7 @@
                                               "body": {
                                                 "call": {
                                                   "module": "std",
-                                                  "function": "add",
+                                                  "function": "concat",
                                                   "input": {
                                                     "messageCreation": {
                                                       "typeName": "",

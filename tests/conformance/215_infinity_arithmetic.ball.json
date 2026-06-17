@@ -15,6 +15,10 @@
           "isBase": true
         },
         {
+          "name": "math_is_infinite",
+          "isBase": true
+        },
+        {
           "name": "print",
           "isBase": true
         },
@@ -24,6 +28,14 @@
         },
         {
           "name": "multiply",
+          "isBase": true
+        },
+        {
+          "name": "math_is_nan",
+          "isBase": true
+        },
+        {
+          "name": "math_is_finite",
           "isBase": true
         }
       ],
@@ -190,13 +202,24 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "inf"
+                                "call": {
+                                  "module": "std",
+                                  "function": "math_is_infinite",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "inf"
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "isInfinite"
+                                  }
                                 }
                               }
                             }
@@ -218,13 +241,24 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "negInf"
+                                "call": {
+                                  "module": "std",
+                                  "function": "math_is_infinite",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "negInf"
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "isInfinite"
+                                  }
                                 }
                               }
                             }
@@ -246,37 +280,48 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "call": {
-                                      "module": "std",
-                                      "function": "add",
-                                      "input": {
-                                        "messageCreation": {
-                                          "typeName": "",
-                                          "fields": [
-                                            {
-                                              "name": "left",
-                                              "value": {
-                                                "reference": {
-                                                  "name": "inf"
-                                                }
-                                              }
-                                            },
-                                            {
-                                              "name": "right",
-                                              "value": {
-                                                "reference": {
-                                                  "name": "inf"
+                                "call": {
+                                  "module": "std",
+                                  "function": "math_is_infinite",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "add",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "inf"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "inf"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
                                                 }
                                               }
                                             }
-                                          ]
+                                          }
                                         }
-                                      }
+                                      ]
                                     }
-                                  },
-                                  "field": "isInfinite"
+                                  }
                                 }
                               }
                             }
@@ -298,37 +343,48 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "call": {
-                                      "module": "std",
-                                      "function": "multiply",
-                                      "input": {
-                                        "messageCreation": {
-                                          "typeName": "",
-                                          "fields": [
-                                            {
-                                              "name": "left",
-                                              "value": {
-                                                "reference": {
-                                                  "name": "inf"
-                                                }
-                                              }
-                                            },
-                                            {
-                                              "name": "right",
-                                              "value": {
-                                                "literal": {
-                                                  "doubleValue": 0
+                                "call": {
+                                  "module": "std",
+                                  "function": "math_is_nan",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "multiply",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "inf"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "literal": {
+                                                          "doubleValue": 0
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
                                                 }
                                               }
                                             }
-                                          ]
+                                          }
                                         }
-                                      }
+                                      ]
                                     }
-                                  },
-                                  "field": "isNaN"
+                                  }
                                 }
                               }
                             }
@@ -350,37 +406,48 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "call": {
-                                      "module": "std",
-                                      "function": "divide_double",
-                                      "input": {
-                                        "messageCreation": {
-                                          "typeName": "",
-                                          "fields": [
-                                            {
-                                              "name": "left",
-                                              "value": {
-                                                "literal": {
-                                                  "doubleValue": 1
-                                                }
-                                              }
-                                            },
-                                            {
-                                              "name": "right",
-                                              "value": {
-                                                "literal": {
-                                                  "doubleValue": 0
+                                "call": {
+                                  "module": "std",
+                                  "function": "math_is_infinite",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "divide_double",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "literal": {
+                                                          "doubleValue": 1
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "literal": {
+                                                          "doubleValue": 0
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
                                                 }
                                               }
                                             }
-                                          ]
+                                          }
                                         }
-                                      }
+                                      ]
                                     }
-                                  },
-                                  "field": "isInfinite"
+                                  }
                                 }
                               }
                             }
@@ -402,53 +469,64 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "call": {
-                                      "module": "std",
-                                      "function": "divide_double",
-                                      "input": {
-                                        "messageCreation": {
-                                          "typeName": "",
-                                          "fields": [
-                                            {
-                                              "name": "left",
-                                              "value": {
-                                                "call": {
-                                                  "module": "std",
-                                                  "function": "negate",
-                                                  "input": {
-                                                    "messageCreation": {
-                                                      "typeName": "",
-                                                      "fields": [
-                                                        {
-                                                          "name": "value",
-                                                          "value": {
-                                                            "literal": {
-                                                              "doubleValue": 1
+                                "call": {
+                                  "module": "std",
+                                  "function": "math_is_infinite",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "divide_double",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "negate",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "value",
+                                                                  "value": {
+                                                                    "literal": {
+                                                                      "doubleValue": 1
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
                                                             }
                                                           }
                                                         }
-                                                      ]
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "literal": {
+                                                          "doubleValue": 0
+                                                        }
+                                                      }
                                                     }
-                                                  }
-                                                }
-                                              }
-                                            },
-                                            {
-                                              "name": "right",
-                                              "value": {
-                                                "literal": {
-                                                  "doubleValue": 0
+                                                  ]
                                                 }
                                               }
                                             }
-                                          ]
+                                          }
                                         }
-                                      }
+                                      ]
                                     }
-                                  },
-                                  "field": "isInfinite"
+                                  }
                                 }
                               }
                             }
@@ -470,13 +548,24 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "inf"
+                                "call": {
+                                  "module": "std",
+                                  "function": "math_is_finite",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "inf"
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "isFinite"
+                                  }
                                 }
                               }
                             }
@@ -498,13 +587,24 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "negInf"
+                                "call": {
+                                  "module": "std",
+                                  "function": "math_is_finite",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "negInf"
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "isFinite"
+                                  }
                                 }
                               }
                             }

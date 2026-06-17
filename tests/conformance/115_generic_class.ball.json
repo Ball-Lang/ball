@@ -1,13 +1,13 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "115_generic_class",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "add",
+          "name": "concat",
           "isBase": true
         },
         {
@@ -24,6 +24,10 @@
         },
         {
           "name": "list_pop",
+          "isBase": true
+        },
+        {
+          "name": "string_is_empty",
           "isBase": true
         },
         {
@@ -123,7 +127,7 @@
           "body": {
             "call": {
               "module": "std",
-              "function": "add",
+              "function": "concat",
               "input": {
                 "messageCreation": {
                   "typeName": "",
@@ -133,7 +137,7 @@
                       "value": {
                         "call": {
                           "module": "std",
-                          "function": "add",
+                          "function": "concat",
                           "input": {
                             "messageCreation": {
                               "typeName": "",
@@ -143,7 +147,7 @@
                                   "value": {
                                     "call": {
                                       "module": "std",
-                                      "function": "add",
+                                      "function": "concat",
                                       "input": {
                                         "messageCreation": {
                                           "typeName": "",
@@ -153,7 +157,7 @@
                                               "value": {
                                                 "call": {
                                                   "module": "std",
-                                                  "function": "add",
+                                                  "function": "concat",
                                                   "input": {
                                                     "messageCreation": {
                                                       "typeName": "",
@@ -254,10 +258,7 @@
             }
           },
           "metadata": {
-            "kind": "method",
-            "annotations": [
-              "override"
-            ]
+            "kind": "method"
           }
         },
         {
@@ -265,83 +266,61 @@
           "inputType": "T",
           "outputType": "void",
           "body": {
-            "block": {
-              "statements": [
-                {
-                  "let": {
-                    "name": "item",
-                    "value": {
-                      "reference": {
-                        "name": "input"
+            "call": {
+              "module": "std",
+              "function": "assign",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    {
+                      "name": "target",
+                      "value": {
+                        "reference": {
+                          "name": "_items"
+                        }
                       }
                     },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "T"
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "assign",
-                      "input": {
-                        "messageCreation": {
-                          "fields": [
-                            {
-                              "name": "target",
-                              "value": {
-                                "reference": {
-                                  "name": "_items"
-                                }
-                              }
-                            },
-                            {
-                              "name": "value",
-                              "value": {
-                                "call": {
-                                  "module": "std_collections",
-                                  "function": "list_push",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "list",
-                                          "value": {
-                                            "reference": {
-                                              "name": "_items"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "reference": {
-                                              "name": "item"
-                                            }
-                                          }
-                                        }
-                                      ]
+                    {
+                      "name": "value",
+                      "value": {
+                        "call": {
+                          "module": "std_collections",
+                          "function": "list_push",
+                          "input": {
+                            "messageCreation": {
+                              "fields": [
+                                {
+                                  "name": "list",
+                                  "value": {
+                                    "reference": {
+                                      "name": "_items"
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "reference": {
+                                      "name": "item"
                                     }
                                   }
                                 }
-                              }
+                              ]
                             }
-                          ]
+                          }
                         }
                       }
                     }
-                  }
+                  ]
                 }
-              ]
+              }
             }
           },
           "metadata": {
             "kind": "method",
             "params": [
               {
-                "name": "input",
+                "name": "item",
                 "type": "T"
               }
             ]
@@ -397,13 +376,24 @@
           "name": "main:Stack.isEmpty",
           "outputType": "bool",
           "body": {
-            "fieldAccess": {
-              "object": {
-                "reference": {
-                  "name": "_items"
+            "call": {
+              "module": "std",
+              "function": "string_is_empty",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "value": {
+                        "reference": {
+                          "name": "_items"
+                        }
+                      }
+                    }
+                  ]
                 }
-              },
-              "field": "isEmpty"
+              }
             }
           },
           "metadata": {
@@ -553,6 +543,16 @@
                     "value": {
                       "messageCreation": {
                         "typeName": "main:Stack",
+                        "fields": [
+                          {
+                            "name": "__type_args__",
+                            "value": {
+                              "literal": {
+                                "stringValue": "<int>"
+                              }
+                            }
+                          }
+                        ],
                         "metadata": {
                           "type_args": [
                             {
@@ -760,13 +760,24 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "s"
+                                "call": {
+                                  "module": "std",
+                                  "function": "string_is_empty",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "s"
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "isEmpty"
+                                  }
                                 }
                               }
                             }
@@ -823,13 +834,11 @@
             "fields": [
               {
                 "name": "first",
-                "type": "A",
-                "is_late": true
+                "type": "A"
               },
               {
                 "name": "second",
-                "type": "B",
-                "is_late": true
+                "type": "B"
               }
             ],
             "type_params": [

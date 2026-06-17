@@ -15,6 +15,10 @@
           "isBase": true
         },
         {
+          "name": "string_is_empty",
+          "isBase": true
+        },
+        {
           "name": "string_substring",
           "isBase": true
         }
@@ -220,13 +224,24 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "empty"
+                                "call": {
+                                  "module": "std",
+                                  "function": "string_is_empty",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "empty"
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "isEmpty"
+                                  }
                                 }
                               }
                             }

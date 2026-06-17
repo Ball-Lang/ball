@@ -12,9 +12,7 @@
 /// executable. Run it for the conformance suite as:
 ///
 ///   dart compile exe dart/ball_protobuf/tool/conformance_main.dart -o ball_conformance
-///   conformance_test_runner --maximum_edition 2023 \
-///     --failure_list dart/ball_protobuf/conformance/failure_list_ball.txt \
-///     -- ./ball_conformance
+///   conformance_test_runner --maximum_edition 2023 -- ./ball_conformance
 ///
 /// Optional arg0: path to the FileDescriptorSet (defaults to a walk-up search
 /// for tests/editions/descriptors/test_messages.fds.binpb).

@@ -1,13 +1,17 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "165_oop_virtual_dispatch",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "add",
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
           "isBase": true
         },
         {
@@ -50,6 +54,20 @@
               }
             ]
           }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         }
       ]
     },
@@ -57,7 +75,7 @@
       "name": "main",
       "functions": [
         {
-          "name": "main:Base.getValue",
+          "name": "main:Base.name",
           "outputType": "String",
           "body": {
             "literal": {
@@ -69,12 +87,12 @@
           }
         },
         {
-          "name": "main:Derived.getValue",
+          "name": "main:Derived.name",
           "outputType": "String",
           "body": {
             "call": {
               "module": "std",
-              "function": "add",
+              "function": "concat",
               "input": {
                 "messageCreation": {
                   "typeName": "",
@@ -83,15 +101,31 @@
                       "name": "left",
                       "value": {
                         "call": {
-                          "function": "getValue",
+                          "module": "std",
+                          "function": "to_string",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
-                                  "name": "self",
+                                  "name": "value",
                                   "value": {
-                                    "reference": {
-                                      "name": "super"
+                                    "call": {
+                                      "function": "name",
+                                      "input": {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "self",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "super"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
                                     }
                                   }
                                 }
@@ -115,10 +149,7 @@
             }
           },
           "metadata": {
-            "kind": "method",
-            "annotations": [
-              "override"
-            ]
+            "kind": "method"
           }
         },
         {
@@ -138,6 +169,43 @@
                     "metadata": {
                       "keyword": "var",
                       "type": "Base"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "name",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "b"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
                     }
                   }
                 },
@@ -168,44 +236,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "getValue",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "self",
-                                          "value": {
-                                            "reference": {
-                                              "name": "b"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "function": "getValue",
+                                  "function": "name",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
@@ -231,17 +262,15 @@
                 },
                 {
                   "let": {
-                    "name": "arr",
+                    "name": "poly",
                     "value": {
-                      "literal": {
-                        "listValue": {
-                          "elements": []
-                        }
+                      "messageCreation": {
+                        "typeName": "main:Derived"
                       }
                     },
                     "metadata": {
                       "keyword": "var",
-                      "type": "List<Base>"
+                      "type": "Base"
                     }
                   }
                 },
@@ -258,7 +287,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "getValue",
+                                  "function": "name",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
@@ -266,7 +295,7 @@
                                           "name": "self",
                                           "value": {
                                             "reference": {
-                                              "name": "d"
+                                              "name": "poly"
                                             }
                                           }
                                         }

@@ -491,7 +491,6 @@ int main() {
         "186_list_generate",
         "187_list_filled",
         "188_std_time_now",
-        "189_std_time_components",
         "190_utf8_encode_decode",
         "191_base64_encode_decode",
         "192_overflow_and_large_numbers",

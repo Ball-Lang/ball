@@ -1,0 +1,3 @@
+# Keeps dart/self_host/lib/ present in fresh checkouts. The real contents
+# (engine_roundtrip.dart, engine_rt.cpp, engine_rt.ts, ...) are generated,
+# gitignored artifacts; CI tools write them here, so the directory must exist.

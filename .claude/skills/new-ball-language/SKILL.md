@@ -451,7 +451,7 @@ cd dart && dart run compiler/tool/compile_engine_<lang>.dart
 - [ ] Scoping is correct: closures capture lexical scope
 - [ ] Flow signals propagate correctly through nested expressions
 - [ ] Virtual properties work on strings, lists, maps
-- [ ] Engine passes at least 80% of conformance tests in `tests/conformance/`
+- [ ] Engine passes **all** conformance tests in `tests/conformance/` (no tolerated failures — a partial pass rate is progress toward this bar, not completion)
 
 ---
 
@@ -745,7 +745,7 @@ Before declaring a new language "complete", verify:
 | Gate | Minimum | Target |
 |------|---------|--------|
 | Compiler: basic programs | hello_world, fibonacci, factorial | All examples/ compile |
-| Engine: conformance | 80% of `tests/conformance/` | 100% parity with Dart |
+| Engine: conformance | core programs (hello_world, fibonacci, factorial) run | 100% of `tests/conformance/` (parity with Dart) |
 | Encoder: round-trip | 3+ programs round-trip correctly | All examples/ round-trip |
 | CI: all jobs green | Build + test pass | Conformance matrix row added |
 | Docs: agent-ready | AGENTS.md + rule file exist | Full CLAUDE.md integration |

@@ -19,6 +19,7 @@ library;
 import 'package:analyzer/dart/analysis/features.dart';
 import 'package:analyzer/dart/analysis/utilities.dart' show parseString;
 import 'package:analyzer/dart/ast/ast.dart' as ast;
+import 'package:ball_base/ball_base.dart' show buildStdConvertModule;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_base/gen/google/protobuf/descriptor.pb.dart' as google;
 import 'package:fixnum/fixnum.dart';
@@ -72,6 +73,10 @@ class DartEncoder {
 
   /// Set of ball_proto base function names discovered during encoding.
   final Set<String> _usedProtoFunctions = {};
+
+  /// Set of std_convert base function names (json/utf8/base64 codecs)
+  /// discovered during encoding.
+  final Set<String> _usedConvertFunctions = {};
 
   /// Ball module name for the file currently being encoded.
   /// All user-defined type names are prefixed with `"$_moduleName:"`.
@@ -127,6 +132,7 @@ class DartEncoder {
     _usedBaseFunctions.clear();
     _usedCollectionsFunctions.clear();
     _usedProtoFunctions.clear();
+    _usedConvertFunctions.clear();
     _importDetails.clear();
     _exportDetails.clear();
     _partDetails.clear();
@@ -232,11 +238,7 @@ class DartEncoder {
   ///
   /// Use after a sequence of [encodeModule] calls to obtain the shared base
   /// modules for a whole package.
-  ({
-    Module stdModule,
-    Module? collectionsModule,
-    Module? protoModule,
-  })
+  ({Module stdModule, Module? collectionsModule, Module? protoModule})
   buildStdModules() => (
     stdModule: _buildStdModule(),
     collectionsModule: _buildCollectionsModule(),
@@ -251,6 +253,7 @@ class DartEncoder {
     _usedBaseFunctions.clear();
     _usedCollectionsFunctions.clear();
     _usedProtoFunctions.clear();
+    _usedConvertFunctions.clear();
   }
 
   // ============================================================
@@ -467,6 +470,7 @@ class DartEncoder {
     final stdModule = _buildStdModule();
     final collectionsModule = _buildCollectionsModule();
     final protoModule = _buildProtoModule();
+    final convertModule = _buildConvertModule();
 
     return Program()
       ..name = name
@@ -477,6 +481,7 @@ class DartEncoder {
         stdModule,
         ?collectionsModule,
         ?protoModule,
+        ?convertModule,
         ...importStubs,
         module,
       ]);
@@ -767,6 +772,28 @@ class DartEncoder {
       ..name = 'ball_proto'
       ..description = 'Protobuf compatibility layer for cross-language support'
       ..functions.addAll(functions);
+  }
+
+  /// Emits the std_convert base module (json/utf8/base64 codecs), filtered to
+  /// the functions actually used. Reuses the canonical [buildStdConvertModule]
+  /// so the function signatures + input typeDefs never drift from the runtime.
+  Module? _buildConvertModule() {
+    if (_usedConvertFunctions.isEmpty) return null;
+    final full = buildStdConvertModule();
+    final module = Module()
+      ..name = full.name
+      ..description = full.description;
+    final neededTypes = <String>{};
+    for (final fn in full.functions) {
+      if (_usedConvertFunctions.contains(fn.name)) {
+        module.functions.add(fn);
+        if (fn.inputType.isNotEmpty) neededTypes.add(fn.inputType);
+      }
+    }
+    for (final td in full.typeDefs) {
+      if (neededTypes.contains(td.name)) module.typeDefs.add(td);
+    }
+    return module;
   }
 
   // ============================================================
@@ -1577,6 +1604,17 @@ class DartEncoder {
         for (final variable in stmt.variables.variables) {
           block.statements.add(_encodeVarDeclEntry(stmt, variable));
         }
+      } else if (stmt is ast.PatternVariableDeclarationStatement) {
+        // Record destructuring (`final (a, b) = rec;`): splice the temp + bind
+        // lets directly into THIS block so the bound names stay visible to
+        // later statements (and the block result). Falls back to the wrapped
+        // form for patterns we cannot destructure.
+        final spliced = _tryEncodePatternVarDeclStatements(stmt.declaration);
+        if (spliced != null) {
+          block.statements.addAll(spliced);
+        } else {
+          block.statements.add(_encodeStatement(stmt));
+        }
       } else {
         block.statements.add(_encodeStatement(stmt));
       }
@@ -1762,6 +1800,15 @@ class DartEncoder {
     if (stmt is ast.Block) {
       final block = Block();
       for (final s in stmt.statements) {
+        if (s is ast.PatternVariableDeclarationStatement) {
+          // Record destructuring: splice bind lets as siblings so they stay
+          // visible to the rest of this block (no extra child scope).
+          final spliced = _tryEncodePatternVarDeclStatements(s.declaration);
+          if (spliced != null) {
+            block.statements.addAll(spliced);
+            continue;
+          }
+        }
         block.statements.add(_encodeStatement(s));
       }
       return Statement()..expression = (Expression()..block = block);
@@ -1791,14 +1838,18 @@ class DartEncoder {
               '/* unsupported: ${stmt.runtimeType}: ${stmt.toSource()} */'));
   }
 
-  /// Best-effort encoder for `var (a, b, ...) = rhs;` where the pattern is
-  /// a RecordPattern with all positional fields. Returns a block that
-  /// evaluates the RHS once into a synthetic temp and declares each bound
-  /// variable via `record.$1` / `record.$2` accessors.
+  /// Flat-statement form of record destructuring (`var (a, b, ...) = rhs;`).
+  /// Returns the temp + bind `let` statements WITHOUT wrapping them in a block,
+  /// so callers can splice them directly into the enclosing block — keeping the
+  /// bound names visible to later statements (record destructuring introduces
+  /// NO child scope, matching Dart semantics and the C++ compiler's all-let
+  /// inline emission).
   ///
   /// Returns `null` if the pattern isn't a simple record of simple binds
   /// — in that case the caller falls back to the unsupported-literal path.
-  Statement? _tryEncodePatternVarDecl(ast.PatternVariableDeclaration decl) {
+  List<Statement>? _tryEncodePatternVarDeclStatements(
+    ast.PatternVariableDeclaration decl,
+  ) {
     final pat = decl.pattern;
     if (pat is! ast.RecordPattern) return null;
 
@@ -1817,22 +1868,23 @@ class DartEncoder {
       if (label == null) positionalIdx++;
     }
 
-    // Build a block:
+    // Emit:
     //   final __ball_rec_N = <rhs>;
     //   final a = __ball_rec_N.$1;
     //   final b = __ball_rec_N.$2;
     //   final name = __ball_rec_N.name;
     final tempName = '__ball_rec_${_patternVarCounter++}';
-    final block = Block();
-    block.statements.add(
+    final stmts = <Statement>[
       Statement()
         ..let = (LetBinding()
           ..name = tempName
           ..value = _encodeExpr(decl.expression)),
-    );
+    ];
     for (final b in binds) {
+      // Positional fields are 1-based (`.$1`, `.$2`) — matching
+      // _encodeRecordLiteral and Dart's positional record getters.
       final field = b.label ?? '\$${(b.positionalIndex ?? 0) + 1}';
-      block.statements.add(
+      stmts.add(
         Statement()
           ..let = (LetBinding()
             ..name = b.name
@@ -1843,6 +1895,17 @@ class DartEncoder {
                 ..field_2 = field))),
       );
     }
+    return stmts;
+  }
+
+  /// Block-wrapped form of [_tryEncodePatternVarDeclStatements], for
+  /// single-statement contexts that need a single `Statement`. Prefer splicing
+  /// the flat form into the enclosing block (see [_encodeBlock]) so the bound
+  /// names stay in scope for later statements.
+  Statement? _tryEncodePatternVarDecl(ast.PatternVariableDeclaration decl) {
+    final stmts = _tryEncodePatternVarDeclStatements(decl);
+    if (stmts == null) return null;
+    final block = Block()..statements.addAll(stmts);
     return Statement()..expression = (Expression()..block = block);
   }
 
@@ -2355,7 +2418,8 @@ class DartEncoder {
         // Detect compiler-generated catch pattern:
         //   catch (__ball_e) { ... }
         // or catch (__ball_e, __ball_st) { ... }
-        final isSyntheticCatch = clause.exceptionType == null &&
+        final isSyntheticCatch =
+            clause.exceptionType == null &&
             clause.exceptionParameter != null &&
             clause.exceptionParameter!.name.lexeme == '__ball_e';
 
@@ -2501,10 +2565,7 @@ class DartEncoder {
     catchFields.add(
       FieldValuePair()
         ..name = 'body'
-        ..value = _encodeBlock(
-          stmts.sublist(bodyStart),
-          hasReturn: false,
-        ),
+        ..value = _encodeBlock(stmts.sublist(bodyStart), hasReturn: false),
     );
     return Expression()
       ..messageCreation = (MessageCreation()..fields.addAll(catchFields));
@@ -2662,8 +2723,8 @@ class DartEncoder {
               );
               results.add(
                 Expression()
-                  ..messageCreation =
-                      (MessageCreation()..fields.addAll(catchFields2)),
+                  ..messageCreation = (MessageCreation()
+                    ..fields.addAll(catchFields2)),
               );
               break;
             }
@@ -2732,7 +2793,7 @@ class DartEncoder {
   /// Extract variable name and body statements from a tag-catch then-branch:
   ///   { final e = __ball_e; <optional stack alias>; <body...> }
   ({String varName, String? stackName, List<ast.Statement> bodyStatements})?
-      _extractTagBranchBody(ast.Statement thenStmt, String? outerStackAlias) {
+  _extractTagBranchBody(ast.Statement thenStmt, String? outerStackAlias) {
     List<ast.Statement> stmts;
     if (thenStmt is ast.Block) {
       stmts = thenStmt.statements;
@@ -2959,8 +3020,10 @@ class DartEncoder {
             !inner.isNullAware &&
             inner.cascadeSections[0] is ast.MethodInvocation) {
           final section = inner.cascadeSections[0] as ast.MethodInvocation;
-          final result =
-              _tryEncodeCascadeAsCollectionCall(inner.target, section);
+          final result = _tryEncodeCascadeAsCollectionCall(
+            inner.target,
+            section,
+          );
           if (result != null) return result;
         }
         // Multi-section or non-routed cascades still need the paren wrapper.
@@ -3261,6 +3324,29 @@ class DartEncoder {
                 ..fields.addAll(fields))));
       }
 
+      // dart:convert top-level functions → std_convert base functions.
+      // `jsonEncode(x)` / `jsonDecode(s)` route to std_convert with a single
+      // `value` field (matching the engine's _stdAsMap(i)['value'] read).
+      const convertTopLevelRoutes = <String, String>{
+        'jsonEncode': 'json_encode',
+        'jsonDecode': 'json_decode',
+      };
+      final convertTopLevelFn = convertTopLevelRoutes[methodName];
+      if (convertTopLevelFn != null && args.length == 1) {
+        _usedConvertFunctions.add(convertTopLevelFn);
+        return Expression()
+          ..call = (FunctionCall()
+            ..module = 'std_convert'
+            ..function = convertTopLevelFn
+            ..input = (Expression()
+              ..messageCreation = (MessageCreation()
+                ..fields.add(
+                  FieldValuePair()
+                    ..name = 'value'
+                    ..value = args.first.value,
+                ))));
+      }
+
       // Implicit constructor call (no `new` keyword, uppercase method name):
       // produce a MessageCreation so the engine can construct instances.
       // `parseString` without type resolution emits `MethodInvocation` even
@@ -3312,6 +3398,27 @@ class DartEncoder {
       if (typeName == 'double' && methodName == 'parse') {
         _usedBaseFunctions.add('string_to_double');
         return _buildUnaryStdCall('string_to_double', args.first.value);
+      }
+      // dart:convert codecs: utf8.encode/decode, base64.encode/decode.
+      // `utf8`/`base64` are dart:convert top-level consts, so without type
+      // resolution they parse as a method target SimpleIdentifier. Route the
+      // single-argument codec calls to the universal std_convert module.
+      if ((typeName == 'utf8' || typeName == 'base64') &&
+          (methodName == 'encode' || methodName == 'decode') &&
+          args.length == 1) {
+        final convertFn = '${typeName}_$methodName';
+        _usedConvertFunctions.add(convertFn);
+        return Expression()
+          ..call = (FunctionCall()
+            ..module = 'std_convert'
+            ..function = convertFn
+            ..input = (Expression()
+              ..messageCreation = (MessageCreation()
+                ..fields.add(
+                  FieldValuePair()
+                    ..name = 'value'
+                    ..value = args.first.value,
+                ))));
       }
     }
 
@@ -3652,8 +3759,8 @@ class DartEncoder {
     _setTypeArgsField(msg, typeArgSrc);
     // Preserve const keyword for const constructor calls in metadata.
     if (expr.keyword?.lexeme == 'const') {
-      msg.ensureMetadata().fields['is_const'] =
-          structpb.Value()..boolValue = true;
+      msg.ensureMetadata().fields['is_const'] = structpb.Value()
+        ..boolValue = true;
     }
 
     return Expression()..messageCreation = msg;
@@ -3722,8 +3829,9 @@ class DartEncoder {
         ..value = targetExpr
         ..metadata = (structpb.Struct()..fields.addAll(metaFields)));
 
-    final sectionStmts =
-        sections.map((s) => Statement()..expression = s).toList();
+    final sectionStmts = sections
+        .map((s) => Statement()..expression = s)
+        .toList();
 
     if (expr.isNullAware) {
       _usedBaseFunctions.addAll(['if', 'equals']);
@@ -3756,9 +3864,18 @@ class DartEncoder {
     final methodName = section.methodName.name;
 
     // Known mutating methods that the compiler generates as cascades.
+    //
+    // `addAll` is deliberately NOT routed here: it exists on both `List` and
+    // `Map`, and this syntactic encoder cannot tell the receiver's type. The
+    // list route (`list_concat`) lowers to a list spread `[...a, ...b]`, which
+    // is wrong for a map receiver (e.g. `_ballUserMap()..addAll(fields)` →
+    // `[..._ballUserMap(), ...fields]`, a type error, and at runtime
+    // `_stdAsList` would mangle the map). Letting the single-section `..addAll`
+    // fall through to the general cascade-Block path preserves the literal
+    // `target.addAll(other)` method call, which Dart resolves correctly for
+    // both List and Map.
     const cascadeCollectionRoutes = <String, (String, String, String)>{
       'add': ('std_collections', 'list_push', 'list'),
-      'addAll': ('std_collections', 'list_concat', 'list'),
       'clear': ('std_collections', 'list_clear', 'list'),
       'insert': ('std_collections', 'list_insert', 'list'),
       'sort': ('std_collections', 'list_sort', 'list'),
@@ -3804,7 +3921,8 @@ class DartEncoder {
         ..module = module
         ..function = fnName
         ..input = (Expression()
-          ..messageCreation = (MessageCreation()..fields.addAll(routedFields))));
+          ..messageCreation = (MessageCreation()
+            ..fields.addAll(routedFields))));
 
     // Mutating methods: wrap in assign so non-mutating runtimes hold the
     // new/mutated collection.
@@ -4023,7 +4141,13 @@ class DartEncoder {
   Expression _encodeRecordLiteral(ast.RecordLiteral expr) {
     _usedBaseFunctions.add('record');
     final fields = <FieldValuePair>[];
-    var positionalIndex = 0;
+    // Positional record fields are named 1-based (`$1`, `$2`, ...) to match
+    // Dart's positional getters (`record.$1`), the pattern-destructure accessor
+    // side (_tryEncodePatternVarDeclStatements emits `.$1`/`.$2`), and the
+    // C++/TS compilers which lower `.$N` field access as 1-based
+    // (`stoi(substr(1)) - 1`). The literal emitters in those compilers are
+    // order-based, so the field name number does not affect them.
+    var positionalIndex = 1;
     for (final field in expr.fields) {
       // analyzer 13: RecordLiteral.fields are RecordLiteralField; named fields
       // are RecordLiteralNamedField (NamedExpression was removed).
@@ -4555,8 +4679,9 @@ class DartEncoder {
 
     final name = typeStr.substring(0, angleBracketStart).trim();
     // Strip the outer angle brackets: `<int, String>` → `int, String`
-    final innerStr =
-        typeStr.substring(angleBracketStart + 1, typeStr.length - 1).trim();
+    final innerStr = typeStr
+        .substring(angleBracketStart + 1, typeStr.length - 1)
+        .trim();
     final typeArgs = _splitTopLevelCommas(innerStr).map(_parseTypeRef).toList();
 
     return TypeRef()
@@ -4620,8 +4745,7 @@ class DartEncoder {
   /// source string. Used for constructor calls (MessageCreation without a
   /// FunctionCall) where the structured TypeRef cannot be placed on
   /// FunctionCall.typeArgs.
-  static void _setTypeArgsMetadata(
-      MessageCreation msg, String? typeArgsSrc) {
+  static void _setTypeArgsMetadata(MessageCreation msg, String? typeArgsSrc) {
     if (typeArgsSrc == null || typeArgsSrc.isEmpty) return;
     final refs = _parseTypeArgs(typeArgsSrc);
     if (refs.isEmpty) return;
@@ -4721,15 +4845,16 @@ class DartEncoder {
     final tempName = '__naa_${_tempVarCounter++}';
     return Expression()
       ..block = (Block()
-        ..statements.add(Statement()
-          ..let = (LetBinding()
-            ..name = tempName
-            ..value = targetExpr
-            ..metadata = (structpb.Struct()
-              ..fields['kind'] =
-                  (structpb.Value()..stringValue = 'null_aware_access')
-              ..fields['field'] =
-                  (structpb.Value()..stringValue = field))))
+        ..statements.add(
+          Statement()
+            ..let = (LetBinding()
+              ..name = tempName
+              ..value = targetExpr
+              ..metadata = (structpb.Struct()
+                ..fields['kind'] = (structpb.Value()
+                  ..stringValue = 'null_aware_access')
+                ..fields['field'] = (structpb.Value()..stringValue = field))),
+        )
         ..result = _buildNullGuard(
           () => _refExpr(tempName),
           Expression()
@@ -4775,15 +4900,17 @@ class DartEncoder {
     final tempName = '__nac_${_tempVarCounter++}';
     return Expression()
       ..block = (Block()
-        ..statements.add(Statement()
-          ..let = (LetBinding()
-            ..name = tempName
-            ..value = targetExpr
-            ..metadata = (structpb.Struct()
-              ..fields['kind'] =
-                  (structpb.Value()..stringValue = 'null_aware_call')
-              ..fields['method'] =
-                  (structpb.Value()..stringValue = methodName))))
+        ..statements.add(
+          Statement()
+            ..let = (LetBinding()
+              ..name = tempName
+              ..value = targetExpr
+              ..metadata = (structpb.Struct()
+                ..fields['kind'] = (structpb.Value()
+                  ..stringValue = 'null_aware_call')
+                ..fields['method'] = (structpb.Value()
+                  ..stringValue = methodName))),
+        )
         ..result = _buildNullGuard(
           () => _refExpr(tempName),
           buildInnerCall(() => _refExpr(tempName)),

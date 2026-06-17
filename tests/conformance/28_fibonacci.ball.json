@@ -11,7 +11,7 @@
           "isBase": true
         },
         {
-          "name": "lte",
+          "name": "less_than",
           "isBase": true
         },
         {
@@ -31,11 +31,15 @@
           "isBase": true
         },
         {
-          "name": "less_than",
+          "name": "lte",
           "isBase": true
         },
         {
           "name": "post_increment",
+          "isBase": true
+        },
+        {
+          "name": "concat",
           "isBase": true
         },
         {
@@ -123,7 +127,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "lte",
+                                  "function": "less_than",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -140,7 +144,7 @@
                                           "name": "right",
                                           "value": {
                                             "literal": {
-                                              "intValue": "1"
+                                              "intValue": "2"
                                             }
                                           }
                                         }
@@ -298,8 +302,23 @@
                             {
                               "name": "init",
                               "value": {
-                                "literal": {
-                                  "stringValue": "int i = 0"
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "let": {
+                                        "name": "i",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "0"
+                                          }
+                                        },
+                                        "metadata": {
+                                          "keyword": "var",
+                                          "type": "int"
+                                        }
+                                      }
+                                    }
+                                  ]
                                 }
                               }
                             },
@@ -308,7 +327,7 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "less_than",
+                                  "function": "lte",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
@@ -325,7 +344,7 @@
                                           "name": "right",
                                           "value": {
                                             "literal": {
-                                              "intValue": "8"
+                                              "intValue": "7"
                                             }
                                           }
                                         }

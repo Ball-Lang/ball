@@ -222,7 +222,17 @@ extension BallEngineStd on BallEngine {
       // Arithmetic
       'add': _stdAdd,
       'subtract': (i) => _stdBinary(i, (a, b) => a - b),
-      'multiply': (i) => _stdBinary(i, (a, b) => a * b),
+      'multiply': (i) {
+        // Polymorphic over strings: `'ab' * 3` repeats (Dart String * int).
+        // The encoder routes `*` to multiply regardless of operand type.
+        // Build the repeat via interpolation (not the `*` operator), which is
+        // self-host-portable — raw `String * int` would compile to a numeric
+        // `*` on the C++/TS self-host engines (cf. _stdAdd avoiding `+`).
+        final (l, r) = _extractBinaryArgs(i);
+        if (l is String) return _repeatString(l, _toInt(r));
+        if (l is BallString) return _repeatString(l.value, _toInt(r));
+        return _stdBinary(i, (a, b) => a * b);
+      },
       'divide': (i) => _stdBinaryInt(i, (a, b) => a ~/ b),
       'divide_double': (i) => _stdBinaryDouble(i, (a, b) => a / b),
       'modulo': (i) => _stdBinary(i, (a, b) => a % b),
@@ -417,7 +427,17 @@ extension BallEngineStd on BallEngine {
       },
       'list_index_of': (i) {
         final m = _stdAsMap(i)!;
-        return (_stdAsList(m['list'])!).indexOf(m['value']);
+        final coll = m['list'];
+        final needle = m['value'];
+        // Polymorphic over strings: `'abc'.indexOf('b')` is encoded as
+        // list_index_of (the syntactic encoder cannot tell a String receiver
+        // from a List one). Delegate to String.indexOf for string receivers.
+        if (coll is String || coll is BallString) {
+          final s = coll is BallString ? coll.value : coll as String;
+          final n = needle is BallString ? needle.value : needle as String;
+          return s.indexOf(n);
+        }
+        return (_stdAsList(coll)!).indexOf(needle);
       },
       'list_map': (i) async {
         final m = _stdAsMap(i)!;
@@ -975,7 +995,22 @@ extension BallEngineStd on BallEngine {
 
       // ── Strings ──────────────────────────────────────────────────
       'string_length': (i) => _stdConvert(i, (v) => (v as String).length),
-      'string_is_empty': (i) => _stdConvert(i, (v) => (v as String).isEmpty),
+      // Polymorphic isEmpty: the encoder emits `string_is_empty` for every
+      // `.isEmpty` / `.isNotEmpty` (it is syntactic and cannot tell a String
+      // receiver from a List/Set/Map), so this op must accept any collection
+      // rather than `(v as String)` — otherwise list/set/map `.isEmpty` throws a
+      // String cast error (conformance 97/115/123/195/199/237).
+      'string_is_empty': (i) => _stdConvert(i, (v) {
+        if (v is String) return v.isEmpty;
+        if (v is BallString) return v.value.isEmpty;
+        final l = _stdAsList(v);
+        if (l != null) return l.isEmpty;
+        final m = _stdAsMap(v);
+        if (m != null) return m.isEmpty;
+        if (v is Set) return v.isEmpty;
+        if (v is Iterable) return v.isEmpty;
+        return (v as String).isEmpty;
+      }),
       'string_concat': _stdConcat,
       'string_contains': (i) =>
           _stdBinaryAny(i, (a, b) => (a as String).contains(b as String)),
@@ -1456,9 +1491,7 @@ extension BallEngineStd on BallEngine {
     final generator =
         m['generator'] ?? m['callback'] ?? m['function'] ?? m['arg1'];
     if (generator is! Function) {
-      throw BallRuntimeError(
-        'std.list_generate: generator is not callable',
-      );
+      throw BallRuntimeError('std.list_generate: generator is not callable');
     }
     _trackMemoryAllocation(length * _ballPointerBytes);
     final result = <Object?>[];
@@ -1684,8 +1717,9 @@ extension BallEngineStd on BallEngine {
       for (final entry in entriesList) {
         final entryMap = _stdAsMap(entry);
         if (entryMap != null) {
-          final key =
-              await _ballToStringAsync(entryMap['key'] ?? entryMap['name']);
+          final key = await _ballToStringAsync(
+            entryMap['key'] ?? entryMap['name'],
+          );
           result[key] = entryMap['value'];
         }
       }
@@ -1695,8 +1729,9 @@ extension BallEngineStd on BallEngine {
     if (entriesMap != null) {
       // Single entry (not wrapped in a list).
       _trackMemoryAllocation(_ballMapEntryBytes);
-      final key =
-          await _ballToStringAsync(entriesMap['key'] ?? entriesMap['name']);
+      final key = await _ballToStringAsync(
+        entriesMap['key'] ?? entriesMap['name'],
+      );
       return _ballUserMap()..[key] = entriesMap['value'];
     }
     return _ballUserMap();
@@ -1978,7 +2013,10 @@ extension BallEngineStd on BallEngine {
         // { __pattern_kind__: 'cast', type: 'int', name: 'x' }
         final typeName = pattern['type'] as String?;
         if (typeName != null && !_matchesTypePattern(value, typeName)) {
-          return false;
+          // Cast patterns ASSERT: `value as T` throws on a type mismatch — it
+          // does NOT refute / fall through to the next case. Match native Dart
+          // semantics across every target. (conformance 302_cast_patterns)
+          throw BallException('TypeError', 'type cast failed: not a $typeName');
         }
         final subpattern = pattern['pattern'];
         if (subpattern != null && !_matchPattern(value, subpattern, bindings)) {
@@ -2094,7 +2132,8 @@ extension BallEngineStd on BallEngine {
     if (v is double) return v.toString();
     if (v is BallDouble) return v.toString();
     if (_isBallFuture(v)) return _ballToStringSimple(_unwrapBallFuture(v));
-    if (v is BallList) return '[${v.items.map(_ballToStringSimple).join(', ')}]';
+    if (v is BallList)
+      return '[${v.items.map(_ballToStringSimple).join(', ')}]';
     if (v is List) return '[${v.map(_ballToStringSimple).join(', ')}]';
     // Enum values: format as EnumName.valueName.
     final map = _stdAsMap(v);
@@ -2153,6 +2192,17 @@ extension BallEngineStd on BallEngine {
       return '${left ?? ''}${right ?? ''}';
     }
     return _toNum(left) + _toNum(right);
+  }
+
+  /// Repeats [s] [count] times using interpolation. Self-host-portable: avoids
+  /// the `String * int` operator (which the C++/TS compilers lower to a numeric
+  /// `*`). Zero/negative counts yield the empty string.
+  String _repeatString(String s, int count) {
+    var out = '';
+    for (var k = 0; k < count; k++) {
+      out = '$out$s';
+    }
+    return out;
   }
 
   Object? _stdBinary(Object? input, num Function(num, num) op) {

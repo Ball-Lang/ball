@@ -7,6 +7,7 @@ name: Prepare release
 on:
   push:
     branches: [main]
+  workflow_dispatch: {} # allow manual test runs (these workflows never run on PRs)
 
 permissions:
   contents: write
@@ -32,12 +33,29 @@ jobs:
         working-directory: dart
         run: dart pub get
 
-      - uses: bluefireteam/melos-action@v3
+      # NOTE: bluefireteam/melos-action@v3 has NO working-directory input — it
+      # runs `melos bootstrap` from the repo root, where this repo has no Melos
+      # workspace (it lives in dart/). So we run melos directly from dart/ via
+      # the dev-dependency, replicating exactly what the action would do.
+      - name: Configure git identity
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+      - name: Version packages (bumps + changelogs, no git tag)
+        working-directory: dart
+        run: dart run melos version --yes --no-git-tag-version
+
+      - name: Validate publishability (dry run)
+        working-directory: dart
+        run: dart run melos publish -y --dry-run
+
+      - name: Open release PR
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
-          melos-working-dir: dart
-          run-versioning: true
-          publish-dry-run: true
-          create-pr: true
           # RELEASE_PAT must have contents:write + pull-requests:write
           # and ideally actions:write so the release-tag.yml triggers.
           token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          title: "chore(release): Publish packages"
+          body: "Prepared all packages to be released to pub.dev"
+          branch: release-${{ github.run_id }}

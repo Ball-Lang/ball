@@ -30,14 +30,20 @@ jobs:
         working-directory: dart
         run: dart pub get
 
-      # melos-action with `publish: true` parses $GITHUB_REF (a tag ref
-      # like refs/tags/ball_base-v0.1.0), extracts the package name,
-      # and runs `melos publish --scope=<name>` with OIDC auth.
-      # Requires each pub.dev package to have "Automated publishing"
-      # configured with:
-      #   Repository: Ball-Lang/ball
-      #   Tag pattern: <package_name>-v{{version}}
-      - uses: bluefireteam/melos-action@v3
-        with:
-          melos-working-dir: dart
-          publish: true
+      # Parse $GITHUB_REF (a tag ref like refs/tags/ball_base-v0.1.0) to extract
+      # the package name, then run `melos publish --scope=<name>` from dart/ with
+      # OIDC trusted publishing (setup-dart@v1 + id-token: write above).
+      # melos-action@v3 would do this from the repo root, where there is no Melos
+      # workspace — so we run melos directly from dart/ via the dev-dependency.
+      # Requires each pub.dev package to have "Automated publishing" configured:
+      #   Repository: Ball-Lang/ball ; Tag pattern: <package_name>-v{{version}}
+      - name: Extract package name from tag
+        id: pkg
+        run: |
+          PACKAGE_NAME=$(sed -E 's#^refs/tags/([a-z0-9_]+)-v([0-9]+\.[0-9]+\.[0-9]+.*)$#\1#' <<< "$GITHUB_REF")
+          echo "name=$PACKAGE_NAME" >> "$GITHUB_OUTPUT"
+          echo "Publishing package: $PACKAGE_NAME (from $GITHUB_REF)"
+
+      - name: Publish to pub.dev (OIDC trusted publishing)
+        working-directory: dart
+        run: dart run melos publish -y --no-dry-run --scope=${{ steps.pkg.outputs.name }}

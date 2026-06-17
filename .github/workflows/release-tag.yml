@@ -29,12 +29,22 @@ jobs:
         working-directory: dart
         run: dart pub get
 
-      # melos-action with `tag: true` creates <package_name>-v<version>
-      # tags for every package whose version changed since the last tag.
-      - uses: bluefireteam/melos-action@v3
-        with:
-          melos-working-dir: dart
-          tag: true
+      - name: Configure git identity
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+      # Create <package_name>-v<version> tags for every package whose version
+      # changed since the last tag, then push them. (melos-action@v3 would do
+      # this from the repo root, where there is no Melos workspace — so we run
+      # melos directly from dart/ via the dev-dependency.)
+      - name: Tag changed packages and push tags
+        working-directory: dart
+        run: |
+          dart run melos exec -c 1 --no-private -- \
+            'git tag $MELOS_PACKAGE_NAME-v$MELOS_PACKAGE_VERSION || true'
+          git push --no-follow-tags
+          for tag in $(git tag --points-at HEAD); do git push origin "$tag"; done
 
       # Dispatch release-publish.yml once per freshly-tagged package,
       # in dependency order. `--no-published` skips packages whose

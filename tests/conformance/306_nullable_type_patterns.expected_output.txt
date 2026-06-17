@@ -1,0 +1,8 @@
+int?:7
+int?:null
+other
+present:42
+absent
+str?:hi
+str?:null
+other

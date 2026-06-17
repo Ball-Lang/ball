@@ -9,12 +9,9 @@
         {
           "name": "print",
           "isBase": true
-        },
-        {
-          "name": "to_string",
-          "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -36,49 +33,24 @@
       "name": "main",
       "functions": [
         {
-          "name": "main:Grandparent.new",
-          "outputType": "main:Grandparent",
-          "body": {
-            "reference": {
-              "name": "input"
-            }
-          },
+          "name": "main:Living.new",
+          "outputType": "main:Living",
           "metadata": {
             "kind": "constructor",
             "params": [
               {
-                "name": "input",
-                "type": "String"
+                "name": "name",
+                "is_this": true
               }
             ]
           }
         },
         {
-          "name": "main:Grandparent.greet",
+          "name": "main:Living.getName",
           "outputType": "String",
           "body": {
-            "call": {
-              "module": "std",
-              "function": "to_string",
-              "input": {
-                "messageCreation": {
-                  "fields": [
-                    {
-                      "name": "value",
-                      "value": {
-                        "fieldAccess": {
-                          "object": {
-                            "reference": {
-                              "name": "self"
-                            }
-                          },
-                          "field": "name"
-                        }
-                      }
-                    }
-                  ]
-                }
-              }
+            "reference": {
+              "name": "name"
             }
           },
           "metadata": {
@@ -86,13 +58,8 @@
           }
         },
         {
-          "name": "main:Parent.new",
-          "outputType": "main:Parent",
-          "body": {
-            "reference": {
-              "name": "name"
-            }
-          },
+          "name": "main:Animal.new",
+          "outputType": "main:Animal",
           "metadata": {
             "kind": "constructor",
             "initializers": [
@@ -105,16 +72,20 @@
               {
                 "name": "name",
                 "type": "String"
+              },
+              {
+                "name": "age",
+                "is_this": true
               }
             ]
           }
         },
         {
-          "name": "main:Parent.age",
+          "name": "main:Animal.getAge",
           "outputType": "int",
           "body": {
-            "literal": {
-              "intValue": 30
+            "reference": {
+              "name": "age"
             }
           },
           "metadata": {
@@ -122,35 +93,38 @@
           }
         },
         {
-          "name": "main:Child.new",
-          "outputType": "main:Child",
-          "body": {
-            "reference": {
-              "name": "name"
-            }
-          },
+          "name": "main:Mammal.new",
+          "outputType": "main:Mammal",
           "metadata": {
             "kind": "constructor",
             "initializers": [
               {
                 "kind": "super",
-                "args": "(name)"
+                "args": "(name, age)"
               }
             ],
             "params": [
               {
                 "name": "name",
                 "type": "String"
+              },
+              {
+                "name": "age",
+                "type": "int"
+              },
+              {
+                "name": "legs",
+                "is_this": true
               }
             ]
           }
         },
         {
-          "name": "main:Child.toys",
+          "name": "main:Mammal.getLegs",
           "outputType": "int",
           "body": {
-            "literal": {
-              "intValue": 5
+            "reference": {
+              "name": "legs"
             }
           },
           "metadata": {
@@ -158,35 +132,42 @@
           }
         },
         {
-          "name": "main:Grandchild.new",
-          "outputType": "main:Grandchild",
-          "body": {
-            "reference": {
-              "name": "name"
-            }
-          },
+          "name": "main:Dog.new",
+          "outputType": "main:Dog",
           "metadata": {
             "kind": "constructor",
             "initializers": [
               {
                 "kind": "super",
-                "args": "(name)"
+                "args": "(name, age, legs)"
               }
             ],
             "params": [
               {
                 "name": "name",
                 "type": "String"
+              },
+              {
+                "name": "age",
+                "type": "int"
+              },
+              {
+                "name": "legs",
+                "type": "int"
+              },
+              {
+                "name": "speed",
+                "is_this": true
               }
             ]
           }
         },
         {
-          "name": "main:Grandchild.games",
+          "name": "main:Dog.getSpeed",
           "outputType": "int",
           "body": {
-            "literal": {
-              "intValue": 10
+            "reference": {
+              "name": "speed"
             }
           },
           "metadata": {
@@ -201,29 +182,49 @@
               "statements": [
                 {
                   "let": {
-                    "name": "gc",
+                    "name": "d",
                     "value": {
-                      "call": {
-                        "function": "main:Grandchild.new",
-                        "input": {
-                          "messageCreation": {
-                            "fields": [
-                              {
-                                "name": "arg0",
-                                "value": {
-                                  "literal": {
-                                    "stringValue": "Timmy"
-                                  }
-                                }
+                      "messageCreation": {
+                        "typeName": "main:Dog",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "stringValue": "Timmy"
                               }
-                            ]
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "intValue": "30"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg2",
+                            "value": {
+                              "literal": {
+                                "intValue": "5"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg3",
+                            "value": {
+                              "literal": {
+                                "intValue": "10"
+                              }
+                            }
                           }
-                        }
+                        ]
                       }
                     },
                     "metadata": {
                       "keyword": "var",
-                      "type": "Grandchild"
+                      "type": "Dog"
                     }
                   }
                 },
@@ -240,7 +241,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "greet",
+                                  "function": "getName",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
@@ -248,7 +249,7 @@
                                           "name": "self",
                                           "value": {
                                             "reference": {
-                                              "name": "gc"
+                                              "name": "d"
                                             }
                                           }
                                         }
@@ -277,7 +278,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "age",
+                                  "function": "getAge",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
@@ -285,7 +286,7 @@
                                           "name": "self",
                                           "value": {
                                             "reference": {
-                                              "name": "gc"
+                                              "name": "d"
                                             }
                                           }
                                         }
@@ -314,7 +315,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "toys",
+                                  "function": "getLegs",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
@@ -322,7 +323,7 @@
                                           "name": "self",
                                           "value": {
                                             "reference": {
-                                              "name": "gc"
+                                              "name": "d"
                                             }
                                           }
                                         }
@@ -351,7 +352,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "games",
+                                  "function": "getSpeed",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
@@ -359,7 +360,7 @@
                                           "name": "self",
                                           "value": {
                                             "reference": {
-                                              "name": "gc"
+                                              "name": "d"
                                             }
                                           }
                                         }
@@ -390,9 +391,9 @@
       ],
       "typeDefs": [
         {
-          "name": "main:Grandparent",
+          "name": "main:Living",
           "descriptor": {
-            "name": "main:Grandparent",
+            "name": "main:Living",
             "field": [
               {
                 "name": "name",
@@ -402,6 +403,7 @@
               }
             ]
           },
+          "description": "Class metadata for main:Living",
           "metadata": {
             "kind": "class",
             "fields": [
@@ -413,33 +415,78 @@
           }
         },
         {
-          "name": "main:Parent",
+          "name": "main:Animal",
           "descriptor": {
-            "name": "main:Parent"
+            "name": "main:Animal",
+            "field": [
+              {
+                "name": "age",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
           },
+          "description": "Class metadata for main:Animal",
           "metadata": {
             "kind": "class",
-            "superclass": "Grandparent"
+            "superclass": "Living",
+            "fields": [
+              {
+                "name": "age",
+                "type": "int"
+              }
+            ]
           }
         },
         {
-          "name": "main:Child",
+          "name": "main:Mammal",
           "descriptor": {
-            "name": "main:Child"
+            "name": "main:Mammal",
+            "field": [
+              {
+                "name": "legs",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
           },
+          "description": "Class metadata for main:Mammal",
           "metadata": {
             "kind": "class",
-            "superclass": "Parent"
+            "superclass": "Animal",
+            "fields": [
+              {
+                "name": "legs",
+                "type": "int"
+              }
+            ]
           }
         },
         {
-          "name": "main:Grandchild",
+          "name": "main:Dog",
           "descriptor": {
-            "name": "main:Grandchild"
+            "name": "main:Dog",
+            "field": [
+              {
+                "name": "speed",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
           },
+          "description": "Class metadata for main:Dog",
           "metadata": {
             "kind": "class",
-            "superclass": "Child"
+            "superclass": "Mammal",
+            "fields": [
+              {
+                "name": "speed",
+                "type": "int"
+              }
+            ]
           }
         }
       ]

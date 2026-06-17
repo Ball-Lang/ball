@@ -87,8 +87,7 @@ Future<void> main(List<String> args) async {
       var writtenCount = 0;
       for (final MapEntry(key: moduleName, value: source) in modules.entries) {
         // Skip special modules that don't map to files.
-        if (moduleName == 'std' ||
-            moduleName == '__assets__') {
+        if (moduleName == 'std' || moduleName == '__assets__') {
           continue;
         }
 

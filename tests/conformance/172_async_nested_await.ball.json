@@ -1,20 +1,25 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "172_async_nested_await",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "add",
           "isBase": true
         },
         {
-          "name": "add",
+          "name": "await",
+          "isBase": true
+        },
+        {
+          "name": "print",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -23,6 +28,40 @@
             "field": [
               {
                 "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
@@ -38,13 +77,14 @@
         {
           "name": "inner",
           "inputType": "int",
-          "outputType": "int",
+          "outputType": "Future<int>",
           "body": {
             "call": {
               "module": "std",
               "function": "add",
               "input": {
                 "messageCreation": {
+                  "typeName": "",
                   "fields": [
                     {
                       "name": "left",
@@ -81,18 +121,25 @@
         {
           "name": "outer",
           "inputType": "int",
-          "outputType": "int",
+          "outputType": "Future<int>",
           "body": {
             "call": {
-              "function": "inner",
+              "module": "std",
+              "function": "await",
               "input": {
                 "messageCreation": {
+                  "typeName": "",
                   "fields": [
                     {
-                      "name": "arg0",
+                      "name": "value",
                       "value": {
-                        "reference": {
-                          "name": "y"
+                        "call": {
+                          "function": "inner",
+                          "input": {
+                            "reference": {
+                              "name": "y"
+                            }
+                          }
                         }
                       }
                     }
@@ -114,7 +161,7 @@
         },
         {
           "name": "main",
-          "outputType": "void",
+          "outputType": "Future<void>",
           "body": {
             "block": {
               "statements": [
@@ -123,15 +170,22 @@
                     "name": "result",
                     "value": {
                       "call": {
-                        "function": "outer",
+                        "module": "std",
+                        "function": "await",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
-                                "name": "arg0",
+                                "name": "value",
                                 "value": {
-                                  "literal": {
-                                    "intValue": "5"
+                                  "call": {
+                                    "function": "outer",
+                                    "input": {
+                                      "literal": {
+                                        "intValue": "5"
+                                      }
+                                    }
                                   }
                                 }
                               }
@@ -141,8 +195,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "int"
+                      "keyword": "final"
                     }
                   }
                 },
@@ -173,7 +226,8 @@
             }
           },
           "metadata": {
-            "kind": "function"
+            "kind": "function",
+            "is_async": true
           }
         }
       ],

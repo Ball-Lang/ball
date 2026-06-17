@@ -7,14 +7,19 @@
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "add",
           "isBase": true
         },
         {
-          "name": "add",
+          "name": "await",
+          "isBase": true
+        },
+        {
+          "name": "print",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -23,6 +28,40 @@
             "field": [
               {
                 "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
@@ -38,51 +77,32 @@
         {
           "name": "delayedAdd",
           "inputType": "int",
-          "outputType": "int",
+          "outputType": "Future<int>",
           "body": {
-            "block": {
-              "statements": [
-                {
-                  "let": {
-                    "name": "result",
-                    "value": {
-                      "call": {
-                        "module": "std",
-                        "function": "add",
-                        "input": {
-                          "messageCreation": {
-                            "fields": [
-                              {
-                                "name": "left",
-                                "value": {
-                                  "reference": {
-                                    "name": "input"
-                                  }
-                                }
-                              },
-                              {
-                                "name": "right",
-                                "value": {
-                                  "literal": {
-                                    "intValue": "10"
-                                  }
-                                }
-                              }
-                            ]
-                          }
+            "call": {
+              "module": "std",
+              "function": "add",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "n"
                         }
                       }
                     },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "int"
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "intValue": "10"
+                        }
+                      }
                     }
-                  }
-                }
-              ],
-              "result": {
-                "reference": {
-                  "name": "result"
+                  ]
                 }
               }
             }
@@ -92,7 +112,7 @@
             "is_async": true,
             "params": [
               {
-                "name": "input",
+                "name": "n",
                 "type": "int"
               }
             ]
@@ -100,7 +120,7 @@
         },
         {
           "name": "main",
-          "outputType": "void",
+          "outputType": "Future<void>",
           "body": {
             "block": {
               "statements": [
@@ -113,8 +133,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "int"
+                      "keyword": "final"
                     }
                   }
                 },
@@ -131,15 +150,22 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "delayedAdd",
+                                  "module": "std",
+                                  "function": "await",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
-                                          "name": "arg0",
+                                          "name": "value",
                                           "value": {
-                                            "reference": {
-                                              "name": "value"
+                                            "call": {
+                                              "function": "delayedAdd",
+                                              "input": {
+                                                "reference": {
+                                                  "name": "value"
+                                                }
+                                              }
                                             }
                                           }
                                         }
@@ -159,7 +185,8 @@
             }
           },
           "metadata": {
-            "kind": "function"
+            "kind": "function",
+            "is_async": true
           }
         }
       ],

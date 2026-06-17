@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "224_currying_partial_apply",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {

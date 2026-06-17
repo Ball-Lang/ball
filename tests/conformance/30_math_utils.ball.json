@@ -27,15 +27,15 @@
           "isBase": true
         },
         {
+          "name": "concat",
+          "isBase": true
+        },
+        {
           "name": "to_string",
           "isBase": true
         },
         {
           "name": "print",
-          "isBase": true
-        },
-        {
-          "name": "abs",
           "isBase": true
         }
       ],

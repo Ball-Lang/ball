@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "168_generics_type_check",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
@@ -67,13 +67,8 @@
           "name": "main:Container.getValue",
           "outputType": "T",
           "body": {
-            "fieldAccess": {
-              "object": {
-                "reference": {
-                  "name": "self"
-                }
-              },
-              "field": "value"
+            "reference": {
+              "name": "value"
             }
           },
           "metadata": {
@@ -98,8 +93,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "Container<T>"
+                      "keyword": "var"
                     }
                   }
                 }
@@ -185,8 +179,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "Container<int>"
+                      "keyword": "var"
                     }
                   }
                 },
@@ -252,8 +245,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "Container<String>"
+                      "keyword": "var"
                     }
                   }
                 },

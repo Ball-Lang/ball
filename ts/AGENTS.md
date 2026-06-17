@@ -24,7 +24,7 @@ Commands: see CLAUDE.md → Build & Test (canonical) and `.claude/rules/ts.md` f
 - Generated protobuf types in `ts/shared/gen/` — NEVER edit
 - Compiler entry: `ts/compiler/bin/ball-ts-compile.mjs` (called by Dart compiler runner)
 - **Engine is validated against shared conformance fixtures** — test via `tests/conformance/`, not engine-specific tests
-- Current TS pass counts live in `docs/SELF_HOST_STATUS.md` (CI floor in `.github/workflows/regression-gates.yml`)
+- Current TS pass counts live in `docs/SELF_HOST_STATUS.md` (strict all-green CI gates in `.github/workflows/regression-gates.yml`)
 
 ## Publishing
 

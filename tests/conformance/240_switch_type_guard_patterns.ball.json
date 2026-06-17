@@ -35,6 +35,10 @@
           "isBase": true
         },
         {
+          "name": "string_is_empty",
+          "isBase": true
+        },
+        {
           "name": "print",
           "isBase": true
         }
@@ -382,13 +386,24 @@
                                                                     {
                                                                       "name": "condition",
                                                                       "value": {
-                                                                        "fieldAccess": {
-                                                                          "object": {
-                                                                            "reference": {
-                                                                              "name": "s"
+                                                                        "call": {
+                                                                          "module": "std",
+                                                                          "function": "string_is_empty",
+                                                                          "input": {
+                                                                            "messageCreation": {
+                                                                              "typeName": "",
+                                                                              "fields": [
+                                                                                {
+                                                                                  "name": "value",
+                                                                                  "value": {
+                                                                                    "reference": {
+                                                                                      "name": "s"
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              ]
                                                                             }
-                                                                          },
-                                                                          "field": "isEmpty"
+                                                                          }
                                                                         }
                                                                       }
                                                                     },

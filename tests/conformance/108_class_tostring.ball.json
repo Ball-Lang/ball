@@ -125,58 +125,70 @@
                   "let": {
                     "name": "g",
                     "value": {
-                      "messageCreation": {
-                        "typeName": "main:_gcd",
-                        "fields": [
-                          {
-                            "name": "arg0",
-                            "value": {
-                              "call": {
-                                "module": "std",
-                                "function": "math_abs",
-                                "input": {
-                                  "messageCreation": {
-                                    "typeName": "",
-                                    "fields": [
-                                      {
-                                        "name": "value",
-                                        "value": {
-                                          "reference": {
-                                            "name": "numerator"
+                      "call": {
+                        "function": "_gcd",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "self",
+                                "value": {
+                                  "reference": {
+                                    "name": "self"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "arg0",
+                                "value": {
+                                  "call": {
+                                    "module": "std",
+                                    "function": "math_abs",
+                                    "input": {
+                                      "messageCreation": {
+                                        "typeName": "",
+                                        "fields": [
+                                          {
+                                            "name": "value",
+                                            "value": {
+                                              "reference": {
+                                                "name": "numerator"
+                                              }
+                                            }
                                           }
-                                        }
+                                        ]
                                       }
-                                    ]
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "name": "arg1",
+                                "value": {
+                                  "call": {
+                                    "module": "std",
+                                    "function": "math_abs",
+                                    "input": {
+                                      "messageCreation": {
+                                        "typeName": "",
+                                        "fields": [
+                                          {
+                                            "name": "value",
+                                            "value": {
+                                              "reference": {
+                                                "name": "denominator"
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
                                   }
                                 }
                               }
-                            }
-                          },
-                          {
-                            "name": "arg1",
-                            "value": {
-                              "call": {
-                                "module": "std",
-                                "function": "math_abs",
-                                "input": {
-                                  "messageCreation": {
-                                    "typeName": "",
-                                    "fields": [
-                                      {
-                                        "name": "value",
-                                        "value": {
-                                          "reference": {
-                                            "name": "denominator"
-                                          }
-                                        }
-                                      }
-                                    ]
-                                  }
-                                }
-                              }
-                            }
+                            ]
                           }
-                        ]
+                        }
                       }
                     },
                     "metadata": {

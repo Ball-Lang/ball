@@ -1,32 +1,49 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "205_map_ordering",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "print",
-          "isBase": true
-        },
-        {
-          "name": "concat",
-          "isBase": true
-        },
-        {
-          "name": "to_string",
-          "isBase": true
-        },
-        {
           "name": "map_create",
           "isBase": true
         },
         {
-          "name": "string_join",
+          "name": "typed_list",
+          "isBase": true
+        },
+        {
+          "name": "list_push",
+          "isBase": true
+        },
+        {
+          "name": "assign",
+          "isBase": true
+        },
+        {
+          "name": "list_foreach",
+          "isBase": true
+        },
+        {
+          "name": "list_join",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "index",
+          "isBase": true
+        },
+        {
+          "name": "map_contains_key",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -48,32 +65,30 @@
       "name": "std_collections",
       "functions": [
         {
-          "name": "map_keys",
+          "name": "list_foreach",
           "isBase": true
         },
         {
-          "name": "map_values",
+          "name": "list_join",
           "isBase": true
         },
         {
-          "name": "map_get",
-          "isBase": true
-        },
-        {
-          "name": "map_set",
+          "name": "list_push",
           "isBase": true
         },
         {
           "name": "map_contains_key",
           "isBase": true
         }
-      ]
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
       "functions": [
         {
           "name": "main",
+          "outputType": "void",
           "body": {
             "block": {
               "statements": [
@@ -86,6 +101,7 @@
                         "function": "map_create",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
                                 "name": "entry",
@@ -173,185 +189,76 @@
                   }
                 },
                 {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "string_join",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "list",
-                                          "value": {
-                                            "call": {
-                                              "module": "std_collections",
-                                              "function": "map_keys",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "fields": [
-                                                    {
-                                                      "name": "map",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "m"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "separator",
-                                          "value": {
-                                            "literal": {
-                                              "stringValue": ","
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
+                  "let": {
+                    "name": "ks",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "typed_list",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "",
+                            "fields": [
+                              {
+                                "name": "type_args",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "<String>"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "elements",
+                                "value": {
+                                  "literal": {
+                                    "listValue": {}
                                   }
                                 }
                               }
-                            }
-                          ]
+                            ]
+                          }
                         }
                       }
+                    },
+                    "metadata": {
+                      "keyword": "var"
                     }
                   }
                 },
                 {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "string_join",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "list",
-                                          "value": {
-                                            "call": {
-                                              "module": "std_collections",
-                                              "function": "map_values",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "fields": [
-                                                    {
-                                                      "name": "map",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "m"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "separator",
-                                          "value": {
-                                            "literal": {
-                                              "stringValue": ","
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
+                  "let": {
+                    "name": "vs",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "typed_list",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "",
+                            "fields": [
+                              {
+                                "name": "type_args",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "<int>"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "elements",
+                                "value": {
+                                  "literal": {
+                                    "listValue": {}
                                   }
                                 }
                               }
-                            }
-                          ]
+                            ]
+                          }
                         }
                       }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "to_string",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "call": {
-                                              "module": "std_collections",
-                                              "function": "map_get",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "fields": [
-                                                    {
-                                                      "name": "map",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "m"
-                                                        }
-                                                      }
-                                                    },
-                                                    {
-                                                      "name": "key",
-                                                      "value": {
-                                                        "literal": {
-                                                          "stringValue": "alpha"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
+                    },
+                    "metadata": {
+                      "keyword": "var"
                     }
                   }
                 },
@@ -359,12 +266,12 @@
                   "expression": {
                     "call": {
                       "module": "std_collections",
-                      "function": "map_set",
+                      "function": "list_foreach",
                       "input": {
                         "messageCreation": {
                           "fields": [
                             {
-                              "name": "map",
+                              "name": "list",
                               "value": {
                                 "reference": {
                                   "name": "m"
@@ -372,10 +279,319 @@
                               }
                             },
                             {
-                              "name": "key",
+                              "name": "value",
                               "value": {
-                                "literal": {
-                                  "stringValue": "new"
+                                "lambda": {
+                                  "name": "",
+                                  "body": {
+                                    "block": {
+                                      "statements": [
+                                        {
+                                          "expression": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "assign",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "target",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "ks"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std_collections",
+                                                          "function": "list_push",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "fields": [
+                                                                {
+                                                                  "name": "list",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "ks"
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "value",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "k"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "expression": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "assign",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "target",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "vs"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std_collections",
+                                                          "function": "list_push",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "fields": [
+                                                                {
+                                                                  "name": "list",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "vs"
+                                                                    }
+                                                                  }
+                                                                },
+                                                                {
+                                                                  "name": "value",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "v"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "metadata": {
+                                    "kind": "lambda",
+                                    "params": [
+                                      {
+                                        "name": "k"
+                                      },
+                                      {
+                                        "name": "v"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "list_join",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "list",
+                                          "value": {
+                                            "reference": {
+                                              "name": "ks"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "separator",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": ","
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "list_join",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "list",
+                                          "value": {
+                                            "reference": {
+                                              "name": "vs"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "separator",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": ","
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "index",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "target",
+                                          "value": {
+                                            "reference": {
+                                              "name": "m"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "index",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "alpha"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "assign",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "target",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "index",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "target",
+                                          "value": {
+                                            "reference": {
+                                              "name": "m"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "index",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "new"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
                                 }
                               }
                             },
@@ -394,6 +610,135 @@
                   }
                 },
                 {
+                  "let": {
+                    "name": "ks2",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "typed_list",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "",
+                            "fields": [
+                              {
+                                "name": "type_args",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "<String>"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "elements",
+                                "value": {
+                                  "literal": {
+                                    "listValue": {}
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std_collections",
+                      "function": "list_foreach",
+                      "input": {
+                        "messageCreation": {
+                          "fields": [
+                            {
+                              "name": "list",
+                              "value": {
+                                "reference": {
+                                  "name": "m"
+                                }
+                              }
+                            },
+                            {
+                              "name": "value",
+                              "value": {
+                                "lambda": {
+                                  "name": "",
+                                  "body": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "assign",
+                                      "input": {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "target",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "ks2"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std_collections",
+                                                  "function": "list_push",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "fields": [
+                                                        {
+                                                          "name": "list",
+                                                          "value": {
+                                                            "reference": {
+                                                              "name": "ks2"
+                                                            }
+                                                          }
+                                                        },
+                                                        {
+                                                          "name": "value",
+                                                          "value": {
+                                                            "reference": {
+                                                              "name": "k"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "metadata": {
+                                    "kind": "lambda",
+                                    "params": [
+                                      {
+                                        "name": "k"
+                                      },
+                                      {
+                                        "name": "v"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
                   "expression": {
                     "call": {
                       "module": "std",
@@ -406,31 +751,16 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "module": "std",
-                                  "function": "string_join",
+                                  "module": "std_collections",
+                                  "function": "list_join",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
                                           "name": "list",
                                           "value": {
-                                            "call": {
-                                              "module": "std_collections",
-                                              "function": "map_keys",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "fields": [
-                                                    {
-                                                      "name": "map",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "m"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
+                                            "reference": {
+                                              "name": "ks2"
                                             }
                                           }
                                         },
@@ -467,39 +797,24 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "module": "std",
-                                  "function": "to_string",
+                                  "module": "std_collections",
+                                  "function": "map_contains_key",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
                                         {
-                                          "name": "value",
+                                          "name": "map",
                                           "value": {
-                                            "call": {
-                                              "module": "std_collections",
-                                              "function": "map_contains_key",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "fields": [
-                                                    {
-                                                      "name": "map",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "m"
-                                                        }
-                                                      }
-                                                    },
-                                                    {
-                                                      "name": "key",
-                                                      "value": {
-                                                        "literal": {
-                                                          "stringValue": "zeta"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
+                                            "reference": {
+                                              "name": "m"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "key",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "zeta"
                                             }
                                           }
                                         }
@@ -517,15 +832,15 @@
                 }
               ]
             }
+          },
+          "metadata": {
+            "kind": "function"
           }
         }
       ],
       "moduleImports": [
         {
           "name": "std"
-        },
-        {
-          "name": "std_collections"
         }
       ]
     }

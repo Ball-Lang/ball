@@ -29,15 +29,13 @@
 
 #include <filesystem>
 #include <chrono>
-#include <thread>
-#include <atomic>
-#include <future>
 #ifdef _WIN32
+// Neutralize the windows.h GetMessage macro so it cannot clash with protobuf's
+// Message API (windows.h can be pulled in transitively on MSVC builds).
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #undef GetMessage
-#include <process.h>
 #endif
 
 #ifndef BALL_CONFORMANCE_DIR
@@ -253,8 +251,29 @@ static std::string read_file_str(const fs::path& p) {
     return ss.str();
 }
 
+// Host-knob fixtures have no expected_output.txt — they validate the engine's
+// resource-limit BEHAVIOR. The harness constructs the engine with the limit and
+// asserts a specific BallRuntimeError is thrown, mirroring
+// dart/engine/test/conformance_test.dart (the Dart reference does the same).
+struct HostKnob {
+    int64_t timeoutMs = 0;        // >0 ⇒ set engine.timeoutMs
+    int64_t maxMemoryBytes = 0;   // >0 ⇒ set engine.maxMemoryBytes
+    bool sandbox = false;         // ⇒ set engine.sandbox = true
+    bool validateLimits = false;  // ⇒ call engine._validateProgramLimits()
+    const char* expectError = ""; // thrown message must contain this substring
+};
+static const std::map<std::string, HostKnob>& host_knobs() {
+    static const std::map<std::string, HostKnob> m = {
+        {"196_timeout",          HostKnob{1, 0, false, false, "Execution timeout exceeded"}},
+        {"197_memory_limit",     HostKnob{0, 1000, false, false, "Memory limit exceeded"}},
+        {"201_input_validation", HostKnob{0, 0, false, true, "Too many modules"}},
+        {"202_sandbox_mode",     HostKnob{0, 0, true, false, "Sandbox violation"}},
+    };
+    return m;
+}
+
 static bool run_one(const fs::path& program_path, const fs::path& expected_path,
-                    std::string& failure_msg) {
+                    const std::string& test_name, std::string& failure_msg) {
     // Parse the self-describing Any envelope -> Program protobuf.
     auto json = read_file_str(program_path);
     ball::v1::Program program;
@@ -301,6 +320,34 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
         // Build lookup tables (indexes functions, types, etc.)
         engine._buildLookupTables();
         engine._initTopLevelVariables();
+
+        // Host-knob behavioral fixtures: set the resource limit, then run (or
+        // validate) and require the matching BallRuntimeError — instead of an
+        // output comparison (these fixtures have no expected_output.txt).
+        {
+            auto knob_it = host_knobs().find(test_name);
+            if (knob_it != host_knobs().end()) {
+                const HostKnob& k = knob_it->second;
+                if (k.timeoutMs) engine.timeoutMs = BallDyn(k.timeoutMs);
+                if (k.maxMemoryBytes) engine.maxMemoryBytes = BallDyn(k.maxMemoryBytes);
+                engine.sandbox = k.sandbox;
+                std::string thrown;
+                try {
+                    if (k.validateLimits) engine._validateProgramLimits();
+                    engine.run();
+                } catch (const BallException& be) {
+                    thrown = std::string(be.what());
+                    thrown += " " + be.type_name;
+                    for (auto& [kk, vv] : be.fields) thrown += " " + vv;
+                } catch (const std::exception& e) {
+                    thrown = e.what();
+                }
+                if (thrown.find(k.expectError) != std::string::npos) return true;
+                failure_msg = "host-knob limit not enforced: expected error containing \"" +
+                              std::string(k.expectError) + "\" but got: \"" + thrown + "\"";
+                return false;
+            }
+        }
 
         // Debug: check the key
         auto entryMod = ball_to_string(BallDyn(programAny)["entryModule"s]._val);
@@ -365,7 +412,7 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
     return true;
 }
 
-int main() {
+int main(int argc, char** argv) {
     std::cout << "Ball Self-Hosted Engine Conformance Tests\n"
               << "==========================================\n";
 
@@ -388,50 +435,35 @@ int main() {
             auto expected = p.parent_path() / (stem + ".expected_output.txt");
             if (fs::exists(expected)) {
                 cases.push_back({p, expected, stem});
+            } else if (host_knobs().count(stem)) {
+                // Host-knob behavioral fixture (no expected_output.txt): run_one
+                // checks the thrown limit error instead of comparing output.
+                cases.push_back({p, expected, stem});
             }
         }
     }
     std::sort(cases.begin(), cases.end(),
               [](auto& a, auto& b) { return a.name < b.name; });
 
-    // Per-test timeout in seconds. Tests that exceed this are killed and
-    // reported as TIMEOUT. This replaces the old whitelist approach.
-    constexpr int TIMEOUT_SECONDS = 60;
+    // NO skip-list. Every conformance fixture must pass; the host-knob fixtures
+    // (196/197/201/202) that have no expected_output.txt are run as behavioral
+    // limit-checks below (see host_knobs() / run_one), mirroring
+    // dart/engine/test/conformance_test.dart.
 
-    // Skip list: programs that exceed practical time limits in the
-    // self-hosted engine (double-interpretation performance collapse).
-    // The Dart engine fixes for toString recursion (108) and exception
-    // stringification (84) are in place, but these tests remain too slow
-    // for the C++ self-host due to double-interpretation overhead.
-    static const std::vector<std::string> skip_list = {
-        // Performance: double-interpretation makes these exceed timeout.
-        "95_fibonacci_memo",        // memoization map lookups too slow
-        "136_string_pattern_match", // >30s string operations
-        "144_lcm_computation",      // modulo-heavy loops too slow
-        // Fixed in Dart engine (toString/exception recursion guards) but
-        // still too slow for double-interpreted C++ self-host.
-        "108_class_tostring",       // toString dispatch overhead
-        "84_exception_chain",       // exception catch/stringify overhead
-        // Host-knob fixtures: need BallEngine ctor args (timeoutMs/maxMemoryBytes/
-        // sandbox) the IR can't express, so they run unbounded — cannot pass in
-        // self-host (mirrors the Dart-roundtrip skip-list in SELF_HOST_STATUS.md).
-        "196_timeout",
-        "197_memory_limit",
-        "200_resource_exhaustion_protection",
-        "201_input_validation",
-        "202_sandbox_mode",
-    };
-
-    // Filter: if BALL_TEST_FILTER env var set, only run matching tests
-    const char* test_filter = std::getenv("BALL_TEST_FILTER");
+    // Select a single fixture by EXACT stem. CTest passes it as argv[1] (one
+    // `selfhost/<fixture>` test per fixture — see cpp/test/CMakeLists.txt); the
+    // BALL_TEST_FILTER env var is also honored for back-compat. Empty => run
+    // all (local convenience). Per-fixture process isolation and the per-test
+    // timeout are provided by CTest, not an in-process worker thread.
+    std::string only;
+    if (argc > 1 && argv[1] && *argv[1]) {
+        only = argv[1];
+    } else if (const char* env = std::getenv("BALL_TEST_FILTER")) {
+        only = env;
+    }
 
     for (auto& tc : cases) {
-        bool skip = false;
-        for (auto& prefix : skip_list) {
-            if (tc.name.find(prefix) == 0) { skip = true; break; }
-        }
-        if (test_filter && tc.name.find(test_filter) == std::string::npos) { skip = true; }
-        if (skip) {
+        if (!only.empty() && tc.name != only) {
             tests_skipped_val++;
             continue;
         }
@@ -444,36 +476,21 @@ int main() {
         std::string failure_msg;
         auto start = std::chrono::high_resolution_clock::now();
 
-        // Run test in a thread with timeout. Step counter should prevent infinite loops,
-        // but as a safety net we use a thread timeout as well.
+        // Run directly on the MAIN thread, which gets the 256 MB linker stack
+        // (cpp/test/CMakeLists.txt) the tree-walking interpreter needs. The old
+        // harness ran each fixture on a detached worker thread for an in-process
+        // timeout, but on POSIX a worker gets the small default pthread stack
+        // (not the linker reserve), so a deep fixture overflowed it — an
+        // uncatchable SIGSEGV that killed the whole run. CTest now isolates each
+        // fixture in its own process and enforces the timeout, so a crash or
+        // hang fails only that fixture.
         bool passed = false;
-        bool timed_out = false;
-        {
-            auto promise = std::make_shared<std::promise<bool>>();
-            auto fut = promise->get_future();
-            auto fm_ptr = std::make_shared<std::string>();
-            auto prog = tc.program;
-            auto exp = tc.expected;
-            std::thread worker([promise, fm_ptr, prog, exp]() {
-                try {
-                    std::string fm;
-                    bool ok = run_one(prog, exp, fm);
-                    *fm_ptr = fm;
-                    promise->set_value(ok);
-                } catch (...) {
-                    *fm_ptr = "unexpected crash";
-                    try { promise->set_value(false); } catch (...) {}
-                }
-            });
-            worker.detach();
-            auto status = fut.wait_for(std::chrono::seconds(TIMEOUT_SECONDS));
-            if (status == std::future_status::timeout) {
-                timed_out = true;
-                failure_msg = "TIMEOUT after " + std::to_string(TIMEOUT_SECONDS) + "s";
-            } else {
-                passed = fut.get();
-                failure_msg = *fm_ptr;
-            }
+        try {
+            passed = run_one(tc.program, tc.expected, tc.name, failure_msg);
+        } catch (const std::exception& e) {
+            failure_msg = std::string("unexpected C++ exception: ") + e.what();
+        } catch (...) {
+            failure_msg = "unexpected C++ exception";
         }
 
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -482,10 +499,6 @@ int main() {
         if (passed) {
             tests_passed++;
             std::cout << "  PASS: " << tc.name << " (" << elapsed.count() << "ms)\n";
-        } else if (timed_out) {
-            tests_failed++;
-            failures.push_back(tc.name + ": " + failure_msg);
-            std::cout << "  TIMEOUT: " << tc.name << " (" << elapsed.count() << "ms)\n";
         } else {
             tests_failed++;
             failures.push_back(tc.name + ": " + failure_msg);
@@ -507,5 +520,16 @@ int main() {
         }
     }
 
-    return 0;  // Don't fail the build — this is a progress-tracking test suite
+    // A specific fixture was requested but no runnable case matched — it has no
+    // expected_output.txt and is not a host-knob (an undocumented orphan).
+    // Fail loudly rather than silently pass.
+    if (!only.empty() && tests_run == 0) {
+        std::cerr << "::error:: no runnable self-host conformance case named '"
+                  << only << "'\n";
+        return 1;
+    }
+
+    // Real exit code: CTest treats non-zero as a failed test. Each fixture is
+    // its own CTest test, so this fails exactly the fixtures that failed.
+    return tests_failed > 0 ? 1 : 0;
 }

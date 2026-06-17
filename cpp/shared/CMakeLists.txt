@@ -15,8 +15,17 @@ include(BufGenerate)
 #       Mismatched versions cause #error at compile time.
 set(BALL_PROTOBUF_TAG "v34.1" CACHE STRING "Protobuf Git tag (must match buf.gen.cpp.yaml)")
 
-# Try system protobuf first; fall back to FetchContent.
-find_package(Protobuf QUIET)
+# By default, always use the pinned FetchContent protobuf (BALL_PROTOBUF_TAG)
+# so the checked-in generated code in gen/ — which targets that exact version
+# and includes headers like runtime_version.h — compiles everywhere. An
+# incompatible system protobuf (e.g. Ubuntu apt's older libprotobuf-dev) must
+# NOT be silently preferred; that caused CI build failures. Opt into a system
+# protobuf only when you know it matches BALL_PROTOBUF_TAG:
+#   cmake -S cpp -B build -DBALL_USE_SYSTEM_PROTOBUF=ON
+option(BALL_USE_SYSTEM_PROTOBUF "Use system protobuf instead of the pinned FetchContent version" OFF)
+if(BALL_USE_SYSTEM_PROTOBUF)
+    find_package(Protobuf QUIET)
+endif()
 if(NOT Protobuf_FOUND)
     message(STATUS "System protobuf not found — fetching from GitHub …")
     include(FetchContent)

@@ -52,7 +52,7 @@ A new language is "bootstrapped" when:
 - [ ] `hello_world.ball.json` runs correctly through the engine
 - [ ] `fibonacci.ball.json` produces correct output
 - [ ] The compiler generates valid, runnable target-language code
-- [ ] At least 50% of `tests/conformance/` pass through the engine
+- [ ] All `tests/conformance/` pass through the engine (the bar is 100% parity with Dart — a partial pass rate is progress, not done)
 - [ ] CI job exists and passes
 - [ ] `<lang>/AGENTS.md` and `.claude/rules/<lang>.md` exist
 - [ ] Conformance matrix row is added

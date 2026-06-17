@@ -11,6 +11,7 @@
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -32,58 +33,44 @@
       "name": "main",
       "functions": [
         {
-          "name": "main:Shape.new",
-          "outputType": "main:Shape",
-          "body": {
-            "reference": {
-              "name": "input"
-            }
-          },
+          "name": "main:Shape.color",
+          "outputType": "String",
           "metadata": {
-            "kind": "constructor",
-            "params": [
-              {
-                "name": "input",
-                "type": "String"
-              }
-            ]
+            "kind": "method",
+            "is_abstract": true
           }
         },
         {
           "name": "main:Shape.area",
           "outputType": "double",
-          "body": {
-            "literal": {
-              "doubleValue": 0
-            }
-          },
           "metadata": {
             "kind": "method",
-            "isAbstract": true
+            "is_abstract": true
           }
         },
         {
           "name": "main:Circle.new",
           "outputType": "main:Circle",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "radius",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Circle.color",
+          "outputType": "String",
           "body": {
-            "reference": {
-              "name": "color"
+            "literal": {
+              "stringValue": "red"
             }
           },
           "metadata": {
-            "kind": "constructor",
-            "initializers": [
-              {
-                "kind": "super",
-                "args": "(color)"
-              }
-            ],
-            "params": [
-              {
-                "name": "color",
-                "type": "String"
-              }
-            ]
+            "kind": "method"
           }
         },
         {
@@ -95,8 +82,7 @@
             }
           },
           "metadata": {
-            "kind": "method",
-            "is_override": true
+            "kind": "method"
           }
         },
         {
@@ -107,29 +93,25 @@
               "statements": [
                 {
                   "let": {
-                    "name": "c",
+                    "name": "s",
                     "value": {
-                      "call": {
-                        "function": "main:Circle.new",
-                        "input": {
-                          "messageCreation": {
-                            "fields": [
-                              {
-                                "name": "arg0",
-                                "value": {
-                                  "literal": {
-                                    "stringValue": "red"
-                                  }
-                                }
+                      "messageCreation": {
+                        "typeName": "main:Circle",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "doubleValue": 1
                               }
-                            ]
+                            }
                           }
-                        }
+                        ]
                       }
                     },
                     "metadata": {
                       "keyword": "var",
-                      "type": "Circle"
+                      "type": "Shape"
                     }
                   }
                 },
@@ -145,13 +127,22 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "c"
+                                "call": {
+                                  "function": "color",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "s"
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "color"
+                                  }
                                 }
                               }
                             }
@@ -182,7 +173,7 @@
                                           "name": "self",
                                           "value": {
                                             "reference": {
-                                              "name": "c"
+                                              "name": "s"
                                             }
                                           }
                                         }
@@ -215,35 +206,37 @@
         {
           "name": "main:Shape",
           "descriptor": {
-            "name": "main:Shape",
-            "field": [
-              {
-                "name": "color",
-                "number": 1,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_STRING"
-              }
-            ]
+            "name": "main:Shape"
           },
+          "description": "Class metadata for main:Shape",
           "metadata": {
             "kind": "class",
-            "fields": [
-              {
-                "name": "color",
-                "type": "String"
-              }
-            ],
-            "isAbstract": true
+            "is_abstract": true
           }
         },
         {
           "name": "main:Circle",
           "descriptor": {
-            "name": "main:Circle"
+            "name": "main:Circle",
+            "field": [
+              {
+                "name": "radius",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_DOUBLE"
+              }
+            ]
           },
+          "description": "Class metadata for main:Circle",
           "metadata": {
             "kind": "class",
-            "superclass": "Shape"
+            "superclass": "Shape",
+            "fields": [
+              {
+                "name": "radius",
+                "type": "double"
+              }
+            ]
           }
         }
       ]

@@ -101,6 +101,10 @@ Future<void> main(List<String> args) async {
   final cppCompiler = _findCppCompiler(root);
   if (monolithic) {
     final outCpp = '$root/dart/self_host/lib/engine_rt.cpp';
+    // Ensure the output directory exists — lib/ holds only generated
+    // (gitignored) artifacts, so it is absent in a fresh checkout and the
+    // C++ compiler would fail with "Could not open output file".
+    File(outCpp).parent.createSync(recursive: true);
     stdout.writeln('\nRunning $cppCompiler (monolithic) ...');
     final result = await Process.run(cppCompiler, [
       pbPath,

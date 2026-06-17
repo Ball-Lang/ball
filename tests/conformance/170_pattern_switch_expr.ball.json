@@ -7,22 +7,19 @@
       "name": "std",
       "functions": [
         {
+          "name": "switch_expr",
+          "isBase": true
+        },
+        {
+          "name": "negate",
+          "isBase": true
+        },
+        {
           "name": "print",
-          "isBase": true
-        },
-        {
-          "name": "if",
-          "isBase": true
-        },
-        {
-          "name": "equals",
-          "isBase": true
-        },
-        {
-          "name": "less_than",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -37,6 +34,20 @@
               }
             ]
           }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         }
       ]
     },
@@ -44,83 +55,66 @@
       "name": "main",
       "functions": [
         {
-          "name": "classify",
+          "name": "sign",
           "inputType": "int",
           "outputType": "String",
           "body": {
             "call": {
               "module": "std",
-              "function": "if",
+              "function": "switch_expr",
               "input": {
                 "messageCreation": {
+                  "typeName": "",
                   "fields": [
                     {
-                      "name": "condition",
+                      "name": "subject",
                       "value": {
-                        "call": {
-                          "module": "std",
-                          "function": "less_than",
-                          "input": {
-                            "messageCreation": {
-                              "fields": [
-                                {
-                                  "name": "left",
-                                  "value": {
-                                    "reference": {
-                                      "name": "n"
-                                    }
-                                  }
-                                },
-                                {
-                                  "name": "right",
-                                  "value": {
-                                    "literal": {
-                                      "intValue": "0"
-                                    }
-                                  }
-                                }
-                              ]
-                            }
-                          }
+                        "reference": {
+                          "name": "n"
                         }
                       }
                     },
                     {
-                      "name": "then",
+                      "name": "cases",
                       "value": {
                         "literal": {
-                          "stringValue": "negative"
-                        }
-                      }
-                    },
-                    {
-                      "name": "else",
-                      "value": {
-                        "call": {
-                          "module": "std",
-                          "function": "if",
-                          "input": {
-                            "messageCreation": {
-                              "fields": [
-                                {
-                                  "name": "condition",
-                                  "value": {
-                                    "call": {
-                                      "module": "std",
-                                      "function": "equals",
-                                      "input": {
+                          "listValue": {
+                            "elements": [
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "< 0"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "negative"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
                                         "messageCreation": {
+                                          "typeName": "RelationalPattern",
                                           "fields": [
                                             {
-                                              "name": "left",
+                                              "name": "operator",
                                               "value": {
-                                                "reference": {
-                                                  "name": "n"
+                                                "literal": {
+                                                  "stringValue": "<"
                                                 }
                                               }
                                             },
                                             {
-                                              "name": "right",
+                                              "name": "operand",
                                               "value": {
                                                 "literal": {
                                                   "intValue": "0"
@@ -131,26 +125,80 @@
                                         }
                                       }
                                     }
-                                  }
-                                },
-                                {
-                                  "name": "then",
-                                  "value": {
-                                    "literal": {
-                                      "stringValue": "zero"
-                                    }
-                                  }
-                                },
-                                {
-                                  "name": "else",
-                                  "value": {
-                                    "literal": {
-                                      "stringValue": "positive"
-                                    }
-                                  }
+                                  ]
                                 }
-                              ]
-                            }
+                              },
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "0"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "zero"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "ConstPattern",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "0"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "_"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "positive"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "WildcardPattern"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
                           }
                         }
                       }
@@ -189,19 +237,26 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "classify",
+                                  "function": "sign",
                                   "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "arg0",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "-5"
+                                    "call": {
+                                      "module": "std",
+                                      "function": "negate",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "5"
+                                                }
+                                              }
                                             }
-                                          }
+                                          ]
                                         }
-                                      ]
+                                      }
                                     }
                                   }
                                 }
@@ -226,19 +281,10 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "classify",
+                                  "function": "sign",
                                   "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "arg0",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "0"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                    "literal": {
+                                      "intValue": "0"
                                     }
                                   }
                                 }
@@ -263,19 +309,10 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "classify",
+                                  "function": "sign",
                                   "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "arg0",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "10"
-                                            }
-                                          }
-                                        }
-                                      ]
+                                    "literal": {
+                                      "intValue": "7"
                                     }
                                   }
                                 }

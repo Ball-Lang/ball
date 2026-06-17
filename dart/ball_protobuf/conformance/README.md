@@ -27,7 +27,8 @@ the same test vectors the reference implementations use.
    through `unmarshal`/`marshal` (or the JSON codec), and writes back a
    `ConformanceResponse`. Unknown message types return `skipped`.
 3. The runner compares our output against the reference and reports
-   pass/skip/fail. `failure_list_ball.txt` lists the tests we expect to fail.
+   pass/skip/fail. There is no tolerated-failure list — every registered test
+   must pass; the runner exits non-zero on any failure.
 
 ## Scope
 
@@ -35,8 +36,7 @@ Registered: the `TestAllTypes*` messages of all three conformance families —
 `protobuf_test_messages.{proto2,proto3,editions}` (plus nested types and
 extensions). Text-format tests and other message types are reported `skipped`.
 
-**All registered tests pass — 2769 successes, 0 expected failures** (the
-`failure_list_ball.txt` is empty). Coverage includes the Well-Known-Type JSON
+**All registered tests pass — 2769 successes, 0 failures.** Coverage includes the Well-Known-Type JSON
 mappings (Any with `@type` resolution, Struct/Value/ListValue, Timestamp,
 Duration, the `*Value` wrappers, FieldMask), oneof tracking (sibling-clearing +
 always-serialize-a-set-member), recursive message merge, unknown-field
@@ -61,9 +61,7 @@ dart compile exe dart/ball_protobuf/tool/conformance_main.dart -o ball_conforman
 #    invoke it from the repo root (the runner takes the program as its final
 #    positional arg — no `--` separator on current builds).
 runner=$(find cpp/build-conformance -name conformance_test_runner -type f | head -1)
-"$runner" --maximum_edition 2023 \
-  --failure_list dart/ball_protobuf/conformance/failure_list_ball.txt \
-  ./ball_conformance
+"$runner" --maximum_edition 2023 ./ball_conformance
 ```
 
 CI runs exactly this on Ubuntu (job **Upstream Conformance (Editions)** in

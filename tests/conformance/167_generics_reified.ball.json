@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "167_generics_reified",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
@@ -107,8 +107,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "Box<int>"
+                      "keyword": "var"
                     }
                   }
                 },
@@ -190,8 +189,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "Box<String>"
+                      "keyword": "var"
                     }
                   }
                 },
@@ -228,8 +226,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "bool"
+                      "keyword": "var"
                     }
                   }
                 },
@@ -289,8 +286,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "bool"
+                      "keyword": "var"
                     }
                   }
                 },

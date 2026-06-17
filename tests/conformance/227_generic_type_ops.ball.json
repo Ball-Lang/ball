@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "227_generic_type_ops",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
@@ -37,35 +37,16 @@
           "inputType": "T",
           "outputType": "T",
           "body": {
-            "block": {
-              "statements": [
-                {
-                  "let": {
-                    "name": "value",
-                    "value": {
-                      "reference": {
-                        "name": "input"
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "T"
-                    }
-                  }
-                }
-              ],
-              "result": {
-                "reference": {
-                  "name": "value"
-                }
-              }
+            "reference": {
+              "name": "value"
             }
           },
           "metadata": {
             "kind": "function",
+            "expression_body": true,
             "params": [
               {
-                "name": "input",
+                "name": "value",
                 "type": "T"
               }
             ],
@@ -79,43 +60,24 @@
           "inputType": "T",
           "outputType": "List<T>",
           "body": {
-            "block": {
-              "statements": [
-                {
-                  "let": {
-                    "name": "value",
-                    "value": {
-                      "reference": {
-                        "name": "input"
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "T"
+            "literal": {
+              "listValue": {
+                "elements": [
+                  {
+                    "reference": {
+                      "name": "value"
                     }
                   }
-                }
-              ],
-              "result": {
-                "literal": {
-                  "listValue": {
-                    "elements": [
-                      {
-                        "reference": {
-                          "name": "value"
-                        }
-                      }
-                    ]
-                  }
-                }
+                ]
               }
             }
           },
           "metadata": {
             "kind": "function",
+            "expression_body": true,
             "params": [
               {
-                "name": "input",
+                "name": "value",
                 "type": "T"
               }
             ],

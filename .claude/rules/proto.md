@@ -54,17 +54,17 @@ rules); the failure list is empty. Layout:
   size-prefixed stdin/stdout request loop the runner drives. **The loop awaits
   each stdout flush** — an un-awaited flush in the synchronous read loop crashes
   the process after one response.
-- `dart/ball_protobuf/conformance/{failure_list_ball.txt,README.md}` — expected
-  failures (currently empty) + how-to.
+- `dart/ball_protobuf/conformance/README.md` — how-to + scope. There is no
+  tolerated-failure list: every registered conformance test must pass.
 - `tests/editions/descriptors/test_messages.fds.binpb` — the checked-in
   descriptor set; regenerate with `tools/gen_conformance_descriptors.{sh,ps1}`
   (pin protoc to a version supporting edition 2023; `--check`/`-Check` drift).
 
 The runner is **POSIX-only** (`fork`/pipes) — build/run it on Linux/macOS/WSL,
 not native Windows. CI: job *Upstream Conformance (Editions)* in `ci.yml`.
-Text-format tests and unregistered message types are reported `skipped`. When a
-codec change moves the numbers, regenerate `conformance/failure_list_ball.txt`
-(bare test names, reasons stripped) — see that file's header.
+Text-format tests and unregistered message types are reported `skipped`. There
+is no tolerated-failure list — the runner exits non-zero on ANY conformance
+failure, so every registered test must pass.
 
 ## Consumer codegen (`ball_protobuf_gen` + `ball_rpc`)
 

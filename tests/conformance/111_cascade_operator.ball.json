@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "111_cascade_operator",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
@@ -20,10 +20,6 @@
         },
         {
           "name": "list_join",
-          "isBase": true
-        },
-        {
-          "name": "invoke",
           "isBase": true
         },
         {
@@ -75,83 +71,61 @@
           "inputType": "String",
           "outputType": "void",
           "body": {
-            "block": {
-              "statements": [
-                {
-                  "let": {
-                    "name": "part",
-                    "value": {
-                      "reference": {
-                        "name": "input"
+            "call": {
+              "module": "std",
+              "function": "assign",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    {
+                      "name": "target",
+                      "value": {
+                        "reference": {
+                          "name": "parts"
+                        }
                       }
                     },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "String"
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "assign",
-                      "input": {
-                        "messageCreation": {
-                          "fields": [
-                            {
-                              "name": "target",
-                              "value": {
-                                "reference": {
-                                  "name": "parts"
-                                }
-                              }
-                            },
-                            {
-                              "name": "value",
-                              "value": {
-                                "call": {
-                                  "module": "std_collections",
-                                  "function": "list_push",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "list",
-                                          "value": {
-                                            "reference": {
-                                              "name": "parts"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "reference": {
-                                              "name": "part"
-                                            }
-                                          }
-                                        }
-                                      ]
+                    {
+                      "name": "value",
+                      "value": {
+                        "call": {
+                          "module": "std_collections",
+                          "function": "list_push",
+                          "input": {
+                            "messageCreation": {
+                              "fields": [
+                                {
+                                  "name": "list",
+                                  "value": {
+                                    "reference": {
+                                      "name": "parts"
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "reference": {
+                                      "name": "part"
                                     }
                                   }
                                 }
-                              }
+                              ]
                             }
-                          ]
+                          }
                         }
                       }
                     }
-                  }
+                  ]
                 }
-              ]
+              }
             }
           },
           "metadata": {
             "kind": "method",
             "params": [
               {
-                "name": "input",
+                "name": "part",
                 "type": "String"
               }
             ]
@@ -252,137 +226,112 @@
                   "let": {
                     "name": "b",
                     "value": {
-                      "call": {
-                        "module": "std",
-                        "function": "invoke",
-                        "input": {
-                          "messageCreation": {
-                            "typeName": "",
-                            "fields": [
-                              {
-                                "name": "callee",
-                                "value": {
-                                  "lambda": {
-                                    "name": "",
-                                    "body": {
-                                      "block": {
-                                        "statements": [
-                                          {
-                                            "let": {
-                                              "name": "__cascade_self__",
-                                              "value": {
-                                                "messageCreation": {
-                                                  "typeName": "main:Builder"
-                                                }
-                                              },
-                                              "metadata": {
-                                                "keyword": "final"
-                                              }
-                                            }
-                                          },
-                                          {
-                                            "expression": {
-                                              "call": {
-                                                "function": "addPart",
-                                                "input": {
-                                                  "messageCreation": {
-                                                    "fields": [
-                                                      {
-                                                        "name": "self",
-                                                        "value": {
-                                                          "reference": {
-                                                            "name": "__cascade_self__"
-                                                          }
-                                                        }
-                                                      },
-                                                      {
-                                                        "name": "arg0",
-                                                        "value": {
-                                                          "literal": {
-                                                            "stringValue": "engine"
-                                                          }
-                                                        }
-                                                      }
-                                                    ]
-                                                  }
-                                                }
-                                              }
-                                            }
-                                          },
-                                          {
-                                            "expression": {
-                                              "call": {
-                                                "function": "addPart",
-                                                "input": {
-                                                  "messageCreation": {
-                                                    "fields": [
-                                                      {
-                                                        "name": "self",
-                                                        "value": {
-                                                          "reference": {
-                                                            "name": "__cascade_self__"
-                                                          }
-                                                        }
-                                                      },
-                                                      {
-                                                        "name": "arg0",
-                                                        "value": {
-                                                          "literal": {
-                                                            "stringValue": "wheels"
-                                                          }
-                                                        }
-                                                      }
-                                                    ]
-                                                  }
-                                                }
-                                              }
-                                            }
-                                          },
-                                          {
-                                            "expression": {
-                                              "call": {
-                                                "function": "addPart",
-                                                "input": {
-                                                  "messageCreation": {
-                                                    "fields": [
-                                                      {
-                                                        "name": "self",
-                                                        "value": {
-                                                          "reference": {
-                                                            "name": "__cascade_self__"
-                                                          }
-                                                        }
-                                                      },
-                                                      {
-                                                        "name": "arg0",
-                                                        "value": {
-                                                          "literal": {
-                                                            "stringValue": "body"
-                                                          }
-                                                        }
-                                                      }
-                                                    ]
-                                                  }
-                                                }
-                                              }
-                                            }
-                                          }
-                                        ],
-                                        "result": {
+                      "block": {
+                        "statements": [
+                          {
+                            "let": {
+                              "name": "__cascade_self__",
+                              "value": {
+                                "messageCreation": {
+                                  "typeName": "main:Builder"
+                                }
+                              },
+                              "metadata": {
+                                "kind": "cascade"
+                              }
+                            }
+                          },
+                          {
+                            "expression": {
+                              "call": {
+                                "function": "addPart",
+                                "input": {
+                                  "messageCreation": {
+                                    "fields": [
+                                      {
+                                        "name": "self",
+                                        "value": {
                                           "reference": {
                                             "name": "__cascade_self__"
                                           }
                                         }
+                                      },
+                                      {
+                                        "name": "arg0",
+                                        "value": {
+                                          "literal": {
+                                            "stringValue": "engine"
+                                          }
+                                        }
                                       }
-                                    },
-                                    "metadata": {
-                                      "kind": "lambda",
-                                      "has_return": true
-                                    }
+                                    ]
                                   }
                                 }
                               }
-                            ]
+                            }
+                          },
+                          {
+                            "expression": {
+                              "call": {
+                                "function": "addPart",
+                                "input": {
+                                  "messageCreation": {
+                                    "fields": [
+                                      {
+                                        "name": "self",
+                                        "value": {
+                                          "reference": {
+                                            "name": "__cascade_self__"
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "name": "arg0",
+                                        "value": {
+                                          "literal": {
+                                            "stringValue": "wheels"
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "expression": {
+                              "call": {
+                                "function": "addPart",
+                                "input": {
+                                  "messageCreation": {
+                                    "fields": [
+                                      {
+                                        "name": "self",
+                                        "value": {
+                                          "reference": {
+                                            "name": "__cascade_self__"
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "name": "arg0",
+                                        "value": {
+                                          "literal": {
+                                            "stringValue": "body"
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ],
+                        "result": {
+                          "reference": {
+                            "name": "__cascade_self__"
                           }
                         }
                       }
@@ -432,129 +381,104 @@
                 },
                 {
                   "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "invoke",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "",
-                          "fields": [
-                            {
-                              "name": "callee",
-                              "value": {
-                                "lambda": {
-                                  "name": "",
-                                  "body": {
-                                    "block": {
-                                      "statements": [
-                                        {
-                                          "let": {
-                                            "name": "__cascade_self__",
-                                            "value": {
-                                              "reference": {
-                                                "name": "b"
-                                              }
-                                            },
-                                            "metadata": {
-                                              "keyword": "final"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "expression": {
-                                            "call": {
-                                              "function": "reset",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "fields": [
-                                                    {
-                                                      "name": "self",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "__cascade_self__"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "expression": {
-                                            "call": {
-                                              "function": "addPart",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "fields": [
-                                                    {
-                                                      "name": "self",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "__cascade_self__"
-                                                        }
-                                                      }
-                                                    },
-                                                    {
-                                                      "name": "arg0",
-                                                      "value": {
-                                                        "literal": {
-                                                          "stringValue": "frame"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "expression": {
-                                            "call": {
-                                              "function": "addPart",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "fields": [
-                                                    {
-                                                      "name": "self",
-                                                      "value": {
-                                                        "reference": {
-                                                          "name": "__cascade_self__"
-                                                        }
-                                                      }
-                                                    },
-                                                    {
-                                                      "name": "arg0",
-                                                      "value": {
-                                                        "literal": {
-                                                          "stringValue": "glass"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        }
-                                      ],
-                                      "result": {
+                    "block": {
+                      "statements": [
+                        {
+                          "let": {
+                            "name": "__cascade_self__",
+                            "value": {
+                              "reference": {
+                                "name": "b"
+                              }
+                            },
+                            "metadata": {
+                              "kind": "cascade"
+                            }
+                          }
+                        },
+                        {
+                          "expression": {
+                            "call": {
+                              "function": "reset",
+                              "input": {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "self",
+                                      "value": {
                                         "reference": {
                                           "name": "__cascade_self__"
                                         }
                                       }
                                     }
-                                  },
-                                  "metadata": {
-                                    "kind": "lambda",
-                                    "has_return": true
-                                  }
+                                  ]
                                 }
                               }
                             }
-                          ]
+                          }
+                        },
+                        {
+                          "expression": {
+                            "call": {
+                              "function": "addPart",
+                              "input": {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "self",
+                                      "value": {
+                                        "reference": {
+                                          "name": "__cascade_self__"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "arg0",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "frame"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "expression": {
+                            "call": {
+                              "function": "addPart",
+                              "input": {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "self",
+                                      "value": {
+                                        "reference": {
+                                          "name": "__cascade_self__"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "arg0",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "glass"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "result": {
+                        "reference": {
+                          "name": "__cascade_self__"
                         }
                       }
                     }

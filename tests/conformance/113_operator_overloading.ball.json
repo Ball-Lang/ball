@@ -128,7 +128,7 @@
           }
         },
         {
-          "name": "main:Vec2.+",
+          "name": "main:Vec2.__op_add__",
           "inputType": "Vec2",
           "outputType": "Vec2",
           "body": {
@@ -225,7 +225,7 @@
           }
         },
         {
-          "name": "main:Vec2.-",
+          "name": "main:Vec2.__op_sub__",
           "inputType": "Vec2",
           "outputType": "Vec2",
           "body": {
@@ -322,7 +322,7 @@
           }
         },
         {
-          "name": "main:Vec2.*",
+          "name": "main:Vec2.__op_mul__",
           "inputType": "int",
           "outputType": "Vec2",
           "body": {
@@ -409,7 +409,7 @@
           }
         },
         {
-          "name": "main:Vec2.==",
+          "name": "main:Vec2.__op_eq__",
           "inputType": "Object",
           "outputType": "bool",
           "body": {

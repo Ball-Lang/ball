@@ -5,7 +5,10 @@ class Fraction {
   Fraction(this.numerator, this.denominator);
 
   Fraction simplify() {
-    int g = _gcd(numerator.abs(), denominator.abs());
+    // Explicit `this.` so the (type-blind) encoder routes the private
+    // instance-method call through the instance-method path (with a `self`
+    // receiver) rather than a top-level call the engine cannot resolve.
+    int g = this._gcd(numerator.abs(), denominator.abs());
     return Fraction(numerator ~/ g, denominator ~/ g);
   }
 

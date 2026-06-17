@@ -1,25 +1,17 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "204_string_operations",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "print",
-          "isBase": true
-        },
-        {
-          "name": "concat",
-          "isBase": true
-        },
-        {
-          "name": "to_string",
-          "isBase": true
-        },
-        {
           "name": "string_to_upper",
+          "isBase": true
+        },
+        {
+          "name": "print",
           "isBase": true
         },
         {
@@ -31,11 +23,15 @@
           "isBase": true
         },
         {
-          "name": "string_repeat",
+          "name": "add",
           "isBase": true
         },
         {
-          "name": "string_index_of",
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "list_index_of",
           "isBase": true
         },
         {
@@ -51,6 +47,7 @@
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -65,14 +62,59 @@
               }
             ]
           }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         }
       ]
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_index_of",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
     },
     {
       "name": "main",
       "functions": [
         {
           "name": "main",
+          "outputType": "void",
           "body": {
             "block": {
               "statements": [
@@ -93,6 +135,7 @@
                                   "function": "string_to_upper",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
@@ -131,6 +174,7 @@
                                   "function": "string_to_lower",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
@@ -220,23 +264,48 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "string_repeat",
+                                  "function": "add",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
-                                          "name": "value",
+                                          "name": "left",
                                           "value": {
-                                            "literal": {
-                                              "stringValue": "ab"
+                                            "call": {
+                                              "module": "std",
+                                              "function": "add",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "literal": {
+                                                          "stringValue": "ab"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "literal": {
+                                                          "stringValue": "ab"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
                                             }
                                           }
                                         },
                                         {
-                                          "name": "count",
+                                          "name": "right",
                                           "value": {
                                             "literal": {
-                                              "intValue": "3"
+                                              "stringValue": "ab"
                                             }
                                           }
                                         }
@@ -269,18 +338,19 @@
                                   "function": "to_string",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
                                           "value": {
                                             "call": {
-                                              "module": "std",
-                                              "function": "string_index_of",
+                                              "module": "std_collections",
+                                              "function": "list_index_of",
                                               "input": {
                                                 "messageCreation": {
                                                   "fields": [
                                                     {
-                                                      "name": "left",
+                                                      "name": "list",
                                                       "value": {
                                                         "literal": {
                                                           "stringValue": "find the needle here"
@@ -288,7 +358,7 @@
                                                       }
                                                     },
                                                     {
-                                                      "name": "right",
+                                                      "name": "value",
                                                       "value": {
                                                         "literal": {
                                                           "stringValue": "needle"
@@ -435,35 +505,38 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "concat",
+                                  "function": "add",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "left",
                                           "value": {
-                                            "literal": {
-                                              "stringValue": "["
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "right",
-                                          "value": {
                                             "call": {
                                               "module": "std",
-                                              "function": "concat",
+                                              "function": "add",
                                               "input": {
                                                 "messageCreation": {
+                                                  "typeName": "",
                                                   "fields": [
                                                     {
                                                       "name": "left",
+                                                      "value": {
+                                                        "literal": {
+                                                          "stringValue": "["
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
                                                       "value": {
                                                         "call": {
                                                           "module": "std",
                                                           "function": "string_trim",
                                                           "input": {
                                                             "messageCreation": {
+                                                              "typeName": "",
                                                               "fields": [
                                                                 {
                                                                   "name": "value",
@@ -478,18 +551,18 @@
                                                           }
                                                         }
                                                       }
-                                                    },
-                                                    {
-                                                      "name": "right",
-                                                      "value": {
-                                                        "literal": {
-                                                          "stringValue": "]"
-                                                        }
-                                                      }
                                                     }
                                                   ]
                                                 }
                                               }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "]"
                                             }
                                           }
                                         }
@@ -507,6 +580,9 @@
                 }
               ]
             }
+          },
+          "metadata": {
+            "kind": "function"
           }
         }
       ],

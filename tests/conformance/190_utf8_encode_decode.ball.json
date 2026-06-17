@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "utf8_encode_decode",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
@@ -9,20 +9,9 @@
         {
           "name": "print",
           "isBase": true
-        },
-        {
-          "name": "set_create",
-          "isBase": true
-        },
-        {
-          "name": "assign",
-          "isBase": true
-        },
-        {
-          "name": "index",
-          "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -47,15 +36,18 @@
           "name": "utf8_encode",
           "inputType": "Utf8EncodeInput",
           "outputType": "bytes",
+          "description": "Encode string to UTF-8 bytes",
           "isBase": true
         },
         {
           "name": "utf8_decode",
           "inputType": "Utf8DecodeInput",
           "outputType": "string",
+          "description": "Decode UTF-8 bytes to string",
           "isBase": true
         }
       ],
+      "description": "Standard conversion module. JSON, UTF-8, base64 encoding/decoding.",
       "typeDefs": [
         {
           "name": "Utf8EncodeInput",
@@ -65,7 +57,6 @@
               {
                 "name": "value",
                 "number": 1,
-                "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
               }
             ]
@@ -79,13 +70,16 @@
               {
                 "name": "value",
                 "number": 1,
-                "label": "LABEL_OPTIONAL",
                 "type": "TYPE_BYTES"
               }
             ]
           }
         }
       ]
+    },
+    {
+      "name": "dart.convert",
+      "description": "Imported from dart:convert"
     },
     {
       "name": "main",
@@ -98,187 +92,40 @@
               "statements": [
                 {
                   "let": {
-                    "name": "data",
+                    "name": "ascii",
                     "value": {
-                      "call": {
-                        "module": "std",
-                        "function": "set_create",
-                        "input": {
-                          "messageCreation": {
-                            "typeName": "",
-                            "fields": []
-                          }
-                        }
+                      "literal": {
+                        "stringValue": "Ball"
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "Map<String, Object>"
+                      "keyword": "const"
                     }
                   }
                 },
                 {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "assign",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "",
-                          "fields": [
-                            {
-                              "name": "target",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "index",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "target",
-                                          "value": {
-                                            "reference": {
-                                              "name": "data"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "index",
-                                          "value": {
-                                            "literal": {
-                                              "stringValue": "ascii"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            },
-                            {
-                              "name": "value",
-                              "value": {
-                                "literal": {
-                                  "stringValue": "Ball"
-                                }
-                              }
-                            }
-                          ]
-                        }
+                  "let": {
+                    "name": "unicode",
+                    "value": {
+                      "literal": {
+                        "stringValue": "こんにちは世界"
                       }
+                    },
+                    "metadata": {
+                      "keyword": "const"
                     }
                   }
                 },
                 {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "assign",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "",
-                          "fields": [
-                            {
-                              "name": "target",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "index",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "target",
-                                          "value": {
-                                            "reference": {
-                                              "name": "data"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "index",
-                                          "value": {
-                                            "literal": {
-                                              "stringValue": "unicode"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            },
-                            {
-                              "name": "value",
-                              "value": {
-                                "literal": {
-                                  "stringValue": "こんにちは世界"
-                                }
-                              }
-                            }
-                          ]
-                        }
+                  "let": {
+                    "name": "emoji",
+                    "value": {
+                      "literal": {
+                        "stringValue": "Ball 🚀"
                       }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "assign",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "",
-                          "fields": [
-                            {
-                              "name": "target",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "index",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "target",
-                                          "value": {
-                                            "reference": {
-                                              "name": "data"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "index",
-                                          "value": {
-                                            "literal": {
-                                              "stringValue": "emoji"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            },
-                            {
-                              "name": "value",
-                              "value": {
-                                "literal": {
-                                  "stringValue": "Ball 🚀"
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
+                    },
+                    "metadata": {
+                      "keyword": "const"
                     }
                   }
                 },
@@ -299,7 +146,6 @@
                                   "function": "utf8_decode",
                                   "input": {
                                     "messageCreation": {
-                                      "typeName": "Utf8DecodeInput",
                                       "fields": [
                                         {
                                           "name": "value",
@@ -309,37 +155,12 @@
                                               "function": "utf8_encode",
                                               "input": {
                                                 "messageCreation": {
-                                                  "typeName": "Utf8EncodeInput",
                                                   "fields": [
                                                     {
                                                       "name": "value",
                                                       "value": {
-                                                        "call": {
-                                                          "module": "std",
-                                                          "function": "index",
-                                                          "input": {
-                                                            "messageCreation": {
-                                                              "typeName": "",
-                                                              "fields": [
-                                                                {
-                                                                  "name": "target",
-                                                                  "value": {
-                                                                    "reference": {
-                                                                      "name": "data"
-                                                                    }
-                                                                  }
-                                                                },
-                                                                {
-                                                                  "name": "index",
-                                                                  "value": {
-                                                                    "literal": {
-                                                                      "stringValue": "ascii"
-                                                                    }
-                                                                  }
-                                                                }
-                                                              ]
-                                                            }
-                                                          }
+                                                        "reference": {
+                                                          "name": "ascii"
                                                         }
                                                       }
                                                     }
@@ -378,7 +199,6 @@
                                   "function": "utf8_decode",
                                   "input": {
                                     "messageCreation": {
-                                      "typeName": "Utf8DecodeInput",
                                       "fields": [
                                         {
                                           "name": "value",
@@ -388,37 +208,12 @@
                                               "function": "utf8_encode",
                                               "input": {
                                                 "messageCreation": {
-                                                  "typeName": "Utf8EncodeInput",
                                                   "fields": [
                                                     {
                                                       "name": "value",
                                                       "value": {
-                                                        "call": {
-                                                          "module": "std",
-                                                          "function": "index",
-                                                          "input": {
-                                                            "messageCreation": {
-                                                              "typeName": "",
-                                                              "fields": [
-                                                                {
-                                                                  "name": "target",
-                                                                  "value": {
-                                                                    "reference": {
-                                                                      "name": "data"
-                                                                    }
-                                                                  }
-                                                                },
-                                                                {
-                                                                  "name": "index",
-                                                                  "value": {
-                                                                    "literal": {
-                                                                      "stringValue": "unicode"
-                                                                    }
-                                                                  }
-                                                                }
-                                                              ]
-                                                            }
-                                                          }
+                                                        "reference": {
+                                                          "name": "unicode"
                                                         }
                                                       }
                                                     }
@@ -457,7 +252,6 @@
                                   "function": "utf8_decode",
                                   "input": {
                                     "messageCreation": {
-                                      "typeName": "Utf8DecodeInput",
                                       "fields": [
                                         {
                                           "name": "value",
@@ -467,37 +261,12 @@
                                               "function": "utf8_encode",
                                               "input": {
                                                 "messageCreation": {
-                                                  "typeName": "Utf8EncodeInput",
                                                   "fields": [
                                                     {
                                                       "name": "value",
                                                       "value": {
-                                                        "call": {
-                                                          "module": "std",
-                                                          "function": "index",
-                                                          "input": {
-                                                            "messageCreation": {
-                                                              "typeName": "",
-                                                              "fields": [
-                                                                {
-                                                                  "name": "target",
-                                                                  "value": {
-                                                                    "reference": {
-                                                                      "name": "data"
-                                                                    }
-                                                                  }
-                                                                },
-                                                                {
-                                                                  "name": "index",
-                                                                  "value": {
-                                                                    "literal": {
-                                                                      "stringValue": "emoji"
-                                                                    }
-                                                                  }
-                                                                }
-                                                              ]
-                                                            }
-                                                          }
+                                                        "reference": {
+                                                          "name": "emoji"
                                                         }
                                                       }
                                                     }
@@ -521,6 +290,9 @@
                 }
               ]
             }
+          },
+          "metadata": {
+            "kind": "function"
           }
         }
       ],
@@ -529,9 +301,16 @@
           "name": "std"
         },
         {
-          "name": "std_convert"
+          "name": "dart.convert"
         }
-      ]
+      ],
+      "metadata": {
+        "dart_imports": [
+          {
+            "uri": "dart:convert"
+          }
+        ]
+      }
     }
   ],
   "entryModule": "main",

@@ -1,13 +1,13 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "125_group_by",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "map_create",
+          "name": "set_create",
           "isBase": true
         },
         {
@@ -47,10 +47,6 @@
           "isBase": true
         },
         {
-          "name": "paren",
-          "isBase": true
-        },
-        {
           "name": "equals",
           "isBase": true
         },
@@ -67,7 +63,7 @@
           "isBase": true
         },
         {
-          "name": "add",
+          "name": "concat",
           "isBase": true
         },
         {
@@ -173,7 +169,7 @@
                     "value": {
                       "call": {
                         "module": "std",
-                        "function": "map_create",
+                        "function": "set_create",
                         "input": {
                           "messageCreation": {
                             "typeName": "",
@@ -572,27 +568,27 @@
                                     "body": {
                                       "call": {
                                         "module": "std",
-                                        "function": "paren",
+                                        "function": "if",
                                         "input": {
                                           "messageCreation": {
                                             "typeName": "",
                                             "fields": [
                                               {
-                                                "name": "value",
+                                                "name": "condition",
                                                 "value": {
                                                   "call": {
                                                     "module": "std",
-                                                    "function": "if",
+                                                    "function": "equals",
                                                     "input": {
                                                       "messageCreation": {
                                                         "typeName": "",
                                                         "fields": [
                                                           {
-                                                            "name": "condition",
+                                                            "name": "left",
                                                             "value": {
                                                               "call": {
                                                                 "module": "std",
-                                                                "function": "equals",
+                                                                "function": "modulo",
                                                                 "input": {
                                                                   "messageCreation": {
                                                                     "typeName": "",
@@ -600,32 +596,8 @@
                                                                       {
                                                                         "name": "left",
                                                                         "value": {
-                                                                          "call": {
-                                                                            "module": "std",
-                                                                            "function": "modulo",
-                                                                            "input": {
-                                                                              "messageCreation": {
-                                                                                "typeName": "",
-                                                                                "fields": [
-                                                                                  {
-                                                                                    "name": "left",
-                                                                                    "value": {
-                                                                                      "reference": {
-                                                                                        "name": "n"
-                                                                                      }
-                                                                                    }
-                                                                                  },
-                                                                                  {
-                                                                                    "name": "right",
-                                                                                    "value": {
-                                                                                      "literal": {
-                                                                                        "intValue": "2"
-                                                                                      }
-                                                                                    }
-                                                                                  }
-                                                                                ]
-                                                                              }
-                                                                            }
+                                                                          "reference": {
+                                                                            "name": "n"
                                                                           }
                                                                         }
                                                                       },
@@ -633,7 +605,7 @@
                                                                         "name": "right",
                                                                         "value": {
                                                                           "literal": {
-                                                                            "intValue": "0"
+                                                                            "intValue": "2"
                                                                           }
                                                                         }
                                                                       }
@@ -644,24 +616,32 @@
                                                             }
                                                           },
                                                           {
-                                                            "name": "then",
+                                                            "name": "right",
                                                             "value": {
                                                               "literal": {
-                                                                "stringValue": "even"
-                                                              }
-                                                            }
-                                                          },
-                                                          {
-                                                            "name": "else",
-                                                            "value": {
-                                                              "literal": {
-                                                                "stringValue": "odd"
+                                                                "intValue": "0"
                                                               }
                                                             }
                                                           }
                                                         ]
                                                       }
                                                     }
+                                                  }
+                                                }
+                                              },
+                                              {
+                                                "name": "then",
+                                                "value": {
+                                                  "literal": {
+                                                    "stringValue": "even"
+                                                  }
+                                                }
+                                              },
+                                              {
+                                                "name": "else",
+                                                "value": {
+                                                  "literal": {
+                                                    "stringValue": "odd"
                                                   }
                                                 }
                                               }
@@ -791,7 +771,7 @@
                                           "value": {
                                             "call": {
                                               "module": "std",
-                                              "function": "add",
+                                              "function": "concat",
                                               "input": {
                                                 "messageCreation": {
                                                   "typeName": "",
@@ -801,7 +781,7 @@
                                                       "value": {
                                                         "call": {
                                                           "module": "std",
-                                                          "function": "add",
+                                                          "function": "concat",
                                                           "input": {
                                                             "messageCreation": {
                                                               "typeName": "",
@@ -935,72 +915,56 @@
                                     "body": {
                                       "call": {
                                         "module": "std",
-                                        "function": "paren",
+                                        "function": "if",
                                         "input": {
                                           "messageCreation": {
                                             "typeName": "",
                                             "fields": [
                                               {
-                                                "name": "value",
+                                                "name": "condition",
                                                 "value": {
                                                   "call": {
                                                     "module": "std",
-                                                    "function": "if",
+                                                    "function": "lte",
                                                     "input": {
                                                       "messageCreation": {
                                                         "typeName": "",
                                                         "fields": [
                                                           {
-                                                            "name": "condition",
+                                                            "name": "left",
                                                             "value": {
-                                                              "call": {
-                                                                "module": "std",
-                                                                "function": "lte",
-                                                                "input": {
-                                                                  "messageCreation": {
-                                                                    "typeName": "",
-                                                                    "fields": [
-                                                                      {
-                                                                        "name": "left",
-                                                                        "value": {
-                                                                          "reference": {
-                                                                            "name": "n"
-                                                                          }
-                                                                        }
-                                                                      },
-                                                                      {
-                                                                        "name": "right",
-                                                                        "value": {
-                                                                          "literal": {
-                                                                            "intValue": "5"
-                                                                          }
-                                                                        }
-                                                                      }
-                                                                    ]
-                                                                  }
-                                                                }
+                                                              "reference": {
+                                                                "name": "n"
                                                               }
                                                             }
                                                           },
                                                           {
-                                                            "name": "then",
+                                                            "name": "right",
                                                             "value": {
                                                               "literal": {
-                                                                "stringValue": "small"
-                                                              }
-                                                            }
-                                                          },
-                                                          {
-                                                            "name": "else",
-                                                            "value": {
-                                                              "literal": {
-                                                                "stringValue": "large"
+                                                                "intValue": "5"
                                                               }
                                                             }
                                                           }
                                                         ]
                                                       }
                                                     }
+                                                  }
+                                                }
+                                              },
+                                              {
+                                                "name": "then",
+                                                "value": {
+                                                  "literal": {
+                                                    "stringValue": "small"
+                                                  }
+                                                }
+                                              },
+                                              {
+                                                "name": "else",
+                                                "value": {
+                                                  "literal": {
+                                                    "stringValue": "large"
                                                   }
                                                 }
                                               }
@@ -1130,7 +1094,7 @@
                                           "value": {
                                             "call": {
                                               "module": "std",
-                                              "function": "add",
+                                              "function": "concat",
                                               "input": {
                                                 "messageCreation": {
                                                   "typeName": "",
@@ -1140,7 +1104,7 @@
                                                       "value": {
                                                         "call": {
                                                           "module": "std",
-                                                          "function": "add",
+                                                          "function": "concat",
                                                           "input": {
                                                             "messageCreation": {
                                                               "typeName": "",

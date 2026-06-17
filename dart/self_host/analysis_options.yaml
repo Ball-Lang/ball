@@ -1,0 +1,11 @@
+# The self-host harness depends on a GENERATED file, engine_roundtrip.dart
+# (the live engine round-tripped through the encoder+compiler). It is
+# gitignored and regenerated on demand / in CI (see .gitignore + the
+# "Regenerate round-tripped engine" CI step), so it is absent in a fresh
+# checkout. Exclude it — and the parity test that imports it — from static
+# analysis so `dart analyze dart/` does not fail with `uri_does_not_exist`
+# before the file is regenerated. Both are still executed by `dart test`.
+analyzer:
+  exclude:
+    - lib/engine_roundtrip.dart
+    - test/engine_parity_test.dart

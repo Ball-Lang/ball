@@ -141,10 +141,13 @@ set_target_properties(test_selfhost_conformance PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
 )
-# Stack: 256 MB reserve, 4 MB commit for main thread. The compiled engine is a
-# tree-walking interpreter — each Ball function call expands to many large C++
-# frames (deeply nested BallDyn(...) temporaries), so it needs a stack as large
-# as the encoder's. Worker threads inherit the reserve but commit on demand.
+# Stack: 256 MB reserve, 4 MB commit. The compiled engine is a tree-walking
+# interpreter — each Ball function call expands to many large C++ frames
+# (deeply nested BallDyn(...) temporaries), so it needs a stack as large as the
+# encoder's. The harness runs each fixture on the MAIN thread (these linker
+# flags size only the main-thread stack) — one fixture per CTest process — so
+# this reserve is what protects against stack overflow (a worker thread would
+# get the small default pthread stack on POSIX instead).
 if(MSVC)
     target_link_options(test_selfhost_conformance PRIVATE /STACK:268435456,4194304)
 elseif(APPLE)
@@ -160,5 +163,27 @@ add_test(NAME encoder_tests COMMAND test_encoder)
 add_test(NAME e2e_tests COMMAND test_e2e)
 add_test(NAME snapshot_tests COMMAND test_snapshot)
 if(BALL_SELFHOST_AVAILABLE)
-    add_test(NAME selfhost_conformance_tests COMMAND test_selfhost_conformance)
+    # One CTest test per conformance fixture: each runs in its OWN PROCESS
+    # (CTest's native, cross-platform isolation) on the binary's main thread, so
+    # a fixture that overflows the stack or hangs fails only its own test —
+    # never the whole suite. (The previous single in-process run executed every
+    # fixture on a detached worker thread and died uncatchably when one
+    # overflowed the small default thread stack on POSIX.) Run them with
+    # `ctest -L selfhost -j N`; CONFIGURE_DEPENDS re-globs as fixtures change.
+    file(GLOB _ball_selfhost_fixtures CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance/*.ball.json")
+    foreach(_fx ${_ball_selfhost_fixtures})
+        get_filename_component(_fxfile "${_fx}" NAME)
+        string(REGEX REPLACE "\\.ball\\.json$" "" _fxname "${_fxfile}")
+        add_test(NAME "selfhost/${_fxname}"
+                 COMMAND test_selfhost_conformance "${_fxname}")
+        # 1200s: the self-host engine is a std::any-boxed tree-walker (~1000x
+        # slower than native), so a few fixtures take a minute or two even alone
+        # (e.g. 143_perfect_number ~110s, more on slower CI). The budget clears
+        # that with wide margin. CI runs these SEQUENTIALLY (ctest, no -j) so
+        # heavy fixtures don't contend for cores/RAM and swap — see
+        # .github/workflows/regression-gates.yml.
+        set_tests_properties("selfhost/${_fxname}" PROPERTIES
+            TIMEOUT 1200 LABELS "selfhost")
+    endforeach()
 endif()

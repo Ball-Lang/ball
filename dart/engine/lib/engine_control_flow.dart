@@ -50,6 +50,13 @@ extension BallEngineControlFlow on BallEngine {
     // in the init (e.g. `var i = 0`) are visible in condition/body/update.
     final forScope = scope.child();
 
+    // Names of the loop variables declared by init — captured explicitly (NOT by
+    // reading scope internals or Map.keys, neither of which is self-host
+    // portable: the bare `.keys` getter compiles to a null map-index lookup in
+    // the compiled engine). The per-iteration fresh-binding logic below uses
+    // only bind/lookup/child, exactly like _evalLazyForIn.
+    final loopVars = <String>[];
+
     if (initExpr != null) {
       // For-loop init may be:
       //   1. A block with let statements — evaluate directly in forScope
@@ -57,6 +64,9 @@ extension BallEngineControlFlow on BallEngine {
       //   3. Anything else — evaluate normally
       if (initExpr.whichExpr() == Expression_Expr.block) {
         for (final stmt in initExpr.block.statements) {
+          if (stmt.whichStmt() == Statement_Stmt.let) {
+            loopVars.add(stmt.let.name);
+          }
           await _evalStatement(stmt, forScope);
         }
       } else if (initExpr.whichExpr() == Expression_Expr.literal &&
@@ -87,6 +97,7 @@ extension BallEngineControlFlow on BallEngine {
             // Try evaluating as a simple expression in the current scope.
             parsed = _evalSimpleInitExpr(rawVal, forScope);
           }
+          loopVars.add(varName);
           forScope.bind(varName, parsed);
         }
       } else {
@@ -94,13 +105,27 @@ extension BallEngineControlFlow on BallEngine {
       }
     }
 
+    // Dart for-loops create a FRESH binding of the loop variable(s) each
+    // iteration, so a closure created in the body captures THAT iteration's
+    // value — `for (var i=0;i<3;i++) fns.add(() => i+10)` yields 10,11,12, not
+    // 13,13,13. for_in already does this; the C-style for previously reused one
+    // shared forScope, giving wrong shared-variable semantics that disagreed
+    // with real Dart. (conformance 229_closure_loop_var_semantics)
+
     while (true) {
+      // Fresh per-iteration scope seeded from the carried-over loop values, so a
+      // closure made this iteration captures this iteration's binding.
+      final iterScope = forScope.child();
+      for (final v in loopVars) {
+        iterScope.bind(v, forScope.lookup(v));
+      }
+
       if (condition != null) {
-        final condVal = await _evalExpression(condition, forScope);
+        final condVal = await _evalExpression(condition, iterScope);
         if (!_toBool(condVal)) break;
       }
       if (body != null) {
-        final result = await _evalExpression(body, forScope);
+        final result = await _evalExpression(body, iterScope);
         if (result is _FlowSignal) {
           // Labeled break/continue propagate upward to the enclosing
           // `labeled` wrapper. Only unlabeled signals are consumed by
@@ -112,6 +137,12 @@ extension BallEngineControlFlow on BallEngine {
           if (result.kind == 'break') break;
           // unlabeled continue: fall through to update
         }
+      }
+      // Carry the body's (possibly mutated) loop values to forScope, THEN run
+      // the update on forScope — NOT on iterScope — so the just-captured
+      // iterScope keeps the value the closure saw during the body.
+      for (final v in loopVars) {
+        forScope.bind(v, iterScope.lookup(v));
       }
       if (update != null) await _evalExpression(update, forScope);
     }
@@ -1159,9 +1190,16 @@ extension BallEngineControlFlow on BallEngine {
 
     final forScope = scope.child();
 
+    // See _evalLazyFor: loop-var names captured explicitly (not via Map.keys or
+    // scope internals) so the per-iteration fresh binding stays self-host portable.
+    final loopVars = <String>[];
+
     if (initExpr != null) {
       if (initExpr.whichExpr() == Expression_Expr.block) {
         for (final stmt in initExpr.block.statements) {
+          if (stmt.whichStmt() == Statement_Stmt.let) {
+            loopVars.add(stmt.let.name);
+          }
           await _evalStatement(stmt, forScope);
         }
       } else if (initExpr.whichExpr() == Expression_Expr.literal &&
@@ -1181,6 +1219,7 @@ extension BallEngineControlFlow on BallEngine {
                   : rawVal == 'false'
                   ? false
                   : rawVal);
+          loopVars.add(varName);
           forScope.bind(varName, parsed);
         }
       } else {
@@ -1188,28 +1227,45 @@ extension BallEngineControlFlow on BallEngine {
       }
     }
 
+    // Dart for-loops create a FRESH binding of the loop variable(s) each
+    // iteration, so a closure made in the body captures THAT iteration's value
+    // — `for (var i=0;i<3;i++) fns.add(() => i+10)` yields 10,11,12, not 13,13,13.
+    // for_in already does this (fresh loopScope per iteration); the C-style for
+    // previously reused one shared forScope, giving wrong shared-variable
+    // semantics that disagreed with real Dart. (conformance 229)
+
     while (true) {
+      // Fresh per-iteration scope seeded from the carried-over loop values, so
+      // closures created this iteration capture this iteration's bindings.
+      final iterScope = forScope.child();
+      for (final v in loopVars) {
+        iterScope.bind(v, forScope.lookup(v));
+      }
+
       if (condition != null) {
-        final condVal = await _evalExpression(condition, forScope);
+        final condVal = await _evalExpression(condition, iterScope);
         if (!_toBool(condVal)) break;
       }
       if (body != null) {
-        final result = await _evalExpression(body, forScope);
+        final result = await _evalExpression(body, iterScope);
         if (result is _FlowSignal) {
           if (result.kind == 'return') return result;
-          // Check labeled signals against our label
           if (result.label == label) {
             if (result.kind == 'break') break;
-            if (result.kind == 'continue') {
-              if (update != null) await _evalExpression(update, forScope);
-              continue;
-            }
+            // labeled continue for THIS loop: fall through to update + carry-back
+          } else if (result.label != null && result.label!.isNotEmpty) {
+            return result; // a labeled signal targeting an OUTER loop
+          } else if (result.kind == 'break') {
+            break; // unlabeled break
           }
-          // Other labeled signals: propagate
-          if (result.label != null && result.label!.isNotEmpty) return result;
-          if (result.kind == 'break') break;
-          // unlabeled continue: fall through to update
+          // unlabeled / this-labeled continue: fall through to update
         }
+      }
+      // Carry the body's (possibly mutated) loop values to forScope, THEN run
+      // the update on forScope — NOT on iterScope — so the just-captured
+      // iterScope keeps the value the closure saw during the body.
+      for (final v in loopVars) {
+        forScope.bind(v, iterScope.lookup(v));
       }
       if (update != null) await _evalExpression(update, forScope);
     }

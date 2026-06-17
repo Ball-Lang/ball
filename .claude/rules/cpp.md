@@ -67,7 +67,7 @@ buf generate --template cpp/buf.gen.cpp.yaml -o cpp/shared/gen proto/
 ### Self-Hosted Engine (`dart/self_host/lib/engine_rt.cpp`)
 - Generated from the Dart reference engine via Ball IR → C++ compiler
 - Regenerate: `cd dart && dart run compiler/tool/compile_engine_cpp.dart --monolithic`
-- Conformance: `test_selfhost_conformance` (per-fixture isolated runs via `BALL_TEST_FILTER`)
+- Conformance: `ctest -L selfhost` — one CTest test per fixture, each run in its own process (a crash/hang fails only that fixture). Run a single fixture directly: `test_selfhost_conformance <fixture_stem>` (the `BALL_TEST_FILTER=<stem>` env var also works)
 
 ## Known Issues — MUST READ
 
@@ -76,8 +76,10 @@ C++ tests live in `cpp/test/test_compiler.cpp`, `cpp/test/test_selfhost_conforma
 ```bash
 cd cpp && cmake --build build --target test_compiler test_selfhost_conformance
 ./build/test/Debug/test_compiler.exe
-# Self-host: use per-fixture isolated runs for reliable count
-BALL_TEST_FILTER="01_hello_world" ./build/test/Debug/test_selfhost_conformance.exe
+# Self-host conformance: one CTest test per fixture, each isolated in its own
+# process (a crash/hang fails only that fixture). Run all, or a single fixture:
+ctest --test-dir build -L selfhost -j4 --output-on-failure
+./build/test/Debug/test_selfhost_conformance.exe 01_hello_world
 ```
 
 **Always add tests alongside every C++ change.** Conformance tests automatically pick up new programs added to `tests/conformance/`.

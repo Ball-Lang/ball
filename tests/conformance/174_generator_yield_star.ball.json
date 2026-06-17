@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "174_generator_yield_star",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
@@ -64,25 +64,10 @@
       "functions": [
         {
           "name": "inner",
-          "inputType": "int",
           "outputType": "Iterable<int>",
           "body": {
             "block": {
               "statements": [
-                {
-                  "let": {
-                    "name": "x",
-                    "value": {
-                      "reference": {
-                        "name": "input"
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "int"
-                    }
-                  }
-                },
                 {
                   "expression": {
                     "call": {
@@ -157,36 +142,15 @@
           },
           "metadata": {
             "kind": "function",
-            "is_sync_star": true,
-            "params": [
-              {
-                "name": "input",
-                "type": "int"
-              }
-            ]
+            "is_sync_star": true
           }
         },
         {
           "name": "outer",
-          "inputType": "int",
           "outputType": "Iterable<int>",
           "body": {
             "block": {
               "statements": [
-                {
-                  "let": {
-                    "name": "n",
-                    "value": {
-                      "reference": {
-                        "name": "input"
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "int"
-                    }
-                  }
-                },
                 {
                   "expression": {
                     "call": {
@@ -200,12 +164,7 @@
                               "name": "value",
                               "value": {
                                 "call": {
-                                  "function": "inner",
-                                  "input": {
-                                    "reference": {
-                                      "name": "n"
-                                    }
-                                  }
+                                  "function": "inner"
                                 }
                               }
                             }
@@ -220,13 +179,7 @@
           },
           "metadata": {
             "kind": "function",
-            "is_sync_star": true,
-            "params": [
-              {
-                "name": "input",
-                "type": "int"
-              }
-            ]
+            "is_sync_star": true
           }
         },
         {
@@ -235,25 +188,6 @@
           "body": {
             "block": {
               "statements": [
-                {
-                  "let": {
-                    "name": "gen",
-                    "value": {
-                      "call": {
-                        "function": "outer",
-                        "input": {
-                          "literal": {
-                            "intValue": "0"
-                          }
-                        }
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "Iterable<int>"
-                    }
-                  }
-                },
                 {
                   "expression": {
                     "call": {
@@ -275,15 +209,15 @@
                               "name": "variable_keyword",
                               "value": {
                                 "literal": {
-                                  "stringValue": "final"
+                                  "stringValue": "var"
                                 }
                               }
                             },
                             {
                               "name": "iterable",
                               "value": {
-                                "reference": {
-                                  "name": "gen"
+                                "call": {
+                                  "function": "outer"
                                 }
                               }
                             },

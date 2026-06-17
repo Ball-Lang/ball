@@ -7,11 +7,7 @@
       "name": "std",
       "functions": [
         {
-          "name": "print",
-          "isBase": true
-        },
-        {
-          "name": "is",
+          "name": "set_create",
           "isBase": true
         },
         {
@@ -21,8 +17,17 @@
         {
           "name": "index",
           "isBase": true
+        },
+        {
+          "name": "is",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -55,10 +60,20 @@
                     "value": {
                       "call": {
                         "module": "std",
-                        "function": "map_create",
+                        "function": "set_create",
                         "input": {
                           "messageCreation": {
-                            "fields": []
+                            "typeName": "",
+                            "fields": [
+                              {
+                                "name": "elements",
+                                "value": {
+                                  "literal": {
+                                    "listValue": {}
+                                  }
+                                }
+                              }
+                            ]
                           }
                         }
                       }
@@ -76,6 +91,7 @@
                       "function": "assign",
                       "input": {
                         "messageCreation": {
+                          "typeName": "",
                           "fields": [
                             {
                               "name": "target",
@@ -85,6 +101,7 @@
                                   "function": "index",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "target",
@@ -129,6 +146,7 @@
                       "function": "assign",
                       "input": {
                         "messageCreation": {
+                          "typeName": "",
                           "fields": [
                             {
                               "name": "target",
@@ -138,6 +156,7 @@
                                   "function": "index",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "target",
@@ -184,6 +203,7 @@
                         "function": "is",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
                                 "name": "value",
@@ -207,8 +227,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "bool"
+                      "keyword": "var"
                     }
                   }
                 },
@@ -244,6 +263,7 @@
                         "function": "is",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
                                 "name": "value",
@@ -267,8 +287,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "bool"
+                      "keyword": "var"
                     }
                   }
                 },
@@ -304,6 +323,7 @@
                         "function": "is",
                         "input": {
                           "messageCreation": {
+                            "typeName": "",
                             "fields": [
                               {
                                 "name": "value",
@@ -327,8 +347,7 @@
                       }
                     },
                     "metadata": {
-                      "keyword": "var",
-                      "type": "bool"
+                      "keyword": "var"
                     }
                   }
                 },

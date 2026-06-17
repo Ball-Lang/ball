@@ -21,6 +21,10 @@
         {
           "name": "print",
           "isBase": true
+        },
+        {
+          "name": "negate",
+          "isBase": true
         }
       ],
       "description": "Universal standard library base module",
@@ -38,6 +42,40 @@
               }
             ]
           }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         }
       ]
     },
@@ -45,7 +83,7 @@
       "name": "main",
       "functions": [
         {
-          "name": "classify",
+          "name": "describe",
           "inputType": "Object?",
           "outputType": "String",
           "body": {
@@ -77,7 +115,7 @@
                                       "name": "pattern",
                                       "value": {
                                         "literal": {
-                                          "stringValue": "int n && >= 0"
+                                          "stringValue": "int n && > 0"
                                         }
                                       }
                                     },
@@ -171,7 +209,7 @@
                                                       "name": "operator",
                                                       "value": {
                                                         "literal": {
-                                                          "stringValue": ">="
+                                                          "stringValue": ">"
                                                         }
                                                       }
                                                     },
@@ -350,8 +388,24 @@
                                                 {
                                                   "name": "right",
                                                   "value": {
-                                                    "reference": {
-                                                      "name": "s"
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "to_string",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "value",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "s"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
                                                     }
                                                   }
                                                 }
@@ -459,7 +513,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "classify",
+                                  "function": "describe",
                                   "input": {
                                     "literal": {
                                       "intValue": "42"
@@ -487,10 +541,26 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "classify",
+                                  "function": "describe",
                                   "input": {
-                                    "literal": {
-                                      "intValue": "-7"
+                                    "call": {
+                                      "module": "std",
+                                      "function": "negate",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "value",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "7"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
                                     }
                                   }
                                 }
@@ -515,7 +585,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "classify",
+                                  "function": "describe",
                                   "input": {
                                     "literal": {
                                       "stringValue": "hello"
@@ -543,10 +613,10 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "classify",
+                                  "function": "describe",
                                   "input": {
                                     "literal": {
-                                      "boolValue": true
+                                      "doubleValue": 3.14
                                     }
                                   }
                                 }

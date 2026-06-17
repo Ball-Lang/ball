@@ -491,6 +491,12 @@ public:
     // Field/index access via operator[]
     // Returns a copy of the field value. For mutation, use the set() method.
     BallDyn operator[](const std::string& key) const {
+        // Defeat MSVC's BallDyn-in-any double-wrap: if _val is itself a wrapped
+        // BallDyn (e.g. std::any(BallDyn(BallObjectRef)) after scope round-trips),
+        // the type checks below all miss and field access returns empty. Unwrap
+        // once and recurse so _objPtr/map/scope dispatch sees the real value.
+        const std::any& __uv = _BallDynUnwrapper::unwrap(_val);
+        if (&__uv != &_val) return BallDyn(__uv)[key];
         if (_val.type() == typeid(BallGenerator)) {
             if (key == "values")
                 return BallDyn(BallList(*std::any_cast<const BallGenerator&>(_val).values));
@@ -527,6 +533,8 @@ public:
 
     // Index access for vectors and strings
     BallDyn operator[](int64_t idx) const {
+        const std::any& __uv = _BallDynUnwrapper::unwrap(_val);
+        if (&__uv != &_val) return BallDyn(__uv)[idx];
         if (const BallList* vp = _listPtr()) {
             const auto& v = *vp;
             if (idx >= 0 && static_cast<size_t>(idx) < v.size())
@@ -563,7 +571,27 @@ public:
     void set(const std::string& key, const std::any& value) {
         const std::any& u = _BallDynUnwrapper::unwrap(value);
         if (_val.type() == typeid(BallScope)) {
-            (*std::any_cast<BallScope&>(_val))[key] = u;
+            // Lexical assignment (mirror BallDyn::lookup / Dart _Scope.set): write
+            // the variable in its DECLARING scope. If the current scope owns the
+            // key, set here; otherwise walk the __parent__ chain to the owner;
+            // if no scope owns it, bind locally. Without this walk, assigning a
+            // loop variable from inside a child block scope (a while/do-while
+            // body) shadows it locally, so the loop condition keeps reading the
+            // stale outer value and the loop never terminates.
+            BallScope sc = std::any_cast<BallScope&>(_val);
+            if (sc->count(key) == 0) {
+                BallScope cur = sc;
+                while (cur) {
+                    auto pit = cur->find("__parent__");
+                    if (pit != cur->end() && pit->second.type() == typeid(BallScope)) {
+                        cur = std::any_cast<const BallScope&>(pit->second);
+                        if (cur && cur->count(key) > 0) { (*cur)[key] = u; return; }
+                    } else {
+                        break;
+                    }
+                }
+            }
+            (*sc)[key] = u;
         } else if (BallObject* op = _objPtr()) {
             // Mutate through the shared handle so all holders observe the write.
             op->__op_set_index__(key, u);
@@ -627,6 +655,8 @@ public:
 
     // BallDyn-keyed access: convert key to string and delegate
     BallDyn operator[](const BallDyn& key) const {
+        const std::any& __uvk = _BallDynUnwrapper::unwrap(_val);
+        if (&__uvk != &_val) return BallDyn(__uvk)[key];
         // An integer key on a list/string must use positional indexing — the
         // engine's `list[i]` read passes _toInt(i) as a BallDyn(int64_t), and
         // stringifying it ("3") would miss list elements entirely. Maps stay
@@ -1300,6 +1330,18 @@ inline BallMap _ballAnyToMap(const std::any& v) {
         }
         return r;
     }
+    // Insertion-ordered map, by value OR shared_ptr-backed (the engine builds
+    // instance fields / records as a BallOrderedMap that becomes a
+    // BallOrderedMapRef once wrapped in a BallDyn). Without this case every
+    // BallObject built from such a field set would lose ALL its fields.
+    if (u.type() == typeid(BallOrderedMap) || u.type() == typeid(BallOrderedMapRef)) {
+        const BallOrderedMap* omp = (u.type() == typeid(BallOrderedMap))
+            ? &std::any_cast<const BallOrderedMap&>(u)
+            : std::any_cast<const BallOrderedMapRef&>(u).get();
+        BallMap r;
+        if (omp) for (const auto& [k, val] : omp->entries_) r[k] = val;
+        return r;
+    }
     return {};
 }
 
@@ -1313,8 +1355,40 @@ inline void ball_add_all(BallDyn& dst, const BallDyn& src) {
         for (const auto& [k, v] : std::any_cast<const BallMap&>(su)) dst.set(k, v);
     } else if (su.type() == typeid(std::unordered_map<std::string, std::any>)) {
         for (const auto& [k, v] : std::any_cast<const std::unordered_map<std::string, std::any>&>(su)) dst.set(k, v);
+    } else if (su.type() == typeid(BallOrderedMap)) {
+        // Insertion-ordered map source (the engine's untyped MessageCreation
+        // builds its field set as a BallOrderedMap). Without this the merge
+        // copies nothing and every untyped message creation yields an empty map.
+        for (const auto& [k, v] : std::any_cast<const BallOrderedMap&>(su).entries_) dst.set(k, v);
+    } else if (su.type() == typeid(BallOrderedMapRef)) {
+        if (const BallOrderedMapRef& ref = std::any_cast<const BallOrderedMapRef&>(su))
+            for (const auto& [k, v] : ref->entries_) dst.set(k, v);
     } else if (const BallList* lp = _ballAnyListPtr(su)) {
         for (const auto& el : *lp) dst.push_back(el);
+    }
+}
+
+// addAll into a BallOrderedMap receiver. A cascade whose target is an
+// insertion-ordered map literal (`{}..addAll(other)`) emits a named
+// `BallOrderedMap __cascade_self__` local, which does NOT bind to the
+// `ball_add_all(BallDyn&, …)` overload above. Merge the source map's entries
+// directly so the ordered map is mutated in place. (self-host engine #19)
+inline void ball_add_all(BallOrderedMap& dst, const BallDyn& src) {
+    std::any s = static_cast<std::any>(src);
+    const std::any& su = _BallDynUnwrapper::unwrap(s);
+    if (!su.has_value()) return;
+    if (su.type() == typeid(BallOrderedMap)) {
+        for (const auto& [k, v] : std::any_cast<const BallOrderedMap&>(su))
+            dst[k] = v;
+    } else if (su.type() == typeid(BallOrderedMapRef)) {
+        if (const BallOrderedMapRef& ref = std::any_cast<const BallOrderedMapRef&>(su))
+            for (const auto& [k, v] : ref->entries_) dst[k] = v;
+    } else if (su.type() == typeid(BallMap)) {
+        for (const auto& [k, v] : std::any_cast<const BallMap&>(su)) dst[k] = v;
+    } else if (su.type() == typeid(std::unordered_map<std::string, std::any>)) {
+        for (const auto& [k, v] :
+             std::any_cast<const std::unordered_map<std::string, std::any>&>(su))
+            dst[k] = v;
     }
 }
 
@@ -1567,36 +1641,74 @@ inline std::string ball_group(const BallDyn& match, int64_t idx) {
 // bind/child/resolve overloads for BallDyn.
 // Exact-match string-key overloads beat std::bind (ADL template) for emitted
 // `bind(scope, "self"s, self)` — fixes the self-binding gate in method bodies.
+// Definition of the jsonEncode(BallDyn) overload forward-declared in
+// ball_emit_runtime.h ("defined in ball_dyn.h"). It was never actually defined,
+// which only surfaced once _validateProgramLimits (which reaches it via
+// writeToBuffer) became linker-reachable — the engine's program-size limit
+// check. Delegate to the std::any overload (a best-effort byte-size estimate).
+inline std::string jsonEncode(const BallDyn& value) {
+    return jsonEncode(value._val);
+}
+
+// Local-only scope write for DECLARATIONS (let / params / loop vars / pattern
+// bindings). Unlike BallDyn::set — which performs LEXICAL ASSIGNMENT and walks
+// the __parent__ chain to the scope that already owns the name — a declaration
+// must ALWAYS bind in the CURRENT scope, so an inner block's `let x` SHADOWS an
+// outer `x` instead of overwriting it. Mirrors Dart _Scope.bind (writes to the
+// local _bindings). Without this, after BallDyn::set learned to walk parents,
+// every `let` in a nested block leaked to the enclosing scope.
+// (self-host conformance 55_scope_variable)
+inline void _ball_bind_local(BallDyn& scope, const std::string& name, const std::any& value) {
+    const std::any& u = _BallDynUnwrapper::unwrap(value);
+    if (scope._val.type() == typeid(BallScope)) {
+        (*std::any_cast<BallScope&>(scope._val))[name] = u;
+        return;
+    }
+    if (scope._val.type() == typeid(BallMap)) {
+        std::any_cast<BallMap&>(scope._val)[name] = u;
+        return;
+    }
+    if (scope._val.type() == typeid(BallOrderedMap)) {
+        std::any_cast<BallOrderedMap&>(scope._val)[name] = u;
+        return;
+    }
+    if (scope._val.type() == typeid(BallOrderedMapRef)) {
+        auto& ref = std::any_cast<BallOrderedMapRef&>(scope._val);
+        if (ref) (*ref)[name] = u;
+        return;
+    }
+    scope.set(name, value);  // object / not-yet-allocated scope: fall back
+}
 inline BallDyn ball_scope_bind(BallDyn& scope, const std::string& name, const BallDyn& value) {
-    scope.set(name, value._val);
+    _ball_bind_local(scope, name, value._val);
     return BallDyn();
 }
 inline BallDyn ball_scope_bind(BallDyn& scope, const BallDyn& name, const BallDyn& value) {
-    scope.set(static_cast<std::string>(name), value._val);
+    _ball_bind_local(scope, static_cast<std::string>(name), value._val);
     return BallDyn();
 }
 inline BallDyn bind(BallDyn& scope, const std::any& name, const std::any& value) {
-    scope.set(ball_to_string(name), value);
+    _ball_bind_local(scope, ball_to_string(name), value);
     return BallDyn();
 }
 inline BallDyn bind(BallDyn& scope, const BallDyn& name, const BallDyn& value) {
-    scope.set(static_cast<std::string>(name), value._val);
+    _ball_bind_local(scope, static_cast<std::string>(name), value._val);
     return BallDyn();
 }
 inline BallDyn bind(BallDyn& scope, const std::string& name, const BallDyn& value) {
-    scope.set(name, value._val);
+    _ball_bind_local(scope, name, value._val);
     return BallDyn();
 }
 inline BallDyn bind(BallDyn& scope, const std::string& name, const std::any& value) {
-    scope.set(name, value);
+    _ball_bind_local(scope, name, value);
     return BallDyn();
 }
 inline BallDyn bind(BallDyn& scope, const char* name, const BallDyn& value) {
-    scope.set(std::string(name), value._val);
+    _ball_bind_local(scope, std::string(name), value._val);
     return BallDyn();
 }
 inline BallDyn bind(BallDyn& scope, const char* name, const std::any& value) {
-    scope.set(std::string(name), value);
+    _ball_bind_local(scope, std::string(name), value);
     return BallDyn();
 }
 // child() creates a new scope linked to the parent with reference semantics.
@@ -1713,14 +1825,28 @@ BALL_DYN_STUB(StdModuleHandler);
 // When the value is stored reference-semantically via BallUserRef
 // (shared_ptr<std::any>), dereference through the shared_ptr first.
 template<class T> inline T& ball_obj_as(BallDyn& d) {
-    if (d._val.type() == typeid(BallUserRef))
-        return std::any_cast<T&>(*std::any_cast<BallUserRef&>(d._val));
-    return std::any_cast<T&>(d._val);
+    // BallDyn-derived stub types (_Scope, _FlowSignal, BallModuleHandler, …) ARE
+    // BallDyns: their data lives in BallDyn::_val (a BallMap/scope), and their
+    // "methods" are BallDyn members. Unwrapping `_val` with `any_cast<T&>` would
+    // throw bad_any_cast (the any holds a BallMap, not a T). Instead reinterpret
+    // the BallDyn as the stub so `.has()/.lookup()/.set()/.child()` dispatch
+    // against the SAME `_val` (mutations persist). (self-host engine #19)
+    if constexpr (std::is_base_of_v<BallDyn, T>) {
+        return static_cast<T&>(d);
+    } else {
+        if (d._val.type() == typeid(BallUserRef))
+            return std::any_cast<T&>(*std::any_cast<BallUserRef&>(d._val));
+        return std::any_cast<T&>(d._val);
+    }
 }
 template<class T> inline const T& ball_obj_as(const BallDyn& d) {
-    if (d._val.type() == typeid(BallUserRef))
-        return std::any_cast<const T&>(*std::any_cast<const BallUserRef&>(d._val));
-    return std::any_cast<const T&>(d._val);
+    if constexpr (std::is_base_of_v<BallDyn, T>) {
+        return static_cast<const T&>(d);
+    } else {
+        if (d._val.type() == typeid(BallUserRef))
+            return std::any_cast<const T&>(*std::any_cast<const BallUserRef&>(d._val));
+        return std::any_cast<const T&>(d._val);
+    }
 }
 template<class T, class U,
          std::enable_if_t<!std::is_same_v<std::decay_t<U>, BallDyn>, int> = 0>

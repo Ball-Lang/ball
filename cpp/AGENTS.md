@@ -41,7 +41,7 @@ ctest -R encoder_tests
 ## Known Broken/Stubbed Features
 
 The authoritative, kept-current list of C++/self-host gaps and pass counts lives in
-`docs/SELF_HOST_STATUS.md`; the CI floor is in `.github/workflows/regression-gates.yml`.
+`docs/SELF_HOST_STATUS.md`; the strict all-green CI gates are in `.github/workflows/regression-gates.yml`.
 The compiler/encoder/runtime-emit citations below are stable references into the C++
 toolchain (the engine itself is the self-hosted `engine_rt.cpp`, not native C++).
 

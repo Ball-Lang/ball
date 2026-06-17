@@ -7,14 +7,19 @@
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "concat",
           "isBase": true
         },
         {
-          "name": "concat",
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -29,6 +34,40 @@
               }
             ]
           }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         }
       ]
     },
@@ -36,7 +75,7 @@
       "name": "main",
       "functions": [
         {
-          "name": "main:A.foo",
+          "name": "main:A.tag",
           "outputType": "String",
           "body": {
             "literal": {
@@ -48,7 +87,7 @@
           }
         },
         {
-          "name": "main:B.foo",
+          "name": "main:B.tag",
           "outputType": "String",
           "body": {
             "call": {
@@ -56,20 +95,37 @@
               "function": "concat",
               "input": {
                 "messageCreation": {
+                  "typeName": "",
                   "fields": [
                     {
                       "name": "left",
                       "value": {
                         "call": {
-                          "function": "foo",
+                          "module": "std",
+                          "function": "to_string",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
-                                  "name": "self",
+                                  "name": "value",
                                   "value": {
-                                    "reference": {
-                                      "name": "super"
+                                    "call": {
+                                      "function": "tag",
+                                      "input": {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "self",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "super"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
                                     }
                                   }
                                 }
@@ -93,12 +149,11 @@
             }
           },
           "metadata": {
-            "kind": "method",
-            "is_override": true
+            "kind": "method"
           }
         },
         {
-          "name": "main:C.foo",
+          "name": "main:C.tag",
           "outputType": "String",
           "body": {
             "call": {
@@ -106,20 +161,37 @@
               "function": "concat",
               "input": {
                 "messageCreation": {
+                  "typeName": "",
                   "fields": [
                     {
                       "name": "left",
                       "value": {
                         "call": {
-                          "function": "foo",
+                          "module": "std",
+                          "function": "to_string",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
-                                  "name": "self",
+                                  "name": "value",
                                   "value": {
-                                    "reference": {
-                                      "name": "super"
+                                    "call": {
+                                      "function": "tag",
+                                      "input": {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "self",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "super"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
                                     }
                                   }
                                 }
@@ -143,8 +215,7 @@
             }
           },
           "metadata": {
-            "kind": "method",
-            "is_override": true
+            "kind": "method"
           }
         },
         {
@@ -168,6 +239,43 @@
                   }
                 },
                 {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "tag",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "a"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
                   "let": {
                     "name": "b",
                     "value": {
@@ -178,6 +286,43 @@
                     "metadata": {
                       "keyword": "var",
                       "type": "B"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "tag",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "b"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
                     }
                   }
                 },
@@ -208,81 +353,7 @@
                               "name": "message",
                               "value": {
                                 "call": {
-                                  "function": "foo",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "self",
-                                          "value": {
-                                            "reference": {
-                                              "name": "a"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "function": "foo",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "self",
-                                          "value": {
-                                            "reference": {
-                                              "name": "b"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "function": "foo",
+                                  "function": "tag",
                                   "input": {
                                     "messageCreation": {
                                       "fields": [
@@ -325,6 +396,7 @@
           "descriptor": {
             "name": "main:A"
           },
+          "description": "Class metadata for main:A",
           "metadata": {
             "kind": "class"
           }
@@ -334,6 +406,7 @@
           "descriptor": {
             "name": "main:B"
           },
+          "description": "Class metadata for main:B",
           "metadata": {
             "kind": "class",
             "superclass": "A"
@@ -344,6 +417,7 @@
           "descriptor": {
             "name": "main:C"
           },
+          "description": "Class metadata for main:C",
           "metadata": {
             "kind": "class",
             "superclass": "A"

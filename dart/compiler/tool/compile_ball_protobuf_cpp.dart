@@ -11,9 +11,11 @@ import 'package:fixnum/fixnum.dart';
 
 void main() {
   final repoRoot = _findRepoRoot();
-  final facadeJson = jsonDecode(
-    File('$repoRoot/dart/shared/ball_protobuf.json').readAsStringSync(),
-  ) as Map<String, dynamic>;
+  final facadeJson =
+      jsonDecode(
+            File('$repoRoot/dart/shared/ball_protobuf.json').readAsStringSync(),
+          )
+          as Map<String, dynamic>;
 
   // Remove @type wrapper for proto3 deserialization
   facadeJson.remove('@type');
@@ -30,7 +32,9 @@ void main() {
   }
 
   stdout.writeln('Extracted ${modules.length} inline modules from facade');
-  stdout.writeln('Total functions: ${modules.fold<int>(0, (n, m) => n + m.functions.length)}');
+  stdout.writeln(
+    'Total functions: ${modules.fold<int>(0, (n, m) => n + m.functions.length)}',
+  );
 
   // Compile to C++ using the Ball C++ compiler in library mode.
   // The --library flag tells the compiler to accept a Module (not a Program),
@@ -46,10 +50,14 @@ void main() {
   final facadePath = '$repoRoot/dart/shared/ball_protobuf.json';
   final outCpp = '$repoRoot/cpp/shared/ball_protobuf_rt.h';
   stdout.writeln('Compiling to C++ library via $compilerExe --library...');
-  final result = Process.runSync(
-    compilerExe,
-    [facadePath, '--library', '--ns', 'ball_protobuf', '--out', outCpp],
-  );
+  final result = Process.runSync(compilerExe, [
+    facadePath,
+    '--library',
+    '--ns',
+    'ball_protobuf',
+    '--out',
+    outCpp,
+  ]);
   if (result.exitCode != 0) {
     stderr.writeln('C++ library compilation failed (exit ${result.exitCode}):');
     stderr.writeln(result.stderr);
@@ -61,8 +69,7 @@ void main() {
       ..functions.add(
         FunctionDefinition()
           ..name = 'main'
-          ..body = (Expression()
-            ..literal = (Literal()..intValue = Int64(0))),
+          ..body = (Expression()..literal = (Literal()..intValue = Int64(0))),
       );
 
     final program = Program()
@@ -75,13 +82,17 @@ void main() {
 
     final outPath = '$repoRoot/dart/shared/ball_protobuf_program.json';
     final outJson = encodeBallFileJson(program);
-    File(outPath).writeAsStringSync(
-      const JsonEncoder.withIndent('  ').convert(outJson),
-    );
+    File(
+      outPath,
+    ).writeAsStringSync(const JsonEncoder.withIndent('  ').convert(outJson));
     stdout.writeln('Wrote $outPath (${File(outPath).lengthSync()} bytes)');
 
     final outCppFallback = '$repoRoot/cpp/shared/ball_protobuf_rt.cpp';
-    final result2 = Process.runSync(compilerExe, [outPath, '--out', outCppFallback]);
+    final result2 = Process.runSync(compilerExe, [
+      outPath,
+      '--out',
+      outCppFallback,
+    ]);
     if (result2.exitCode != 0) {
       stderr.writeln('Fallback also failed:');
       stderr.writeln(result2.stderr);

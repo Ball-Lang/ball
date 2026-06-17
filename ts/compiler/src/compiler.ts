@@ -4013,18 +4013,43 @@ function __isUnknownFnError(e: any): boolean {
         }
         return `''`;
       }
-      // Math
-      case "math_abs":   return `__ball_math_abs(${this.expr(f.get("value")!)})`;
-      case "math_round": return `Math.round(${this.expr(f.get("value")!)})`;
-      case "math_floor": return `Math.floor(${this.expr(f.get("value")!)})`;
-      case "math_ceil":  return `Math.ceil(${this.expr(f.get("value")!)})`;
-      case "math_trunc": return `Math.trunc(${this.expr(f.get("value")!)})`;
-      case "math_sqrt":  return `Math.sqrt(${this.expr(f.get("value")!)})`;
-      case "math_pow":   return `Math.pow(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
-      case "math_min":   return `Math.min(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
-      case "math_max":   return `Math.max(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
-      case "math_pi":    return "Math.PI";
-      case "math_e":     return "Math.E";
+      // Math — keep this list in sync with the Dart compiler's `_compileBaseCall`
+      // math handling (dart/compiler/lib/compiler.dart). Every `math_*` base
+      // function MUST resolve to an inline expression here; an unhandled name
+      // falls through to the bare `math_<name>(...)` default (undefined symbol).
+      case "math_abs":   return `__ball_math_abs(${this.expr(fg("value", "arg0")!)})`;
+      case "math_round": return `Math.round(${this.expr(fg("value", "arg0")!)})`;
+      case "math_floor": return `Math.floor(${this.expr(fg("value", "arg0")!)})`;
+      case "math_ceil":  return `Math.ceil(${this.expr(fg("value", "arg0")!)})`;
+      case "math_trunc": return `Math.trunc(${this.expr(fg("value", "arg0")!)})`;
+      case "math_sqrt":  return `Math.sqrt(${this.expr(fg("value", "arg0")!)})`;
+      case "math_exp":   return `Math.exp(${this.expr(fg("value", "arg0")!)})`;
+      case "math_log":   return `Math.log(${this.expr(fg("value", "arg0")!)})`;
+      case "math_log2":  return `(Math.log(${this.expr(fg("value", "arg0")!)}) / Math.LN2)`;
+      case "math_log10": return `(Math.log(${this.expr(fg("value", "arg0")!)}) / Math.LN10)`;
+      case "math_sin":   return `Math.sin(${this.expr(fg("value", "arg0")!)})`;
+      case "math_cos":   return `Math.cos(${this.expr(fg("value", "arg0")!)})`;
+      case "math_tan":   return `Math.tan(${this.expr(fg("value", "arg0")!)})`;
+      case "math_asin":  return `Math.asin(${this.expr(fg("value", "arg0")!)})`;
+      case "math_acos":  return `Math.acos(${this.expr(fg("value", "arg0")!)})`;
+      case "math_atan":  return `Math.atan(${this.expr(fg("value", "arg0")!)})`;
+      case "math_atan2": return `Math.atan2(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "math_pow":   return `Math.pow(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "math_min":   return `Math.min(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "math_max":   return `Math.max(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "math_gcd":   return `__ball_math_gcd(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "math_lcm":   return `__ball_math_lcm(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      // Engine values may be primitive numbers, BigInt i64s, or BallDouble
+      // wrappers, so coerce with Number(...) before applying number predicates —
+      // a bare `x === Infinity` would be false for a BallDouble(Infinity) box.
+      case "math_sign":        return `Math.sign(Number(${this.expr(fg("value", "arg0")!)}))`;
+      case "math_is_nan":      return `Number.isNaN(Number(${this.expr(fg("value", "arg0")!)}))`;
+      case "math_is_finite":   return `Number.isFinite(Number(${this.expr(fg("value", "arg0")!)}))`;
+      case "math_is_infinite": return `(Math.abs(Number(${this.expr(fg("value", "arg0")!)})) === Infinity)`;
+      case "math_pi":       return "Math.PI";
+      case "math_e":        return "Math.E";
+      case "math_infinity": return "Infinity";
+      case "math_nan":      return "NaN";
       case "print":      return `console.log(__ball_to_string(${this.expr(f.get("message")!)}))`;
       case "index":      return `__ball_index(${this.expr(f.get("target")!)}, ${this.expr(f.get("index")!)})`;
       case "null_coalesce": return `(${this.expr(f.get("left")!)} ?? ${this.expr(f.get("right")!)})`;
@@ -5336,12 +5361,28 @@ interface StructuredPatternResult {
 }
 
 /** Known pattern kinds that compileStructuredPattern can handle.
- *  Unknown kinds (e.g. LogicalOrPattern) should fall through to the
- *  text-based pattern handling instead. */
+ *  Unknown kinds should fall through to the text-based pattern handling. */
 const KNOWN_PATTERN_KINDS = new Set([
   "ConstPattern", "VarPattern", "var", "WildcardPattern", "wildcard", "_",
-  "ListPattern", "RestPattern", "rest", "record",
+  "ListPattern", "RestPattern", "rest", "record", "LogicalOrPattern", "CastPattern",
 ]);
+
+/** Generate a JS type-check condition for a Dart type name against `subject`.
+ *  Shared by the VarPattern and WildcardPattern arms so a typed binder
+ *  (`case int x:`) and a typed wildcard (`case int _:`) test the type
+ *  identically — they previously diverged, leaving the wildcard untyped. */
+function typeCheckCondition(typeName: string, subject: string): string {
+  switch (typeName) {
+    case "int": return `(typeof ${subject} === 'number' && Number.isInteger(${subject}))`;
+    case "double": return `(${subject} instanceof BallDouble || (typeof ${subject} === 'number' && !Number.isInteger(${subject})))`;
+    case "num": case "number": return `(typeof ${subject} === 'number' || ${subject} instanceof BallDouble)`;
+    case "String": case "string": return `(typeof ${subject} === 'string')`;
+    case "bool": case "boolean": return `(typeof ${subject} === 'boolean')`;
+    case "List": return `Array.isArray(${subject})`;
+    case "Map": return `(typeof ${subject} === 'object' && ${subject} !== null && !Array.isArray(${subject}))`;
+    default: return `(${subject} instanceof ${typeName} || (typeof ${subject} === 'object' && ${subject}?.['__type__'] === '${typeName}'))`;
+  }
+}
 
 /**
  * Compile a structured pattern_expr into a condition string and variable bindings.
@@ -5369,26 +5410,67 @@ function compileStructuredPattern(
       const typeName = fields.get("type")?.literal?.stringValue;
       // When a VarPattern has a type annotation (e.g. "double d"),
       // generate a type-check condition instead of a catch-all.
-      let cond = "true";
-      if (typeName) {
-        switch (typeName) {
-          case "int": cond = `(typeof ${subject} === 'number' && Number.isInteger(${subject}))`; break;
-          case "double": cond = `(${subject} instanceof BallDouble || (typeof ${subject} === 'number' && !Number.isInteger(${subject})))`; break;
-          case "num": case "number": cond = `(typeof ${subject} === 'number' || ${subject} instanceof BallDouble)`; break;
-          case "String": case "string": cond = `(typeof ${subject} === 'string')`; break;
-          case "bool": case "boolean": cond = `(typeof ${subject} === 'boolean')`; break;
-          case "List": cond = `Array.isArray(${subject})`; break;
-          case "Map": cond = `(typeof ${subject} === 'object' && ${subject} !== null && !Array.isArray(${subject}))`; break;
-          default: cond = `(${subject} instanceof ${typeName} || (typeof ${subject} === 'object' && ${subject}?.['__type__'] === '${typeName}'))`; break;
-        }
-      }
+      const cond = typeName ? typeCheckCondition(typeName, subject) : "true";
       if (name) return { condition: cond, bindings: [{ varName: name, expr: subject }] };
       return { condition: cond, bindings: [] };
     }
     case "WildcardPattern":
     case "wildcard":
-    case "_":
-      return { condition: "true", bindings: [] };
+    case "_": {
+      // A wildcard may still carry a type test (`case int _:` encodes as
+      // WildcardPattern{type:"int"}). Emit the type-check when a type is
+      // present (no binding); only an untyped `_` is an unconditional
+      // catch-all. Without this the whole switch collapsed to the first
+      // typed-wildcard case (silent wrong output — was int/int/int/int on
+      // 183_type_patterns). Mirrors the C++ compiler fix.
+      const typeName = fields.get("type")?.literal?.stringValue;
+      const cond = typeName ? typeCheckCondition(typeName, subject) : "true";
+      return { condition: cond, bindings: [] };
+    }
+    case "LogicalOrPattern": {
+      // `p1 || p2` matches if EITHER alternative matches. Recurse both operands
+      // and OR their conditions so STRUCTURED alternatives (typed wildcards,
+      // const, nested or) work. Without this, the or-pattern fell back to a text
+      // path that mis-handled some typed alternatives — e.g. `double _` in
+      // `case bool _ || double _:` never matched (conformance 303). Bindings are
+      // unioned. Falls through (undefined) if an operand isn't structured.
+      const left = fields.get("left");
+      const right = fields.get("right");
+      if (left && right) {
+        const lr = compileStructuredPattern(left, subject, exprFn);
+        const rr = compileStructuredPattern(right, subject, exprFn);
+        if (lr && rr) {
+          return {
+            condition: `(${lr.condition} || ${rr.condition})`,
+            bindings: [...lr.bindings, ...rr.bindings],
+          };
+        }
+      }
+      return undefined;
+    }
+    case "CastPattern": {
+      // A cast pattern (subpat as T) ASSERTS the runtime type — it matches
+      // structurally (like its sub-pattern) but THROWS on a mismatch (Dart
+      // semantics), it does NOT refute. Conjoin ball_cast_assert(<typecheck>,
+      // "T") into the condition, short-circuited by the sub-pattern's own
+      // condition (so e.g. [var x as int] only asserts after the list shape
+      // matched). The assert also makes the case emit `if (cond)` rather than a
+      // bare catch-all. (conformance 302)
+      const castType = fields.get("type")?.literal?.stringValue;
+      const subpat = fields.get("pattern");
+      let sub: StructuredPatternResult = { condition: "true", bindings: [] };
+      if (subpat) {
+        const s = compileStructuredPattern(subpat, subject, exprFn);
+        if (s) sub = s;
+      }
+      if (castType) {
+        return {
+          condition: `(${sub.condition} && ball_cast_assert(${typeCheckCondition(castType, subject)}, ${JSON.stringify(castType)}))`,
+          bindings: sub.bindings,
+        };
+      }
+      return sub;
+    }
     case "ListPattern": {
       const elementsExpr = fields.get("elements");
       const elements = elementsExpr?.literal?.listValue?.elements ?? [];

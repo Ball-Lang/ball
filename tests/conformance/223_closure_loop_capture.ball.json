@@ -1,6 +1,6 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "223_closure_loop_capture",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
@@ -117,61 +117,41 @@
           "inputType": "int",
           "outputType": "int Function()",
           "body": {
-            "block": {
-              "statements": [
-                {
-                  "let": {
-                    "name": "base",
-                    "value": {
-                      "reference": {
-                        "name": "input"
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "int"
-                    }
-                  }
-                }
-              ],
-              "result": {
-                "lambda": {
-                  "name": "",
-                  "body": {
-                    "call": {
-                      "module": "std",
-                      "function": "add",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "",
-                          "fields": [
-                            {
-                              "name": "left",
-                              "value": {
-                                "reference": {
-                                  "name": "base"
-                                }
-                              }
-                            },
-                            {
-                              "name": "right",
-                              "value": {
-                                "literal": {
-                                  "intValue": "1"
-                                }
-                              }
+            "lambda": {
+              "name": "",
+              "body": {
+                "call": {
+                  "module": "std",
+                  "function": "add",
+                  "input": {
+                    "messageCreation": {
+                      "typeName": "",
+                      "fields": [
+                        {
+                          "name": "left",
+                          "value": {
+                            "reference": {
+                              "name": "base"
                             }
-                          ]
+                          }
+                        },
+                        {
+                          "name": "right",
+                          "value": {
+                            "literal": {
+                              "intValue": "1"
+                            }
+                          }
                         }
-                      }
+                      ]
                     }
-                  },
-                  "metadata": {
-                    "kind": "lambda",
-                    "expression_body": true,
-                    "has_return": true
                   }
                 }
+              },
+              "metadata": {
+                "kind": "lambda",
+                "expression_body": true,
+                "has_return": true
               }
             }
           },
@@ -179,7 +159,7 @@
             "kind": "function",
             "params": [
               {
-                "name": "input",
+                "name": "base",
                 "type": "int"
               }
             ]

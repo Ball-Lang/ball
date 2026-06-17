@@ -1,15 +1,11 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "24_throw_value",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
-        {
-          "name": "print",
-          "isBase": true
-        },
         {
           "name": "try",
           "isBase": true
@@ -17,8 +13,13 @@
         {
           "name": "throw",
           "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -33,6 +34,20 @@
               }
             ]
           }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
         }
       ]
     },
@@ -40,7 +55,21 @@
       "name": "main",
       "functions": [
         {
+          "name": "main:NotFound.new",
+          "outputType": "main:NotFound",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "detail",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
           "name": "main",
+          "outputType": "void",
           "body": {
             "block": {
               "statements": [
@@ -56,40 +85,24 @@
                             {
                               "name": "body",
                               "value": {
-                                "block": {
-                                  "statements": [
-                                    {
-                                      "expression": {
-                                        "call": {
-                                          "module": "std",
-                                          "function": "throw",
-                                          "input": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "throw",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
                                             "messageCreation": {
-                                              "typeName": "",
+                                              "typeName": "main:NotFound",
                                               "fields": [
                                                 {
-                                                  "name": "value",
+                                                  "name": "arg0",
                                                   "value": {
-                                                    "messageCreation": {
-                                                      "typeName": "",
-                                                      "fields": [
-                                                        {
-                                                          "name": "__type",
-                                                          "value": {
-                                                            "literal": {
-                                                              "stringValue": "NotFound"
-                                                            }
-                                                          }
-                                                        },
-                                                        {
-                                                          "name": "detail",
-                                                          "value": {
-                                                            "literal": {
-                                                              "stringValue": "missing-key"
-                                                            }
-                                                          }
-                                                        }
-                                                      ]
+                                                    "literal": {
+                                                      "stringValue": "missing-key"
                                                     }
                                                   }
                                                 }
@@ -97,9 +110,9 @@
                                             }
                                           }
                                         }
-                                      }
+                                      ]
                                     }
-                                  ]
+                                  }
                                 }
                               }
                             },
@@ -111,7 +124,6 @@
                                     "elements": [
                                       {
                                         "messageCreation": {
-                                          "typeName": "",
                                           "fields": [
                                             {
                                               "name": "type",
@@ -132,37 +144,29 @@
                                             {
                                               "name": "body",
                                               "value": {
-                                                "block": {
-                                                  "statements": [
-                                                    {
-                                                      "expression": {
-                                                        "call": {
-                                                          "module": "std",
-                                                          "function": "print",
-                                                          "input": {
-                                                            "messageCreation": {
-                                                              "typeName": "PrintInput",
-                                                              "fields": [
-                                                                {
-                                                                  "name": "message",
-                                                                  "value": {
-                                                                    "fieldAccess": {
-                                                                      "object": {
-                                                                        "reference": {
-                                                                          "name": "e"
-                                                                        }
-                                                                      },
-                                                                      "field": "detail"
-                                                                    }
-                                                                  }
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "print",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "PrintInput",
+                                                      "fields": [
+                                                        {
+                                                          "name": "message",
+                                                          "value": {
+                                                            "fieldAccess": {
+                                                              "object": {
+                                                                "reference": {
+                                                                  "name": "e"
                                                                 }
-                                                              ]
+                                                              },
+                                                              "field": "detail"
                                                             }
                                                           }
                                                         }
-                                                      }
+                                                      ]
                                                     }
-                                                  ]
+                                                  }
                                                 }
                                               }
                                             }
@@ -182,12 +186,42 @@
                 }
               ]
             }
+          },
+          "metadata": {
+            "kind": "function"
           }
         }
       ],
       "moduleImports": [
         {
           "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:NotFound",
+          "descriptor": {
+            "name": "main:NotFound",
+            "field": [
+              {
+                "name": "detail",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          },
+          "description": "Class metadata for main:NotFound",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "detail",
+                "type": "String",
+                "is_final": true
+              }
+            ]
+          }
         }
       ]
     }

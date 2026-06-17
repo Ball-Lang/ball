@@ -76,6 +76,31 @@ else()
     target_link_options(test_encoder PRIVATE -Wl,-z,stacksize=268435456)
 endif()
 
+# Protobuf-free Ball IR loader (#18) — parses the whole conformance corpus via
+# nlohmann/json with NO libprotobuf / generated ball.pb.*. The foundation of the
+# "drop google::protobuf" effort: proves Ball loads its own IR without Google's
+# protobuf runtime.
+add_executable(test_ball_ir test_ball_ir.cpp)
+target_include_directories(test_ball_ir PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
+)
+if(NOT TARGET nlohmann_json::nlohmann_json)
+    find_package(nlohmann_json QUIET)
+endif()
+if(NOT TARGET nlohmann_json::nlohmann_json)
+    include(FetchContent)
+    FetchContent_Declare(json
+        URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
+    FetchContent_MakeAvailable(json)
+endif()
+target_link_libraries(test_ball_ir PRIVATE nlohmann_json::nlohmann_json)
+target_compile_definitions(test_ball_ir PRIVATE
+    BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
+)
+set_target_properties(test_ball_ir PROPERTIES
+    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON
+)
+
 # Self-hosted engine compilation test — multi-TU engine_rt/ (preferred) or
 # legacy monolithic engine_rt.cpp. Both are gitignored and regenerated
 # locally; skip self-host targets when absent (CI builds native engine only).
@@ -162,6 +187,7 @@ add_test(NAME compiler_tests COMMAND test_compiler)
 add_test(NAME encoder_tests COMMAND test_encoder)
 add_test(NAME e2e_tests COMMAND test_e2e)
 add_test(NAME snapshot_tests COMMAND test_snapshot)
+add_test(NAME ball_ir_loader COMMAND test_ball_ir)
 if(BALL_SELFHOST_AVAILABLE)
     # One CTest test per conformance fixture: each runs in its OWN PROCESS
     # (CTest's native, cross-platform isolation) on the binary's main thread, so

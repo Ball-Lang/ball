@@ -11,15 +11,23 @@
           "isBase": true
         },
         {
+          "name": "negate",
+          "isBase": true
+        },
+        {
+          "name": "for",
+          "isBase": true
+        },
+        {
+          "name": "for_in",
+          "isBase": true
+        },
+        {
           "name": "concat",
           "isBase": true
         },
         {
           "name": "to_string",
-          "isBase": true
-        },
-        {
-          "name": "for_in",
           "isBase": true
         },
         {
@@ -36,6 +44,40 @@
             "field": [
               {
                 "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
@@ -225,7 +267,7 @@
                                       "name": "pattern",
                                       "value": {
                                         "literal": {
-                                          "stringValue": "< 0"
+                                          "stringValue": ">= 60"
                                         }
                                       }
                                     },
@@ -233,7 +275,7 @@
                                       "name": "body",
                                       "value": {
                                         "literal": {
-                                          "stringValue": "invalid"
+                                          "stringValue": "D"
                                         }
                                       }
                                     },
@@ -247,7 +289,55 @@
                                               "name": "operator",
                                               "value": {
                                                 "literal": {
-                                                  "stringValue": "<"
+                                                  "stringValue": ">="
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "operand",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "60"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": ">= 0"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "F"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "RelationalPattern",
+                                          "fields": [
+                                            {
+                                              "name": "operator",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": ">="
                                                 }
                                               }
                                             },
@@ -281,7 +371,7 @@
                                       "name": "body",
                                       "value": {
                                         "literal": {
-                                          "stringValue": "F"
+                                          "stringValue": "invalid"
                                         }
                                       }
                                     },
@@ -323,6 +413,64 @@
             "block": {
               "statements": [
                 {
+                  "let": {
+                    "name": "scores",
+                    "value": {
+                      "literal": {
+                        "listValue": {
+                          "elements": [
+                            {
+                              "literal": {
+                                "intValue": "95"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "85"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "72"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "50"
+                              }
+                            },
+                            {
+                              "call": {
+                                "module": "std",
+                                "function": "negate",
+                                "input": {
+                                  "messageCreation": {
+                                    "typeName": "",
+                                    "fields": [
+                                      {
+                                        "name": "value",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "1"
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "List<int>"
+                    }
+                  }
+                },
+                {
                   "expression": {
                     "call": {
                       "module": "std",
@@ -340,38 +488,18 @@
                               }
                             },
                             {
-                              "name": "iterable",
+                              "name": "variable_type",
                               "value": {
                                 "literal": {
-                                  "listValue": {
-                                    "elements": [
-                                      {
-                                        "literal": {
-                                          "intValue": "95"
-                                        }
-                                      },
-                                      {
-                                        "literal": {
-                                          "intValue": "85"
-                                        }
-                                      },
-                                      {
-                                        "literal": {
-                                          "intValue": "72"
-                                        }
-                                      },
-                                      {
-                                        "literal": {
-                                          "intValue": "50"
-                                        }
-                                      },
-                                      {
-                                        "literal": {
-                                          "intValue": "-1"
-                                        }
-                                      }
-                                    ]
-                                  }
+                                  "stringValue": "int"
+                                }
+                              }
+                            },
+                            {
+                              "name": "iterable",
+                              "value": {
+                                "reference": {
+                                  "name": "scores"
                                 }
                               }
                             },
@@ -447,10 +575,26 @@
                                                       "name": "right",
                                                       "value": {
                                                         "call": {
-                                                          "function": "grade",
+                                                          "module": "std",
+                                                          "function": "to_string",
                                                           "input": {
-                                                            "reference": {
-                                                              "name": "s"
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "value",
+                                                                  "value": {
+                                                                    "call": {
+                                                                      "function": "grade",
+                                                                      "input": {
+                                                                        "reference": {
+                                                                          "name": "s"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
                                                             }
                                                           }
                                                         }

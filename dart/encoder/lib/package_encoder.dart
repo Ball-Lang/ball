@@ -142,10 +142,7 @@ class PackageEncoder {
     // External import stubs — deduplicated across all files.
     final externalStubs = <String, Module>{};
     // Internal module names already known (avoid duplicating in-package stubs).
-    final inPackageModules = <String>{
-      'std',
-      ..._fileToModule.values,
-    };
+    final inPackageModules = <String>{'std', ..._fileToModule.values};
 
     for (final MapEntry(key: relPath, value: moduleName)
         in _fileToModule.entries) {
@@ -182,8 +179,8 @@ class PackageEncoder {
       }
     }
 
-    final (:stdModule, :collectionsModule, :protoModule) =
-        encoder.buildStdModules();
+    final (:stdModule, :collectionsModule, :protoModule) = encoder
+        .buildStdModules();
 
     // Sort user modules so the entry module is last (conventional positioning).
     userModules.sort((a, b) {

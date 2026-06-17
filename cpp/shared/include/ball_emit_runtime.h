@@ -632,6 +632,12 @@ inline bool ball_type_args_match(const std::any& value, const std::string& expec
     return false;
 }
 
+// Forward declaration so ball_identical (below) can compare BallObjectRef
+// (shared_ptr<BallObject>) pointer identity. The full BallObject definition
+// appears later in this header; shared_ptr<BallObject>.get() needs only an
+// incomplete type, so the forward declaration is sufficient here.
+struct BallObject;
+
 // ── Dart `identical(a, b)` — identity check, NOT equality ──
 // For doubles: identical(NaN, NaN) is true, identical(-0.0, 0.0) is false.
 // For ints/strings/bools: value equality. For objects: reference equality.
@@ -666,6 +672,16 @@ inline bool ball_identical(const std::any& a, const std::any& b) {
         return std::any_cast<const std::shared_ptr<std::any>&>(ua).get() ==
                std::any_cast<const std::shared_ptr<std::any>&>(ub).get();
     }
+    // BallObjectRef (shared_ptr<BallObject>): the engine represents map-backed
+    // user-class instances reference-semantically — copies of the BallDyn share
+    // the same BallObject through the shared_ptr, so `identical` is pointer
+    // identity on the shared_ptr. Without this, two references to the SAME
+    // instance (e.g. a factory constructor returning its cached object twice)
+    // fell through to the object default below and compared false. (self-host 106)
+    if (ua.type() == typeid(std::shared_ptr<BallObject>)) {
+        return std::any_cast<const std::shared_ptr<BallObject>&>(ua).get() ==
+               std::any_cast<const std::shared_ptr<BallObject>&>(ub).get();
+    }
     // For objects, fall back to pointer identity
     return false;
 }
@@ -676,6 +692,13 @@ inline bool ball_identical(const std::any& a, const std::any& b) {
 inline bool ball_is_typed_map(const std::any& value, const std::string& val_type) {
     const auto& u = _BallDynUnwrapper::unwrap(value);
     if (!u.has_value()) return false;
+    // Object?/Object/dynamic is Dart's top type — it matches a map with ANY
+    // value type, so once the value is confirmed to be a map we accept it.
+    // Without this, `is Map<String, Object?>` (and the _asMap/_stdAsMap/_cfAsMap
+    // coercions that rely on it) returned false for maps whose first value is
+    // not a primitive (nested maps/lists/objects), making field access /
+    // iteration throw BallRuntimeError.
+    const bool topType = (val_type == "Object?" || val_type == "Object" || val_type == "dynamic");
     // Must be a map first
     const BallMap_RT* mptr = nullptr;
     if (u.type() == typeid(BallMap_RT)) {
@@ -683,15 +706,19 @@ inline bool ball_is_typed_map(const std::any& value, const std::string& val_type
     } else {
         mptr = _ball_object_base_map(u);
     }
-    // Also check BallOrderedMap via the extension point, which inspects the
-    // first value's type (mirroring the BallMap path below) so a typed-map
-    // pattern `is Map<K, V>` discriminates by value type on ordered maps.
+    // BallOrderedMap (+Ref) and other extension-provided maps. The extension
+    // inspects the first value's type; the top type short-circuits that.
     if (!mptr) {
+        if (_ball_is_map_ext && _ball_is_map_ext(u)) {
+            if (topType) return true;
+            if (_ball_typed_map_ext) return _ball_typed_map_ext(u, val_type);
+            return true;
+        }
         if (_ball_typed_map_ext) return _ball_typed_map_ext(u, val_type);
-        if (_ball_is_map_ext && _ball_is_map_ext(u)) return true;
         return false;
     }
     if (mptr->empty()) return true;  // empty map matches any type
+    if (topType) return true;        // top type matches any value
     // Check the first value's type
     const auto& first_val = _BallDynUnwrapper::unwrap(mptr->begin()->second);
     if (val_type == "int") return first_val.type() == typeid(int64_t);
@@ -710,15 +737,20 @@ inline bool ball_is_typed_map(const std::any& value, const std::string& val_type
 inline bool ball_is_typed_list(const std::any& value, const std::string& elem_type) {
     const auto& u = _BallDynUnwrapper::unwrap(value);
     if (!u.has_value()) return false;
+    // Object?/Object/dynamic is Dart's top type — it matches a list with ANY
+    // element type. Without this `is List<Object?>` (and _asList/_stdAsList
+    // coercions) returned false for lists of non-primitives, throwing
+    // BallRuntimeError on populated nested collections.
+    const bool topType = (elem_type == "Object?" || elem_type == "Object" || elem_type == "dynamic");
     // Homogeneous typed vectors
     if (u.type() == typeid(std::vector<int64_t>))
-        return elem_type == "int" || elem_type == "num";
+        return topType || elem_type == "int" || elem_type == "num";
     if (u.type() == typeid(std::vector<double>))
-        return elem_type == "double" || elem_type == "num";
+        return topType || elem_type == "double" || elem_type == "num";
     if (u.type() == typeid(std::vector<std::string>))
-        return elem_type == "String";
+        return topType || elem_type == "String";
     if (u.type() == typeid(std::vector<bool>))
-        return elem_type == "bool";
+        return topType || elem_type == "bool";
     // Heterogeneous BallList — check first element
     const BallList_RT* lp = nullptr;
     if (u.type() == typeid(BallList_RT)) {
@@ -728,6 +760,7 @@ inline bool ball_is_typed_list(const std::any& value, const std::string& elem_ty
     }
     if (!lp) return false;
     if (lp->empty()) return true;  // empty list matches any type
+    if (topType) return true;      // top type matches any element
     const auto& first = _BallDynUnwrapper::unwrap((*lp)[0]);
     if (elem_type == "int") return first.type() == typeid(int64_t);
     if (elem_type == "double") return first.type() == typeid(double);

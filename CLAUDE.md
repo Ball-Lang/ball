@@ -72,8 +72,7 @@ cmake -S cpp -B cpp/build-conformance -Dprotobuf_BUILD_CONFORMANCE=ON -DCMAKE_BU
 cmake --build cpp/build-conformance --target conformance_test_runner -j
 dart compile exe dart/ball_protobuf/tool/conformance_main.dart -o ball_conformance
 "$(find cpp/build-conformance -name conformance_test_runner -type f | head -1)" \
-  --maximum_edition 2023 \
-  --failure_list dart/ball_protobuf/conformance/failure_list_ball.txt ./ball_conformance
+  --maximum_edition 2023 ./ball_conformance
 ```
 
 ## Core Invariants — Never Violate

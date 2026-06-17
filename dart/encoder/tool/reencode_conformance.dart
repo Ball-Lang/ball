@@ -70,14 +70,19 @@ Future<void> main(List<String> args) async {
       // 2. Run original through engine → verify matches expected.
       stdout.write('  Running original through engine... ');
       final originalOutput = await _runEngine(originalProgram);
-      final normalizedOriginal = originalOutput.trimRight().replaceAll('\r\n', '\n');
+      final normalizedOriginal = originalOutput.trimRight().replaceAll(
+        '\r\n',
+        '\n',
+      );
       final normalizedExpected = expected.replaceAll('\r\n', '\n');
       if (normalizedOriginal != normalizedExpected) {
         stderr.writeln('FAIL');
         stderr.writeln('    Original engine output does not match expected!');
         final expectedLines = normalizedExpected.split('\n');
         final gotLines = normalizedOriginal.split('\n');
-        stderr.writeln('    Expected ${expectedLines.length} lines, got ${gotLines.length} lines');
+        stderr.writeln(
+          '    Expected ${expectedLines.length} lines, got ${gotLines.length} lines',
+        );
         for (var i = 0; i < expectedLines.length || i < gotLines.length; i++) {
           final e = i < expectedLines.length ? expectedLines[i] : '<missing>';
           final g = i < gotLines.length ? gotLines[i] : '<missing>';
@@ -113,13 +118,18 @@ Future<void> main(List<String> args) async {
       // 5. Run re-encoded through engine → verify.
       stdout.write('  Running re-encoded through engine... ');
       final reencodedOutput = await _runEngine(reencoded);
-      final normalizedReencoded = reencodedOutput.trimRight().replaceAll('\r\n', '\n');
+      final normalizedReencoded = reencodedOutput.trimRight().replaceAll(
+        '\r\n',
+        '\n',
+      );
       if (normalizedReencoded != normalizedExpected) {
         stderr.writeln('FAIL');
         stderr.writeln('    Re-encoded engine output does not match expected!');
         final expectedLines = normalizedExpected.split('\n');
         final gotLines = normalizedReencoded.split('\n');
-        stderr.writeln('    Expected ${expectedLines.length} lines, got ${gotLines.length} lines');
+        stderr.writeln(
+          '    Expected ${expectedLines.length} lines, got ${gotLines.length} lines',
+        );
         for (var i = 0; i < expectedLines.length || i < gotLines.length; i++) {
           final e = i < expectedLines.length ? expectedLines[i] : '<missing>';
           final g = i < gotLines.length ? gotLines[i] : '<missing>';
@@ -153,9 +163,13 @@ Future<void> main(List<String> args) async {
         );
         final dartOutput = (result.stdout as String).trimRight();
         if (result.exitCode != 0) {
-          stderr.writeln('WARN (exit ${result.exitCode}) — engine path OK, compile path has type errors');
+          stderr.writeln(
+            'WARN (exit ${result.exitCode}) — engine path OK, compile path has type errors',
+          );
         } else if (dartOutput != normalizedExpected) {
-          stderr.writeln('WARN — compiled output differs from expected (engine path OK)');
+          stderr.writeln(
+            'WARN — compiled output differs from expected (engine path OK)',
+          );
         } else {
           stdout.writeln('OK');
           compileRunOk = true;
@@ -166,8 +180,9 @@ Future<void> main(List<String> args) async {
 
       // 7. Write back the fixed Ball IR.
       stdout.write('  Writing fixed Ball IR → $ballJsonPath... ');
-      final fixedJson = const JsonEncoder.withIndent('  ')
-          .convert(encodeBallFileJson(reencoded));
+      final fixedJson = const JsonEncoder.withIndent(
+        '  ',
+      ).convert(encodeBallFileJson(reencoded));
       File(ballJsonPath).writeAsStringSync('$fixedJson\n');
       stdout.writeln('OK');
 

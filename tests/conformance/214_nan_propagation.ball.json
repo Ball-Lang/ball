@@ -15,6 +15,10 @@
           "isBase": true
         },
         {
+          "name": "math_is_nan",
+          "isBase": true
+        },
+        {
           "name": "print",
           "isBase": true
         },
@@ -178,13 +182,24 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "nan"
+                                "call": {
+                                  "module": "std",
+                                  "function": "math_is_nan",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "nan"
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "isNaN"
+                                  }
                                 }
                               }
                             }
@@ -206,13 +221,24 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "alsoNan"
+                                "call": {
+                                  "module": "std",
+                                  "function": "math_is_nan",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "alsoNan"
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "isNaN"
+                                  }
                                 }
                               }
                             }
@@ -320,37 +346,48 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "call": {
-                                      "module": "std",
-                                      "function": "add",
-                                      "input": {
-                                        "messageCreation": {
-                                          "typeName": "",
-                                          "fields": [
-                                            {
-                                              "name": "left",
-                                              "value": {
-                                                "reference": {
-                                                  "name": "nan"
-                                                }
-                                              }
-                                            },
-                                            {
-                                              "name": "right",
-                                              "value": {
-                                                "literal": {
-                                                  "doubleValue": 1
+                                "call": {
+                                  "module": "std",
+                                  "function": "math_is_nan",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "add",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "nan"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "literal": {
+                                                          "doubleValue": 1
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
                                                 }
                                               }
                                             }
-                                          ]
+                                          }
                                         }
-                                      }
+                                      ]
                                     }
-                                  },
-                                  "field": "isNaN"
+                                  }
                                 }
                               }
                             }
@@ -372,37 +409,48 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "call": {
-                                      "module": "std",
-                                      "function": "multiply",
-                                      "input": {
-                                        "messageCreation": {
-                                          "typeName": "",
-                                          "fields": [
-                                            {
-                                              "name": "left",
-                                              "value": {
-                                                "reference": {
-                                                  "name": "nan"
-                                                }
-                                              }
-                                            },
-                                            {
-                                              "name": "right",
-                                              "value": {
-                                                "literal": {
-                                                  "doubleValue": 0
+                                "call": {
+                                  "module": "std",
+                                  "function": "math_is_nan",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "multiply",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "nan"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "literal": {
+                                                          "doubleValue": 0
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
                                                 }
                                               }
                                             }
-                                          ]
+                                          }
                                         }
-                                      }
+                                      ]
                                     }
-                                  },
-                                  "field": "isNaN"
+                                  }
                                 }
                               }
                             }

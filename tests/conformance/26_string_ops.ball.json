@@ -7,6 +7,10 @@
       "name": "std",
       "functions": [
         {
+          "name": "concat",
+          "isBase": true
+        },
+        {
           "name": "to_string",
           "isBase": true
         },
@@ -28,10 +32,6 @@
         },
         {
           "name": "add",
-          "isBase": true
-        },
-        {
-          "name": "length",
           "isBase": true
         }
       ],
@@ -253,8 +253,8 @@
                                         {
                                           "name": "value",
                                           "value": {
-                                            "reference": {
-                                              "name": "s"
+                                            "literal": {
+                                              "stringValue": "  Hello, World!  "
                                             }
                                           }
                                         }

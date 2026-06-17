@@ -7,7 +7,11 @@
       "name": "std",
       "functions": [
         {
-          "name": "print",
+          "name": "yield",
+          "isBase": true
+        },
+        {
+          "name": "for",
           "isBase": true
         },
         {
@@ -15,10 +19,11 @@
           "isBase": true
         },
         {
-          "name": "yield",
+          "name": "print",
           "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -35,35 +40,15 @@
           }
         },
         {
-          "name": "ForInInput",
+          "name": "UnaryInput",
           "descriptor": {
-            "name": "ForInInput",
+            "name": "UnaryInput",
             "field": [
               {
-                "name": "variable",
+                "name": "value",
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
-              },
-              {
-                "name": "variable_type",
-                "number": 2,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_STRING"
-              },
-              {
-                "name": "iterable",
-                "number": 3,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_MESSAGE",
-                "typeName": ".ball.v1.Expression"
-              },
-              {
-                "name": "body",
-                "number": 4,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_MESSAGE",
-                "typeName": ".ball.v1.Expression"
               }
             ]
           }
@@ -74,23 +59,40 @@
       "name": "main",
       "functions": [
         {
-          "name": "emptyGen",
-          "inputType": "int",
-          "outputType": "List<int>",
+          "name": "single",
+          "outputType": "Iterable<int>",
           "body": {
             "block": {
-              "statements": []
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "yield",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "value",
+                              "value": {
+                                "literal": {
+                                  "intValue": "0"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
             }
           },
           "metadata": {
             "kind": "function",
-            "is_sync_star": true,
-            "params": [
-              {
-                "name": "x",
-                "type": "int"
-              }
-            ]
+            "is_sync_star": true
           }
         },
         {
@@ -100,41 +102,13 @@
             "block": {
               "statements": [
                 {
-                  "let": {
-                    "name": "gen",
-                    "value": {
-                      "call": {
-                        "function": "emptyGen",
-                        "input": {
-                          "messageCreation": {
-                            "fields": [
-                              {
-                                "name": "arg0",
-                                "value": {
-                                  "literal": {
-                                    "intValue": "0"
-                                  }
-                                }
-                              }
-                            ]
-                          }
-                        }
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "List<int>"
-                    }
-                  }
-                },
-                {
                   "expression": {
                     "call": {
                       "module": "std",
                       "function": "for_in",
                       "input": {
                         "messageCreation": {
-                          "typeName": "ForInInput",
+                          "typeName": "",
                           "fields": [
                             {
                               "name": "variable",
@@ -145,42 +119,42 @@
                               }
                             },
                             {
+                              "name": "variable_keyword",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "var"
+                                }
+                              }
+                            },
+                            {
                               "name": "iterable",
                               "value": {
-                                "reference": {
-                                  "name": "gen"
+                                "call": {
+                                  "function": "single"
                                 }
                               }
                             },
                             {
                               "name": "body",
                               "value": {
-                                "block": {
-                                  "statements": [
-                                    {
-                                      "expression": {
-                                        "call": {
-                                          "module": "std",
-                                          "function": "print",
-                                          "input": {
-                                            "messageCreation": {
-                                              "typeName": "PrintInput",
-                                              "fields": [
-                                                {
-                                                  "name": "message",
-                                                  "value": {
-                                                    "reference": {
-                                                      "name": "v"
-                                                    }
-                                                  }
-                                                }
-                                              ]
+                                "call": {
+                                  "module": "std",
+                                  "function": "print",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "PrintInput",
+                                      "fields": [
+                                        {
+                                          "name": "message",
+                                          "value": {
+                                            "reference": {
+                                              "name": "v"
                                             }
                                           }
                                         }
-                                      }
+                                      ]
                                     }
-                                  ]
+                                  }
                                 }
                               }
                             }
@@ -202,13 +176,8 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "gen"
-                                    }
-                                  },
-                                  "field": "length"
+                                "literal": {
+                                  "stringValue": ""
                                 }
                               }
                             }

@@ -7,6 +7,10 @@
       "name": "std",
       "functions": [
         {
+          "name": "string_is_empty",
+          "isBase": true
+        },
+        {
           "name": "print",
           "isBase": true
         },
@@ -165,13 +169,24 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "nul"
+                                "call": {
+                                  "module": "std",
+                                  "function": "string_is_empty",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "reference": {
+                                              "name": "nul"
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "isEmpty"
+                                  }
                                 }
                               }
                             }

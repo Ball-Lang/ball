@@ -50,6 +50,13 @@ jobs:
         with:
           sdk: stable
 
+      - name: Cache Dart pub
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
       # Node is needed by the Dart-side TsCompiler wrapper, which
       # shells out to @ball-lang/compiler (ts/compiler/). Without the
       # dist build the wrapper throws.
@@ -89,8 +96,79 @@ jobs:
       - name: Resolver tests
         run: cd dart/resolver && dart test
 
+      # engine_roundtrip.dart is a generated artifact (gitignored, like its
+      # engine_rt.* siblings). Regenerate it from the live engine so the parity
+      # test below has its import. Runs AFTER analyze/format so the generated
+      # file is never linted. --skip-analyze: the tool's own analyze pass is
+      # advisory (warnings only) and would slow the step.
+      - name: Regenerate round-tripped engine (self-host source)
+        run: cd dart/encoder && dart run tool/roundtrip_engine.dart --skip-analyze
+
       - name: Self-host parity (conformance via round-tripped engine)
         run: cd dart/self_host && dart test
+
+  # ──────────────────────────────────────────────────
+  # Ball artifact freshness — every committed Ball artifact must be GENERATED
+  # from its Dart source, never hand-edited. Regenerate the deterministic shared
+  # artifacts and fail if any drifted from the checked-in copy. The .json (text)
+  # outputs are gated; each generator writes the sibling .bin in the same run,
+  # so a fresh .json implies a fresh .bin (and avoids any binary cross-platform
+  # serialization nondeterminism in the gate).
+  # ──────────────────────────────────────────────────
+  ball-freshness:
+    name: Ball Artifact Freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Cache Dart pub
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: cd dart && dart pub get
+
+      - name: Regenerate shared Ball artifacts
+        run: |
+          ( cd dart/shared  && dart run bin/gen_std.dart . )
+          ( cd dart/shared  && dart run bin/gen_ball_proto.dart . )
+          ( cd dart/encoder && dart run bin/gen_ball_protobuf.dart ../shared )
+
+      - name: Assert no drift
+        run: |
+          if ! git diff --exit-code -- \
+              dart/shared/std.json \
+              dart/shared/ball_proto.json \
+              dart/shared/ball_protobuf.json; then
+            echo "::error::A committed Ball artifact is stale. Regenerate it (see CLAUDE.md 'Build & Test' / 'Typical Feature Workflow') and commit the result — these files must never be hand-edited."
+            exit 1
+          fi
+          echo "All shared Ball artifacts are up to date."
+
+      # Every conformance .ball.json must be sourced from a src/<name>.dart, or
+      # be an explicitly documented carve-out (tests/conformance/CARVEOUTS.md).
+      - name: Assert conformance fixtures are sourced (no orphans)
+        run: cd dart/encoder && dart run bin/check_conformance_sources.dart
+
+      # Every conformance .ball.json must be a fresh generator output, never
+      # hand-edited. Regenerate from src and fail on drift.
+      - name: Regenerate conformance corpus
+        run: cd dart/encoder && dart run bin/generate_conformance.dart
+
+      - name: Assert conformance corpus is up to date
+        run: |
+          if ! git diff --exit-code -- 'tests/conformance/*.ball.json'; then
+            echo "::error::A conformance .ball.json is stale. Regenerate with 'cd dart/encoder && dart run bin/generate_conformance.dart' and commit — these files must never be hand-edited (see tests/conformance/CARVEOUTS.md for the only exceptions)."
+            exit 1
+          fi
+          echo "Conformance corpus is up to date."
 
   # ──────────────────────────────────────────────────
   # Protobuf Codegen — the protoc-gen-ball / -connect / -grpc plugins
@@ -108,6 +186,13 @@ jobs:
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
+
+      - name: Cache Dart pub
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
 
       - name: Install dependencies
         run: cd dart && dart pub get
@@ -141,6 +226,16 @@ jobs:
         with:
           setup_only: true
 
+      # Compiler cache so the FetchContent protobuf+abseil build (the dominant
+      # cost) is reused across runs. ccache on Linux/macOS, sccache on Windows
+      # (MSVC). Manages its own GitHub Actions cache save/restore.
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: cpp-${{ matrix.os }}
+          variant: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
+          max-size: 1G
+
       - name: Install nlohmann-json (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
@@ -152,7 +247,7 @@ jobs:
       # Windows: nlohmann-json is fetched by CMake FetchContent
 
       - name: Configure CMake
-        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} -DCMAKE_CXX_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
 
       - name: Build all targets
         run: cmake --build cpp/build --config Release
@@ -163,8 +258,8 @@ jobs:
   # ──────────────────────────────────────────────────
   # Upstream protobuf conformance — drive ball_protobuf's feature-aware codecs
   # through the REAL protobuf conformance_test_runner for the proto2, proto3,
-  # and edition2023 TestAllTypes messages (2513 pass; expected failures tracked
-  # in conformance/failure_list_ball.txt). POSIX-only runner (fork/pipe) → Ubuntu.
+  # and edition2023 TestAllTypes messages (every registered test must pass — no
+  # tolerated-failure list). POSIX-only runner (fork/pipe) → Ubuntu.
   # ──────────────────────────────────────────────────
   editions-conformance-upstream:
     name: Upstream Conformance (Editions)
@@ -177,8 +272,23 @@ jobs:
         with:
           sdk: stable
 
-      - name: Install nlohmann-json
-        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
+      - name: Cache Dart pub
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      # ccache makes the protobuf+abseil conformance build a near-instant
+      # rebuild on warm runs (this is the slowest job in CI — 45-min budget).
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: cpp-conformance
+          max-size: 1G
+
+      - name: Install nlohmann-json + ninja
+        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev ninja-build
 
       - name: Install dependencies
         run: cd dart && dart pub get
@@ -187,7 +297,7 @@ jobs:
       # conformance harness). It statically links the TestAllTypes* descriptors,
       # so we need not feed it our .proto — it already knows the message types.
       - name: Configure CMake (conformance runner)
-        run: cmake -S cpp -B cpp/build-conformance -Dprotobuf_BUILD_CONFORMANCE=ON -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S cpp -B cpp/build-conformance -G Ninja -Dprotobuf_BUILD_CONFORMANCE=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       # Bounded parallelism (-j 2): an unbounded `-j` spawns dozens of protobuf's
       # huge translation units at once (command_line_interface.cc etc.) and
@@ -209,12 +319,10 @@ jobs:
           echo "runner: $runner"
           # The program walks up from CWD (repo root) to find the checked-in
           # FileDescriptorSet, so it needs no args — this runner build takes the
-          # test program as the final positional arg (no `--` separator). Tests
-          # we don't yet pass are listed in failure_list_ball.txt; the runner
-          # exits non-zero on any UNEXPECTED pass or failure, so the list must
-          # stay exact (burn it down as codec/bridge gaps are fixed).
+          # test program as the final positional arg (no `--` separator). There
+          # is NO tolerated-failure list: the runner exits non-zero on ANY
+          # conformance failure, so ball_protobuf must pass every case.
           "$runner" --maximum_edition 2023 \
-            --failure_list dart/ball_protobuf/conformance/failure_list_ball.txt \
             ./ball_conformance
 
   # ──────────────────────────────────────────────────
@@ -230,9 +338,20 @@ jobs:
         with:
           sdk: stable
 
+      - name: Cache Dart pub
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ts/engine/package-lock.json
+            ts/compiler/package-lock.json
 
       # Dart is needed to regenerate engine.ball.json for the engine
       # self-host parse test under ts/compiler/test/engine_parse.test.ts.

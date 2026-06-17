@@ -1,25 +1,13 @@
 {
   "@type": "type.googleapis.com/ball.v1.Program",
-  "name": "210_recursive_tree_sum",
+  "name": "encoded",
   "version": "1.0.0",
   "modules": [
     {
       "name": "std",
       "functions": [
         {
-          "name": "print",
-          "isBase": true
-        },
-        {
-          "name": "to_string",
-          "isBase": true
-        },
-        {
           "name": "if",
-          "isBase": true
-        },
-        {
-          "name": "return",
           "isBase": true
         },
         {
@@ -27,14 +15,27 @@
           "isBase": true
         },
         {
-          "name": "add",
+          "name": "return",
           "isBase": true
         },
         {
           "name": "index",
           "isBase": true
+        },
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
         }
       ],
+      "description": "Universal standard library base module",
       "typeDefs": [
         {
           "name": "PrintInput",
@@ -43,6 +44,40 @@
             "field": [
               {
                 "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
@@ -69,6 +104,7 @@
                       "function": "if",
                       "input": {
                         "messageCreation": {
+                          "typeName": "",
                           "fields": [
                             {
                               "name": "condition",
@@ -78,6 +114,7 @@
                                   "function": "equals",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "left",
@@ -114,6 +151,7 @@
                                   "function": "return",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
@@ -123,6 +161,7 @@
                                               "function": "index",
                                               "input": {
                                                 "messageCreation": {
+                                                  "typeName": "",
                                                   "fields": [
                                                     {
                                                       "name": "target",
@@ -165,6 +204,7 @@
                   "function": "add",
                   "input": {
                     "messageCreation": {
+                      "typeName": "",
                       "fields": [
                         {
                           "name": "left",
@@ -174,6 +214,7 @@
                               "function": "add",
                               "input": {
                                 "messageCreation": {
+                                  "typeName": "",
                                   "fields": [
                                     {
                                       "name": "left",
@@ -183,6 +224,7 @@
                                           "function": "index",
                                           "input": {
                                             "messageCreation": {
+                                              "typeName": "",
                                               "fields": [
                                                 {
                                                   "name": "target",
@@ -217,6 +259,7 @@
                                               "function": "index",
                                               "input": {
                                                 "messageCreation": {
+                                                  "typeName": "",
                                                   "fields": [
                                                     {
                                                       "name": "target",
@@ -259,6 +302,7 @@
                                   "function": "index",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "target",
@@ -303,6 +347,7 @@
         },
         {
           "name": "main",
+          "outputType": "void",
           "body": {
             "call": {
               "module": "std",
@@ -319,6 +364,7 @@
                           "function": "to_string",
                           "input": {
                             "messageCreation": {
+                              "typeName": "",
                               "fields": [
                                 {
                                   "name": "value",

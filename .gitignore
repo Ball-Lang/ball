@@ -112,3 +112,8 @@ cpp/build-conformance/
 # conformance failure analysis scratch
 .conf_failing_list.txt
 .conf_failing_detail.txt
+
+# Ball generated build artifact: output of
+# dart/compiler/tool/compile_ball_protobuf_cpp.dart, regenerated on demand and
+# never read as a committed input. Kept out of git (1.2 MB). See issue #27.
+dart/shared/ball_protobuf_program.json

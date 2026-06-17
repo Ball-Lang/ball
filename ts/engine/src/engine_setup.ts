@@ -741,7 +741,7 @@ export function createEngineSetup(mod: EngineModule) {
     _r('list_length', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? i; return Array.isArray(l) ? l.length : (typeof l === 'string' ? l.length : 0); });
     _r('list_reversed', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; return Array.isArray(l) ? [...l].reverse() : []; });
     _r('list_sublist', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; const s = Number(m['start'] ?? m['arg0'] ?? 0); const e = m['end'] ?? m['arg1']; return Array.isArray(l) ? l.slice(s, e != null ? Number(e) : undefined) : []; });
-    _r('list_index_of', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; return Array.isArray(l) ? l.indexOf(m['value'] ?? m['element']) : -1; });
+    _r('list_index_of', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; const v = m['value'] ?? m['element']; if (typeof l === 'string') return l.indexOf(String(v)); return Array.isArray(l) ? l.indexOf(v) : -1; });
     _r('list_add', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const v = m['value'] ?? m['element']; if (Array.isArray(l)) l.push(v); return null; });
     _r('list_add_all', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const o = m['other'] ?? m['elements'] ?? []; if (Array.isArray(l) && Array.isArray(o)) l.push(...o); return null; });
     _r('list_remove_at', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const idx = Number(m['index'] ?? 0); return Array.isArray(l) ? l.splice(idx, 1)[0] : null; });
@@ -1607,6 +1607,8 @@ export function createEngineSetup(mod: EngineModule) {
         const rec = e._extractBinaryArgs(i);
         const left = rec[0];
         const right = rec[1];
+        // Polymorphic over strings: `'ab' * 3` repeats (Dart String * int).
+        if (typeof left === 'string') return left.repeat(Number(right));
         const BD = (globalThis as any).BallDouble;
         const lBD = BD && left instanceof BD;
         const rBD = BD && right instanceof BD;

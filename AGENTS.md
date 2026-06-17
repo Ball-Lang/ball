@@ -5,10 +5,12 @@ This file provides instructions for AI coding agents working on the Ball project
 ## Project Context
 
 Ball is a programming language where code is structured protobuf messages. The project has:
-- A **mature Dart implementation** (compiler, encoder, engine, CLI)
-- A **TypeScript implementation** (compiler, self-hosted engine, stub encoder, CLI)
-- A **prototype C++ implementation** (compiler, encoder, self-hosted engine)
-- **Proto bindings** for Go, Python, Java, C# (no implementations yet)
+- **Dart** — the reference implementation: compiler, encoder, engine, CLI (most mature, broadest std coverage).
+- **TypeScript** — a full pipeline, all CI-gated: compiler, self-hosted engine (passes the conformance corpus), encoder (TS→Ball; 100+ round-trip tests; routes through universal `std`, no `ts_std`), CLI.
+- **C++** — compiler, encoder (Clang JSON AST → Ball), self-hosted engine; the self-host conformance passes **every** fixture (no skip-list). Still FetchContents upstream protobuf v34.1 (#18/#25).
+- **Proto bindings only** for Go, Python, Java, C#; **Rust** is not started (epic #32).
+
+Statuses drift — verify maturity against CI (`.github/workflows/ci.yml`), not this prose. "stub"/"prototype" labels in older docs were stale; TS and C++ both have full compiler+encoder+engine pipelines gated in CI.
 
 Both C++ and TypeScript run the **self-hosted** engine (compiled from the Dart reference engine); there are no native C++/TS engines.
 

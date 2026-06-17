@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/Ball-Lang/ball/compare/v1.0.0...v1.0.1) (2026-06-17)
+
+
+### Bug Fixes
+
+* **patterns:** when-guards, record arity, nullable-type patterns across all engines ([#48](https://github.com/Ball-Lang/ball/issues/48)) ([dd66987](https://github.com/Ball-Lang/ball/commit/dd669878c3e662c41fc14f6221ddeadef2c38a07)), closes [#47](https://github.com/Ball-Lang/ball/issues/47)
+
 # [1.0.0](https://github.com/Ball-Lang/ball/compare/v0.2.1...v1.0.0) (2026-06-17)
 
 

@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/Ball-Lang/ball/compare/v1.1.0...v1.1.1) (2026-06-17)
+
+
+### Bug Fixes
+
+* **dart:** make all workspace packages pub.dev-publishable (unblocks release-prepare) ([#54](https://github.com/Ball-Lang/ball/issues/54)) ([c6fb98a](https://github.com/Ball-Lang/ball/commit/c6fb98a520460c1ab1c1fa1f635f3ada8f548512)), closes [#53](https://github.com/Ball-Lang/ball/issues/53)
+
 # [1.1.0](https://github.com/Ball-Lang/ball/compare/v1.0.1...v1.1.0) (2026-06-17)
 
 

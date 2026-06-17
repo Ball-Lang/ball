@@ -12,6 +12,10 @@ Thumbs.db
 *~
 .vscode/
 .idea/
+# IntelliJ/Melos per-package module files (melos bootstrap generates
+# melos_<pkg>.iml). IDE artifacts — never commit; keeps them out of the
+# auto-generated release PR (create-pull-request does `git add -A`).
+*.iml
 
 # ----------------------------------
 # Dart

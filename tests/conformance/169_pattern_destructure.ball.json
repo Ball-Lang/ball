@@ -15,6 +15,10 @@
           "isBase": true
         },
         {
+          "name": "equals",
+          "isBase": true
+        },
+        {
           "name": "concat",
           "isBase": true
         },
@@ -233,6 +237,38 @@
                                                       }
                                                     }
                                                   ]
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "guard",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "equals",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "",
+                                                      "fields": [
+                                                        {
+                                                          "name": "left",
+                                                          "value": {
+                                                            "reference": {
+                                                              "name": "w"
+                                                            }
+                                                          }
+                                                        },
+                                                        {
+                                                          "name": "right",
+                                                          "value": {
+                                                            "reference": {
+                                                              "name": "h"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
                                                 }
                                               }
                                             }

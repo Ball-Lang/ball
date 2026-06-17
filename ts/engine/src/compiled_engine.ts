@@ -8375,7 +8375,18 @@ export class BallEngine {
         if (__ball_eq(recMap, null)) {
           return false;
         }
-        for (const entry of this._patternFields(__ball_index(pattern, 'fields')).entries) {
+        let recFields = this._patternFields(__ball_index(pattern, 'fields'));
+        let valueKeys = recMap.keys.filter(((k) => {
+          const input = k;
+          return !k.startsWith('__');
+        })).toSet();
+        if (!__ball_eq(valueKeys.length, recFields.length)) {
+          return false;
+        }
+        for (const entry of recFields.entries) {
+          if (!(entry.key in recMap)) {
+            return false;
+          }
           let fieldVal = __ball_index(recMap, entry.key);
           if (!this._matchPattern(fieldVal, entry.value, bindings)) {
             return false;
@@ -8548,8 +8559,20 @@ export class BallEngine {
 
   _matchesTypePattern(value: any, pattern: any): any {
     let p = ((typeof pattern === 'string') ? pattern : this._ballToStringSimple(pattern));
+    if ((((p.length > 1) && p.endsWith('?')) && !p.includes(' '))) {
+      if ((__ball_eq(value, null) || (value == null))) {
+        return true;
+      }
+      return this._matchesTypePattern(value, p.substring(0, __ball_sub(p.length, 1)));
+    }
     if ((__ball_eq(p, 'Null') || __ball_eq(p, 'null'))) {
       return (__ball_eq(value, null) || (value == null));
+    }
+    if (__ball_eq(p, 'Object')) {
+      return (!__ball_eq(value, null) && !((value == null)));
+    }
+    if (__ball_eq(p, 'dynamic')) {
+      return true;
     }
     if (__ball_eq(p, 'int')) {
       return _ballIsInt(value);

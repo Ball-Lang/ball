@@ -1,0 +1,1263 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "switch_expr",
+          "isBase": true
+        },
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "record",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "shape",
+          "inputType": "Object",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "switch_expr",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "subject",
+                      "value": {
+                        "reference": {
+                          "name": "rec"
+                        }
+                      }
+                    },
+                    {
+                      "name": "cases",
+                      "value": {
+                        "literal": {
+                          "listValue": {
+                            "elements": [
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "(var a, var b)"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "concat",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "left",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "concat",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "left",
+                                                              "value": {
+                                                                "call": {
+                                                                  "module": "std",
+                                                                  "function": "concat",
+                                                                  "input": {
+                                                                    "messageCreation": {
+                                                                      "typeName": "",
+                                                                      "fields": [
+                                                                        {
+                                                                          "name": "left",
+                                                                          "value": {
+                                                                            "literal": {
+                                                                              "stringValue": "pair:"
+                                                                            }
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "name": "right",
+                                                                          "value": {
+                                                                            "call": {
+                                                                              "module": "std",
+                                                                              "function": "to_string",
+                                                                              "input": {
+                                                                                "messageCreation": {
+                                                                                  "typeName": "",
+                                                                                  "fields": [
+                                                                                    {
+                                                                                      "name": "value",
+                                                                                      "value": {
+                                                                                        "reference": {
+                                                                                          "name": "a"
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  ]
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "right",
+                                                              "value": {
+                                                                "literal": {
+                                                                  "stringValue": ","
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "right",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "to_string",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "value",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "b"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "RecordPattern",
+                                          "fields": [
+                                            {
+                                              "name": "fields",
+                                              "value": {
+                                                "literal": {
+                                                  "listValue": {
+                                                    "elements": [
+                                                      {
+                                                        "messageCreation": {
+                                                          "fields": [
+                                                            {
+                                                              "name": "pattern",
+                                                              "value": {
+                                                                "messageCreation": {
+                                                                  "typeName": "VarPattern",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "name",
+                                                                      "value": {
+                                                                        "literal": {
+                                                                          "stringValue": "a"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      },
+                                                      {
+                                                        "messageCreation": {
+                                                          "fields": [
+                                                            {
+                                                              "name": "pattern",
+                                                              "value": {
+                                                                "messageCreation": {
+                                                                  "typeName": "VarPattern",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "name",
+                                                                      "value": {
+                                                                        "literal": {
+                                                                          "stringValue": "b"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    ]
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "(var a, var b, var c)"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "concat",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "left",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "concat",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "left",
+                                                              "value": {
+                                                                "call": {
+                                                                  "module": "std",
+                                                                  "function": "concat",
+                                                                  "input": {
+                                                                    "messageCreation": {
+                                                                      "typeName": "",
+                                                                      "fields": [
+                                                                        {
+                                                                          "name": "left",
+                                                                          "value": {
+                                                                            "call": {
+                                                                              "module": "std",
+                                                                              "function": "concat",
+                                                                              "input": {
+                                                                                "messageCreation": {
+                                                                                  "typeName": "",
+                                                                                  "fields": [
+                                                                                    {
+                                                                                      "name": "left",
+                                                                                      "value": {
+                                                                                        "call": {
+                                                                                          "module": "std",
+                                                                                          "function": "concat",
+                                                                                          "input": {
+                                                                                            "messageCreation": {
+                                                                                              "typeName": "",
+                                                                                              "fields": [
+                                                                                                {
+                                                                                                  "name": "left",
+                                                                                                  "value": {
+                                                                                                    "literal": {
+                                                                                                      "stringValue": "triple:"
+                                                                                                    }
+                                                                                                  }
+                                                                                                },
+                                                                                                {
+                                                                                                  "name": "right",
+                                                                                                  "value": {
+                                                                                                    "call": {
+                                                                                                      "module": "std",
+                                                                                                      "function": "to_string",
+                                                                                                      "input": {
+                                                                                                        "messageCreation": {
+                                                                                                          "typeName": "",
+                                                                                                          "fields": [
+                                                                                                            {
+                                                                                                              "name": "value",
+                                                                                                              "value": {
+                                                                                                                "reference": {
+                                                                                                                  "name": "a"
+                                                                                                                }
+                                                                                                              }
+                                                                                                            }
+                                                                                                          ]
+                                                                                                        }
+                                                                                                      }
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                              ]
+                                                                                            }
+                                                                                          }
+                                                                                        }
+                                                                                      }
+                                                                                    },
+                                                                                    {
+                                                                                      "name": "right",
+                                                                                      "value": {
+                                                                                        "literal": {
+                                                                                          "stringValue": ","
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  ]
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "name": "right",
+                                                                          "value": {
+                                                                            "call": {
+                                                                              "module": "std",
+                                                                              "function": "to_string",
+                                                                              "input": {
+                                                                                "messageCreation": {
+                                                                                  "typeName": "",
+                                                                                  "fields": [
+                                                                                    {
+                                                                                      "name": "value",
+                                                                                      "value": {
+                                                                                        "reference": {
+                                                                                          "name": "b"
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  ]
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "right",
+                                                              "value": {
+                                                                "literal": {
+                                                                  "stringValue": ","
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "right",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "to_string",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "value",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "c"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "RecordPattern",
+                                          "fields": [
+                                            {
+                                              "name": "fields",
+                                              "value": {
+                                                "literal": {
+                                                  "listValue": {
+                                                    "elements": [
+                                                      {
+                                                        "messageCreation": {
+                                                          "fields": [
+                                                            {
+                                                              "name": "pattern",
+                                                              "value": {
+                                                                "messageCreation": {
+                                                                  "typeName": "VarPattern",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "name",
+                                                                      "value": {
+                                                                        "literal": {
+                                                                          "stringValue": "a"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      },
+                                                      {
+                                                        "messageCreation": {
+                                                          "fields": [
+                                                            {
+                                                              "name": "pattern",
+                                                              "value": {
+                                                                "messageCreation": {
+                                                                  "typeName": "VarPattern",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "name",
+                                                                      "value": {
+                                                                        "literal": {
+                                                                          "stringValue": "b"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      },
+                                                      {
+                                                        "messageCreation": {
+                                                          "fields": [
+                                                            {
+                                                              "name": "pattern",
+                                                              "value": {
+                                                                "messageCreation": {
+                                                                  "typeName": "VarPattern",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "name",
+                                                                      "value": {
+                                                                        "literal": {
+                                                                          "stringValue": "c"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    ]
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "_"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "other"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "WildcardPattern"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "expression_body": true,
+            "params": [
+              {
+                "name": "rec",
+                "type": "Object"
+              }
+            ]
+          }
+        },
+        {
+          "name": "named",
+          "inputType": "Object",
+          "outputType": "String",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "switch_expr",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "subject",
+                      "value": {
+                        "reference": {
+                          "name": "rec"
+                        }
+                      }
+                    },
+                    {
+                      "name": "cases",
+                      "value": {
+                        "literal": {
+                          "listValue": {
+                            "elements": [
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "(x: var x, y: var y)"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "concat",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "left",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "concat",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "left",
+                                                              "value": {
+                                                                "call": {
+                                                                  "module": "std",
+                                                                  "function": "concat",
+                                                                  "input": {
+                                                                    "messageCreation": {
+                                                                      "typeName": "",
+                                                                      "fields": [
+                                                                        {
+                                                                          "name": "left",
+                                                                          "value": {
+                                                                            "literal": {
+                                                                              "stringValue": "point:"
+                                                                            }
+                                                                          }
+                                                                        },
+                                                                        {
+                                                                          "name": "right",
+                                                                          "value": {
+                                                                            "call": {
+                                                                              "module": "std",
+                                                                              "function": "to_string",
+                                                                              "input": {
+                                                                                "messageCreation": {
+                                                                                  "typeName": "",
+                                                                                  "fields": [
+                                                                                    {
+                                                                                      "name": "value",
+                                                                                      "value": {
+                                                                                        "reference": {
+                                                                                          "name": "x"
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  ]
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "right",
+                                                              "value": {
+                                                                "literal": {
+                                                                  "stringValue": ","
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "right",
+                                                  "value": {
+                                                    "call": {
+                                                      "module": "std",
+                                                      "function": "to_string",
+                                                      "input": {
+                                                        "messageCreation": {
+                                                          "typeName": "",
+                                                          "fields": [
+                                                            {
+                                                              "name": "value",
+                                                              "value": {
+                                                                "reference": {
+                                                                  "name": "y"
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "RecordPattern",
+                                          "fields": [
+                                            {
+                                              "name": "fields",
+                                              "value": {
+                                                "literal": {
+                                                  "listValue": {
+                                                    "elements": [
+                                                      {
+                                                        "messageCreation": {
+                                                          "fields": [
+                                                            {
+                                                              "name": "name",
+                                                              "value": {
+                                                                "literal": {
+                                                                  "stringValue": "x"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "pattern",
+                                                              "value": {
+                                                                "messageCreation": {
+                                                                  "typeName": "VarPattern",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "name",
+                                                                      "value": {
+                                                                        "literal": {
+                                                                          "stringValue": "x"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      },
+                                                      {
+                                                        "messageCreation": {
+                                                          "fields": [
+                                                            {
+                                                              "name": "name",
+                                                              "value": {
+                                                                "literal": {
+                                                                  "stringValue": "y"
+                                                                }
+                                                              }
+                                                            },
+                                                            {
+                                                              "name": "pattern",
+                                                              "value": {
+                                                                "messageCreation": {
+                                                                  "typeName": "VarPattern",
+                                                                  "fields": [
+                                                                    {
+                                                                      "name": "name",
+                                                                      "value": {
+                                                                        "literal": {
+                                                                          "stringValue": "y"
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    ]
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "pattern",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "_"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "body",
+                                      "value": {
+                                        "literal": {
+                                          "stringValue": "other"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "pattern_expr",
+                                      "value": {
+                                        "messageCreation": {
+                                          "typeName": "WildcardPattern"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "expression_body": true,
+            "params": [
+              {
+                "name": "rec",
+                "type": "Object"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "shape",
+                                  "input": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "record",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "$1",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "1"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "$2",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "2"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "shape",
+                                  "input": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "record",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "$1",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "1"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "$2",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "2"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "$3",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "3"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "shape",
+                                  "input": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "record",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "$1",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "1"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "$2",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "2"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "$3",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "3"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "$4",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "4"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "shape",
+                                  "input": {
+                                    "literal": {
+                                      "stringValue": "s"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "named",
+                                  "input": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "record",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "x",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "10"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "y",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "20"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "named",
+                                  "input": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "record",
+                                      "input": {
+                                        "messageCreation": {
+                                          "typeName": "",
+                                          "fields": [
+                                            {
+                                              "name": "$1",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "1"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "$2",
+                                              "value": {
+                                                "literal": {
+                                                  "intValue": "2"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

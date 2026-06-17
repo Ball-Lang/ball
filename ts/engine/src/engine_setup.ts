@@ -954,6 +954,11 @@ export function createEngineSetup(mod: EngineModule) {
     _r('math_min', (i: any) => { const m = _m(i); return Math.min(Number(m['left'] ?? m['a'] ?? 0), Number(m['right'] ?? m['b'] ?? 0)); });
     _r('math_sqrt', (i: any) => Math.sqrt(Number(_m(i)['value'] ?? 0)));
     _r('math_pow', (i: any) => { const m = _m(i); return Math.pow(Number(m['base'] ?? m['left'] ?? 0), Number(m['exponent'] ?? m['right'] ?? 0)); });
+    // math_sign / math_is_infinite are registered here so a freshly regenerated
+    // compiled_engine.ts (which emits them as base calls, not embedded impls)
+    // stays self-consistent. Mirrors the Dart engine (engine_std.dart). See #47.
+    _r('math_sign', (i: any) => Math.sign(Number(_m(i)['value'] ?? 0)));
+    _r('math_is_infinite', (i: any) => { const v = Number(_m(i)['value'] ?? 0); return v === Infinity || v === -Infinity; });
   
     // ── Sort (method dispatch on list) ─────────────────────────────────
     _r('sort', async (i: any) => {
@@ -1297,7 +1302,17 @@ export function createEngineSetup(mod: EngineModule) {
 
     e._matchesTypePattern = function(value: any, pattern: any): boolean {
       const BD = (globalThis as any).BallDouble;
-      switch (pattern) {
+      const p = typeof pattern === 'string'
+        ? pattern
+        : (e._ballToStringSimple ? e._ballToStringSimple(pattern) : String(pattern));
+      // Nullable type `T?` matches null OR the base type. The no-space guard
+      // stops raw fragments like "var v?" being read as a nullable type (which
+      // would wrongly match null). Mirrors the Dart engine _matchesTypePattern.
+      if (p.length > 1 && p.endsWith('?') && !p.includes(' ')) {
+        if (value == null) return true;
+        return e._matchesTypePattern(value, p.substring(0, p.length - 1));
+      }
+      switch (p) {
         case 'int':
           return typeof value === 'bigint' || (typeof value === 'number' && Number.isInteger(value));
         case 'double':
@@ -1314,6 +1329,10 @@ export function createEngineSetup(mod: EngineModule) {
           return typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Set);
         case 'Set':
           return value instanceof Set;
+        case 'Object':
+          return value != null;
+        case 'dynamic':
+          return true;
         case 'Null':
         case 'null':
           return value == null;

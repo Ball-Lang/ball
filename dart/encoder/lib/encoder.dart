@@ -2363,6 +2363,16 @@ class DartEncoder {
               ..value = structuredPat,
           );
         }
+        // `when` guard: `case <pattern> when <expr>:`. The engine evaluates it
+        // against the case's pattern bindings; compilers re-emit `when <expr>`.
+        final whenClause = member.guardedPattern.whenClause;
+        if (whenClause != null) {
+          caseFlds.add(
+            FieldValuePair()
+              ..name = 'guard'
+              ..value = _encodeExpr(whenClause.expression),
+          );
+        }
         cases.add(
           Expression()
             ..messageCreation = (MessageCreation()..fields.addAll(caseFlds)),
@@ -4336,6 +4346,16 @@ class DartEncoder {
           FieldValuePair()
             ..name = 'pattern_expr'
             ..value = structuredPat,
+        );
+      }
+      // `when` guard: `<pattern> when <expr> => …`. The engine evaluates it
+      // against the case's pattern bindings; compilers re-emit `when <expr>`.
+      final whenClause = case_.guardedPattern.whenClause;
+      if (whenClause != null) {
+        caseFields.add(
+          FieldValuePair()
+            ..name = 'guard'
+            ..value = _encodeExpr(whenClause.expression),
         );
       }
       cases.add(

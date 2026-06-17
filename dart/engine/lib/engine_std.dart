@@ -1984,7 +1984,14 @@ extension BallEngineStd on BallEngine {
         // { __pattern_kind__: 'record', fields: {named_field: pattern, $1: pattern} }
         final recMap = _stdAsMap(value);
         if (recMap == null) return false;
-        for (final entry in _patternFields(pattern['fields']).entries) {
+        final recFields = _patternFields(pattern['fields']);
+        // Records match by exact shape: the value must have exactly the
+        // pattern's fields (same positional arity + same named-field set).
+        // A 2-field pattern must NOT match a 3-field record (native Dart).
+        final valueKeys = recMap.keys.where((k) => !k.startsWith('__')).toSet();
+        if (valueKeys.length != recFields.length) return false;
+        for (final entry in recFields.entries) {
+          if (!recMap.containsKey(entry.key)) return false;
           final fieldVal = recMap[entry.key];
           if (!_matchPattern(fieldVal, entry.value, bindings)) return false;
         }
@@ -2156,9 +2163,21 @@ extension BallEngineStd on BallEngine {
   /// Enables switch expressions with type arms like `case int: ...`.
   bool _matchesTypePattern(Object? value, Object? pattern) {
     final p = pattern is String ? pattern : _ballToStringSimple(pattern);
+    // Nullable type `T?` matches null OR any value matching the base type `T`.
+    // The no-space guard is essential: this helper also receives raw pattern
+    // fragments like "var v?" as a last-ditch type-name check (from
+    // _matchStringPattern). Without the guard, "var v?" would be read as the
+    // nullable type "var v" and wrongly match null — letting `case var v?`
+    // match a null subject and run its body with `v` unbound.
+    if (p.length > 1 && p.endsWith('?') && !p.contains(' ')) {
+      if (value == null || value is BallNull) return true;
+      return _matchesTypePattern(value, p.substring(0, p.length - 1));
+    }
     if (p == 'Null' || p == 'null') {
       return value == null || value is BallNull;
     }
+    if (p == 'Object') return value != null && value is! BallNull;
+    if (p == 'dynamic') return true;
     if (p == 'int') return _ballIsInt(value);
     if (p == 'double') return _ballIsDouble(value);
     if (p == 'num') return _ballIsNum(value);

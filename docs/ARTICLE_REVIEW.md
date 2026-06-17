@@ -24,7 +24,7 @@ Ball eliminates **grammar parsing** (lexing, tokenizing, building AST from text)
 | Component | Dart | TypeScript | C++ |
 | --------- | ---- | ---------- | --- |
 | Compiler (Ball → lang) | Full | Full | Full (273/273 conformance) |
-| Encoder (lang → Ball) | Full | **Stub** | Full |
+| Encoder (lang → Ball) | Full | Full (CI-gated, universal `std`) | Full |
 | Engine (interpreter) | Full (277 conformance) | Self-hosted (full conformance, CI-gated) | Self-hosted (277/277, CI-gated) |
 | Conformance pass rate | 277/277 | full pass (CI-gated) | 277/277 (CI-gated) |
 

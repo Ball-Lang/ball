@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/Ball-Lang/ball/compare/v1.0.1...v1.1.0) (2026-06-17)
+
+
+### Features
+
+* **cpp:** protobuf-free Ball IR loader (ball_ir.h) — [#18](https://github.com/Ball-Lang/ball/issues/18) foundation ([#51](https://github.com/Ball-Lang/ball/issues/51)) ([1f078ba](https://github.com/Ball-Lang/ball/commit/1f078baac39ebd1a0440939a8d0e5845e94c3b69))
+
 ## [1.0.1](https://github.com/Ball-Lang/ball/compare/v1.0.0...v1.0.1) (2026-06-17)
 
 

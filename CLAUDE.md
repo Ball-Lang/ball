@@ -171,10 +171,19 @@ Supporting configs:
 1. Does it need a schema change? Edit `proto/ball/v1/ball.proto`, then `buf lint` → `buf breaking ...` → `buf generate`.
 2. Does it need a new std function? Edit `dart/shared/lib/std.dart`, then rerun `gen_std.dart`.
 3. Implement in `dart/compiler/lib/compiler.dart`.
-4. Implement in `dart/engine/lib/engine.dart`.
+4. Implement in `dart/engine/lib/engine.dart`. **Fail loud** on any shape you do
+   not handle — never return `null`/`[]`/a placeholder string (that silent
+   degradation is what hid issue #55).
 5. Add a test in `dart/engine/test/engine_test.dart` (helpers: `buildProgram()`, `runAndCapture()`, `loadProgram()`).
-6. Regenerate self-hosted engines: `dart run compiler/tool/compile_engine_cpp.dart` (C++), regen `compiled_engine.ts` (TS). Re-run conformance.
-7. If new metadata keys were introduced, update `docs/METADATA_SPEC.md`.
+6. **Add a conformance fixture** `tests/conformance/src/NN_<name>.dart` that
+   actually exercises the construct, then `cd dart/encoder && dart run
+   bin/generate_conformance.dart`. CI-gated: every std base function the encoder
+   can emit MUST appear in an executed fixture
+   (`check_encoder_completeness.dart`) or a documented carve-out, and a fixture's
+   name must match its content (`check_fixture_names.dart`). See
+   `docs/TESTING_STRATEGY.md`.
+7. Regenerate self-hosted engines: `cd dart && dart run compiler/tool/gen_engine_json.dart`, then `dart run compiler/tool/compile_engine_cpp.dart` (C++) and regen `compiled_engine.ts` (TS, see Build & Test). **Re-run conformance on ALL THREE engines** — a Dart-only fix is half a fix.
+8. If new metadata keys were introduced, update `docs/METADATA_SPEC.md`.
 
 ## Examples Layout
 

@@ -1,0 +1,49 @@
+name: Coverage Ratchet
+
+# Dart line-coverage ratchet for the correctness-critical packages. The bar is
+# 100%; the floor below must never regress and is raised one PR at a time.
+#
+# Runs on push to main + on demand (NOT every PR) because the instrumented
+# suites — especially the compiler's slow round-trip/fuzzer tests — are heavy.
+# Promote to `pull_request` once the suite is fast enough or the floor is high
+# enough to justify gating every PR.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dart/**"
+      - "tools/coverage_dart.dart"
+      - ".github/workflows/coverage.yml"
+  workflow_dispatch:
+
+jobs:
+  dart-coverage:
+    name: Dart line coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      # The compiler tests shell out to @ball-lang/compiler (TsCompiler wrapper),
+      # so Node + the built TS compiler are required — mirror the ci.yml dart job.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ts/compiler/package-lock.json
+
+      - name: Install dependencies
+        run: cd dart && dart pub get
+
+      - name: Install & build @ball-lang/compiler
+        run: cd ts/compiler && npm ci && npm run build
+
+      # Floor = the current measured baseline (rounded down). RAISE THIS toward
+      # 100% as tests are added; it must never be lowered without justification.
+      # See docs/TESTING_STRATEGY.md.
+      - name: Dart line coverage ratchet
+        run: dart run tools/coverage_dart.dart --floor 18

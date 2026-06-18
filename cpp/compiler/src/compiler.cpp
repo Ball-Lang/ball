@@ -938,6 +938,34 @@ std::string CppCompiler::compile_literal(const ball::v1::Literal& lit) {
         case ball::v1::Literal::kBoolValue:
             return lit.bool_value() ? "true" : "false";
         case ball::v1::Literal::kListValue: {
+            // Spread / comprehension elements can't be expressed in a braced
+            // initializer (they SPLICE multiple items, or none). If any element
+            // is a spread (`...x`/`...?x`), a collection_for, or a
+            // collection_if, build the list via an IIFE that appends each
+            // element through compile_collection_element (issue #55). A braced
+            // literal would otherwise NEST the spread collection as a single
+            // element / drop the comprehension.
+            {
+                bool needs_splice = false;
+                for (const auto& el : lit.list_value().elements()) {
+                    if (el.expr_case() == ball::v1::Expression::kCall) {
+                        const auto& f = el.call().function();
+                        if (f == "spread" || f == "null_spread" ||
+                            f == "collection_for" || f == "collection_if") {
+                            needs_splice = true;
+                            break;
+                        }
+                    }
+                }
+                if (needs_splice) {
+                    std::string result = "[&]() -> BallDyn { BallList __r; ";
+                    for (const auto& el : lit.list_value().elements()) {
+                        result += compile_collection_element(el, "__r") + " ";
+                    }
+                    result += "return BallDyn(__r); }()";
+                    return result;
+                }
+            }
             // Homogeneous lists emit a strongly typed std::vector so
             // arithmetic, indexing, etc. don't have to cross a
             // std::any_cast boundary. Detect the common case by
@@ -3031,6 +3059,190 @@ std::string CppCompiler::compile_map_entry_insert(const ball::v1::Expression& e,
     return map_var + "[ball_to_string(" + key_expr + ")] = std::any(BallDyn(" + val_expr + "));";
 }
 
+// Renders the C++ `for (...)` HEADER (without the trailing `{`) for a C-style
+// `collection_for` whose `init` is a Block with a single `let`. Mirrors the
+// statement-`for` init extraction (compiler.cpp ~5984) but always inlines the
+// declaration as `auto <var> = <val>` so the loop var is in scope for the
+// condition/update — an IIFE would scope it away (issue #55). Returns "" if the
+// shape isn't the expected single-let block (caller falls back).
+//
+// NOTE: closure-capture boxing (the statement-`for`'s shared_ptr<BallDyn> cell
+// for escaping closures) is intentionally NOT replicated here — see fixture 312.
+std::string CppCompiler::_render_collection_for_cstyle_header(
+    const ball::v1::FunctionCall& call) {
+    auto* init_e = get_message_field_expr(call, "init");
+    std::string init;
+    if (init_e &&
+        init_e->expr_case() == ball::v1::Expression::kBlock &&
+        init_e->block().statements_size() == 1 &&
+        init_e->block().statements(0).stmt_case() == ball::v1::Statement::kLet) {
+        const auto& let_stmt = init_e->block().statements(0).let();
+        auto var_name = ball_local_var_name(sanitize_name(let_stmt.name()));
+        auto val = compile_expr(let_stmt.value());
+        init = "auto " + var_name + " = " + val;
+    } else if (init_e &&
+               init_e->expr_case() == ball::v1::Expression::kLiteral &&
+               init_e->literal().value_case() ==
+                   ball::v1::Literal::kStringValue) {
+        // Legacy raw-string init (`"var i = 0"`).
+        std::string raw = init_e->literal().string_value();
+        if (raw.rfind("var ", 0) == 0) raw = "auto " + raw.substr(4);
+        else if (raw.rfind("final ", 0) == 0) raw = "auto " + raw.substr(6);
+        init = raw;
+    } else if (init_e) {
+        init = compile_expr(*init_e);
+    }
+    if (init.empty()) return "";
+    auto cond = get_message_field(call, "condition");
+    auto update = get_message_field(call, "update");
+    return "for (" + init + "; " + cond + "; " + update + ")";
+}
+
+// Splices a single list/set collection element into the BallList `list_var`,
+// emitting C++ statements. Mirrors the Dart engine's `_addCollectionElement`:
+//   - spread / null_spread     → iterate the operand, push each item
+//   - nested collection_for    → recurse over the loop body
+//   - nested collection_if     → conditional push (then/else)
+//   - anything else            → push the compiled value
+std::string CppCompiler::compile_collection_element(
+    const ball::v1::Expression& e, const std::string& list_var) {
+    if (e.expr_case() == ball::v1::Expression::kCall) {
+        const auto& call = e.call();
+        const auto& fn = call.function();
+        // Spread: push each item of the operand collection. For null_spread,
+        // skip entirely when the operand is null.
+        if (fn == "spread" || fn == "null_spread") {
+            auto* val_e = get_message_field_expr(call, "value");
+            std::string val = val_e ? compile_expr(*val_e) : "BallDyn()";
+            std::string spread =
+                "for (auto __sp : BallDyn(" + val + ")) { " + list_var +
+                ".push_back(std::any(BallDyn(__sp))); }";
+            if (fn == "null_spread") {
+                // `...?x`: contribute nothing when x is null.
+                return "{ auto __spv = BallDyn(" + val +
+                       "); if (__spv.has_value()) { for (auto __sp : __spv) { " +
+                       list_var + ".push_back(std::any(BallDyn(__sp))); } } }";
+            }
+            return spread;
+        }
+        // Nested collection_for: emit a for-loop that appends each body element
+        // into the SAME list_var (rather than a self-contained IIFE, which would
+        // nest a sub-list as a single element).
+        if (fn == "collection_for") {
+            auto* body_expr = get_message_field_expr(call, "body");
+            std::string body_stmts =
+                body_expr ? compile_collection_element(*body_expr, list_var)
+                          : "";
+            auto* iter_e = get_message_field_expr(call, "iterable");
+            if (iter_e) {
+                auto* var_expr = get_message_field_expr(call, "variable");
+                std::string var_name = "item";
+                if (var_expr &&
+                    var_expr->expr_case() == ball::v1::Expression::kLiteral)
+                    var_name = var_expr->literal().string_value();
+                auto vn = ball_local_var_name(sanitize_name(var_name));
+                return "for (auto " + vn + " : BallDyn(" + compile_expr(*iter_e) +
+                       ")) { " + body_stmts + " }";
+            }
+            // C-style collection_for.
+            std::string header = _render_collection_for_cstyle_header(call);
+            if (!header.empty()) return header + " { " + body_stmts + " }";
+            return "/* invalid nested collection_for */";
+        }
+        // Nested collection_if: conditional append.
+        if (fn == "collection_if") {
+            auto* cond_e = get_message_field_expr(call, "condition");
+            auto* then_e = get_message_field_expr(call, "then");
+            auto* else_e = get_message_field_expr(call, "else");
+            std::string cond = cond_e ? compile_expr(*cond_e) : "false";
+            std::string result =
+                "if (_ball_pred_true(" + cond + ")) { " +
+                (then_e ? compile_collection_element(*then_e, list_var) : "") +
+                " }";
+            if (else_e) {
+                result += " else { " +
+                          compile_collection_element(*else_e, list_var) + " }";
+            }
+            return result;
+        }
+    }
+    // Plain element.
+    return list_var + ".push_back(std::any(BallDyn(" + compile_expr(e) + ")));";
+}
+
+// Splices a single map collection element into the BallOrderedMap `map_var`,
+// emitting C++ statements. Handles map spread (`...m` / `...?m`), key/value
+// entry sentinels, nested map comprehensions (collection_for/collection_if),
+// and plain key/value entries.
+std::string CppCompiler::compile_map_collection_element(
+    const ball::v1::Expression& e, const std::string& map_var) {
+    // Direct key/value sentinel: `k: v`.
+    if (_isMapEntrySentinel(e)) {
+        return compile_map_entry_insert(e, map_var);
+    }
+    if (e.expr_case() == ball::v1::Expression::kCall) {
+        const auto& call = e.call();
+        const auto& fn = call.function();
+        // Map spread: copy every entry of the operand map into map_var, in
+        // insertion order. ball_map_entries yields a BallList of {key,value}
+        // maps; re-stringify the key so the merge matches plain map literals.
+        if (fn == "spread" || fn == "null_spread") {
+            auto* val_e = get_message_field_expr(call, "value");
+            std::string val = val_e ? compile_expr(*val_e) : "BallDyn()";
+            std::string loop =
+                "for (auto __me : ball_map_entries(BallDyn(" + val + "))) { " +
+                map_var + "[ball_to_string(__me[\"key\"s])] = "
+                "std::any(BallDyn(__me[\"value\"s])); }";
+            if (fn == "null_spread") {
+                return "{ auto __mspv = BallDyn(" + val +
+                       "); if (__mspv.has_value()) { for (auto __me : "
+                       "ball_map_entries(__mspv)) { " +
+                       map_var + "[ball_to_string(__me[\"key\"s])] = "
+                       "std::any(BallDyn(__me[\"value\"s])); } } }";
+            }
+            return loop;
+        }
+        // Nested map comprehension: recurse over its body / then-else.
+        if (fn == "collection_for") {
+            auto* body_expr = get_message_field_expr(call, "body");
+            std::string body_stmts =
+                body_expr ? compile_map_collection_element(*body_expr, map_var)
+                          : "";
+            auto* iter_e = get_message_field_expr(call, "iterable");
+            if (iter_e) {
+                auto* var_expr = get_message_field_expr(call, "variable");
+                std::string var_name = "item";
+                if (var_expr &&
+                    var_expr->expr_case() == ball::v1::Expression::kLiteral)
+                    var_name = var_expr->literal().string_value();
+                auto vn = ball_local_var_name(sanitize_name(var_name));
+                return "for (auto " + vn + " : BallDyn(" + compile_expr(*iter_e) +
+                       ")) { " + body_stmts + " }";
+            }
+            std::string header = _render_collection_for_cstyle_header(call);
+            if (!header.empty()) return header + " { " + body_stmts + " }";
+            return "/* invalid nested map collection_for */";
+        }
+        if (fn == "collection_if") {
+            auto* cond_e = get_message_field_expr(call, "condition");
+            auto* then_e = get_message_field_expr(call, "then");
+            auto* else_e = get_message_field_expr(call, "else");
+            std::string cond = cond_e ? compile_expr(*cond_e) : "false";
+            std::string result =
+                "if (_ball_pred_true(" + cond + ")) { " +
+                (then_e ? compile_map_collection_element(*then_e, map_var) : "") +
+                " }";
+            if (else_e) {
+                result += " else { " +
+                          compile_map_collection_element(*else_e, map_var) + " }";
+            }
+            return result;
+        }
+    }
+    // Fallback: treat as a statement (e.g. an already-compiled insert).
+    return compile_expr(e) + ";";
+}
+
 // ================================================================
 // Function call compilation
 // ================================================================
@@ -4511,14 +4723,23 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 elements_expr->literal().value_case() == ball::v1::Literal::kListValue) {
                 const auto& elems = elements_expr->literal().list_value().elements();
                 if (elems.size() == 1) {
-                    // Single element: compile directly (collection_for handles
-                    // map vs list detection internally).
-                    return compile_expr(elems.Get(0));
+                    const auto& only = elems.Get(0);
+                    // A lone collection_for is delegated directly: its branch
+                    // does map-vs-list detection (`{for(x in xs) x: x*x}` is a
+                    // map comprehension) and self-splices. Other lone elements
+                    // (spread / collection_if) go through the splice helper so
+                    // `{...s}` flattens instead of nesting.
+                    if (only.expr_case() == ball::v1::Expression::kCall &&
+                        only.call().function() == "collection_for") {
+                        return compile_expr(only);
+                    }
                 }
-                // Multiple elements: build a list.
+                // Build a set/list, splicing spread / collection_for /
+                // collection_if elements via compile_collection_element
+                // (issue #55: previously spread NESTED, comprehensions dropped).
                 std::string result = "[&]() -> BallDyn { BallList __r; ";
                 for (const auto& el : elems) {
-                    result += "__r.push_back(std::any(BallDyn(" + compile_expr(el) + "))); ";
+                    result += compile_collection_element(el, "__r") + " ";
                 }
                 result += "return BallDyn(__r); }()";
                 return result;
@@ -4565,9 +4786,12 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                             }
                         }
                     } else if (f.name() == "element") {
-                        // Comprehension element (collection_for / collection_if):
-                        // compile it as a statement that inserts into __m.
-                        result += compile_expr(f.value()) + "; ";
+                        // Comprehension / spread element (collection_for /
+                        // collection_if / spread): splice entries INTO __m via
+                        // the helper. compile_expr alone would build a SEPARATE
+                        // map (or return the spread operand) and discard it as a
+                        // dead statement — dropping the entries (issue #55).
+                        result += compile_map_collection_element(f.value(), "__m") + " ";
                     } else {
                         // Non-entry field: use field name as key
                         result += "__m[\"" + f.name() + "\"] = std::any(" + compile_expr(f.value()) + "); ";
@@ -4621,6 +4845,36 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                                           ")] = std::any(" + val_expr + "); ";
                             }
                         }
+                    }
+                    result += "return __m; }()";
+                    return result;
+                }
+            }
+            // Comprehension / spread map literal: one or more `element` fields
+            // (collection_for / collection_if / spread) with no `entry`. Each
+            // element splices INTO __m via the helper. `{for(x in xs) x: x*x}`
+            // and `{for(i=1;i<=3;i++) i: i*i}` land here; without this branch the
+            // direct-field fallback below would emit a phantom `__m["element"]`
+            // entry holding a discarded sub-map (issue #55).
+            {
+                bool has_element = false;
+                bool only_element_and_meta = true;
+                for (const auto& f : call.input().message_creation().fields()) {
+                    if (f.name() == "type_args" || f.name() == "__type_args__")
+                        continue;
+                    if (f.name() == "element") has_element = true;
+                    else only_element_and_meta = false;
+                }
+                if (has_element && only_element_and_meta) {
+                    std::string result = "[&]() { BallOrderedMap __m; ";
+                    for (const auto& f :
+                         call.input().message_creation().fields()) {
+                        if (f.name() == "type_args" ||
+                            f.name() == "__type_args__")
+                            continue;
+                        result +=
+                            compile_map_collection_element(f.value(), "__m") +
+                            " ";
                     }
                     result += "return __m; }()";
                     return result;
@@ -4896,37 +5150,50 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         if (var_expr && var_expr->expr_case() == ball::v1::Expression::kLiteral)
             var_name = var_expr->literal().string_value();
         auto vn = ball_local_var_name(sanitize_name(var_name));
-        auto iter = get_message_field(call, "iterable");
+        auto* iter_expr = get_message_field_expr(call, "iterable");
+        // Build the loop header. for-each iterates an iterable; C-style uses
+        // init/condition/update (issue #55: a list-comprehension C-style for had
+        // no `iterable` field, so the loop body was never emitted).
+        std::string header;
+        if (iter_expr) {
+            header = "for (auto " + vn + " : BallDyn(" + compile_expr(*iter_expr) + "))";
+        } else {
+            header = _render_collection_for_cstyle_header(call);
+        }
         if (fn == "collection_for") {
             auto* body_expr = get_message_field_expr(call, "body");
+            if (header.empty())
+                return "/* invalid collection_for (no iterable / init) */ BallDyn()";
             if (body_expr && _bodyProducesMapEntries(*body_expr)) {
                 // Map comprehension: build an insertion-ordered BallOrderedMap
                 // (NOT a key-sorted std::map). Dart map comprehensions preserve
                 // insertion order (LinkedHashMap); a std::map re-sorts keys,
                 // which corrupts e.g. JSON encoding order (`{"name":..,"age":..}`
                 // became `{"age":..,"name":..}`). BallOrderedMap::operator[] is
-                // assignable, so compile_map_entry_insert works unchanged, and
-                // `BallDyn(BallOrderedMap)` wraps it reference-semantically.
-                std::string result = "[&]() -> BallDyn { BallOrderedMap __m; for (auto " +
-                    vn + " : BallDyn(" + iter + ")) { ";
-                if (_isMapEntrySentinel(*body_expr)) {
-                    // Direct map entry: e.key: e.value
-                    result += compile_map_entry_insert(*body_expr, "__m");
-                } else {
-                    // Nested collection_if or collection_for — compile as
-                    // statements that insert into __m.
-                    result += compile_expr(*body_expr) + ";";
-                }
-                result += " } return BallDyn(__m); }()";
+                // assignable and `BallDyn(BallOrderedMap)` wraps it
+                // reference-semantically.
+                std::string result =
+                    "[&]() -> BallDyn { BallOrderedMap __m; " + header + " { " +
+                    compile_map_collection_element(*body_expr, "__m") +
+                    " } return BallDyn(__m); }()";
                 return result;
             }
-            auto body = body_expr ? compile_expr(*body_expr) : "BallDyn()";
-            return "[&]() -> BallDyn { BallList __r; for (auto " + vn + " : BallDyn(" + iter +
-                   ")) { __r.push_back(std::any(BallDyn(" + body + "))); } return BallDyn(__r); }()";
+            // List/set comprehension. compile_collection_element splices nested
+            // spread / collection_for / collection_if bodies into __r (so e.g.
+            // `[for (x in a) ...[x, x*10]]` flattens rather than nesting).
+            std::string body_stmts =
+                body_expr ? compile_collection_element(*body_expr, "__r")
+                          : "";
+            return "[&]() -> BallDyn { BallList __r; " + header + " { " +
+                   body_stmts + " } return BallDyn(__r); }()";
         }
+        // for_in as a statement-position expression (side-effecting): run the
+        // body for effect.
+        if (header.empty())
+            return "/* invalid for_in (no iterable / init) */ BallDyn()";
         auto body = get_message_field(call, "body");
-        return "[&]() -> BallDyn { for (auto " + vn + " : BallDyn(" + iter +
-               ")) { (void)(" + body + "); } return BallDyn(); }()";
+        return "[&]() -> BallDyn { " + header + " { (void)(" + body +
+               "); } return BallDyn(); }()";
     }
 
     // Default: unknown std call → comment marker

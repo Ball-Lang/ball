@@ -3612,11 +3612,196 @@ function __isUnknownFnError(e: any): boolean {
     if (lit.stringValue !== undefined) return jsStringLiteral(lit.stringValue);
     if (lit.boolValue !== undefined) return lit.boolValue ? "true" : "false";
     if (lit.listValue) {
-      const parts = (lit.listValue.elements ?? []).map((x) => this.expr(x));
-      return `[${parts.join(", ")}]`;
+      return this.compileListElements(lit.listValue.elements ?? []);
     }
     if (lit.bytesValue !== undefined) return "/* bytes */ new Uint8Array()";
     return "null";
+  }
+
+  // ─────────────── Collection elements (issue #55) ───────────────────
+  //
+  // List/set/map literals may contain "collection elements" that are NOT
+  // plain values: spread (`...x`), null-spread (`...?x`), collection-if
+  // (`[for/if (c) e]`) and collection-for (both for-each and C-style). TS
+  // has no collection-literal element syntax, so when any of these appear
+  // we build the container imperatively inside an IIFE. Plain literals keep
+  // the simple `[...]` / `new Set([...])` / `{...}` fast path.
+
+  private isCollectionControlElement(e: Expression): boolean {
+    const c = e.call;
+    if (!c || !isStd(c.module)) return false;
+    return (
+      c.function === "spread" ||
+      c.function === "null_spread" ||
+      c.function === "collection_if" ||
+      c.function === "collection_for"
+    );
+  }
+
+  /** Build a TS list expression from collection elements. */
+  private compileListElements(elements: Expression[]): string {
+    if (!elements.some((e) => this.isCollectionControlElement(e))) {
+      return `[${elements.map((x) => this.expr(x)).join(", ")}]`;
+    }
+    const body = elements
+      .map((e) => this.emitCollectionElement(e, "list", "__r"))
+      .join(" ");
+    return `(() => { const __r: any[] = []; ${body} return __r; })()`;
+  }
+
+  /** Build a TS Set expression from collection elements. */
+  private compileSetElements(elements: Expression[]): string {
+    if (!elements.some((e) => this.isCollectionControlElement(e))) {
+      return `new Set([${elements.map((x) => this.expr(x)).join(", ")}])`;
+    }
+    const body = elements
+      .map((e) => this.emitCollectionElement(e, "set", "__r"))
+      .join(" ");
+    return `(() => { const __r = new Set<any>(); ${body} return __r; })()`;
+  }
+
+  /**
+   * Build a TS plain-object map expression from collection map-entry
+   * elements. Each element is either an `entry` (key/value messageCreation),
+   * a spread/null_spread of another map, or a collection_if/collection_for
+   * whose leaves are key/value entries.
+   */
+  private compileMapElements(elements: Expression[]): string {
+    if (!elements.some((e) => this.isCollectionControlElement(e))) {
+      const pairs = elements.map((e) => this.mapEntryPair(e)).filter((p) => p !== undefined);
+      return `{${pairs.join(", ")}}`;
+    }
+    const body = elements
+      .map((e) => this.emitCollectionElement(e, "map", "__r"))
+      .join(" ");
+    return `(() => { const __r: Record<string, any> = {}; ${body} return __r; })()`;
+  }
+
+  /** Render a single non-control map entry as `key: value`, or undefined. */
+  private mapEntryPair(e: Expression): string | undefined {
+    const mc = e.messageCreation;
+    if (mc) {
+      const k = (mc.fields ?? []).find((f) => f.name === "key")?.value;
+      const v = (mc.fields ?? []).find((f) => f.name === "value")?.value;
+      if (k && v) return `[${this.expr(k)}]: ${this.expr(v)}`;
+    }
+    return undefined;
+  }
+
+  /**
+   * Emit statements that push/add/assign one collection element into the
+   * accumulator `sink`. `kind` selects the sink operation:
+   *   list → `sink.push(v)`   set → `sink.add(v)`   map → `sink[k] = v`.
+   */
+  private emitCollectionElement(
+    e: Expression,
+    kind: "list" | "set" | "map",
+    sink: string,
+  ): string {
+    const c = e.call;
+    if (c && isStd(c.module)) {
+      const f = fieldMap(c.input?.messageCreation?.fields ?? []);
+      switch (c.function) {
+        case "spread":
+        case "null_spread": {
+          const v = f.get("value");
+          const nullAware = c.function === "null_spread";
+          if (kind === "map") {
+            // Spread of another map: copy its entries. null_spread treats a
+            // null / uninitialized operand as the empty map.
+            const src = v
+              ? nullAware
+                ? `(__ball_spread_iter(${this.expr(v)}) || {})`
+                : this.expr(v)
+              : "{}";
+            return `{ const __m = ${src}; for (const __k in __m) { ${sink}[__k] = __m[__k]; } }`;
+          }
+          const iter = v
+            ? nullAware
+              ? `__ball_spread_iter(${this.expr(v)})`
+              : this.expr(v)
+            : "[]";
+          const op = kind === "set" ? "add" : "push";
+          return `for (const __e of ${iter}) { ${sink}.${op}(__e); }`;
+        }
+        case "collection_if": {
+          const cond = f.get("condition");
+          const then_ = f.get("then");
+          const else_ = f.get("else");
+          const condStr = cond ? this.expr(cond) : "false";
+          const thenStr = then_
+            ? this.emitCollectionElement(then_, kind, sink)
+            : "";
+          if (else_) {
+            const elseStr = this.emitCollectionElement(else_, kind, sink);
+            return `if (${condStr}) { ${thenStr} } else { ${elseStr} }`;
+          }
+          return `if (${condStr}) { ${thenStr} }`;
+        }
+        case "collection_for": {
+          const body = f.get("body");
+          if (!body) return "";
+          const inner = this.emitCollectionElement(body, kind, sink);
+          const iterable = f.get("iterable");
+          if (iterable) {
+            const variable =
+              f.get("variable")?.literal?.stringValue ?? "item";
+            return `for (const ${sanitize(variable)} of ${this.expr(iterable)}) { ${inner} }`;
+          }
+          // C-style: init (single-let block) / condition / update.
+          const initField = f.get("init");
+          const cond = f.get("condition");
+          const update = f.get("update");
+          const initStr = initField ? this.renderForInit(initField) : "";
+          const condStr = cond ? this.expr(unwrapLambda(cond)) : "";
+          const updStr = update ? this.expr(unwrapLambda(update)) : "";
+          return `for (${initStr}; ${condStr}; ${updStr}) { ${inner} }`;
+        }
+      }
+    }
+    // Plain element.
+    if (kind === "map") {
+      const pair = this.mapEntryPair(e);
+      if (pair !== undefined) {
+        // pair is `[k]: v` — re-extract key/value for imperative assignment.
+        const mc = e.messageCreation!;
+        const k = (mc.fields ?? []).find((fd) => fd.name === "key")!.value;
+        const v = (mc.fields ?? []).find((fd) => fd.name === "value")!.value;
+        return `${sink}[${this.expr(k)}] = ${this.expr(v)};`;
+      }
+      return "";
+    }
+    const op = kind === "set" ? "add" : "push";
+    return `${sink}.${op}(${this.expr(e)});`;
+  }
+
+  /**
+   * Render a C-style for-init `block` (a single-let, no-result block) as an
+   * inline declaration string like `var i = 0` — NOT an IIFE, so the loop
+   * variable stays in scope for the condition/update. Mirrors the Dart
+   * compiler's `_renderForInit`. Uses `var` to match Dart's shared-variable
+   * loop-capture semantics. Returns "" on an unrecognized shape.
+   */
+  private renderForInit(initExpr: Expression): string {
+    const block = initExpr.block;
+    if (!block || (block.statements ?? []).length === 0 || block.result !== undefined) {
+      // Fall back to whatever the expression compiles to.
+      return this.expr(initExpr);
+    }
+    const bindings: string[] = [];
+    for (const s of block.statements ?? []) {
+      if (!s.let) return this.expr(initExpr);
+      const name = sanitize(s.let.name);
+      const value = s.let.value;
+      const isNoInit =
+        value?.reference?.name === "__no_init__";
+      if (value !== undefined && !isNoInit) {
+        bindings.push(`${name} = ${this.expr(value)}`);
+      } else {
+        bindings.push(name);
+      }
+    }
+    return bindings.length > 0 ? `var ${bindings.join(", ")}` : "";
   }
 
   private compileFieldAccess(fa: NonNullable<Expression["fieldAccess"]>): string {
@@ -4198,44 +4383,45 @@ function __isUnknownFnError(e: any): boolean {
         return `new Map([${pairs.join(", ")}])`;
       }
       case "set_create": {
-        const elements: string[] = [];
+        // Collect set elements: either a single `elements`/`element` list
+        // field, or one element per input field. Spread / collection-for /
+        // collection-if elements are handled by compileSetElements via an
+        // imperative IIFE (issue #55).
+        const elems: Expression[] = [];
         const inputFields = call.input?.messageCreation?.fields ?? [];
         for (const fd of inputFields) {
           if (fd.name === "elements" || fd.name === "element") {
-            // The `elements` field contains a list of set elements.
-            const listElems = fd.value?.literal?.listValue?.elements ?? [];
-            if (listElems.length === 0) return "new Set()";
-            for (const el of listElems) {
-              elements.push(this.expr(el));
+            // A list-literal value carries the elements (possibly EMPTY —
+            // an empty `{}` Map encodes as set_create with an empty
+            // `elements` listValue, so never treat the wrapper itself as a
+            // member). A non-list value is a single element.
+            if (fd.value?.literal?.listValue !== undefined) {
+              elems.push(...(fd.value.literal.listValue.elements ?? []));
+            } else if (fd.value) {
+              elems.push(fd.value);
             }
           } else if (fd.name !== "__type_args__" && fd.name !== "__const__") {
-            elements.push(this.expr(fd.value));
+            elems.push(fd.value);
           }
         }
-        if (elements.length === 0) return "new Set()";
-        return `new Set([${elements.join(", ")}])`;
+        if (elems.length === 0) return "new Set()";
+        return this.compileSetElements(elems);
       }
       case "map_create": {
-        // map_create can have entries passed as `entry` fields on the
-        // input MessageCreation. Each entry is a message with key/value.
-        // Emit as plain object {} (not new Map()) — JS Map doesn't
-        // support bracket access (m['k'] = v) but the compiled engine
-        // uses it throughout.
-        const mapEntries: string[] = [];
+        // map_create entries arrive as `entry` fields (key/value message)
+        // and/or `element` fields (spread / collection_for / collection_if
+        // map-entries, issue #55). Emit as a plain object {} (not new Map())
+        // — JS Map doesn't support bracket access (m['k'] = v) which the
+        // compiled engine uses throughout.
+        const mapElems: Expression[] = [];
         const inputFields = call.input?.messageCreation?.fields ?? [];
         for (const fd of inputFields) {
-          if (fd.name === "entry" && fd.value.messageCreation) {
-            const mc = fd.value.messageCreation;
-            const mFields = mc.fields ?? [];
-            const kf = mFields.find((f: any) => f.name === "key");
-            const vf = mFields.find((f: any) => f.name === "value");
-            if (kf && vf) {
-              mapEntries.push(`${this.expr(kf.value)}: ${this.expr(vf.value)}`);
-            }
+          if (fd.name === "entry" || fd.name === "element") {
+            mapElems.push(fd.value);
           }
         }
-        if (mapEntries.length === 0) return "{}";
-        return `{${mapEntries.join(", ")}}`;
+        if (mapElems.length === 0) return "{}";
+        return this.compileMapElements(mapElems);
       }
       case "record": {
         const positional: string[] = [];
@@ -4746,17 +4932,19 @@ function __isUnknownFnError(e: any): boolean {
             const to = this.expr(fg("to", "replacement", "arg2")!);
             return `${s}.split(${from}).join(${to})`;
           }
-          case "collection_if": {
-            const cond = this.expr(f.get("condition")!);
-            const then_ = f.get("then");
-            const else_ = f.get("else");
-            return else_ ? `(${cond} ? ${this.expr(then_!)} : ${this.expr(else_)})` : `(${cond} ? ${this.expr(then_!)} : undefined)`;
-          }
+          case "collection_if":
           case "collection_for": {
-            const variable = f.get("variable")?.literal?.stringValue ?? "item";
-            const iterable = this.expr(f.get("iterable")!);
-            const body = this.expr(f.get("body")!);
-            return `${iterable}.map((${variable}: any) => ${body})`;
+            // Reached only when a collection control element is compiled
+            // outside a list/set/map literal context (the literal/set_create/
+            // map_create paths route through emitCollectionElement directly).
+            // Build a list imperatively so spread/nested/C-style forms work
+            // and a no-else collection_if contributes nothing (issue #55).
+            const body = this.emitCollectionElement(
+              { call } as Expression,
+              "list",
+              "__r",
+            );
+            return `(() => { const __r: any[] = []; ${body} return __r; })()`;
           }
           default: {
             const args = Array.from(f.values()).map((e) => this.expr(e)).join(", ");

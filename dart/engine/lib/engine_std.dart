@@ -369,8 +369,13 @@ extension BallEngineStd on BallEngine {
       'map_create': _stdMapCreate,
       'set_create': _stdSetCreate,
       'record': _stdRecord,
-      'collection_if': (_) => null,
-      'collection_for': (_) => null,
+      // collection_if/collection_for are spliced lazily by the list/set/map
+      // literal evaluators and must never be dispatched as a plain call. The
+      // old `(_) => null` no-ops silently dropped comprehension elements that
+      // escaped splicing — the silent-degradation amplifier behind issue #55.
+      // Fail loud instead so any such escape surfaces immediately.
+      'collection_if': _collectionMisuse,
+      'collection_for': _collectionMisuse,
 
       // std_collections — list operations
       'list_push': (i) {
@@ -1344,17 +1349,22 @@ extension BallEngineStd on BallEngine {
 
   FutureOr<Object?> _stdPrint(Object? input) async {
     final m = _stdAsMap(input);
-    if (m != null) {
+    if (m != null &&
+        (m.containsKey('message') ||
+            m.containsKey('arg0') ||
+            m.containsKey('value'))) {
       // Accept the canonical `message` key first, then fall back to the
       // generic positional `arg0` and `value` keys that other encoders
       // use. This keeps the live engine, the round-tripped Dart engine,
       // and the cross-language conformance harness in sync without
       // requiring every fixture to pre-rename its print arg.
+      //
+      // Use containsKey (not `!= null`): `print(null)` carries a present-but-
+      // null `message` and must print "null", not fall through to dumping the
+      // PrintInput wrapper object.
       final message = m['message'] ?? m['arg0'] ?? m['value'];
-      if (message != null) {
-        stdout(await _ballToStringAsync(message));
-        return null;
-      }
+      stdout(await _ballToStringAsync(message));
+      return null;
     }
     stdout(await _ballToStringAsync(input));
     return null;
@@ -1385,6 +1395,18 @@ extension BallEngineStd on BallEngine {
         parts.add(await _ballToStringAsync(item));
       }
       return '[${parts.join(', ')}]';
+    }
+    if (v is Set) {
+      // Stringify sets explicitly as `{a, b, c}`. Do NOT rely on the platform
+      // Set.toString(): on the Dart engine it happens to print `{...}`, but the
+      // compiled TS engine's JS `Set` would fall into the object branch and
+      // print `{}` (Object.keys is empty), and C++ likewise. (issue #55 corpus
+      // never printed a set directly — only via .toList().)
+      final parts = <String>[];
+      for (final item in v) {
+        parts.add(await _ballToStringAsync(item));
+      }
+      return '{${parts.join(', ')}}';
     }
     // BallException: return message/value directly without invoking toString
     // to prevent infinite recursion when exceptions are caught and stringified.
@@ -1747,6 +1769,19 @@ extension BallEngineStd on BallEngine {
       return elementsList.toSet();
     }
     return <Object?>{};
+  }
+
+  /// Fail-loud guard for collection_if / collection_for. These must be spliced
+  /// into a list/set/map literal by the literal evaluator
+  /// ([_addCollectionElement] / [_addMapCollectionElement]); reaching the eager
+  /// std dispatch means a comprehension element escaped splicing. Throwing
+  /// (instead of returning null) converts a silent-wrong-output into a loud,
+  /// debuggable failure — the core lesson of issue #55.
+  Object? _collectionMisuse(Object? _) {
+    throw BallRuntimeError(
+      'collection_for/collection_if must appear directly inside a list, set, '
+      'or map literal and cannot be evaluated as a standalone call.',
+    );
   }
 
   Object? _stdRecord(Object? input) {

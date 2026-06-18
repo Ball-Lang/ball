@@ -4424,13 +4424,19 @@ class DartCompiler {
       return 'for (final $variable in ${_e(iterable)}) ${_e(body)}';
     }
     // C-style form: `for (init; condition; update) body`. The encoder sends
-    // `init` as a raw string (variable declarations) and `condition`/`update`
-    // as expressions.
-    final init = _stringFieldValue(f, 'init');
+    // `init` as a block of let-declarations (current) or, historically, a raw
+    // string. Render the block INLINE as `var i = 0` via _renderForInit — NOT
+    // through _e(), which would lower the block to an IIFE `(() {var i=0;})()`
+    // whose `i` is out of scope in the condition/update (issue #55).
+    final initField = f['init'];
     final cond = f['condition'];
     final update = f['update'];
-    if (init != null || cond != null || update != null) {
-      final initStr = init ?? (f['init'] != null ? _e(f['init']!) : '');
+    if (initField != null || cond != null || update != null) {
+      final initStr =
+          _stringFieldValue(f, 'init') ??
+          (initField != null
+              ? (_renderForInit(initField) ?? _e(initField))
+              : '');
       final condStr = cond != null ? _e(cond) : '';
       final updStr = update != null ? _e(update) : '';
       return 'for ($initStr; $condStr; $updStr) ${_e(body)}';

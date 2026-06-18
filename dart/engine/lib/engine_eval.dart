@@ -141,6 +141,10 @@ extension BallEngineEval on BallEngine {
           return _evalYield(call, scope);
         case 'yield_each':
           return _evalYieldEach(call, scope);
+        case 'map_create':
+          // Lazy so comprehension/spread elements splice into entries before
+          // key stringification (the eager _stdMapCreate path cannot).
+          return _evalLazyMapCreate(call, scope);
       }
     }
 
@@ -317,24 +321,15 @@ extension BallEngineEval on BallEngine {
     };
   }
 
-  /// Evaluates a list literal, handling collection_if and collection_for.
+  /// Evaluates a list literal, splicing collection_if / collection_for /
+  /// spread elements. Set literals route their `elements` through here too
+  /// (the encoder wraps set elements in a ListLiteral), so this single path
+  /// gives list AND set comprehensions/spreads correct semantics.
   Future<BallList> _evalListLiteral(ListLiteral listVal, _Scope scope) async {
     final result = <Object?>[];
     _trackMemoryAllocation(listVal.elements.length * _ballPointerBytes);
     for (final element in listVal.elements) {
-      if (element.hasCall()) {
-        final call = element.call;
-        final fn = call.function;
-        if (call.module == 'std' && fn == 'collection_if') {
-          await _evalCollectionIf(call, scope, result);
-          continue;
-        }
-        if (call.module == 'std' && fn == 'collection_for') {
-          await _evalCollectionFor(call, scope, result);
-          continue;
-        }
-      }
-      result.add(await _evalExpression(element, scope));
+      await _addCollectionElement(element, scope, result);
     }
     return BallList(result);
   }
@@ -364,29 +359,69 @@ extension BallEngineEval on BallEngine {
     }
   }
 
-  /// Evaluates collection_for: for (var in iterable) body
+  /// Evaluates collection_for inside a list/set literal, splicing each produced
+  /// element into [result]. Handles BOTH shapes the encoder emits:
+  ///   * for-each: `variable` + `iterable` + `body`
+  ///   * C-style:  `init` + `condition` + `update` + `body`
+  /// The C-style branch mirrors [_evalLazyFor]'s fresh-per-iteration binding so
+  /// closures created in the body capture each iteration's value.
   Future<void> _evalCollectionFor(
     FunctionCall call,
     _Scope scope,
     List<Object?> result,
   ) async {
     final fields = _lazyFields(call);
-    final variable = _stringFieldVal(fields, 'variable');
-    final iterableExpr = fields['iterable'];
     final bodyExpr = fields['body'];
-    if (iterableExpr == null || bodyExpr == null) return;
-    final iterable = await _evalExpression(iterableExpr, scope);
-    final iterableList = _asList(iterable);
-    if (iterableList == null) return;
-    for (final item in iterableList) {
+    if (bodyExpr == null) {
+      throw BallRuntimeError('collection_for: missing body');
+    }
+    final iterableExpr = fields['iterable'];
+    if (iterableExpr != null) {
+      // for-each: `for (var x in iterable) body`
+      final variable = _stringFieldVal(fields, 'variable');
+      final varName = (variable == null || variable.isEmpty)
+          ? 'item'
+          : variable;
+      final iterable = await _evalExpression(iterableExpr, scope);
+      for (final item in _toIterable(iterable)) {
+        _trackMemoryAllocation(_ballPointerBytes);
+        final loopScope = scope.child();
+        loopScope.bind(varName, item);
+        await _addCollectionElement(bodyExpr, loopScope, result);
+      }
+      return;
+    }
+    // C-style: `for (init; condition; update) body`.
+    final condition = fields['condition'];
+    final update = fields['update'];
+    final initExpr = fields['init'];
+    if (initExpr == null && condition == null && update == null) {
+      throw BallRuntimeError(
+        'collection_for: unrecognized loop shape '
+        '(no iterable and no init/condition/update)',
+      );
+    }
+    final forScope = scope.child();
+    final loopVars = <String>[];
+    await _evalForInit(initExpr, forScope, loopVars);
+    while (true) {
+      final iterScope = forScope.child();
+      for (final v in loopVars) {
+        iterScope.bind(v, forScope.lookup(v));
+      }
+      if (condition == null) break; // no condition would loop forever
+      if (!_toBool(await _evalExpression(condition, iterScope))) break;
       _trackMemoryAllocation(_ballPointerBytes);
-      final loopScope = scope.child();
-      loopScope.bind((variable ?? '').isEmpty ? 'item' : variable!, item);
-      await _addCollectionElement(bodyExpr, loopScope, result);
+      await _addCollectionElement(bodyExpr, iterScope, result);
+      for (final v in loopVars) {
+        forScope.bind(v, iterScope.lookup(v));
+      }
+      if (update != null) await _evalExpression(update, forScope);
     }
   }
 
-  /// Adds a collection element, recursively handling nested collection_if/for.
+  /// Adds a list/set collection element, splicing nested collection_if /
+  /// collection_for / spread (`...x` / `...?x`).
   Future<void> _addCollectionElement(
     Expression expr,
     _Scope scope,
@@ -403,9 +438,215 @@ extension BallEngineEval on BallEngine {
         await _evalCollectionFor(call, scope, result);
         return;
       }
+      if (call.module == 'std' && (fn == 'spread' || fn == 'null_spread')) {
+        await _spliceSpread(call, scope, result, fn == 'null_spread');
+        return;
+      }
     }
     _trackMemoryAllocation(_ballPointerBytes);
     result.add(await _evalExpression(expr, scope));
+  }
+
+  /// Splices a spread element (`...value` / `...?value`) into a list/set:
+  /// evaluates the operand and adds each of ITS items (not the collection
+  /// itself). A null operand under null-aware spread contributes nothing.
+  Future<void> _spliceSpread(
+    FunctionCall call,
+    _Scope scope,
+    List<Object?> result,
+    bool nullAware,
+  ) async {
+    final fields = _lazyFields(call);
+    final valueExpr = fields['value'];
+    if (valueExpr == null) return;
+    final value = await _evalExpression(valueExpr, scope);
+    if (nullAware && value == null) return;
+    // Append per-item with .add (NOT .addAll): the self-host encoder routes
+    // `.addAll` to the non-mutating `list_concat`, which would silently drop
+    // the spliced items on the TS/C++ engines (.claude/rules/dart.md).
+    for (final it in _toIterable(value)) {
+      _trackMemoryAllocation(_ballPointerBytes);
+      result.add(it);
+    }
+  }
+
+  // ---- Map literals ----
+  // Evaluated lazily so comprehension/spread elements are spliced BEFORE keys
+  // are stringified; the eager `_stdMapCreate` path can't (a collection_for
+  // element would hit the fail-loud `_collectionMisuse` no-op).
+
+  /// Evaluates a `map_create` call, splicing collection_for / collection_if /
+  /// spread elements into entries. Keys are stringified identically to
+  /// [_stdMapCreate] so comprehension maps match plain map literals.
+  Future<Object?> _evalLazyMapCreate(FunctionCall call, _Scope scope) async {
+    if (!call.hasInput() ||
+        call.input.whichExpr() != Expression_Expr.messageCreation) {
+      // Non-literal shape — fall back to the eager builder.
+      final input = call.hasInput()
+          ? await _evalExpression(call.input, scope)
+          : null;
+      return _stdMapCreate(input);
+    }
+    final result = _ballUserMap();
+    for (final pair in call.input.messageCreation.fields) {
+      final name = pair.name;
+      if (name == 'entry' || name == 'entries') {
+        await _addMapEntryExpr(pair.value, scope, result);
+      } else if (name == 'element') {
+        await _addMapCollectionElement(pair.value, scope, result);
+      }
+      // 'type_args' and any unknown field: ignore.
+    }
+    return result;
+  }
+
+  /// Evaluates a map-entry expression (a `{key, value}` message, or a list of
+  /// them) and puts each into [result], matching [_stdMapCreate]'s key
+  /// stringification.
+  Future<void> _addMapEntryExpr(
+    Expression entryExpr,
+    _Scope scope,
+    Map<Object?, Object?> result,
+  ) async {
+    await _putMapEntryValue(await _evalExpression(entryExpr, scope), result);
+  }
+
+  Future<void> _putMapEntryValue(
+    Object? val,
+    Map<Object?, Object?> result,
+  ) async {
+    final list = _asList(val);
+    if (list != null) {
+      for (final e in list) {
+        await _putMapEntryValue(e, result);
+      }
+      return;
+    }
+    final em = _asMap(val);
+    if (em == null) return;
+    _trackMemoryAllocation(_ballMapEntryBytes);
+    final key = await _ballToStringAsync(em['key'] ?? em['name']);
+    result[key] = em['value'];
+  }
+
+  /// Splices a map collection element (nested collection_for / collection_if /
+  /// spread, or a leaf `{key, value}` entry) into [result].
+  Future<void> _addMapCollectionElement(
+    Expression expr,
+    _Scope scope,
+    Map<Object?, Object?> result,
+  ) async {
+    if (expr.hasCall()) {
+      final call = expr.call;
+      final fn = call.function;
+      if (call.module == 'std' && fn == 'collection_if') {
+        await _evalMapCollectionIf(call, scope, result);
+        return;
+      }
+      if (call.module == 'std' && fn == 'collection_for') {
+        await _evalMapCollectionFor(call, scope, result);
+        return;
+      }
+      if (call.module == 'std' && (fn == 'spread' || fn == 'null_spread')) {
+        await _spliceMapSpread(call, scope, result, fn == 'null_spread');
+        return;
+      }
+    }
+    await _addMapEntryExpr(expr, scope, result);
+  }
+
+  /// Map-literal analogue of [_evalCollectionIf].
+  Future<void> _evalMapCollectionIf(
+    FunctionCall call,
+    _Scope scope,
+    Map<Object?, Object?> result,
+  ) async {
+    final fields = _lazyFields(call);
+    final condExpr = fields['condition'];
+    if (condExpr == null) return;
+    if (_toBool(await _evalExpression(condExpr, scope))) {
+      final thenExpr = fields['then'];
+      if (thenExpr != null) {
+        await _addMapCollectionElement(thenExpr, scope, result);
+      }
+    } else {
+      final elseExpr = fields['else'];
+      if (elseExpr != null) {
+        await _addMapCollectionElement(elseExpr, scope, result);
+      }
+    }
+  }
+
+  /// Map-literal analogue of [_evalCollectionFor] (both for-each and C-style).
+  Future<void> _evalMapCollectionFor(
+    FunctionCall call,
+    _Scope scope,
+    Map<Object?, Object?> result,
+  ) async {
+    final fields = _lazyFields(call);
+    final bodyExpr = fields['body'];
+    if (bodyExpr == null) {
+      throw BallRuntimeError('collection_for: missing body');
+    }
+    final iterableExpr = fields['iterable'];
+    if (iterableExpr != null) {
+      final variable = _stringFieldVal(fields, 'variable');
+      final varName = (variable == null || variable.isEmpty)
+          ? 'item'
+          : variable;
+      final iterable = await _evalExpression(iterableExpr, scope);
+      for (final item in _toIterable(iterable)) {
+        final loopScope = scope.child();
+        loopScope.bind(varName, item);
+        await _addMapCollectionElement(bodyExpr, loopScope, result);
+      }
+      return;
+    }
+    final condition = fields['condition'];
+    final update = fields['update'];
+    final initExpr = fields['init'];
+    if (initExpr == null && condition == null && update == null) {
+      throw BallRuntimeError(
+        'collection_for: unrecognized loop shape '
+        '(no iterable and no init/condition/update)',
+      );
+    }
+    final forScope = scope.child();
+    final loopVars = <String>[];
+    await _evalForInit(initExpr, forScope, loopVars);
+    while (true) {
+      final iterScope = forScope.child();
+      for (final v in loopVars) {
+        iterScope.bind(v, forScope.lookup(v));
+      }
+      if (condition == null) break;
+      if (!_toBool(await _evalExpression(condition, iterScope))) break;
+      await _addMapCollectionElement(bodyExpr, iterScope, result);
+      for (final v in loopVars) {
+        forScope.bind(v, iterScope.lookup(v));
+      }
+      if (update != null) await _evalExpression(update, forScope);
+    }
+  }
+
+  /// Merges a map spread (`...m` / `...?m`) into [result].
+  Future<void> _spliceMapSpread(
+    FunctionCall call,
+    _Scope scope,
+    Map<Object?, Object?> result,
+    bool nullAware,
+  ) async {
+    final fields = _lazyFields(call);
+    final valueExpr = fields['value'];
+    if (valueExpr == null) return;
+    final value = await _evalExpression(valueExpr, scope);
+    if (nullAware && value == null) return;
+    final m = _asMap(value);
+    if (m == null) return;
+    for (final e in m.entries) {
+      _trackMemoryAllocation(_ballMapEntryBytes);
+      result[e.key] = e.value;
+    }
   }
 
   // ---- References ----
@@ -1571,8 +1812,20 @@ extension BallEngineEval on BallEngine {
   Future<Object?> _evalStatement(Statement stmt, _Scope scope) async {
     switch (stmt.whichStmt()) {
       case Statement_Stmt.let:
-        var value = await _evalExpression(stmt.let.value, scope);
-        if (value is _FlowSignal) return value;
+        // An uninitialized declaration (`int? x;`) is encoded with a sentinel
+        // `__no_init__` reference as its value (encoder _encodeVarDecl*). Bind
+        // it to null instead of evaluating the sentinel — which would throw
+        // "Undefined variable: __no_init__". Dart assigns such a variable
+        // before use; the binding just reserves the name as null.
+        final letValue = stmt.let.value;
+        Object? value;
+        if (letValue.whichExpr() == Expression_Expr.reference &&
+            letValue.reference.name == '__no_init__') {
+          value = null;
+        } else {
+          value = await _evalExpression(letValue, scope);
+          if (value is _FlowSignal) return value;
+        }
         // If the let type says Map but we got an empty Set or List,
         // convert to an empty map (mirrors the encoder using set_create
         // for empty map literals).

@@ -1,18 +1,9 @@
-List<int> range(int start, int end) {
-  List<int> result = [];
-  for (int i = start; i < end; i++) {
-    result.add(i);
-  }
-  return result;
-}
-
+// A genuine list comprehension (this file was previously misnamed — it used an
+// imperative for-loop + .add(), which is exactly the false coverage that let
+// issue #55's collection-`for` bug hide). Output is unchanged: 0,1,4,...,81.
 void main() {
-  List<int> nums = range(0, 10);
-  List<int> squares = [];
-  for (int n in nums) {
-    squares.add(n * n);
-  }
-  for (int s in squares) {
+  final squares = [for (var i = 0; i < 10; i++) i * i];
+  for (final s in squares) {
     print(s);
   }
 }

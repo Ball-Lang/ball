@@ -2979,6 +2979,9 @@ export class BallEngine {
         else if ((__sw === 'yield_each')) {
           return this._evalYieldEach(call, scope);
         }
+        else if ((__sw === 'map_create')) {
+          return this._evalLazyMapCreate(call, scope);
+        }
       } while (false);
     }
     let input = (hasInput(call) ? await this._evalExpression(call.input, scope) : null);
@@ -3100,19 +3103,7 @@ export class BallEngine {
     let result = [];
     this._trackMemoryAllocation(__ball_mul(listVal.elements.length, _ballPointerBytes));
     for (const element of listVal.elements) {
-      if (hasCall(element)) {
-        let call = element.call;
-        let fn = call.function;
-        if ((__ball_eq(call.module, 'std') && __ball_eq(fn, 'collection_if'))) {
-          await this._evalCollectionIf(call, scope, result);
-          continue;
-        }
-        if ((__ball_eq(call.module, 'std') && __ball_eq(fn, 'collection_for'))) {
-          await this._evalCollectionFor(call, scope, result);
-          continue;
-        }
-      }
-      result = (result.push(await this._evalExpression(element, scope)), result);
+      await this._addCollectionElement(element, scope, result);
     }
     return result;
   }
@@ -3141,22 +3132,51 @@ export class BallEngine {
 
   async _evalCollectionFor(call: any, scope: any, result: any): Promise<any> {
     let fields = this._lazyFields(call);
-    let variable = this._stringFieldVal(fields, 'variable');
-    let iterableExpr = __ball_index(fields, 'iterable');
     let bodyExpr = __ball_index(fields, 'body');
-    if ((__ball_eq(iterableExpr, null) || __ball_eq(bodyExpr, null))) {
+    if (__ball_eq(bodyExpr, null)) {
+      throw new BallRuntimeError('collection_for: missing body');
+    }
+    let iterableExpr = __ball_index(fields, 'iterable');
+    if (!__ball_eq(iterableExpr, null)) {
+      let variable = this._stringFieldVal(fields, 'variable');
+      let varName = ((__ball_eq(variable, null) || (variable.length === 0)) ? 'item' : variable);
+      let iterable = await this._evalExpression(iterableExpr, scope);
+      for (const item of this._toIterable(iterable)) {
+        this._trackMemoryAllocation(_ballPointerBytes);
+        let loopScope = scope.child();
+        loopScope.bind(varName, item);
+        await this._addCollectionElement(bodyExpr, loopScope, result);
+      }
       return;
     }
-    let iterable = await this._evalExpression(iterableExpr, scope);
-    let iterableList = this._asList(iterable);
-    if (__ball_eq(iterableList, null)) {
-      return;
+    let condition = __ball_index(fields, 'condition');
+    let update = __ball_index(fields, 'update');
+    let initExpr = __ball_index(fields, 'init');
+    if (((__ball_eq(initExpr, null) && __ball_eq(condition, null)) && __ball_eq(update, null))) {
+      throw new BallRuntimeError(('collection_for: unrecognized loop shape ' + '(no iterable and no init/condition/update)'));
     }
-    for (const item of iterableList) {
+    let forScope = scope.child();
+    let loopVars = [];
+    await this._evalForInit(initExpr, forScope, loopVars);
+    while (true) {
+      let iterScope = forScope.child();
+      for (const v of loopVars) {
+        iterScope.bind(v, forScope.lookup(v));
+      }
+      if (__ball_eq(condition, null)) {
+        break;
+      }
+      if (!this._toBool(await this._evalExpression(condition, iterScope))) {
+        break;
+      }
       this._trackMemoryAllocation(_ballPointerBytes);
-      let loopScope = scope.child();
-      loopScope.bind((((variable ?? '').length === 0) ? 'item' : variable), item);
-      await this._addCollectionElement(bodyExpr, loopScope, result);
+      await this._addCollectionElement(bodyExpr, iterScope, result);
+      for (const v of loopVars) {
+        forScope.bind(v, iterScope.lookup(v));
+      }
+      if (!__ball_eq(update, null)) {
+        await this._evalExpression(update, forScope);
+      }
     }
   }
 
@@ -3172,9 +3192,176 @@ export class BallEngine {
         await this._evalCollectionFor(call, scope, result);
         return;
       }
+      if ((__ball_eq(call.module, 'std') && (__ball_eq(fn, 'spread') || __ball_eq(fn, 'null_spread')))) {
+        await this._spliceSpread(call, scope, result, __ball_eq(fn, 'null_spread'));
+        return;
+      }
     }
     this._trackMemoryAllocation(_ballPointerBytes);
     result = (result.push(await this._evalExpression(expr, scope)), result);
+  }
+
+  async _spliceSpread(call: any, scope: any, result: any, nullAware: any): Promise<any> {
+    let fields = this._lazyFields(call);
+    let valueExpr = __ball_index(fields, 'value');
+    if (__ball_eq(valueExpr, null)) {
+      return;
+    }
+    let value = await this._evalExpression(valueExpr, scope);
+    if ((nullAware && __ball_eq(value, null))) {
+      return;
+    }
+    for (const it of this._toIterable(value)) {
+      this._trackMemoryAllocation(_ballPointerBytes);
+      result = (result.push(it), result);
+    }
+  }
+
+  async _evalLazyMapCreate(call: any, scope: any): Promise<any> {
+    if ((!hasInput(call) || !__ball_eq(whichExpr(call.input), Expression_Expr.messageCreation))) {
+      let input = (hasInput(call) ? await this._evalExpression(call.input, scope) : null);
+      return this._stdMapCreate(input);
+    }
+    let result = _ballUserMap();
+    for (const pair of call.input.messageCreation.fields) {
+      let name = pair.name;
+      if ((__ball_eq(name, 'entry') || __ball_eq(name, 'entries'))) {
+        await this._addMapEntryExpr(pair.value, scope, result);
+      } else {
+        if (__ball_eq(name, 'element')) {
+          await this._addMapCollectionElement(pair.value, scope, result);
+        }
+      }
+    }
+    return result;
+  }
+
+  async _addMapEntryExpr(entryExpr: any, scope: any, result: any): Promise<any> {
+    return await this._putMapEntryValue(await this._evalExpression(entryExpr, scope), result);
+  }
+
+  async _putMapEntryValue(val: any, result: any): Promise<any> {
+    let list = this._asList(val);
+    if (!__ball_eq(list, null)) {
+      for (const e of list) {
+        await this._putMapEntryValue(e, result);
+      }
+      return;
+    }
+    let em = this._asMap(val);
+    if (__ball_eq(em, null)) {
+      return;
+    }
+    this._trackMemoryAllocation(_ballMapEntryBytes);
+    let key = await this._ballToStringAsync((__ball_index(em, 'key') ?? __ball_index(em, 'name')));
+    result[key] = __ball_index(em, 'value');
+  }
+
+  async _addMapCollectionElement(expr: any, scope: any, result: any): Promise<any> {
+    if (hasCall(expr)) {
+      let call = expr.call;
+      let fn = call.function;
+      if ((__ball_eq(call.module, 'std') && __ball_eq(fn, 'collection_if'))) {
+        await this._evalMapCollectionIf(call, scope, result);
+        return;
+      }
+      if ((__ball_eq(call.module, 'std') && __ball_eq(fn, 'collection_for'))) {
+        await this._evalMapCollectionFor(call, scope, result);
+        return;
+      }
+      if ((__ball_eq(call.module, 'std') && (__ball_eq(fn, 'spread') || __ball_eq(fn, 'null_spread')))) {
+        await this._spliceMapSpread(call, scope, result, __ball_eq(fn, 'null_spread'));
+        return;
+      }
+    }
+    await this._addMapEntryExpr(expr, scope, result);
+  }
+
+  async _evalMapCollectionIf(call: any, scope: any, result: any): Promise<any> {
+    let fields = this._lazyFields(call);
+    let condExpr = __ball_index(fields, 'condition');
+    if (__ball_eq(condExpr, null)) {
+      return;
+    }
+    if (this._toBool(await this._evalExpression(condExpr, scope))) {
+      let thenExpr = __ball_index(fields, 'then');
+      if (!__ball_eq(thenExpr, null)) {
+        await this._addMapCollectionElement(thenExpr, scope, result);
+      }
+    } else {
+      let elseExpr = __ball_index(fields, 'else');
+      if (!__ball_eq(elseExpr, null)) {
+        await this._addMapCollectionElement(elseExpr, scope, result);
+      }
+    }
+  }
+
+  async _evalMapCollectionFor(call: any, scope: any, result: any): Promise<any> {
+    let fields = this._lazyFields(call);
+    let bodyExpr = __ball_index(fields, 'body');
+    if (__ball_eq(bodyExpr, null)) {
+      throw new BallRuntimeError('collection_for: missing body');
+    }
+    let iterableExpr = __ball_index(fields, 'iterable');
+    if (!__ball_eq(iterableExpr, null)) {
+      let variable = this._stringFieldVal(fields, 'variable');
+      let varName = ((__ball_eq(variable, null) || (variable.length === 0)) ? 'item' : variable);
+      let iterable = await this._evalExpression(iterableExpr, scope);
+      for (const item of this._toIterable(iterable)) {
+        let loopScope = scope.child();
+        loopScope.bind(varName, item);
+        await this._addMapCollectionElement(bodyExpr, loopScope, result);
+      }
+      return;
+    }
+    let condition = __ball_index(fields, 'condition');
+    let update = __ball_index(fields, 'update');
+    let initExpr = __ball_index(fields, 'init');
+    if (((__ball_eq(initExpr, null) && __ball_eq(condition, null)) && __ball_eq(update, null))) {
+      throw new BallRuntimeError(('collection_for: unrecognized loop shape ' + '(no iterable and no init/condition/update)'));
+    }
+    let forScope = scope.child();
+    let loopVars = [];
+    await this._evalForInit(initExpr, forScope, loopVars);
+    while (true) {
+      let iterScope = forScope.child();
+      for (const v of loopVars) {
+        iterScope.bind(v, forScope.lookup(v));
+      }
+      if (__ball_eq(condition, null)) {
+        break;
+      }
+      if (!this._toBool(await this._evalExpression(condition, iterScope))) {
+        break;
+      }
+      await this._addMapCollectionElement(bodyExpr, iterScope, result);
+      for (const v of loopVars) {
+        forScope.bind(v, iterScope.lookup(v));
+      }
+      if (!__ball_eq(update, null)) {
+        await this._evalExpression(update, forScope);
+      }
+    }
+  }
+
+  async _spliceMapSpread(call: any, scope: any, result: any, nullAware: any): Promise<any> {
+    let fields = this._lazyFields(call);
+    let valueExpr = __ball_index(fields, 'value');
+    if (__ball_eq(valueExpr, null)) {
+      return;
+    }
+    let value = await this._evalExpression(valueExpr, scope);
+    if ((nullAware && __ball_eq(value, null))) {
+      return;
+    }
+    let m = this._asMap(value);
+    if (__ball_eq(m, null)) {
+      return;
+    }
+    for (const e of m.entries) {
+      this._trackMemoryAllocation(_ballMapEntryBytes);
+      result[e.key] = e.value;
+    }
   }
 
   async _evalReference(ref: any, scope: any): Promise<any> {
@@ -4192,9 +4379,15 @@ export class BallEngine {
     do {
       const __sw = whichStmt(stmt);
       if ((__sw === Statement_Stmt.let)) {
-        let value = await this._evalExpression(stmt.let.value, scope);
-        if ((value instanceof _FlowSignal)) {
-          return value;
+        let letValue = stmt.let.value;
+        let value = __no_init__;
+        if ((__ball_eq(whichExpr(letValue), Expression_Expr.reference) && __ball_eq(letValue.reference.name, '__no_init__'))) {
+          value = null;
+        } else {
+          value = await this._evalExpression(letValue, scope);
+          if ((value instanceof _FlowSignal)) {
+            return value;
+          }
         }
         if (hasMetadata(stmt.let)) {
           let letType = (() => {
@@ -4314,49 +4507,7 @@ export class BallEngine {
     let body = __ball_index(fields, 'body');
     let forScope = scope.child();
     let loopVars = [];
-    if (!__ball_eq(initExpr, null)) {
-      if (__ball_eq(whichExpr(initExpr), Expression_Expr.block)) {
-        for (const stmt of initExpr.block.statements) {
-          if (__ball_eq(whichStmt(stmt), Statement_Stmt.let)) {
-            loopVars = (loopVars.push(stmt.let.name), loopVars);
-          }
-          await this._evalStatement(stmt, forScope);
-        }
-      } else {
-        if ((__ball_eq(whichExpr(initExpr), Expression_Expr.literal) && hasStringValue(initExpr.literal))) {
-          let s = initExpr.literal.stringValue;
-          let match = new RegExp('(?:var|final|int|double|String)\\s+(\\w+)\\s*=\\s*(.+)').firstMatch(s);
-          if (!__ball_eq(match, null)) {
-            let varName = match.group(1);
-            let rawVal = match.group(2).trim();
-            let intParsed = int.tryParse(rawVal);
-            let doubleParsed = (__ball_eq(intParsed, null) ? double.tryParse(rawVal) : null);
-            let parsed = __no_init__;
-            if (!__ball_eq(intParsed, null)) {
-              parsed = intParsed;
-            } else {
-              if (!__ball_eq(doubleParsed, null)) {
-                parsed = doubleParsed;
-              } else {
-                if (__ball_eq(rawVal, 'true')) {
-                  parsed = true;
-                } else {
-                  if (__ball_eq(rawVal, 'false')) {
-                    parsed = false;
-                  } else {
-                    parsed = this._evalSimpleInitExpr(rawVal, forScope);
-                  }
-                }
-              }
-            }
-            loopVars = (loopVars.push(varName), loopVars);
-            forScope.bind(varName, parsed);
-          }
-        } else {
-          await this._evalExpression(initExpr, forScope);
-        }
-      }
-    }
+    await this._evalForInit(initExpr, forScope, loopVars);
     while (true) {
       let iterScope = forScope.child();
       for (const v of loopVars) {
@@ -4387,6 +4538,53 @@ export class BallEngine {
       }
       if (!__ball_eq(update, null)) {
         await this._evalExpression(update, forScope);
+      }
+    }
+  }
+
+  async _evalForInit(initExpr: any, forScope: any, loopVars: any): Promise<any> {
+    if (__ball_eq(initExpr, null)) {
+      return;
+    }
+    if (__ball_eq(whichExpr(initExpr), Expression_Expr.block)) {
+      for (const stmt of initExpr.block.statements) {
+        if (__ball_eq(whichStmt(stmt), Statement_Stmt.let)) {
+          loopVars = (loopVars.push(stmt.let.name), loopVars);
+        }
+        await this._evalStatement(stmt, forScope);
+      }
+    } else {
+      if ((__ball_eq(whichExpr(initExpr), Expression_Expr.literal) && hasStringValue(initExpr.literal))) {
+        let s = initExpr.literal.stringValue;
+        let match = new RegExp('(?:var|final|int|double|String)\\s+(\\w+)\\s*=\\s*(.+)').firstMatch(s);
+        if (!__ball_eq(match, null)) {
+          let varName = match.group(1);
+          let rawVal = match.group(2).trim();
+          let intParsed = int.tryParse(rawVal);
+          let doubleParsed = (__ball_eq(intParsed, null) ? double.tryParse(rawVal) : null);
+          let parsed = __no_init__;
+          if (!__ball_eq(intParsed, null)) {
+            parsed = intParsed;
+          } else {
+            if (!__ball_eq(doubleParsed, null)) {
+              parsed = doubleParsed;
+            } else {
+              if (__ball_eq(rawVal, 'true')) {
+                parsed = true;
+              } else {
+                if (__ball_eq(rawVal, 'false')) {
+                  parsed = false;
+                } else {
+                  parsed = this._evalSimpleInitExpr(rawVal, forScope);
+                }
+              }
+            }
+          }
+          loopVars = (loopVars.push(varName), loopVars);
+          forScope.bind(varName, parsed);
+        }
+      } else {
+        await this._evalExpression(initExpr, forScope);
       }
     }
   }
@@ -6495,13 +6693,7 @@ export class BallEngine {
         }
         let raw = __ball_index(m, 'elements');
         return (this._stdAsList(raw) ?? []);
-      }), 'dart_list_filled': this._stdListFilled.bind(this), 'map_create': this._stdMapCreate.bind(this), 'set_create': this._stdSetCreate.bind(this), 'record': this._stdRecord.bind(this), 'collection_if': ((_) => {
-        const input = _;
-        return null;
-      }), 'collection_for': ((_) => {
-        const input = _;
-        return null;
-      }), 'list_push': ((i) => {
+      }), 'dart_list_filled': this._stdListFilled.bind(this), 'map_create': this._stdMapCreate.bind(this), 'set_create': this._stdSetCreate.bind(this), 'record': this._stdRecord.bind(this), 'collection_if': this._collectionMisuse.bind(this), 'collection_for': this._collectionMisuse.bind(this), 'list_push': ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let raw = __ball_index(m, 'list');
@@ -7657,12 +7849,10 @@ export class BallEngine {
 
   async _stdPrint(input: any): Promise<any> {
     let m = this._stdAsMap(input);
-    if (!__ball_eq(m, null)) {
+    if ((!__ball_eq(m, null) && ((('message' in m) || ('arg0' in m)) || ('value' in m)))) {
       let message = ((__ball_index(m, 'message') ?? __ball_index(m, 'arg0')) ?? __ball_index(m, 'value'));
-      if (!__ball_eq(message, null)) {
-        this.stdout(await this._ballToStringAsync(message));
-        return null;
-      }
+      this.stdout(await this._ballToStringAsync(message));
+      return null;
     }
     this.stdout(await this._ballToStringAsync(input));
   }
@@ -7709,6 +7899,13 @@ export class BallEngine {
         parts = (parts.push(await this._ballToStringAsync(item)), parts);
       }
       return (('[' + __ball_to_string(parts.join(', '))) + ']');
+    }
+    if ((v instanceof Set)) {
+      let parts = [];
+      for (const item of v) {
+        parts = (parts.push(await this._ballToStringAsync(item)), parts);
+      }
+      return (('{' + __ball_to_string(parts.join(', '))) + '}');
     }
     if ((v instanceof BallException)) {
       let ev = v.value;
@@ -8137,6 +8334,11 @@ export class BallEngine {
       return elementsList.toSet();
     }
     return new Set();
+  }
+
+  _collectionMisuse(_: any): any {
+    const input = _;
+    return (() => { throw new BallRuntimeError(('collection_for/collection_if must appear directly inside a list, set, ' + 'or map literal and cannot be evaluated as a standalone call.')); })();
   }
 
   _stdRecord(input: any): any {
@@ -9028,10 +9230,10 @@ export class BallEngine {
     }
     let mapVal = this._stdAsMap(v);
     if (!__ball_eq(mapVal, null)) {
-      return new Set([mapVal.entries.map((e: any) => (!e.key.startsWith('__') ? { 'key': e.key, 'value': this._toJsonSafe(e.value) } : undefined))]);
+      return {};
     }
     if ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set))) {
-      return new Set([v.entries.map((e: any) => (((typeof e.key === 'string') && !e.key.startsWith('__')) ? { 'key': e.key, 'value': this._toJsonSafe(e.value) } : undefined))]);
+      return {};
     }
     let listVal = this._stdAsList(v);
     if (!__ball_eq(listVal, null)) {

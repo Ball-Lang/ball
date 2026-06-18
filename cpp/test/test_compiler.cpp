@@ -898,6 +898,72 @@ TEST(compile_base64_encode_decode_roundtrip) {
 }
 
 // ================================================================
+// Tests — Collection elements (issue #55): C-style comprehension + spread
+// ================================================================
+
+// Build a list literal Expression from a vector of element expressions.
+static ball::v1::Expression lit_list(std::vector<ball::v1::Expression> elems) {
+    ball::v1::Expression expr;
+    auto* lv = expr.mutable_literal()->mutable_list_value();
+    for (auto& e : elems) *lv->add_elements() = std::move(e);
+    return expr;
+}
+
+// `[for (var i = 0; i < 3; i++) i * i]` — a C-style collection_for inside a
+// list literal. Before the fix the C++ compiler only handled the for-EACH form
+// (it read an `iterable` field that doesn't exist here), so the loop body was
+// dropped and the list compiled empty.
+TEST(compile_collection_for_cstyle_list) {
+    // init: block { var i = 0; }
+    ball::v1::Expression init;
+    auto* let = init.mutable_block()->add_statements()->mutable_let();
+    let->set_name("i");
+    *let->mutable_value() = lit_int(0);
+
+    auto cfor = std_call("collection_for", make_msg("", {
+        {"init", std::move(init)},
+        {"condition", std_binary("less_than", ref("i"), lit_int(3))},
+        {"update", std_call("post_increment", make_msg("", {{"value", ref("i")}}))},
+        {"body", std_binary("multiply", ref("i"), ref("i"))},
+    }));
+    auto prog = build_program(print_call(lit_list({std::move(cfor)})));
+    auto out = compile_program(prog);
+    // The C-style header must be emitted inline (NOT an empty for-each loop).
+    ASSERT_CONTAINS(out, "for (auto i = static_cast<int64_t>(0)");
+    // Body splices into the result list.
+    ASSERT_CONTAINS(out, "push_back");
+    // Must NOT fall through to the empty-iterable for-each form.
+    ASSERT_NOT_CONTAINS(out, "for (auto i : BallDyn(BallDyn()))");
+}
+
+// `[0, ...a, 3]` — a spread element must SPLICE each item of `a` rather than
+// nest `a` as a single element. Before the fix `spread` returned its operand
+// directly and the list compiled as `{0, <a>, 3}`.
+TEST(compile_list_spread_splices) {
+    auto spread = std_call("spread", make_msg("", {{"value", ref("a")}}));
+    auto prog = build_program(print_call(lit_list({
+        lit_int(0), std::move(spread), lit_int(3),
+    })));
+    auto out = compile_program(prog);
+    // The splice path builds the list via an IIFE that iterates the operand.
+    ASSERT_CONTAINS(out, "BallList __r");
+    ASSERT_CONTAINS(out, "for (auto __sp : BallDyn(a))");
+    ASSERT_CONTAINS(out, "__r.push_back(std::any(BallDyn(__sp)))");
+}
+
+// `[0, ...?n, 99]` — null-aware spread contributes nothing when the operand is
+// null (guarded by has_value()).
+TEST(compile_list_null_spread_guards_null) {
+    auto nspread = std_call("null_spread", make_msg("", {{"value", ref("n")}}));
+    auto prog = build_program(print_call(lit_list({
+        lit_int(0), std::move(nspread), lit_int(99),
+    })));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "has_value()");
+    ASSERT_CONTAINS(out, "BallList __r");
+}
+
+// ================================================================
 // Main
 // ================================================================
 

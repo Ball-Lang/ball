@@ -4067,6 +4067,20 @@ class DartEncoder {
     return listExpr;
   }
 
+  /// Whether a collection element ultimately yields a map entry (`key: value`),
+  /// looking through `for`/`if` comprehension elements. Spread is ambiguous
+  /// without type resolution (could spread a map OR a set), so it abstains.
+  bool _collectionElementYieldsMapEntry(ast.CollectionElement e) {
+    if (e is ast.MapLiteralEntry) return true;
+    if (e is ast.ForElement) return _collectionElementYieldsMapEntry(e.body);
+    if (e is ast.IfElement) {
+      return _collectionElementYieldsMapEntry(e.thenElement) ||
+          (e.elseElement != null &&
+              _collectionElementYieldsMapEntry(e.elseElement!));
+    }
+    return false;
+  }
+
   Expression _encodeSetOrMapLiteral(ast.SetOrMapLiteral expr) {
     // Determine if it is a map or a set.
     // Note: isMap on SetOrMapLiteral requires full type resolution and returns
@@ -4075,8 +4089,11 @@ class DartEncoder {
     //   2. Non-empty and first element is MapLiteralEntry → map
     //   3. Otherwise → set
     final hasDoubleTypeArgs = (expr.typeArguments?.arguments.length ?? 0) == 2;
-    final hasMapEntry =
-        expr.elements.isNotEmpty && expr.elements.first is ast.MapLiteralEntry;
+    // A comprehension element (`for`/`if`) whose leaf is a `key: value` entry
+    // makes the whole literal a MAP, even though `elements.first` is the
+    // For/If element rather than the entry itself. Look THROUGH comprehension
+    // elements so `{for (...) k: v}` encodes as a map, not a set (issue #55).
+    final hasMapEntry = expr.elements.any(_collectionElementYieldsMapEntry);
     final isMap = hasDoubleTypeArgs || hasMapEntry;
 
     if (isMap) {
@@ -4319,9 +4336,13 @@ class DartEncoder {
               ..value = _encodeExpr(element.value),
           ]));
     }
-    return Expression()
-      ..literal = (Literal()
-        ..stringValue = '/* unsupported element: ${element.runtimeType} */');
+    // Fail loud: emitting a placeholder string literal would silently corrupt
+    // the program (the comment becomes a runtime value). A new collection
+    // element kind must get a real encoding here, not a silent degradation.
+    throw UnsupportedError(
+      'Encoder: unsupported collection element ${element.runtimeType}. '
+      'Add an encoding for it in _encodeCollectionElement.',
+    );
   }
 
   // ---- Switch expression ----

@@ -36,10 +36,15 @@ by *syntax* and *name heuristics*. When authoring "Ball-portable" Dart (code tha
 gets encoded and run on the Dart/TS/C++ engines — e.g. `dart/shared/lib/protobuf/`),
 avoid constructs that need receiver-type info:
 
-- **`Map.addAll` is mis-routed to the list op `list_concat`** (no way to tell a map
-  receiver from a list one). Merge maps with an explicit `entries` loop instead
-  (`for (final e in src.entries) dest[e.key] = e.value;`). Same caution for other
-  methods shared by `List`/`Map` (`clear`, `remove`).
+- **`Map.addAll` / `List.addAll` are mis-routed to the non-mutating list op
+  `list_concat`** (no way to tell receiver type, and `list_concat` returns a new
+  list rather than mutating). A spread splice written as `result.addAll(items)`
+  works on the Dart engine but **silently drops the items on the TS/C++ engines**
+  — append per-item with `.add` instead (`for (final it in items) result.add(it);`).
+  Merge maps with an explicit `entries` loop (`for (final e in src.entries)
+  dest[e.key] = e.value;`). Same caution for other methods shared by `List`/`Map`
+  (`clear`, `remove`) and the bare `.keys` getter. (This is the portability trap
+  that the issue-#55 spread fix had to route around.)
 - **Constructor vs function call** is decided by the first *letter* (skipping a
   leading `_`): `Foo()`/`_Foo()` → `MessageCreation`; `foo()`/`_foo()` → `call`.
   (A prior bug treated every `_`-prefixed name as a constructor — `'_'.toUpperCase()`
@@ -68,6 +73,11 @@ avoid constructs that need receiver-type info:
 - Use `buildProgram()` helper for minimal test programs
 - Use `runAndCapture()` to execute and capture stdout
 - Use `loadProgram()` to load .ball.json files from examples/
+- **Every new encoder-emittable construct needs a `tests/conformance/src/*.dart`
+  fixture** — gated by `check_encoder_completeness.dart` (forward completeness)
+  and `check_fixture_names.dart` (no false coverage). The conformance oracle is
+  native `dart run`, so fixtures verify Dart→Ball→engine ≡ real Dart. See
+  `docs/TESTING_STRATEGY.md` (the issue-#55 post-mortem and the full ruleset).
 
 ## Dependencies
 

@@ -1,24 +1,33 @@
-name: Coverage Ratchet
+name: Coverage
 
-# Dart line-coverage ratchet for the correctness-critical packages. The bar is
-# 100%; the floor below must never regress and is raised one PR at a time.
+# Cross-stack coverage: each language stack runs its suites under coverage,
+# emits lcov, and uploads to Codecov with a flag (dart / typescript / cpp).
+# Codecov merges the flags into one repo-wide report (epic #59, #60). Auth is
+# OIDC — public repo, no CODECOV_TOKEN needed.
 #
-# Runs on push to main + on demand (NOT every PR) because the instrumented
-# suites — especially the compiler's slow round-trip/fuzzer tests — are heavy.
-# Promote to `pull_request` once the suite is fast enough or the floor is high
-# enough to justify gating every PR.
+# The Dart job ALSO enforces the line-coverage ratchet (floor must never
+# regress; raise toward 100%). Runs on push to main + on demand (the
+# instrumented suites are heavy — not gated on every PR yet).
 on:
   push:
     branches: [main]
-    paths:
-      - "dart/**"
-      - "tools/coverage_dart.dart"
-      - ".github/workflows/coverage.yml"
   workflow_dispatch:
 
+# Codecov OIDC (tokenless) upload needs id-token: write.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  dart-coverage:
-    name: Dart line coverage
+  # ──────────────────────────────────────────────────
+  # Dart — per-package lcov + line-coverage ratchet
+  # ──────────────────────────────────────────────────
+  dart:
+    name: Dart coverage
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -42,8 +51,127 @@ jobs:
       - name: Install & build @ball-lang/compiler
         run: cd ts/compiler && npm ci && npm run build
 
-      # Floor = the current measured baseline (rounded down). RAISE THIS toward
-      # 100% as tests are added; it must never be lowered without justification.
-      # See docs/TESTING_STRATEGY.md.
+      # Writes coverage/<pkg>.lcov for shared/engine/encoder/compiler AND fails
+      # if overall line coverage drops below the floor. RAISE the floor toward
+      # 100% as tests are added (see docs/TESTING_STRATEGY.md). Never lower it
+      # without justification.
       - name: Dart line coverage ratchet
         run: dart run tools/coverage_dart.dart --floor 18
+
+      - name: Upload Dart coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: ./coverage/shared.lcov,./coverage/engine.lcov,./coverage/encoder.lcov,./coverage/compiler.lcov
+          flags: dart
+          # Best-effort: a Codecov outage / not-yet-activated repo must not fail
+          # the ratchet gate above. (This is the codecov-action default.)
+          fail_ci_if_error: false
+
+  # ──────────────────────────────────────────────────
+  # TypeScript — c8 (V8) coverage → lcov, per package
+  # ──────────────────────────────────────────────────
+  typescript:
+    name: TypeScript coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      # ts/compiler's engine-parse test regenerates engine.ball.json from the
+      # Dart self-host source, so the Dart workspace must be resolved.
+      - name: Bootstrap Dart workspace
+        run: cd dart && dart pub get
+
+      - name: Coverage — @ball-lang/engine
+        run: |
+          cd ts/engine && npm ci && npm run build
+          npx --yes c8@11.0.0 --reporter=lcovonly --src src --all \
+            node --experimental-strip-types test/engine_test.ts
+
+      - name: Coverage — @ball-lang/compiler
+        run: |
+          cd ts/compiler && npm ci && npm run build
+          npx --yes c8@11.0.0 --reporter=lcovonly --src src --all \
+            node --experimental-strip-types --test test/*.test.ts
+
+      - name: Coverage — @ball-lang/encoder
+        run: |
+          cd ts/encoder && npm ci && npm run build
+          npx --yes c8@11.0.0 --reporter=lcovonly --src src --all \
+            node --experimental-strip-types --test test/*.test.ts
+
+      - name: Upload TypeScript coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: ./ts/engine/coverage/lcov.info,./ts/compiler/coverage/lcov.info,./ts/encoder/coverage/lcov.info
+          flags: typescript
+          fail_ci_if_error: false
+
+  # ──────────────────────────────────────────────────
+  # C++ — gcov/lcov over the ctest binaries (Linux/gcc)
+  # ──────────────────────────────────────────────────
+  cpp:
+    name: C++ coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: cpp-coverage
+          max-size: 1G
+
+      - name: Install nlohmann-json + lcov
+        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev lcov
+
+      # Debug + --coverage (gcov) instrumentation. A separate build dir from the
+      # release build so the regular ci.yml cache is untouched.
+      - name: Configure CMake (coverage)
+        run: >
+          cmake -S cpp -B cpp/build-cov
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_FLAGS="--coverage -O0 -g"
+          -DCMAKE_CXX_FLAGS="--coverage -O0 -g"
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build cpp/build-cov -j 2
+
+      - name: Run tests
+        run: ctest --test-dir cpp/build-cov --output-on-failure
+
+      # Capture, then drop system headers, FetchContent deps (protobuf/abseil),
+      # and generated code. lcov 2.x is strict — tolerate the usual gcov noise.
+      - name: Capture coverage (lcov)
+        run: |
+          lcov --capture --directory cpp/build-cov --output-file cpp.lcov \
+            --ignore-errors mismatch,gcov,source,negative,empty,unused,format
+          lcov --remove cpp.lcov \
+            '/usr/*' '*/_deps/*' '*/build-cov/*' '*/gen/*' '*/test/*' \
+            --output-file cpp.lcov --ignore-errors unused,empty
+          lcov --list cpp.lcov --ignore-errors empty
+
+      - name: Upload C++ coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: ./cpp.lcov
+          flags: cpp
+          fail_ci_if_error: false

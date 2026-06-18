@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/Ball-Lang/ball/compare/v1.1.4...v1.2.0) (2026-06-18)
+
+
+### Features
+
+* add initial project configuration file ([ddf68b2](https://github.com/Ball-Lang/ball/commit/ddf68b2c0260b9c5f3b5f296c6ca941ec9564526))
+
 ## [1.1.4](https://github.com/Ball-Lang/ball/compare/v1.1.3...v1.1.4) (2026-06-18)
 
 

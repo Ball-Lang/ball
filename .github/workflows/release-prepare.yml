@@ -16,21 +16,22 @@ jobs:
   prepare-release:
     name: Prepare release PR
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     # Skip when the commit is itself a release commit (prevents loops)
     if: "!contains(github.event.head_commit.message, 'chore(release)')"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
           # Use PAT so the resulting PR can trigger downstream workflows.
           # Default GITHUB_TOKEN cannot do this.
           token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
 
       # The Dart pub-workspace / Melos root is the repo root, so melos-action
       # (which runs `melos bootstrap` from the workspace root) works directly.
-      - uses: bluefireteam/melos-action@v3
+      - uses: bluefireteam/melos-action@2982f8e4fc92440a219490009d6d05195cb1a6a5 # v3
         with:
           run-versioning: true
           publish-dry-run: true

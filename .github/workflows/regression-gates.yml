@@ -28,9 +28,23 @@ name: Regression Gates
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
   workflow_dispatch:
+
+# Least-privilege: read-only token (these gates only run tests).
+permissions:
+  contents: read
 
 concurrency:
   group: regression-gates-${{ github.ref }}
@@ -44,10 +58,11 @@ jobs:
   ts-regression:
     name: TS Regression Gate (engine + compiler)
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           # `--experimental-strip-types` requires Node >= 22.6.0; the 22 line
           # resolves to a recent 22.x that includes it.
@@ -55,7 +70,7 @@ jobs:
 
       # engine_parse.test.ts shells out to roundtrip_engine.dart when
       # dart/self_host/engine.ball.json is missing.
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
 
@@ -149,15 +164,16 @@ jobs:
   dart-regression:
     name: Dart Regression Gate (engine + encoder + compiler)
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
 
       # The Dart compiler test suite shells out to @ball-lang/compiler.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
 
@@ -267,15 +283,16 @@ jobs:
   cpp-selfhost-tally:
     name: C++ Self-Host Tally (every fixture must pass)
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: bufbuild/buf-action@v1
+      - uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1
         with:
           setup_only: true
 
       - name: ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
         with:
           key: cpp-selfhost
           max-size: 1G
@@ -283,12 +300,12 @@ jobs:
       - name: Install nlohmann-json + ninja
         run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev ninja-build
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
 
       - name: Cache Dart pub
-        uses: actions/cache@v5.0.5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.pub-cache
           key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}

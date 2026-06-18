@@ -12,15 +12,16 @@ jobs:
   publish:
     name: Publish @ball-lang packages
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       # IMPORTANT: do NOT pass `registry-url:` here — that makes setup-node
       # write an .npmrc with `_authToken=${NODE_AUTH_TOKEN}` and export
       # NPM_CONFIG_USERCONFIG. With an unset/empty token npm falls back to
       # token-auth with an empty token instead of negotiating OIDC, producing
       # ENEEDAUTH / E404. OIDC trusted publishing needs no .npmrc at all.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
 

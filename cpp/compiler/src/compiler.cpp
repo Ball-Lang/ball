@@ -552,7 +552,7 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     if (ball_type == "double" || ball_type == "num") return "double";
     if (ball_type == "String") return "std::string";
     if (ball_type == "String?") return "BallDyn";
-    if (ball_type == "bool" || ball_type == "bool?") return "bool";
+    if (ball_type == "bool") return "bool";
     if (ball_type == "List" || ball_type.find("List<") == 0) return "BallDyn";
     if (ball_type == "Map" || ball_type.find("Map<") == 0) return "BallDyn";
     if (ball_type == "Set" || ball_type.find("Set<") == 0) return "BallDyn";
@@ -586,14 +586,13 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     if (ball_type.find("Future") == 0) return "BallDyn";
 
 
-    // Nullable type: strip trailing '?' and map the base type
+    // Nullable type `T?`: must be BallDyn — a concrete C++ type (int64_t,
+    // double, bool, std::string, ...) cannot represent the null case. A null
+    // argument passed to e.g. an `int?` parameter typed `int64_t` silently
+    // became 0 (conformance 306_nullable_type_patterns: present(null) returned
+    // "present:0" instead of "absent").
     if (!ball_type.empty() && ball_type.back() == '?') {
-        auto base = ball_type.substr(0, ball_type.size() - 1);
-        // Record types (Dart `({...})?`) → BallDyn
-        if (!base.empty() && base.front() == '(' && base.back() == ')') {
-            return "BallDyn";
-        }
-        return map_type(base);
+        return "BallDyn";
     }
 
     // Record types `({...})` → BallDyn
@@ -2471,6 +2470,15 @@ struct StructuredPatternResult {
 
 // Generate a C++ type-check condition for a given type name against a subject.
 static std::string _typeCheckCondition(const std::string& typeName, const std::string& subject) {
+    // Nullable type `T?` matches null OR any value matching the base type `T`
+    // (mirrors the Dart engine's _matchesTypePattern, engine_std.dart). Without
+    // this, `int?`/`String?` fell through to ball_object_type_matches(...,"int?")
+    // which never matches (conformance 306_nullable_type_patterns).
+    if (typeName.size() > 1 && typeName.back() == '?') {
+        std::string base = typeName.substr(0, typeName.size() - 1);
+        return "(!BallDyn(" + subject + ").has_value() || " +
+               _typeCheckCondition(base, subject) + ")";
+    }
     if (typeName == "int") {
         return "(ball_is_int(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallInt\"s))";
     }
@@ -2825,6 +2833,16 @@ static std::optional<StructuredPatternResult> _compileStructuredPattern(
         std::vector<std::string> conds;
         std::vector<std::pair<std::string, std::string>> binds;
 
+        // Records match by EXACT shape: the subject must have exactly the
+        // pattern's fields (same positional arity + same named-field set). A
+        // 2-field pattern must NOT match a 3-field record (native Dart; mirrors
+        // the engine's _matchPattern 'record' arm). Positional-only records
+        // compile to std::vector<std::any> and named/mixed records to
+        // std::unordered_map<std::string, std::any>; ball_length covers the
+        // element count of both forms, and containsKey verifies named keys.
+        conds.push_back("static_cast<int64_t>(ball_length(BallDyn(" + subject +
+            "))) == " + std::to_string(fields.size()));
+
         int positionalIdx = 0;
         for (auto* field : fields) {
             std::string name = _patternStringField(*field, "name");
@@ -2833,7 +2851,8 @@ static std::optional<StructuredPatternResult> _compileStructuredPattern(
 
             std::string fieldAccess;
             if (!name.empty()) {
-                // Named field: access via string key
+                // Named field: require the key to be present, then access it.
+                conds.push_back("BallDyn(" + subject + ").containsKey(\"" + name + "\"s)");
                 fieldAccess = "static_cast<BallDyn>(BallDyn(" + subject + "))[\"" + name + "\"s]";
             } else {
                 // Positional field: access via $N key or integer index
@@ -4481,12 +4500,14 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             const ball::v1::Expression* body_expr = nullptr;
             const ball::v1::Expression* pattern_expr_ptr = nullptr;
             const ball::v1::Expression* value_expr = nullptr;
+            const ball::v1::Expression* guard_expr = nullptr;
             bool is_default = false;
             for (const auto& f : case_expr.message_creation().fields()) {
                 if (f.name() == "pattern") pattern = compile_expr(f.value());
                 if (f.name() == "body") body_expr = &f.value();
                 if (f.name() == "pattern_expr") pattern_expr_ptr = &f.value();
                 if (f.name() == "value") value_expr = &f.value();
+                if (f.name() == "guard") guard_expr = &f.value();
                 if (f.name() == "is_default" &&
                     f.value().expr_case() == ball::v1::Expression::kLiteral &&
                     f.value().literal().bool_value()) is_default = true;
@@ -4503,25 +4524,38 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 // Try structured pattern (VarPattern, ListPattern, MapPattern, record, etc.)
                 auto structured = _compileStructuredPattern(*pattern_expr_ptr, "__subj", compileExprLambda);
                 if (structured) {
-                    if (structured->condition == "true" && structured->bindings.empty()) {
-                        // Wildcard / catch-all
+                    if (structured->condition == "true" && structured->bindings.empty() &&
+                        !guard_expr) {
+                        // Wildcard / catch-all (no guard)
                         result += indent_str() + "  return " + body + ";\n";
                         break;
                     }
-                    std::string bodyStr;
-                    if (!structured->bindings.empty()) {
-                        // Wrap body in an IIFE that binds pattern variables
+                    if (!structured->bindings.empty() || guard_expr) {
+                        // Bind pattern variables as locals inside a scoped IIFE so
+                        // the body — and the optional `when` guard — can see them.
+                        // A matching pattern whose guard is false must FALL THROUGH
+                        // to later cases, so the guard is part of the match
+                        // condition (an entered arm with a false guard is never
+                        // taken). (conformance 304_when_guards)
                         std::string params, args;
                         for (size_t bi = 0; bi < structured->bindings.size(); bi++) {
                             if (bi > 0) { params += ", "; args += ", "; }
                             params += "BallDyn " + structured->bindings[bi].first;
                             args += "BallDyn(" + structured->bindings[bi].second + ")";
                         }
-                        bodyStr = "[&](" + params + ") -> BallDyn { return " + body + "; }(" + args + ")";
-                    } else {
-                        bodyStr = body;
+                        std::string guardCond =
+                            guard_expr ? ("bool(" + compile_expr(*guard_expr) + ")")
+                                       : std::string("true");
+                        result += indent_str() + "  if (" + structured->condition +
+                                  ") { auto __m = [&](" + params + ") -> std::optional<BallDyn> { if (" +
+                                  guardCond + ") return " + body +
+                                  "; return std::nullopt; }(" + args +
+                                  "); if (__m) return *__m; }\n";
+                        // A false guard (or a refuted arm) must fall through, so
+                        // never `break` here even for an always-true condition.
+                        continue;
                     }
-                    result += indent_str() + "  if (" + structured->condition + ") return " + bodyStr + ";\n";
+                    result += indent_str() + "  if (" + structured->condition + ") return " + body + ";\n";
                     if (structured->condition == "true") break;
                     continue;
                 }
@@ -4530,11 +4564,15 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 std::vector<const ball::v1::Expression*> or_vals;
                 _collectOrPatternValues(*pattern_expr_ptr, or_vals);
                 if (!or_vals.empty()) {
-                    std::string cond;
+                    std::string cond = "(";
                     for (size_t oi = 0; oi < or_vals.size(); oi++) {
                         if (oi > 0) cond += " || ";
                         cond += "BallDyn(__subj) == ball_to_dyn(" + compile_expr(*or_vals[oi]) + ")";
                     }
+                    cond += ")";
+                    // A non-binding pattern's `when` guard simply AND's into the
+                    // match condition; a false guard falls through.
+                    if (guard_expr) cond += " && bool(" + compile_expr(*guard_expr) + ")";
                     result += indent_str() + "  if (" + cond + ") return " + body + ";\n";
                     continue;
                 }
@@ -4544,8 +4582,10 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             // match value in a `value` field (no `pattern`/`pattern_expr`).
             // Emit a direct equality check. (conformance 169, 170)
             if (value_expr && pattern.empty() && !pattern_expr_ptr) {
-                result += indent_str() + "  if (BallDyn(__subj) == ball_to_dyn(" +
-                          compile_expr(*value_expr) + ")) return " + body + ";\n";
+                std::string cond = "BallDyn(__subj) == ball_to_dyn(" +
+                          compile_expr(*value_expr) + ")";
+                if (guard_expr) cond += " && bool(" + compile_expr(*guard_expr) + ")";
+                result += indent_str() + "  if (" + cond + ") return " + body + ";\n";
                 continue;
             }
 
@@ -6551,11 +6591,13 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                         const ball::v1::Expression* case_val = nullptr;
                         const ball::v1::Expression* case_body = nullptr;
                         const ball::v1::Expression* case_pattern_expr = nullptr;
+                        const ball::v1::Expression* case_guard = nullptr;
                         bool is_default = false;
                         for (const auto& f : cx.message_creation().fields()) {
                             if (f.name() == "value" || f.name() == "pattern") case_val = &f.value();
                             else if (f.name() == "body") case_body = &f.value();
                             else if (f.name() == "pattern_expr") case_pattern_expr = &f.value();
+                            else if (f.name() == "guard") case_guard = &f.value();
                             else if (f.name() == "is_default" &&
                                      f.value().expr_case() == ball::v1::Expression::kLiteral &&
                                      f.value().literal().bool_value()) is_default = true;
@@ -6607,7 +6649,22 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                                     used_structured = true;
                                     cond = structured->condition;
 
-                                    if (cond == "true" && structured->bindings.empty()) {
+                                    // A `when` guard AND's into the match condition so a
+                                    // false guard FALLS THROUGH to later arms (engine
+                                    // semantics). It runs in a binding-scoped IIFE so it
+                                    // can see the pattern's bound variables. (304_when_guards)
+                                    std::string guardClause;
+                                    if (case_guard) {
+                                        std::string binds;
+                                        for (auto& [vn, ve] : structured->bindings) {
+                                            binds += "auto " + vn + " = BallDyn(" + ve + "); ";
+                                        }
+                                        guardClause = " && [&]() -> bool { " + binds +
+                                            "return bool(" + compile_expr(*case_guard) + "); }()";
+                                    }
+
+                                    if (cond == "true" && structured->bindings.empty() &&
+                                        guardClause.empty()) {
                                         // Wildcard / catch-all — treat as default
                                         if (first_case) emit_line("{");
                                         else emit_line("else {");
@@ -6617,8 +6674,11 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                                             cond += " || BallDyn(__switch_subj) == ball_to_dyn(" + pp + ")";
                                         }
                                         pending_patterns.clear();
-                                        if (first_case) emit_line("if (" + cond + ") {");
-                                        else emit_line("else if (" + cond + ") {");
+                                        const std::string fullCond = guardClause.empty()
+                                            ? cond
+                                            : ("(" + cond + ")" + guardClause);
+                                        if (first_case) emit_line("if (" + fullCond + ") {");
+                                        else emit_line("else if (" + fullCond + ") {");
                                     }
                                     first_case = false;
                                     indent_++;
@@ -6951,6 +7011,7 @@ void CppCompiler::emit_includes() {
     emit_line("#include <random>");
     emit_line("#include <type_traits>");
     emit_line("#include <utility>");
+    emit_line("#include <optional>");
     emit_newline();
     emit_line("using namespace std::string_literals;");
     emit_newline();

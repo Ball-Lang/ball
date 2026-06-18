@@ -1,3 +1,10 @@
+## [1.1.4](https://github.com/Ball-Lang/ball/compare/v1.1.3...v1.1.4) (2026-06-18)
+
+
+### Bug Fixes
+
+* **coverage:** measure every package & every file (not a cherry-picked subset) ([#76](https://github.com/Ball-Lang/ball/issues/76)) ([1987bc8](https://github.com/Ball-Lang/ball/commit/1987bc82b44938773f9f53fdb1d61ede7964aeaf)), closes [#75](https://github.com/Ball-Lang/ball/issues/75) [#59](https://github.com/Ball-Lang/ball/issues/59) [#61](https://github.com/Ball-Lang/ball/issues/61) [#62](https://github.com/Ball-Lang/ball/issues/62) [#75](https://github.com/Ball-Lang/ball/issues/75)
+
 ## [1.1.3](https://github.com/Ball-Lang/ball/compare/v1.1.2...v1.1.3) (2026-06-18)
 
 

@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/Ball-Lang/ball/compare/v1.1.1...v1.1.2) (2026-06-18)
+
+
+### Bug Fixes
+
+* **engine:** collection-for/if/spread + set/map comprehensions round-trip correctly ([#55](https://github.com/Ball-Lang/ball/issues/55)) ([#58](https://github.com/Ball-Lang/ball/issues/58)) ([523f4b0](https://github.com/Ball-Lang/ball/commit/523f4b0bf5751206abc1219cd0b263801e91a821))
+
 ## [1.1.1](https://github.com/Ball-Lang/ball/compare/v1.1.0...v1.1.1) (2026-06-17)
 
 

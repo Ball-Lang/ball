@@ -72,7 +72,7 @@ jobs:
         run: dart run tools/coverage_dart.dart --floor 45
 
       - name: Upload Dart coverage to Codecov
-        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           # Single merged lcov with the COMPLETE file/folder tree (every package,
@@ -145,7 +145,7 @@ jobs:
             src/capability_analyzer.ts
 
       - name: Upload TypeScript coverage to Codecov
-        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           # ALL five TS packages (engine, compiler, encoder, shared, cli). c8
@@ -220,7 +220,7 @@ jobs:
           lcov --list cpp.lcov --ignore-errors empty
 
       - name: Upload C++ coverage to Codecov
-        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           files: ./cpp.lcov

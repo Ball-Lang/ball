@@ -445,6 +445,15 @@ const bool = {
 // late-initialized variables and block-scoped flow tracking.
 const __no_init__: unique symbol = Symbol('__no_init__');
 
+// Null-aware spread source normalizer (the ...? operator). Returns an
+// iterable for the spread loop, mapping null / undefined / the __no_init__
+// sentinel (an uninitialized nullable, e.g. List<int>? n;) to an empty list
+// — matching Dart's ...?n which contributes nothing when the operand is null.
+function __ball_spread_iter(v: any): any {
+  if (v == null || v === __no_init__) return [];
+  return v;
+}
+
 // Dart type constructor shims — List, Map, etc.
 const List = {
   filled: (count: any, value: any) => Array(count).fill(value),

@@ -19,18 +19,6 @@
           "isBase": true
         },
         {
-          "name": "multiply",
-          "isBase": true
-        },
-        {
-          "name": "for",
-          "isBase": true
-        },
-        {
-          "name": "for_in",
-          "isBase": true
-        },
-        {
           "name": "print",
           "isBase": true
         }
@@ -98,7 +86,7 @@
               "statements": [
                 {
                   "let": {
-                    "name": "squares",
+                    "name": "fns",
                     "value": {
                       "literal": {
                         "listValue": {
@@ -155,7 +143,7 @@
                                                     "name": "right",
                                                     "value": {
                                                       "literal": {
-                                                        "intValue": "10"
+                                                        "intValue": "3"
                                                       }
                                                     }
                                                   }
@@ -192,31 +180,17 @@
                                       {
                                         "name": "body",
                                         "value": {
-                                          "call": {
-                                            "module": "std",
-                                            "function": "multiply",
-                                            "input": {
-                                              "messageCreation": {
-                                                "typeName": "",
-                                                "fields": [
-                                                  {
-                                                    "name": "left",
-                                                    "value": {
-                                                      "reference": {
-                                                        "name": "i"
-                                                      }
-                                                    }
-                                                  },
-                                                  {
-                                                    "name": "right",
-                                                    "value": {
-                                                      "reference": {
-                                                        "name": "i"
-                                                      }
-                                                    }
-                                                  }
-                                                ]
+                                          "lambda": {
+                                            "name": "",
+                                            "body": {
+                                              "reference": {
+                                                "name": "i"
                                               }
+                                            },
+                                            "metadata": {
+                                              "kind": "lambda",
+                                              "expression_body": true,
+                                              "has_return": true
                                             }
                                           }
                                         }
@@ -239,55 +213,55 @@
                   "expression": {
                     "call": {
                       "module": "std",
-                      "function": "for_in",
+                      "function": "print",
                       "input": {
                         "messageCreation": {
-                          "typeName": "",
+                          "typeName": "PrintInput",
                           "fields": [
                             {
-                              "name": "variable",
+                              "name": "message",
                               "value": {
                                 "literal": {
-                                  "stringValue": "s"
-                                }
-                              }
-                            },
-                            {
-                              "name": "variable_keyword",
-                              "value": {
-                                "literal": {
-                                  "stringValue": "final"
-                                }
-                              }
-                            },
-                            {
-                              "name": "iterable",
-                              "value": {
-                                "reference": {
-                                  "name": "squares"
-                                }
-                              }
-                            },
-                            {
-                              "name": "body",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "print",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "PrintInput",
-                                      "fields": [
-                                        {
-                                          "name": "message",
-                                          "value": {
-                                            "reference": {
-                                              "name": "s"
+                                  "listValue": {
+                                    "elements": [
+                                      {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "collection_for",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "variable",
+                                                  "value": {
+                                                    "literal": {
+                                                      "stringValue": "f"
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "iterable",
+                                                  "value": {
+                                                    "reference": {
+                                                      "name": "fns"
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "body",
+                                                  "value": {
+                                                    "call": {
+                                                      "function": "f"
+                                                    }
+                                                  }
+                                                }
+                                              ]
                                             }
                                           }
                                         }
-                                      ]
-                                    }
+                                      }
+                                    ]
                                   }
                                 }
                               }

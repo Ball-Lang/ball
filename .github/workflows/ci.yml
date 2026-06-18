@@ -157,6 +157,18 @@ jobs:
       - name: Assert conformance fixtures are sourced (no orphans)
         run: cd dart/encoder && dart run bin/check_conformance_sources.dart
 
+      # FORWARD-direction completeness (the gap that hid #55): every std base
+      # function the encoder can EMIT must be exercised by at least one executed
+      # fixture, or be a documented carve-out
+      # (tests/conformance/ENCODER_COMPLETENESS_CARVEOUTS.md).
+      - name: Assert encoder completeness (no untested emittable constructs)
+        run: cd dart/encoder && dart run bin/check_encoder_completeness.dart
+
+      # A fixture's NAME must not overstate its coverage — no "false coverage"
+      # like the old imperative 92_list_comprehension (which let #55 hide).
+      - name: Assert fixture names match their content
+        run: cd dart/encoder && dart run bin/check_fixture_names.dart
+
       # Every conformance .ball.json must be a fresh generator output, never
       # hand-edited. Regenerate from src and fail on drift.
       - name: Regenerate conformance corpus

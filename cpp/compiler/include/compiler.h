@@ -409,6 +409,21 @@ private:
     // Compile a map entry sentinel expression as a map insertion statement.
     std::string compile_map_entry_insert(const ball::v1::Expression& expr,
                                           const std::string& map_var);
+    // Compile a single list/set collection element into statements that append
+    // to the BallList named `list_var`, splicing spread (`...x` / `...?x`),
+    // nested collection_for, and collection_if elements (mirrors the Dart
+    // engine's `_addCollectionElement`). Returns a sequence of C++ statements.
+    std::string compile_collection_element(const ball::v1::Expression& expr,
+                                            const std::string& list_var);
+    // Compile a map collection element into statements that insert into the
+    // BallOrderedMap named `map_var`, splicing map spread (`...m`), nested
+    // map comprehensions, and key/value entry sentinels.
+    std::string compile_map_collection_element(const ball::v1::Expression& expr,
+                                               const std::string& map_var);
+    // Render the C++ `for (...)` header (no trailing brace) for a C-style
+    // `collection_for` (init/condition/update), inlining the single-let init.
+    std::string _render_collection_for_cstyle_header(
+        const ball::v1::FunctionCall& call);
     std::string sanitize_name(const std::string& name);
     std::string indent_str();
     // Resolve a class's constructor parameter names (in declaration order) so

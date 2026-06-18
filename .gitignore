@@ -26,6 +26,9 @@ pubspec.lock
 !/pubspec.lock
 build/
 
+# Coverage artifacts (lcov from tools/coverage_dart.dart; regenerated, not committed)
+coverage/
+
 # ----------------------------------
 # C++ Build
 # ----------------------------------

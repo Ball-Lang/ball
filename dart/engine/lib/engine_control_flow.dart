@@ -57,53 +57,7 @@ extension BallEngineControlFlow on BallEngine {
     // only bind/lookup/child, exactly like _evalLazyForIn.
     final loopVars = <String>[];
 
-    if (initExpr != null) {
-      // For-loop init may be:
-      //   1. A block with let statements — evaluate directly in forScope
-      //   2. A string literal "var i = 0" — parse and bind the variable
-      //   3. Anything else — evaluate normally
-      if (initExpr.whichExpr() == Expression_Expr.block) {
-        for (final stmt in initExpr.block.statements) {
-          if (stmt.whichStmt() == Statement_Stmt.let) {
-            loopVars.add(stmt.let.name);
-          }
-          await _evalStatement(stmt, forScope);
-        }
-      } else if (initExpr.whichExpr() == Expression_Expr.literal &&
-          initExpr.literal.hasStringValue()) {
-        // Parse "var name = value" or "final name = value"
-        final s = initExpr.literal.stringValue;
-        final match = RegExp(
-          r'(?:var|final|int|double|String)\s+(\w+)\s*=\s*(.+)',
-        ).firstMatch(s);
-        if (match != null) {
-          final varName = match.group(1)!;
-          final rawVal = match.group(2)!.trim();
-          // Try parsing as simple literal first.
-          final intParsed = int.tryParse(rawVal);
-          final doubleParsed = intParsed == null
-              ? double.tryParse(rawVal)
-              : null;
-          Object? parsed;
-          if (intParsed != null) {
-            parsed = intParsed;
-          } else if (doubleParsed != null) {
-            parsed = doubleParsed;
-          } else if (rawVal == 'true') {
-            parsed = true;
-          } else if (rawVal == 'false') {
-            parsed = false;
-          } else {
-            // Try evaluating as a simple expression in the current scope.
-            parsed = _evalSimpleInitExpr(rawVal, forScope);
-          }
-          loopVars.add(varName);
-          forScope.bind(varName, parsed);
-        }
-      } else {
-        await _evalExpression(initExpr, forScope);
-      }
-    }
+    await _evalForInit(initExpr, forScope, loopVars);
 
     // Dart for-loops create a FRESH binding of the loop variable(s) each
     // iteration, so a closure created in the body captures THAT iteration's
@@ -147,6 +101,62 @@ extension BallEngineControlFlow on BallEngine {
       if (update != null) await _evalExpression(update, forScope);
     }
     return null;
+  }
+
+  /// Evaluates a for-loop `init` clause into [forScope], recording the names of
+  /// any declared loop variables into [loopVars]. Shared by the statement `for`
+  /// ([_evalLazyFor]) and the collection `for` ([_evalCollectionFor]) so both
+  /// get identical init handling and fresh-per-iteration binding semantics.
+  ///
+  /// `init` may be:
+  ///   1. A block of `let` statements — evaluated directly in [forScope].
+  ///   2. A string literal "var i = 0" — parsed and bound.
+  ///   3. Any other expression — evaluated for its side effects.
+  Future<void> _evalForInit(
+    Expression? initExpr,
+    _Scope forScope,
+    List<String> loopVars,
+  ) async {
+    if (initExpr == null) return;
+    if (initExpr.whichExpr() == Expression_Expr.block) {
+      for (final stmt in initExpr.block.statements) {
+        if (stmt.whichStmt() == Statement_Stmt.let) {
+          loopVars.add(stmt.let.name);
+        }
+        await _evalStatement(stmt, forScope);
+      }
+    } else if (initExpr.whichExpr() == Expression_Expr.literal &&
+        initExpr.literal.hasStringValue()) {
+      // Parse "var name = value" or "final name = value".
+      final s = initExpr.literal.stringValue;
+      final match = RegExp(
+        r'(?:var|final|int|double|String)\s+(\w+)\s*=\s*(.+)',
+      ).firstMatch(s);
+      if (match != null) {
+        final varName = match.group(1)!;
+        final rawVal = match.group(2)!.trim();
+        // Try parsing as a simple literal first.
+        final intParsed = int.tryParse(rawVal);
+        final doubleParsed = intParsed == null ? double.tryParse(rawVal) : null;
+        Object? parsed;
+        if (intParsed != null) {
+          parsed = intParsed;
+        } else if (doubleParsed != null) {
+          parsed = doubleParsed;
+        } else if (rawVal == 'true') {
+          parsed = true;
+        } else if (rawVal == 'false') {
+          parsed = false;
+        } else {
+          // Try evaluating as a simple expression in the current scope.
+          parsed = _evalSimpleInitExpr(rawVal, forScope);
+        }
+        loopVars.add(varName);
+        forScope.bind(varName, parsed);
+      }
+    } else {
+      await _evalExpression(initExpr, forScope);
+    }
   }
 
   /// Evaluate a simple expression string from a for-loop init.

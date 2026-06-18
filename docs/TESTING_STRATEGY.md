@@ -108,27 +108,43 @@ See [.claude/rules/dart.md](../.claude/rules/dart.md).
 
 ## Coverage ratchet (toward 100% line coverage)
 
-Beyond construct-completeness (§2), we measure **line coverage** of the
-correctness-critical Dart packages and ratchet it upward, never down. Tool:
-`tools/coverage_dart.dart` (aggregates `dart test --coverage-path` lcov,
-excluding generated/never-authored files — `**/gen/**`, `compiled_engine.ts`,
-`engine_rt.cpp`, `engine_roundtrip.dart`). Gate: `.github/workflows/coverage.yml`
-(`dart run tools/coverage_dart.dart --floor N`).
+Beyond construct-completeness (§2), we measure **line coverage** and ratchet it
+upward, never down — across **all three stacks**, uploaded to Codecov with
+per-stack flags (`dart`/`typescript`/`cpp`) via OIDC (no token). Gate:
+`.github/workflows/coverage.yml`.
 
-**The bar is 100%; the honest current baseline is far from it** — measured
-≈22% for `shared`/`engine`/`encoder` (engine 28%, encoder 16%, shared 22%;
-`compiler` adds more from its snapshot/round-trip suites). The encoder figure
-*understates* effective coverage because its 280-fixture exercise runs through
-`generate_conformance`, not `dart test`. Reaching 100% line coverage is a
-deliberate, multi-PR climb: the floor in `coverage.yml` locks in non-regression
-today and must be raised toward 100% one PR at a time. **Note:** line coverage
-is the *secondary* metric. The *primary* behavioral guarantee against the #55
-class is the construct-completeness gate (§2), which is at 100% of
-encoder-emittable constructs now.
+**Completeness is the whole point — measure every package and every file, or the
+number lies.** The Dart tool `tools/coverage_dart.dart`:
 
-TS and C++ line-coverage ratchets are roadmap (their engines are generated from
-the Dart source, so Dart coverage is the leading indicator); their **behavioral**
-coverage is already gated by the conformance matrix.
+- **discovers every package dynamically** (`dart/*/pubspec.yaml`) — no
+  hand-maintained allowlist, so a new package can't silently drop out (the bug
+  the original tool had: it measured only 4 of 10 packages, reporting a
+  cherry-picked number);
+- counts **every authored `lib/`+`bin/` file**, including files **no test ever
+  loads** (emitted at 0% via a conservative line proxy — omitting untested files
+  is exactly what inflates a coverage number);
+- **credits cross-package coverage** — each suite's lcov already reports the
+  workspace path-deps it exercises (the engine suite covers `shared`), max-merged
+  across all suites into one `coverage/dart.lcov`;
+- excludes only generated/never-authored files (`**/gen/**`, `*.pb.dart`,
+  `engine_roundtrip.dart`, `compiled_engine.ts`, `engine_rt.cpp`) and pure
+  barrel/`export` directives (no instrumentable lines).
+
+**The bar is 100%; the honest full-repo baseline is ~51.7%** (all 9 Dart
+packages, all authored files). Per-package highlights: `engine` 65%, `compiler`
+43%, `encoder` 37%, `shared` 39%, `ball_protobuf_gen` 89%, and `cli` 0% (an
+entry-point package whose only code is `bin/ball.dart`, integration-tested via a
+subprocess that line coverage can't see). Reaching 100% is a deliberate, multi-PR
+climb; the floor in `coverage.yml` locks in non-regression and must be raised
+toward 100% one PR at a time. **Line coverage is the *secondary* metric** — the
+primary behavioral guarantee against the #55 class is the construct-completeness
+gate (§2). TS (`c8 --all`) and C++ (`gcov`/`lcov --initial`) are measured the
+same way (all packages, never-executed files at 0%); their **behavioral**
+coverage is additionally gated by the conformance matrix.
+
+> A failing/ungated package suite (e.g. `ball_protobuf`, issue #75) is measured
+> but surfaced as a loud WARNING and under-counted — `coverage_dart.dart`
+> MEASURES coverage, it is not the test gate (that is `ci.yml`).
 
 ## CI gates (where each invariant lives)
 

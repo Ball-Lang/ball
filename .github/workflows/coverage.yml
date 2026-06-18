@@ -29,7 +29,7 @@ jobs:
   dart:
     name: Dart coverage
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v6
 
@@ -51,18 +51,33 @@ jobs:
       - name: Install & build @ball-lang/compiler
         run: cd ts/compiler && npm ci && npm run build
 
-      # Writes coverage/<pkg>.lcov for shared/engine/encoder/compiler AND fails
-      # if overall line coverage drops below the floor. RAISE the floor toward
-      # 100% as tests are added (see docs/TESTING_STRATEGY.md). Never lower it
-      # without justification.
-      - name: Dart line coverage ratchet
-        run: dart run tools/coverage_dart.dart --floor 18
+      # Some package suites read the generated shared artifacts (e.g.
+      # ball_protobuf's facade test reads ball_protobuf.json). Regenerate them
+      # first — mirrors ci.yml's ball-freshness setup — so coverage runs against
+      # a correctly-built workspace.
+      - name: Regenerate shared Ball artifacts
+        run: |
+          ( cd dart/shared  && dart run bin/gen_std.dart . )
+          ( cd dart/shared  && dart run bin/gen_ball_proto.dart . )
+          ( cd dart/encoder && dart run bin/gen_ball_protobuf.dart ../shared )
+
+      # Measures EVERY workspace package and EVERY authored file (untested files
+      # count as 0%, never dropped) and fails if overall line coverage drops
+      # below the floor. RAISE the floor toward 100% as tests are added (see
+      # docs/TESTING_STRATEGY.md); never lower it without justification.
+      # Honest full-repo baseline measured ~51.7% (all 9 packages, all authored
+      # lib+bin files, cross-package credited). Floor set below it to absorb
+      # local↔CI variance; RAISE toward 100% as tests are added.
+      - name: Dart line coverage ratchet (all packages)
+        run: dart run tools/coverage_dart.dart --floor 45
 
       - name: Upload Dart coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
-          files: ./coverage/shared.lcov,./coverage/engine.lcov,./coverage/encoder.lcov,./coverage/compiler.lcov
+          # Single merged lcov with the COMPLETE file/folder tree (every package,
+          # every authored file, 0% for untested) — not a tested subset.
+          files: ./coverage/dart.lcov
           flags: dart
           # Best-effort: a Codecov outage / not-yet-activated repo must not fail
           # the ratchet gate above. (This is the codecov-action default.)
@@ -109,11 +124,28 @@ jobs:
           npx --yes c8@11.0.0 --reporter=lcovonly --src src --all \
             node --experimental-strip-types --test test/*.test.ts
 
+      - name: Coverage — @ball-lang/shared
+        run: |
+          cd ts/shared && npm ci
+          npx --yes c8@11.0.0 --reporter=lcovonly --src src --all \
+            node --experimental-strip-types --test test/*.test.ts
+
+      - name: Coverage — @ball-lang/cli
+        run: |
+          cd ts/cli && npm ci
+          npx --yes c8@11.0.0 --reporter=lcovonly --src src --all \
+            node --experimental-strip-types --disable-warning=ExperimentalWarning \
+            test/cli_test.ts
+
       - name: Upload TypeScript coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
-          files: ./ts/engine/coverage/lcov.info,./ts/compiler/coverage/lcov.info,./ts/encoder/coverage/lcov.info
+          # ALL five TS packages (engine, compiler, encoder, shared, cli). c8
+          # `--all` includes never-executed src files at 0%, so each package's
+          # coverage is complete, not just the exercised files.
+          files: >-
+            ./ts/engine/coverage/lcov.info,./ts/compiler/coverage/lcov.info,./ts/encoder/coverage/lcov.info,./ts/shared/coverage/lcov.info,./ts/cli/coverage/lcov.info
           flags: typescript
           fail_ci_if_error: false
 
@@ -154,15 +186,27 @@ jobs:
       - name: Build
         run: cmake --build cpp/build-cov -j 2
 
+      # Baseline (--initial) BEFORE running tests: records 0-coverage for every
+      # instrumented source, so a file that's compiled but never exercised shows
+      # 0% instead of vanishing from the report.
+      - name: Capture baseline coverage (lcov --initial)
+        run: |
+          lcov --capture --initial --directory cpp/build-cov --output-file cpp.base.lcov \
+            --ignore-errors mismatch,gcov,source,negative,empty,unused,format
+
       - name: Run tests
         run: ctest --test-dir cpp/build-cov --output-on-failure
 
-      # Capture, then drop system headers, FetchContent deps (protobuf/abseil),
-      # and generated code. lcov 2.x is strict — tolerate the usual gcov noise.
-      - name: Capture coverage (lcov)
+      # Capture test coverage, merge with the baseline (so unexecuted files stay
+      # at 0%), then drop system headers, FetchContent deps (protobuf/abseil),
+      # build artifacts, generated code and tests. lcov 2.x is strict — tolerate
+      # the usual gcov noise.
+      - name: Capture + merge coverage (lcov)
         run: |
-          lcov --capture --directory cpp/build-cov --output-file cpp.lcov \
+          lcov --capture --directory cpp/build-cov --output-file cpp.test.lcov \
             --ignore-errors mismatch,gcov,source,negative,empty,unused,format
+          lcov --add-tracefile cpp.base.lcov --add-tracefile cpp.test.lcov \
+            --output-file cpp.lcov --ignore-errors unused,empty,corrupt
           lcov --remove cpp.lcov \
             '/usr/*' '*/_deps/*' '*/build-cov/*' '*/gen/*' '*/test/*' \
             --output-file cpp.lcov --ignore-errors unused,empty

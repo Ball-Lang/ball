@@ -1,16 +1,39 @@
 version: 2
 updates:
+  # GitHub Actions — keeps the SHA-pinned `uses:` fresh (the pins in
+  # .github/workflows/* are immutable commit SHAs for supply-chain safety;
+  # Dependabot bumps them + updates the trailing `# vX` comment). Grouped so a
+  # weekly bump is one PR, not one-per-action.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
 
+  # npm — every TS workspace package (each has its own node_modules; not an npm
+  # workspace). Previously only /ts/engine was covered.
   - package-ecosystem: "npm"
-    directory: "/ts/engine"
+    directories:
+      - "/ts/engine"
+      - "/ts/compiler"
+      - "/ts/encoder"
+      - "/ts/shared"
+      - "/ts/cli"
     schedule:
       interval: "weekly"
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
+  # pub — the Dart pub-workspace root resolves every dart/ package.
   - package-ecosystem: "pub"
     directory: "/dart"
     schedule:
       interval: "weekly"
+    groups:
+      pub-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

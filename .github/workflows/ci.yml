@@ -3,8 +3,23 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+
+# Least-privilege default token: read-only. No job in this workflow writes to
+# the repo (build + test only). https://docs.github.com/actions/security
+permissions:
+  contents: read
 
 # Cancel in-progress runs for the same branch/PR
 concurrency:
@@ -18,12 +33,13 @@ jobs:
   proto:
     name: Proto Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0 # needed for buf breaking against git history
 
-      - uses: bufbuild/buf-action@v1
+      - uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1
         with:
           setup_only: true
 
@@ -43,15 +59,16 @@ jobs:
   dart:
     name: Dart
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
 
       - name: Cache Dart pub
-        uses: actions/cache@v5.0.5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.pub-cache
           key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
@@ -60,7 +77,7 @@ jobs:
       # Node is needed by the Dart-side TsCompiler wrapper, which
       # shells out to @ball-lang/compiler (ts/compiler/). Without the
       # dist build the wrapper throws.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
           cache: npm
@@ -118,15 +135,16 @@ jobs:
   ball-freshness:
     name: Ball Artifact Freshness
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
 
       - name: Cache Dart pub
-        uses: actions/cache@v5.0.5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.pub-cache
           key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
@@ -192,15 +210,16 @@ jobs:
   protobuf-codegen:
     name: Protobuf Codegen (gen + rpc)
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
 
       - name: Cache Dart pub
-        uses: actions/cache@v5.0.5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.pub-cache
           key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
@@ -231,10 +250,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: bufbuild/buf-action@v1
+      - uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1
         with:
           setup_only: true
 
@@ -242,7 +262,7 @@ jobs:
       # cost) is reused across runs. ccache on Linux/macOS, sccache on Windows
       # (MSVC). Manages its own GitHub Actions cache save/restore.
       - name: ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
         with:
           key: cpp-${{ matrix.os }}
           variant: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
@@ -278,14 +298,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
 
       - name: Cache Dart pub
-        uses: actions/cache@v5.0.5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.pub-cache
           key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
@@ -294,7 +314,7 @@ jobs:
       # ccache makes the protobuf+abseil conformance build a near-instant
       # rebuild on warm runs (this is the slowest job in CI — 45-min budget).
       - name: ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
         with:
           key: cpp-conformance
           max-size: 1G
@@ -343,21 +363,22 @@ jobs:
   typescript:
     name: TypeScript
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
 
       - name: Cache Dart pub
-        uses: actions/cache@v5.0.5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.pub-cache
           key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
           restore-keys: pub-${{ runner.os }}-
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
           cache: npm
@@ -401,7 +422,7 @@ jobs:
   #   name: <Lang>
   #   runs-on: ubuntu-latest
   #   steps:
-  #     - uses: actions/checkout@v6
+  #     - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
   #
   #     # Setup language toolchain (find official action at github.com/actions)
   #     - name: Setup <Lang>
@@ -410,7 +431,7 @@ jobs:
   #         <lang>-version: <stable>
   #
   #     # Proto generation (if bindings are built at compile time)
-  #     - uses: bufbuild/buf-action@v1
+  #     - uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1
   #       with:
   #         setup_only: true
   #

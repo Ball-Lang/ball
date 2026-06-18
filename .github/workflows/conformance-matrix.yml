@@ -17,6 +17,10 @@ on:
     - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
   workflow_dispatch:
 
+# Least-privilege: read-only token (conformance runs build + execute only).
+permissions:
+  contents: read
+
 concurrency:
   group: conformance-${{ github.ref }}
   cancel-in-progress: true
@@ -28,10 +32,11 @@ jobs:
   dart-engine:
     name: Dart Engine
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
 
@@ -81,10 +86,11 @@ jobs:
   ts-engine:
     name: TS Self-Hosted Engine
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
           cache: npm
@@ -131,10 +137,11 @@ jobs:
   ts-compiled-engine:
     name: TS Compiled Engine
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
           cache: npm
@@ -181,8 +188,9 @@ jobs:
   cpp-compiled:
     name: C++ Compiled
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       # NOTE: deliberately do NOT install a system protobuf. The checked-in
       # generated code in cpp/shared/gen/ targets the pinned protobuf
@@ -191,7 +199,7 @@ jobs:
       # matching version (same as ci.yml's C++ build).
 
       - name: ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
         with:
           key: cpp-compiled-matrix
           max-size: 1G
@@ -240,7 +248,7 @@ jobs:
   #   name: <Lang> Engine
   #   runs-on: ubuntu-latest
   #   steps:
-  #     - uses: actions/checkout@v6
+  #     - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
   #
   #     - name: Setup <Lang>
   #       uses: <official-setup-action>
@@ -290,6 +298,7 @@ jobs:
   summary:
     name: Parity Matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     if: always()
     needs: [dart-engine, ts-engine, ts-compiled-engine, cpp-compiled]
     steps:

@@ -1,31 +1,40 @@
-/// Dart line-coverage ratchet for the correctness-critical packages.
+/// Dart line-coverage measurement + ratchet for the WHOLE workspace.
 ///
-/// Runs each package's test suite with coverage, aggregates the lcov reports
-/// (EXCLUDING generated/never-authored files), reports overall line coverage,
-/// and — when given `--floor <pct>` — fails if coverage dropped below the floor.
-/// The bar is 100%; the floor is raised one PR at a time and must never regress.
+/// Best-practice completeness on two axes:
+///   1. EVERY package — `dart/*/pubspec.yaml` discovered dynamically, so a new
+///      package can never silently drop out of coverage (the bug this script
+///      used to have: a hand-maintained 4-package allowlist).
+///   2. EVERY authored file, credited by EVERY test that exercises it — each
+///      package's `dart test --coverage` already reports the workspace
+///      path-deps it loads (e.g. the engine suite exercises `shared`), so a
+///      file's coverage is max-merged across all suites, not just its own
+///      package's. Files no test ever loads are emitted at 0% (never dropped —
+///      omitting untested files is what makes a coverage number lie).
+///
+/// Generated/never-authored files are excluded (CLAUDE.md "Never edit generated
+/// files"). The bar is 100%; the floor is raised one PR at a time and must
+/// never regress.
 ///
 ///   dart run tools/coverage_dart.dart                 # report only
-///   dart run tools/coverage_dart.dart --floor 85.0    # gate (CI)
+///   dart run tools/coverage_dart.dart --floor 60.0    # gate (CI)
 ///
-/// Generated files are excluded because they are regenerated, not authored
-/// (see CLAUDE.md "Never edit generated files").
+/// Writes a single merged `coverage/dart.lcov` (repo-relative paths, every
+/// file) for the Codecov upload.
 library;
 
 import 'dart:io';
 
-/// Packages whose authored code must be covered. CLI/glue and roadmap packages
-/// can be added as their suites mature.
-const _packages = <String>['shared', 'engine', 'encoder', 'compiler'];
-
 /// Path fragments that mark a generated/never-authored file (excluded from %).
 const _excludedFragments = <String>[
-  '/gen/', // protobuf-generated types
-  '/lib/gen/',
+  '/gen/', // protobuf-generated types (dart/*/lib/gen/**, *.pb.dart live here)
+  '.pb.dart',
+  '.pbenum.dart',
+  '.pbjson.dart',
+  '.pbserver.dart',
+  '.g.dart', // build_runner output
+  'engine_roundtrip.dart', // dart/self_host (generated, gitignored)
   'compiled_engine.ts',
   'engine_rt.cpp',
-  'engine_roundtrip.dart',
-  '.g.dart', // build_runner output, if any
 ];
 
 bool _isExcluded(String path) {
@@ -33,74 +42,173 @@ bool _isExcluded(String path) {
   return _excludedFragments.any(p.contains);
 }
 
-Future<void> main(List<String> args) async {
+String _norm(String path) => path.replaceAll('\\', '/');
+
+void main(List<String> args) async {
   final floorIdx = args.indexOf('--floor');
   final double? floor = floorIdx >= 0 && floorIdx + 1 < args.length
       ? double.tryParse(args[floorIdx + 1])
       : null;
 
-  final repoRoot = _findRepoRoot();
+  final repoRoot = _norm(_findRepoRoot());
+  final dartPrefix = '$repoRoot/dart/';
+  final dartDir = Directory('$repoRoot/dart');
   final covDir = Directory('$repoRoot/coverage')..createSync(recursive: true);
 
-  var totalFound = 0;
-  var totalHit = 0;
-  final perPackage = <String, ({int found, int hit})>{};
+  // Discover EVERY package (dart/*/pubspec.yaml). No hand-maintained allowlist.
+  final packages =
+      dartDir
+          .listSync()
+          .whereType<Directory>()
+          .where((d) => File('${d.path}/pubspec.yaml').existsSync())
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
 
-  for (final pkg in _packages) {
-    final pkgDir = Directory('$repoRoot/dart/$pkg');
-    if (!pkgDir.existsSync()) {
-      stderr.writeln('  skip $pkg (no package dir)');
-      continue;
-    }
-    final lcovPath = '${covDir.path}/$pkg.lcov';
-    stdout.writeln('Running $pkg tests with coverage...');
-    // Exclude `slow`-tagged tests, matching what ci.yml actually gates (the
-    // compiler's conformance_roundtrip_test is `slow` and carries known-failing
-    // legs for not-yet-complete compiler features — tracked separately). The
-    // ratchet must measure the SAME suite CI gates, or it fails on bugs the
-    // gated build never sees.
-    final result = await Process.run('dart', [
-      'test',
-      '--coverage-path=$lcovPath',
-      '--branch-coverage',
-      '--exclude-tags',
-      'slow',
-    ], workingDirectory: pkgDir.path);
-    if (result.exitCode != 0) {
-      stderr.writeln('  $pkg tests FAILED (exit ${result.exitCode}):');
-      stderr.writeln(result.stdout);
-      stderr.writeln(result.stderr);
-      exit(1);
-    }
-    final lcov = File(lcovPath);
-    if (!lcov.existsSync()) {
-      stderr.writeln('  $pkg produced no lcov at $lcovPath');
-      continue;
-    }
-    final (found, hit) = _parseLcov(lcov.readAsLinesSync());
-    perPackage[pkg] = (found: found, hit: hit);
-    totalFound += found;
-    totalHit += hit;
+  // The single source of truth: repo-relative file -> {line -> max hits across
+  // ALL suites}. Per-package and total are both derived from this at the end.
+  final repoLines = <String, Map<int, int>>{};
+  // Packages whose suite didn't fully pass — coverage is still measured (so the
+  // folder isn't dropped) but UNDER-counted, and surfaced loudly. This tool
+  // MEASURES coverage; the test gate is ci.yml's own test steps.
+  final failedPackages = <String>[];
+
+  String? toRepoRel(String absPath) {
+    final p = _norm(absPath);
+    if (!p.startsWith(dartPrefix)) return null; // skip pub-cache/external deps
+    return p.substring(repoRoot.length + 1); // -> dart/<pkg>/...
   }
+
+  void fold(String repoRelFile, Map<int, int> lines) {
+    if (_isExcluded(repoRelFile)) return;
+    final dst = repoLines.putIfAbsent(repoRelFile, () => <int, int>{});
+    for (final e in lines.entries) {
+      final cur = dst[e.key] ?? 0;
+      // ALWAYS store (max) — including 0-hit lines, or untested lines vanish and
+      // the percentage lies high.
+      dst[e.key] = e.value > cur ? e.value : cur;
+    }
+  }
+
+  for (final pkgDir in packages) {
+    final name = pkgDir.uri.pathSegments.lastWhere((s) => s.isNotEmpty);
+
+    // Authored source files under lib/ + bin/ (generated excluded).
+    final sources = <String>[];
+    for (final sub in const ['lib', 'bin']) {
+      final d = Directory('${pkgDir.path}/$sub');
+      if (!d.existsSync()) continue;
+      for (final f in d.listSync(recursive: true).whereType<File>()) {
+        if (f.path.endsWith('.dart') && !_isExcluded(f.path)) {
+          final rel = toRepoRel(f.absolute.path);
+          if (rel != null) sources.add(rel);
+        }
+      }
+    }
+    if (sources.isEmpty) continue; // e.g. self_host: only generated engine_rt.
+
+    final testDir = Directory('${pkgDir.path}/test');
+    final hasTests =
+        testDir.existsSync() &&
+        testDir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .any((f) => f.path.endsWith('_test.dart'));
+
+    if (hasTests) {
+      final lcovPath = '${covDir.path}/$name.lcov';
+      stdout.writeln('Running $name tests with coverage...');
+      // `--exclude-tags slow` mirrors what ci.yml gates (the compiler's slow
+      // round-trip carries known-failing legs for not-yet-complete features).
+      final result = await Process.run('dart', [
+        'test',
+        '--coverage-path=$lcovPath',
+        '--branch-coverage',
+        '--exclude-tags',
+        'slow',
+      ], workingDirectory: pkgDir.path);
+      if (result.exitCode != 0) {
+        failedPackages.add(name);
+        stderr.writeln(
+          '  WARNING: $name tests did not fully pass (exit '
+          '${result.exitCode}) — coverage may be under-counted. The test gate '
+          'is ci.yml; fix the suite there.',
+        );
+      }
+      final lcov = File(lcovPath);
+      if (lcov.existsSync()) {
+        final parsed = <String, Map<int, int>>{};
+        _parseLcovInto(lcov.readAsLinesSync(), parsed);
+        // Fold EVERY workspace file this suite reported (incl. path-deps like
+        // shared) so cross-package coverage is credited.
+        for (final e in parsed.entries) {
+          final rel = toRepoRel(e.key);
+          if (rel != null) fold(rel, e.value);
+        }
+      }
+    } else {
+      stdout.writeln('Package $name has no tests.');
+    }
+
+    // Completeness: every authored source MUST appear, even if no suite loaded
+    // it (→ 0%, never silently dropped). putIfAbsent so real coverage wins.
+    for (final src in sources) {
+      repoLines.putIfAbsent(src, () => _zeroLineMap(File('$repoRoot/$src')));
+    }
+  }
+
+  // Derive per-package + total from the merged map, and write the lcov.
+  final perPackage = <String, ({int found, int hit})>{};
+  final mergedLcov = StringBuffer();
+  var totalFound = 0, totalHit = 0;
+  for (final file in repoLines.keys.toList()..sort()) {
+    final lines = repoLines[file]!;
+    if (lines.isEmpty) continue;
+    final f = lines.length;
+    final h = lines.values.where((v) => v > 0).length;
+    totalFound += f;
+    totalHit += h;
+    // dart/<pkg>/...
+    final parts = file.split('/');
+    final pkg = parts.length > 1 ? parts[1] : file;
+    final cur = perPackage[pkg] ?? (found: 0, hit: 0);
+    perPackage[pkg] = (found: cur.found + f, hit: cur.hit + h);
+
+    mergedLcov.writeln('SF:$file');
+    for (final ln in lines.keys.toList()..sort()) {
+      mergedLcov.writeln('DA:$ln,${lines[ln]}');
+    }
+    mergedLcov.writeln('LF:$f');
+    mergedLcov.writeln('LH:$h');
+    mergedLcov.writeln('end_of_record');
+  }
+  File('${covDir.path}/dart.lcov').writeAsStringSync(mergedLcov.toString());
 
   String pct(int hit, int found) =>
       found == 0 ? 'n/a' : '${(100.0 * hit / found).toStringAsFixed(2)}%';
 
   stdout.writeln('');
-  stdout.writeln('Dart line coverage (generated files excluded):');
-  for (final pkg in _packages) {
-    final p = perPackage[pkg];
-    if (p == null) continue;
+  stdout.writeln('Dart line coverage — ALL packages, ALL authored files:');
+  for (final pkg in perPackage.keys.toList()..sort()) {
+    final p = perPackage[pkg]!;
     stdout.writeln(
-      '  ${pkg.padRight(10)} ${pct(p.hit, p.found).padLeft(8)}  '
+      '  ${pkg.padRight(18)} ${pct(p.hit, p.found).padLeft(8)}  '
       '(${p.hit}/${p.found})',
     );
   }
   final overall = totalFound == 0 ? 0.0 : 100.0 * totalHit / totalFound;
   stdout.writeln(
-    '  ${'TOTAL'.padRight(10)} '
+    '  ${'TOTAL'.padRight(18)} '
     '${pct(totalHit, totalFound).padLeft(8)}  ($totalHit/$totalFound)',
   );
+
+  if (failedPackages.isNotEmpty) {
+    stdout.writeln('');
+    stdout.writeln(
+      'WARNING: ${failedPackages.length} package suite(s) failed/incomplete '
+      '(coverage may be under-counted): ${failedPackages.join(', ')}. '
+      'These need fixing / ci.yml gating.',
+    );
+  }
 
   if (floor != null) {
     if (overall + 1e-9 < floor) {
@@ -119,21 +227,81 @@ Future<void> main(List<String> args) async {
   }
 }
 
-/// Sum LF (lines found) / LH (lines hit) across all non-excluded SF records.
-(int, int) _parseLcov(List<String> lines) {
-  var found = 0;
-  var hit = 0;
-  var excluded = false;
+/// Parse lcov `SF`/`DA` records into [out] (file -> {line -> hits}), skipping
+/// excluded (generated) files. Multiple records for one file are max-merged.
+void _parseLcovInto(List<String> lines, Map<String, Map<int, int>> out) {
+  String? current;
+  var skip = false;
   for (final line in lines) {
     if (line.startsWith('SF:')) {
-      excluded = _isExcluded(line.substring(3));
-    } else if (!excluded && line.startsWith('LF:')) {
-      found += int.tryParse(line.substring(3)) ?? 0;
-    } else if (!excluded && line.startsWith('LH:')) {
-      hit += int.tryParse(line.substring(3)) ?? 0;
+      current = _norm(line.substring(3));
+      skip = _isExcluded(current);
+      if (!skip) out.putIfAbsent(current, () => <int, int>{});
+    } else if (!skip && current != null && line.startsWith('DA:')) {
+      final body = line.substring(3);
+      final comma = body.indexOf(',');
+      if (comma < 0) continue;
+      final ln = int.tryParse(body.substring(0, comma));
+      final hits = int.tryParse(body.substring(comma + 1));
+      if (ln == null || hits == null) continue;
+      final m = out[current]!;
+      final cur = m[ln] ?? 0;
+      m[ln] = hits > cur ? hits : cur;
+    } else if (line == 'end_of_record') {
+      current = null;
+      skip = false;
     }
   }
-  return (found, hit);
+}
+
+/// For a file no test loaded, build a {line -> 0} map over its executable-ish
+/// lines (non-blank, not a pure comment/brace/annotation). A conservative proxy
+/// of "lines of code": it treats the whole file as uncovered (honest); the exact
+/// instrumentable-line count only matters once the file gets real tests (then
+/// dart's own lcov replaces this proxy via the max-merge).
+Map<int, int> _zeroLineMap(File f) {
+  final out = <int, int>{};
+  List<String> lines;
+  try {
+    lines = f.readAsLinesSync();
+  } catch (_) {
+    return out;
+  }
+  final punct = RegExp(r'^[{}()\[\];,]+$');
+  var inBlockComment = false;
+  for (var i = 0; i < lines.length; i++) {
+    var t = lines[i].trim();
+    if (inBlockComment) {
+      final end = t.indexOf('*/');
+      if (end < 0) continue;
+      t = t.substring(end + 2).trim();
+      inBlockComment = false;
+    }
+    final blockStart = t.indexOf('/*');
+    if (blockStart >= 0 && !t.contains('*/', blockStart)) {
+      t = t.substring(0, blockStart).trim();
+      inBlockComment = true;
+    }
+    if (t.isEmpty) continue;
+    if (t.startsWith('//')) continue; // line + doc comments
+    if (t.startsWith('*') || t.startsWith('@'))
+      continue; // doc cont. / annotation
+    if (punct.hasMatch(t)) continue; // pure structural punctuation
+    if (t == 'else' || t == 'try' || t == 'do') continue;
+    // Directives aren't instrumentable — a barrel file of pure `export`s has no
+    // executable lines (dart wouldn't count them), so it must not look like
+    // uncovered code.
+    if (t.startsWith('export ') ||
+        t.startsWith('import ') ||
+        t.startsWith('part ') ||
+        t.startsWith('part of') ||
+        t.startsWith('library ') ||
+        t == 'library;') {
+      continue;
+    }
+    out[i + 1] = 0;
+  }
+  return out;
 }
 
 String _findRepoRoot() {

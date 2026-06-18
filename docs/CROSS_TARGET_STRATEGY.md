@@ -7,10 +7,10 @@
 
 ## Current State (June 2026)
 
-- **277 conformance programs** in `tests/conformance/`
-- **Dart engine:** 277/277 (0 failures across compiled + roundtrip legs)
-- **TS engine:** 291/291 (273 conformance + 18 unit tests, self-hosted)
-- **C++ engine:** 273/273 (compiled leg in conformance matrix)
+- **288 conformance programs** in `tests/conformance/`
+- **Dart engine:** all pass (0 failures across compiled + roundtrip legs)
+- **TS engine:** all conformance pass, self-hosted (plus unit tests)
+- **C++ engine:** all pass (compiled leg in conformance matrix)
 - **ball_protobuf:** 2769/2769 Dart conformance; compiles to TS (9217 lines, marshal/unmarshal proven) and C++ (3942 lines, g++ clean)
 - **Phase 5 (cross-target library mode) DONE:** TS `compileModule()` and C++ `compile_library()` both work
 - **Language-specific modules eliminated:** `dart_std`, `cpp_std`, `ts_std` all removed; everything routes through universal `std`

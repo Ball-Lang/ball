@@ -65,9 +65,10 @@ toolchain (the engine itself is the self-hosted `engine_rt.cpp`, not native C++)
 - Silently drops unhandled AST nodes (~880, depth-limit ~781).
 
 **Conformance harness:**
-- `cpp/test/test_selfhost_conformance.cpp` ends `return 0` ("don't fail the
-  build") and skip-lists a few unpassable fixtures — self-host failures do NOT
-  fail this target. Use the per-fixture isolated runs (above) for the real count.
+- `cpp/test/test_selfhost_conformance.cpp` returns a real exit code
+  (`return tests_failed > 0 ? 1 : 0;`) and has NO skip-list — every conformance
+  fixture must pass, so self-host failures DO fail the target. CTest isolates
+  each fixture in its own process (a crash/hang fails only that fixture).
 
 ## Architecture Notes
 

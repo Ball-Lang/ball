@@ -27,7 +27,7 @@ Future<void> main() async {
 
 | Feature | Status |
 |---------|--------|
-| All 73 `std` base functions | Supported |
+| All 118 `std` base functions | Supported |
 | `std_collections`, `std_io`, `std_memory` | Supported |
 | Lexical scoping, closures, lambdas | Supported |
 | Object-oriented dispatch (getters, setters, operator overloading) | Supported |

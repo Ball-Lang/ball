@@ -146,7 +146,7 @@ This spec costs nothing to add to the repo and immediately makes every new compi
 - Proto schema: `Program → Module → FunctionDefinition → Expression` tree, using `google.protobuf.DescriptorProto` for language-agnostic types. Smart.  
 - `std` module: 118 declared base functions in `std.json` plus engine-registered functions (cascade, spread, invoke, etc.), well categorized.  
 - Universal `std` module: all constructs (including former `dart_std` ops like cascade, spread, invoke) route through `std`.  
-- Dart compiler/encoder/engine: clean reference implementation, all three programs working. 277 conformance programs.  
+- Dart compiler/encoder/engine: clean reference implementation, all three programs working. 288 conformance programs.  
 - Module import system with 5 source types (HTTP, File, Inline, Git, Registry) and integrity hashing.
 
 ---

@@ -39,14 +39,15 @@ legacy: field_presence=EXPLICIT,enum_type=CLOSED,repeated_field_encoding=EXPANDE
 2023+IMPLICIT: field_presence=IMPLICIT,enum_type=OPEN,repeated_field_encoding=PACKED,utf8_validation=VERIFY,message_encoding=LENGTH_PREFIXED,json_format=ALLOW
 ```
 
-Per-engine conformance tallies observed locally (the `256` program is included in
-each):
+All three engines pass the full conformance corpus (288 fixtures, including the
+`256` program); the CI `conformance-matrix` is green for the Dart engine, the TS
+self-hosted + compiled engines, the C++ Compiled engine, and the Parity Matrix:
 
-| Engine | Tally |
-|--------|-------|
-| Dart   | 269 passed, 0 failed |
-| TS     | 270 passed, 0 failed |
-| C++    | 222 passed, 0 failed, 6 skipped / 228 (the C++ self-host suite skips a few unrelated fixtures) |
+| Engine | Result |
+|--------|--------|
+| Dart   | all conformance fixtures pass (0 failed) |
+| TS     | all conformance fixtures pass (0 failed) |
+| C++    | all conformance fixtures pass (0 failed) |
 
 ## Reproduce locally
 
@@ -69,8 +70,8 @@ cpp/build/test/Release/test_selfhost_conformance   # → "PASS: 256_editions_res
 
 In CI the same coverage runs automatically: `.github/workflows/conformance-matrix.yml`
 runs every `tests/conformance/*.ball.json` (now including `256`) on the Dart, TS,
-and C++ engines, and `.github/workflows/regression-gates.yml` enforces the pass
-counts.
+and C++ engines, and `.github/workflows/regression-gates.yml` enforces that every
+test passes (0 failed, 0 skipped) on each engine.
 
 ## Notes
 

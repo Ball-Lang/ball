@@ -3139,7 +3139,7 @@ function __isUnknownFnError(e: any): boolean {
         let first = true;
         // Parse all cases, detecting fall-through (empty body = merge
         // with next case via ||).
-        const parsedCases: Array<{ conds: string[]; body?: Expression; patText?: string; structuredBindings?: Array<{ varName: string; expr: string }> }> = [];
+        const parsedCases: Array<{ conds: string[]; body?: Expression; patText?: string; structuredBindings?: Array<{ varName: string; expr: string }>; guard?: Expression }> = [];
         const pendingConds: string[] = [];
         let lastPatText: string | undefined;
         for (const ce of caseExprs) {
@@ -3148,11 +3148,13 @@ function __isUnknownFnError(e: any): boolean {
           let body: Expression | undefined;
           let isDefaultFlag = false;
           let patternExprField: Expression | undefined;
+          let guardField: Expression | undefined;
           for (const fd of ce.messageCreation.fields ?? []) {
             if (fd.name === "pattern") pattern = fd.value;
             if (fd.name === "body") body = fd.value;
             if (fd.name === "is_default" && fd.value?.literal?.boolValue === true) isDefaultFlag = true;
             if (fd.name === "pattern_expr") patternExprField = fd.value;
+            if (fd.name === "guard") guardField = fd.value;
           }
           // Check for is_default flag
           if (isDefaultFlag) { defaultBody = body; continue; }
@@ -3161,16 +3163,18 @@ function __isUnknownFnError(e: any): boolean {
             const result = compileStructuredPattern(patternExprField, "__sw", (e) => this.expr(e));
             if (result) {
               const cond = result.condition;
-              if (cond === "true") { defaultBody = body; break; }
+              // A catch-all with no guard ends the chain; with a guard the
+              // branch stays refutable (a false guard falls through).
+              if (cond === "true" && !guardField) { defaultBody = body; break; }
               const isEmpty = body && body.block &&
                 (body.block.statements ?? []).length === 0 &&
                 body.block.result === undefined;
-              if (!body || isEmpty) {
+              if (!guardField && (!body || isEmpty)) {
                 pendingConds.push(cond);
                 continue;
               }
               pendingConds.push(cond);
-              parsedCases.push({ conds: [...pendingConds], body, structuredBindings: result.bindings });
+              parsedCases.push({ conds: [...pendingConds], body, structuredBindings: result.bindings, guard: guardField });
               pendingConds.length = 0;
               continue;
             }
@@ -3181,37 +3185,52 @@ function __isUnknownFnError(e: any): boolean {
           const cond = patText !== undefined
             ? patternToTsCondition(patText, "__sw")
             : `((__sw) === ${this.expr(pattern)})`;
-          if (cond === "true") { defaultBody = body; break; }
+          if (cond === "true" && !guardField) { defaultBody = body; break; }
           // Empty body = fall-through: accumulate conditions.
           const isEmpty = body && body.block &&
             (body.block.statements ?? []).length === 0 &&
             body.block.result === undefined;
-          if (!body || isEmpty) {
+          if (!guardField && (!body || isEmpty)) {
             pendingConds.push(cond);
             lastPatText = patText;
             continue;
           }
           pendingConds.push(cond);
-          parsedCases.push({ conds: [...pendingConds], body, patText: patText ?? lastPatText });
+          parsedCases.push({ conds: [...pendingConds], body, patText: patText ?? lastPatText, guard: guardField });
           pendingConds.length = 0;
           lastPatText = undefined;
         }
         for (const pc of parsedCases) {
-          const combinedCond = pc.conds.join(" || ");
+          // Gather this case's pattern bindings.
+          const caseBindings: Array<{ varName: string; expr: string }> = [];
+          if (pc.structuredBindings) caseBindings.push(...pc.structuredBindings);
+          if (pc.patText) caseBindings.push(...patternBindings(pc.patText, "__sw"));
+          // When a `when` guard is present the bindings must be visible to the
+          // guard, which is part of the `if` condition. Hoist them to temps
+          // BEFORE the `if` (so the guard can read them) and reference the temps
+          // inside. Without this, an entered `if` block swallows the arm and
+          // later cases never get tested when the guard is false.
+          let combinedCond = pc.conds.join(" || ");
+          if (pc.guard) {
+            // Evaluate the guard inside an IIFE bound to the pattern variables,
+            // gated by the match condition via `&&` (so the IIFE only runs when
+            // the pattern matched and the temps are valid). The guard's binders
+            // are passed positionally; the guard expression itself is untouched.
+            const matchCond = `(${pc.conds.join(" || ")})`;
+            if (caseBindings.length > 0) {
+              const params = caseBindings.map(b => b.varName).join(", ");
+              const args = caseBindings.map(b => b.expr).join(", ");
+              combinedCond = `${matchCond} && ((${params}) => (${this.expr(pc.guard)}))(${args})`;
+            } else {
+              combinedCond = `${matchCond} && (${this.expr(pc.guard)})`;
+            }
+          }
           const kw = first ? "if" : "else if";
           this.writeln(`${kw} (${combinedCond}) {`);
           this.depth++;
-          // Inject variable bindings for structured patterns.
-          if (pc.structuredBindings) {
-            for (const b of pc.structuredBindings) {
-              this.writeln(`const ${b.varName} = ${b.expr};`);
-            }
-          }
-          // Inject variable bindings for type-test / map patterns.
-          if (pc.patText) {
-            for (const b of patternBindings(pc.patText, "__sw")) {
-              this.writeln(`const ${b.varName} = ${b.expr};`);
-            }
+          // Inject variable bindings inside the matched block.
+          for (const b of caseBindings) {
+            this.writeln(`const ${b.varName} = ${b.expr};`);
           }
           this.emitStatementOrExpression(pc.body!, false);
           this.depth--;
@@ -5032,7 +5051,17 @@ function __isUnknownFnError(e: any): boolean {
     const subjectStr = this.expr(subjectExpr);
     const caseExprs = casesField.literal?.listValue?.elements ?? [];
     let defaultBody: Expression | undefined;
-    const branches: Array<{ cond: string; body: string }> = [];
+    // Each branch carries its match condition, the pattern's bindings, the
+    // body expression and an optional `when` guard. The guard references the
+    // bound variables, so it must be evaluated where those bindings are in
+    // scope; a FALSE guard must fall through to the remaining cases (engine
+    // semantics: a matched pattern with a false guard is NOT a match).
+    const branches: Array<{
+      cond: string;
+      bindings: Array<{ varName: string; expr: string }>;
+      body: Expression;
+      guard?: Expression;
+    }> = [];
     for (const ce of caseExprs) {
       if (!ce.messageCreation) continue;
       let pattern: Expression | undefined;
@@ -5040,12 +5069,14 @@ function __isUnknownFnError(e: any): boolean {
       let isDefaultFlag = false;
       let patternExprField: Expression | undefined;
       let valueField: Expression | undefined;
+      let guardField: Expression | undefined;
       for (const fd of ce.messageCreation.fields ?? []) {
         if (fd.name === "pattern") pattern = fd.value;
         if (fd.name === "value") valueField = fd.value;
         if (fd.name === "body") body = fd.value;
         if (fd.name === "is_default" && fd.value?.literal?.boolValue === true) isDefaultFlag = true;
         if (fd.name === "pattern_expr") patternExprField = fd.value;
+        if (fd.name === "guard") guardField = fd.value;
       }
       // Check for is_default flag
       if (isDefaultFlag) {
@@ -5057,21 +5088,14 @@ function __isUnknownFnError(e: any): boolean {
       if (patternExprField) {
         const result = compileStructuredPattern(patternExprField, subjectStr, (e) => this.expr(e));
         if (result) {
-          let bodyStr: string;
-          if (result.bindings.length > 0) {
-            const params = result.bindings.map(b => b.varName).join(", ");
-            const args = result.bindings.map(b => b.expr).join(", ");
-            bodyStr = `((${params}) => ${this.expr(body)})(${args})`;
-          } else {
-            bodyStr = this.expr(body);
-          }
-          if (result.condition === "true" && result.bindings.length === 0) {
+          // A catch-all with NO guard ends the chain; with a guard it remains a
+          // refutable branch (the guard can still fall through).
+          if (result.condition === "true" && result.bindings.length === 0 && !guardField) {
             defaultBody = body;
             break;
           }
-          // Use "true" condition as a catch-all branch when there are bindings
-          branches.push({ cond: result.condition, body: bodyStr });
-          if (result.condition === "true") break; // No further cases needed
+          branches.push({ cond: result.condition, bindings: result.bindings, body, guard: guardField });
+          if (result.condition === "true" && !guardField) break; // No further cases needed
           continue;
         }
         // Unknown pattern kind -- fall through to text-based pattern handling
@@ -5086,35 +5110,56 @@ function __isUnknownFnError(e: any): boolean {
       if (patText === undefined) {
         branches.push({
           cond: `((${subjectStr}) === ${this.expr(caseMatch)})`,
-          body: this.expr(body),
+          bindings: [],
+          body,
+          guard: guardField,
         });
         continue;
       }
       const cond = patternToTsCondition(patText, subjectStr);
-      if (cond === "true") {
+      if (cond === "true" && !guardField) {
         defaultBody = body;
         break;
       }
       // Check if the pattern introduces variable bindings.
       const bindings = patternBindings(patText, subjectStr);
-      let bodyStr: string;
-      if (bindings.length > 0) {
-        // Wrap body in an IIFE that binds the pattern variables.
-        const params = bindings.map(b => b.varName).join(", ");
-        const args = bindings.map(b => b.expr).join(", ");
-        bodyStr = `((${params}) => ${this.expr(body)})(${args})`;
-      } else {
-        bodyStr = this.expr(body);
-      }
-      branches.push({ cond, body: bodyStr });
+      branches.push({ cond, bindings, body, guard: guardField });
     }
     const tail = defaultBody ? this.expr(defaultBody) : "undefined";
     if (branches.length === 0) return tail;
     let result = tail;
-    for (const { cond, body } of [...branches].reverse()) {
-      result = `(${cond} ? (${body}) : ${result})`;
+    for (const { cond, bindings, body, guard } of [...branches].reverse()) {
+      result = this.foldSwitchBranch(cond, bindings, body, guard, result);
     }
     return result;
+  }
+
+  /**
+   * Fold one switch-expression branch into the ternary chain.
+   *  - No guard: `(cond ? bindBody : rest)`.
+   *  - With guard: the guard references the pattern's bindings, so bind ONCE in
+   *    an IIFE and gate the body on the guard, falling through to `rest` when
+   *    the guard is false: `(cond ? ((binds) => (guard ? body : rest))(args) : rest)`.
+   */
+  private foldSwitchBranch(
+    cond: string,
+    bindings: Array<{ varName: string; expr: string }>,
+    body: Expression,
+    guard: Expression | undefined,
+    rest: string,
+  ): string {
+    const params = bindings.map(b => b.varName).join(", ");
+    const args = bindings.map(b => b.expr).join(", ");
+    if (guard) {
+      const guarded = bindings.length > 0
+        ? `((${params}) => (${this.expr(guard)} ? (${this.expr(body)}) : ${rest}))(${args})`
+        : `(${this.expr(guard)} ? (${this.expr(body)}) : ${rest})`;
+      return `(${cond} ? ${guarded} : ${rest})`;
+    }
+    const bodyStr = bindings.length > 0
+      ? `((${params}) => ${this.expr(body)})(${args})`
+      : this.expr(body);
+    return `(${cond} ? (${bodyStr}) : ${rest})`;
   }
 
   private compileThrowValue(v: Expression): string | undefined {
@@ -5552,7 +5597,8 @@ interface StructuredPatternResult {
  *  Unknown kinds should fall through to the text-based pattern handling. */
 const KNOWN_PATTERN_KINDS = new Set([
   "ConstPattern", "VarPattern", "var", "WildcardPattern", "wildcard", "_",
-  "ListPattern", "RestPattern", "rest", "record", "LogicalOrPattern", "CastPattern",
+  "ListPattern", "RestPattern", "rest", "record", "RecordPattern",
+  "LogicalOrPattern", "CastPattern", "NullCheckPattern", "NullAssertPattern",
 ]);
 
 /** Generate a JS type-check condition for a Dart type name against `subject`.
@@ -5560,6 +5606,13 @@ const KNOWN_PATTERN_KINDS = new Set([
  *  (`case int x:`) and a typed wildcard (`case int _:`) test the type
  *  identically — they previously diverged, leaving the wildcard untyped. */
 function typeCheckCondition(typeName: string, subject: string): string {
+  // Nullable type `T?` matches null OR any value matching the base type `T`
+  // (mirrors the engine's _matchesTypePattern). Without this, `int?`/`String?`
+  // fall to the default arm and emit `instanceof int?` (invalid JS).
+  if (typeName.length > 1 && typeName.endsWith("?")) {
+    const base = typeName.slice(0, -1);
+    return `(${subject} == null || ${typeCheckCondition(base, subject)})`;
+  }
   switch (typeName) {
     case "int": return `(typeof ${subject} === 'number' && Number.isInteger(${subject}))`;
     case "double": return `(${subject} instanceof BallDouble || (typeof ${subject} === 'number' && !Number.isInteger(${subject})))`;
@@ -5726,26 +5779,87 @@ function compileStructuredPattern(
         return { condition: conds.join(" && "), bindings: binds };
       }
     }
-    case "record": {
+    case "record":
+    case "RecordPattern": {
+      // A record pattern matches by EXACT shape (engine semantics:
+      // engine_std.dart:2018-2033 — same positional arity AND same named-field
+      // set). The TS `record` base function (see _callBaseFunction's "record"
+      // case) materializes records as: a JS array `[v0, v1, ...]` when
+      // all-positional, a plain object `{ name: v }` when all-named, and a
+      // mixed object with 0-based string keys (`"0"`, `"1"`) plus named keys
+      // when mixed. Match each representation precisely.
       const recordFields = fields.get("fields")?.literal?.listValue?.elements ?? [];
-      const conds: string[] = [];
-      const binds: Array<{ varName: string; expr: string }> = [];
+      const positional: Expression[] = [];
+      const named: Array<{ name: string; pattern: Expression }> = [];
       for (const rf of recordFields) {
         const rfm = mcFields(rf);
         const name = rfm.get("name")?.literal?.stringValue;
         const pattern = rfm.get("pattern");
-        if (name && pattern) {
-          const sub = compileStructuredPattern(pattern, `${subject}['${name}']`, exprFn);
+        if (!pattern) continue;
+        if (name) named.push({ name, pattern });
+        else positional.push(pattern);
+      }
+      const binds: Array<{ varName: string; expr: string }> = [];
+      if (named.length === 0) {
+        // All-positional record: value is a JS array of exactly this length.
+        const conds: string[] = [
+          `Array.isArray(${subject})`,
+          `${subject}.length === ${positional.length}`,
+        ];
+        for (let i = 0; i < positional.length; i++) {
+          const sub = compileStructuredPattern(positional[i], `${subject}[${i}]`, exprFn);
           if (sub) {
             if (sub.condition !== "true") conds.push(sub.condition);
             binds.push(...sub.bindings);
           }
         }
+        return { condition: `(${conds.join(" && ")})`, bindings: binds };
       }
-      return {
-        condition: conds.length > 0 ? conds.join(" && ") : "true",
-        bindings: binds,
-      };
+      // Has named fields: value is a plain object (NOT an array). Require an
+      // exact key set: positional fields appear as 0-based string keys, named
+      // fields as their names.
+      const expectedKeys = [
+        ...positional.map((_, i) => String(i)),
+        ...named.map((n) => n.name),
+      ];
+      const conds: string[] = [
+        `(typeof ${subject} === 'object' && ${subject} !== null && !Array.isArray(${subject}))`,
+        `Object.keys(${subject}).filter(k => !k.startsWith('__')).length === ${expectedKeys.length}`,
+      ];
+      for (let i = 0; i < positional.length; i++) {
+        conds.push(`(${JSON.stringify(String(i))} in ${subject})`);
+        const sub = compileStructuredPattern(positional[i], `${subject}[${JSON.stringify(String(i))}]`, exprFn);
+        if (sub) {
+          if (sub.condition !== "true") conds.push(sub.condition);
+          binds.push(...sub.bindings);
+        }
+      }
+      for (const n of named) {
+        conds.push(`(${JSON.stringify(n.name)} in ${subject})`);
+        const sub = compileStructuredPattern(n.pattern, `${subject}[${JSON.stringify(n.name)}]`, exprFn);
+        if (sub) {
+          if (sub.condition !== "true") conds.push(sub.condition);
+          binds.push(...sub.bindings);
+        }
+      }
+      return { condition: `(${conds.join(" && ")})`, bindings: binds };
+    }
+    case "NullCheckPattern":
+    case "NullAssertPattern": {
+      // `var v?` (NullCheckPattern) matches when the subject is non-null AND
+      // the inner sub-pattern matches; `var v!` (NullAssertPattern) is treated
+      // the same for matching purposes (the assertion never refutes here, but a
+      // null still must not bind). Mirrors the engine's null_check handling.
+      const inner = fields.get("pattern");
+      let sub: StructuredPatternResult = { condition: "true", bindings: [] };
+      if (inner) {
+        const s = compileStructuredPattern(inner, subject, exprFn);
+        if (s) sub = s;
+      }
+      const cond = sub.condition !== "true"
+        ? `(${subject} != null && ${sub.condition})`
+        : `(${subject} != null)`;
+      return { condition: cond, bindings: sub.bindings };
     }
     case "RestPattern":
     case "rest": {

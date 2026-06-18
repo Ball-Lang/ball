@@ -2615,18 +2615,35 @@ class DartCompiler {
     if (caseExpr.whichExpr() != Expression_Expr.messageCreation) return;
     final cf = _fieldsToMap(caseExpr.messageCreation.fields);
     final isDefault = _boolFieldValue(cf, 'is_default');
-    final pattern = _stringFieldValue(cf, 'pattern');
-    final value = cf['value'];
     final body = cf['body'];
 
     if (isDefault) {
       _wl('default:');
-    } else if (pattern != null && pattern.isNotEmpty) {
-      _wl('case $pattern:');
-    } else if (value != null) {
-      _wl('case ${_e(value)}:');
     } else {
-      return;
+      // Prefer the semantic `pattern_expr` (the cosmetic `pattern` for a switch
+      // STATEMENT omits the `when` clause, so all guarded arms would collapse to
+      // the same label). Append the guard separately.
+      final guard = cf['guard'];
+      var label = cf['pattern_expr'] != null
+          ? _compilePatternExpr(cf['pattern_expr']!)
+          : null;
+      var labelHasGuard = false;
+      if (label == null) {
+        final cosmetic = _stringFieldValue(cf, 'pattern');
+        if (cosmetic != null && cosmetic.isNotEmpty) {
+          label = cosmetic;
+          labelHasGuard = cosmetic.contains(' when ');
+        }
+      }
+      if (label == null) {
+        final value = cf['value'];
+        if (value == null) return;
+        label = _e(value);
+      }
+      final guardStr = (guard != null && !labelHasGuard)
+          ? ' when ${_e(guard)}'
+          : '';
+      _wl('case $label$guardStr:');
     }
     // Fall-through: an empty case body means the original Dart source used
     // label fall-through (`case A: case B: body;`). Emit NO `break` so Dart
@@ -4456,23 +4473,41 @@ class DartCompiler {
       for (final c in cases.literal.listValue.elements) {
         if (c.whichExpr() != Expression_Expr.messageCreation) continue;
         final cf = _fieldsToMap(c.messageCreation.fields);
-        final pattern = _stringFieldValue(cf, 'pattern');
-        final isDefault = cf['is_default']?.literal.boolValue == true;
         final body = cf['body'];
-        if (isDefault && body != null) {
+        if (body == null) continue;
+        final isDefault = _boolFieldValue(cf, 'is_default');
+        if (isDefault) {
           buf.write('_ => ${_e(body)},\n');
           hasDefault = true;
-        } else if (pattern != null && body != null) {
-          if (pattern == '_') hasDefault = true;
-          buf.write('$pattern => ${_e(body)},\n');
-        } else if (cf['pattern_expr'] != null && body != null) {
-          final patternStr = _compilePatternExpr(cf['pattern_expr']!);
-          if (patternStr != null) {
-            buf.write('$patternStr => ${_e(body)},\n');
-          }
-        } else if (cf['value'] != null && body != null) {
-          buf.write('${_e(cf['value']!)} => ${_e(body)},\n');
+          continue;
         }
+        // Prefer the SEMANTIC pattern (`pattern_expr`) and append the guard
+        // separately; fall back to the cosmetic string only when a pattern
+        // can't be transcribed. The cosmetic switch-expr label already bakes in
+        // any `when` clause, so don't double-append the guard there.
+        final guard = cf['guard'];
+        var label = cf['pattern_expr'] != null
+            ? _compilePatternExpr(cf['pattern_expr']!)
+            : null;
+        var labelHasGuard = false;
+        if (label == null) {
+          final cosmetic = _stringFieldValue(cf, 'pattern');
+          if (cosmetic != null) {
+            label = cosmetic;
+            labelHasGuard = cosmetic.contains(' when ');
+          }
+        }
+        if (label == null && cf['value'] != null) {
+          buf.write('${_e(cf['value']!)} => ${_e(body)},\n');
+          continue;
+        }
+        if (label == null) continue;
+        final guardStr = (guard != null && !labelHasGuard)
+            ? ' when ${_e(guard)}'
+            : '';
+        // A bare `_` is the catch-all only when it has no guard.
+        if (label == '_' && guard == null && !labelHasGuard) hasDefault = true;
+        buf.write('$label$guardStr => ${_e(body)},\n');
       }
     }
     // Ensure exhaustiveness for Dart null-safety (only when cases exist)
@@ -4482,61 +4517,128 @@ class DartCompiler {
     return buf.toString();
   }
 
+  /// Compile a structured pattern (`pattern_expr`) to native Dart pattern
+  /// syntax. The pattern kind is the MessageCreation `typeName` the encoder
+  /// sets (`VarPattern`, `RecordPattern`, …) — NOT a `__pattern_kind__` field
+  /// (that field never existed; `_fieldsToMap` also drops `typeName`, so we read
+  /// it straight off the MessageCreation). Dart natively supports every pattern
+  /// form, so this is a direct syntactic transcription; arity/shape/null
+  /// semantics are enforced by the Dart runtime. Returns null for shapes we
+  /// can't transcribe, so the caller can fall back to the cosmetic string.
   String? _compilePatternExpr(Expression expr) {
     if (expr.whichExpr() != Expression_Expr.messageCreation) return null;
-    final fields = _fieldsToMap(expr.messageCreation.fields);
-    final kind = _stringFieldValue(fields, '__pattern_kind__');
-    switch (kind) {
-      case 'var':
+    final mc = expr.messageCreation;
+    final fields = _fieldsToMap(mc.fields);
+    String? sub(String key) {
+      final p = fields[key];
+      return p != null ? _compilePatternExpr(p) : null;
+    }
+
+    switch (mc.typeName) {
+      case 'VarPattern':
         final name = _stringFieldValue(fields, 'name') ?? '_';
-        return 'var $name';
-      case 'record':
-        final fieldsList = fields['fields'];
-        if (fieldsList == null) return '()';
-        final parts = <String>[];
-        if (fieldsList.whichExpr() == Expression_Expr.literal &&
-            fieldsList.literal.whichValue() == Literal_Value.listValue) {
-          for (final elem in fieldsList.literal.listValue.elements) {
-            if (elem.whichExpr() != Expression_Expr.messageCreation) continue;
-            final ef = _fieldsToMap(elem.messageCreation.fields);
-            final name = _stringFieldValue(ef, 'name');
-            final patternExpr = ef['pattern'];
-            final subPattern = patternExpr != null
-                ? _compilePatternExpr(patternExpr)
+        final type = _stringFieldValue(fields, 'type');
+        // `int x` / `int? x` keeps the (possibly nullable) type; bare `var x`.
+        return type != null ? '$type $name' : 'var $name';
+      case 'WildcardPattern':
+        final type = _stringFieldValue(fields, 'type');
+        return type != null ? '$type _' : '_';
+      case 'ConstPattern':
+        final value = fields['value'];
+        return value != null ? _e(value) : 'null';
+      case 'RecordPattern':
+        return '(${_compilePatternFields(fields['fields']).join(', ')})';
+      case 'ObjectPattern':
+        final type = _stringFieldValue(fields, 'type') ?? 'Object';
+        return '$type(${_compilePatternFields(fields['fields']).join(', ')})';
+      case 'ListPattern':
+        return '[${_compilePatternElements(fields['elements']).join(', ')}]';
+      case 'MapPattern':
+        final entries = <String>[];
+        final list = fields['entries'];
+        if (list != null &&
+            list.whichExpr() == Expression_Expr.literal &&
+            list.literal.whichValue() == Literal_Value.listValue) {
+          for (final e in list.literal.listValue.elements) {
+            if (e.whichExpr() != Expression_Expr.messageCreation) continue;
+            final ef = _fieldsToMap(e.messageCreation.fields);
+            final key = ef['key'];
+            final valuePat = ef['value'];
+            final valStr = valuePat != null
+                ? _compilePatternExpr(valuePat)
                 : null;
-            if (name != null && subPattern != null) {
-              parts.add('$name: $subPattern');
-            } else if (subPattern != null) {
-              parts.add(subPattern);
+            if (key != null && valStr != null) {
+              entries.add('${_e(key)}: $valStr');
             }
           }
         }
-        return '(${parts.join(', ')})';
-      case 'type':
-        final type = _stringFieldValue(fields, 'type') ?? 'dynamic';
-        final subPattern = fields['pattern'];
-        final sub = subPattern != null ? _compilePatternExpr(subPattern) : null;
-        return sub != null ? '$type $sub' : '$type _';
-      case 'wildcard':
-        return '_';
-      case 'constant':
-        final value = fields['value'];
-        return value != null ? _e(value) : 'null';
-      case 'list':
-        final elements = fields['elements'];
-        if (elements == null) return '[]';
-        final parts = <String>[];
-        if (elements.whichExpr() == Expression_Expr.literal &&
-            elements.literal.whichValue() == Literal_Value.listValue) {
-          for (final elem in elements.literal.listValue.elements) {
-            final sub = _compilePatternExpr(elem);
-            if (sub != null) parts.add(sub);
-          }
-        }
-        return '[${parts.join(', ')}]';
+        return '{${entries.join(', ')}}';
+      case 'NullCheckPattern':
+        final s = sub('pattern');
+        return s != null ? '$s?' : null;
+      case 'NullAssertPattern':
+        final s = sub('pattern');
+        return s != null ? '$s!' : null;
+      case 'CastPattern':
+        final s = sub('pattern');
+        final type = _stringFieldValue(fields, 'type') ?? 'Object';
+        return s != null ? '$s as $type' : null;
+      case 'LogicalAndPattern':
+        final l = sub('left'), r = sub('right');
+        return (l != null && r != null) ? '$l && $r' : null;
+      case 'LogicalOrPattern':
+        final l = sub('left'), r = sub('right');
+        return (l != null && r != null) ? '$l || $r' : null;
+      case 'RelationalPattern':
+        final op = _stringFieldValue(fields, 'operator') ?? '==';
+        final operand = fields['operand'];
+        return operand != null ? '$op ${_e(operand)}' : null;
+      case 'RestPattern':
+        final s = sub('subpattern');
+        return s != null ? '...$s' : '...';
       default:
         return null;
     }
+  }
+
+  /// Compile a list of record/object pattern fields (`{name?, pattern}`) to
+  /// `name: subpattern` (named) or `subpattern` (positional) fragments.
+  List<String> _compilePatternFields(Expression? fieldsList) {
+    final parts = <String>[];
+    if (fieldsList == null ||
+        fieldsList.whichExpr() != Expression_Expr.literal ||
+        fieldsList.literal.whichValue() != Literal_Value.listValue) {
+      return parts;
+    }
+    for (final elem in fieldsList.literal.listValue.elements) {
+      if (elem.whichExpr() != Expression_Expr.messageCreation) continue;
+      final ef = _fieldsToMap(elem.messageCreation.fields);
+      final name = _stringFieldValue(ef, 'name');
+      final patternExpr = ef['pattern'];
+      final subPattern = patternExpr != null
+          ? _compilePatternExpr(patternExpr)
+          : null;
+      if (subPattern == null) continue;
+      parts.add(
+        name != null && name.isNotEmpty ? '$name: $subPattern' : subPattern,
+      );
+    }
+    return parts;
+  }
+
+  /// Compile a list of list-pattern elements (each a pattern, incl. RestPattern).
+  List<String> _compilePatternElements(Expression? elements) {
+    final parts = <String>[];
+    if (elements == null ||
+        elements.whichExpr() != Expression_Expr.literal ||
+        elements.literal.whichValue() != Literal_Value.listValue) {
+      return parts;
+    }
+    for (final elem in elements.literal.listValue.elements) {
+      final sub = _compilePatternExpr(elem);
+      if (sub != null) parts.add(sub);
+    }
+    return parts;
   }
 
   String _compileSubstring(Map<String, Expression> f) {

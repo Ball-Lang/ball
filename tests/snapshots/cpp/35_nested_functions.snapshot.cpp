@@ -25,6 +25,7 @@
 #include <random>
 #include <type_traits>
 #include <utility>
+#include <optional>
 
 using namespace std::string_literals;
 

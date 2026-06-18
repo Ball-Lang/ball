@@ -552,7 +552,7 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     if (ball_type == "double" || ball_type == "num") return "double";
     if (ball_type == "String") return "std::string";
     if (ball_type == "String?") return "BallDyn";
-    if (ball_type == "bool" || ball_type == "bool?") return "bool";
+    if (ball_type == "bool") return "bool";
     if (ball_type == "List" || ball_type.find("List<") == 0) return "BallDyn";
     if (ball_type == "Map" || ball_type.find("Map<") == 0) return "BallDyn";
     if (ball_type == "Set" || ball_type.find("Set<") == 0) return "BallDyn";
@@ -586,14 +586,13 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     if (ball_type.find("Future") == 0) return "BallDyn";
 
 
-    // Nullable type: strip trailing '?' and map the base type
+    // Nullable type `T?`: must be BallDyn — a concrete C++ type (int64_t,
+    // double, bool, std::string, ...) cannot represent the null case. A null
+    // argument passed to e.g. an `int?` parameter typed `int64_t` silently
+    // became 0 (conformance 306_nullable_type_patterns: present(null) returned
+    // "present:0" instead of "absent").
     if (!ball_type.empty() && ball_type.back() == '?') {
-        auto base = ball_type.substr(0, ball_type.size() - 1);
-        // Record types (Dart `({...})?`) → BallDyn
-        if (!base.empty() && base.front() == '(' && base.back() == ')') {
-            return "BallDyn";
-        }
-        return map_type(base);
+        return "BallDyn";
     }
 
     // Record types `({...})` → BallDyn

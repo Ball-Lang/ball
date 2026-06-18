@@ -11,8 +11,8 @@
 | Total std base functions in `std.json` | **118** |
 | Covered by conformance programs | **79 (67%)** |
 | Uncovered | **39 (33%)** |
-| Conformance programs (`.ball.json`) | **277** |
-| Dart sources (`src/*.dart`) | **218** |
+| Conformance programs (`.ball.json`) | **288** |
+| Dart sources (`src/*.dart`) | **282** |
 | Skipped (no entry function / no stdout) | **4** (196, 197, 201, 202 — sandbox/security tests) |
 
 ---

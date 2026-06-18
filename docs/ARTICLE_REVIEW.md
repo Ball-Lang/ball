@@ -23,10 +23,10 @@ Ball eliminates **grammar parsing** (lexing, tokenizing, building AST from text)
 
 | Component | Dart | TypeScript | C++ |
 | --------- | ---- | ---------- | --- |
-| Compiler (Ball → lang) | Full | Full | Full (273/273 conformance) |
+| Compiler (Ball → lang) | Full | Full | Full (283/283 conformance) |
 | Encoder (lang → Ball) | Full | Full (CI-gated, universal `std`) | Full |
-| Engine (interpreter) | Full (277 conformance) | Self-hosted (full conformance, CI-gated) | Self-hosted (277/277, CI-gated) |
-| Conformance pass rate | 277/277 | full pass (CI-gated) | 277/277 (CI-gated) |
+| Engine (interpreter) | Full (288 conformance) | Self-hosted (full conformance, CI-gated) | Self-hosted (288/288, CI-gated) |
+| Conformance pass rate | 288/288 | full pass (CI-gated) | 288/288 (CI-gated) |
 
 **Fix:** Show a maturity matrix, or say "Dart (full stack), TypeScript (compiler + self-hosted engine), C++ (compiler + encoder + self-hosted engine)."
 
@@ -105,11 +105,11 @@ ALL Ball code reduces to 7 expression types: `call`, `literal`, `reference`, `fi
 
 ### 14. Impressive numbers you're not using
 
-- **277 conformance programs** across all engines
+- **288 conformance programs** across all engines
 - **118 std base functions** in `std.json` plus engine-registered functions; additional modules (`std_collections`, `std_io`, `std_convert`, `std_fs`, `std_time`) add more
 - **TS engine: full conformance pass** (self-hosted, CI-gated, strict all-green)
-- **C++ engine: all 277 conformance pass** (self-hosted, CI-gated, strict all-green)
-- **Dart engine: 277 conformance pass** plus a large engine unit-test suite (CI-gated, 0 failed)
+- **C++ engine: all 288 conformance pass** (self-hosted, CI-gated, strict all-green)
+- **Dart engine: 288 conformance pass** plus a large engine unit-test suite (CI-gated, 0 failed)
 - Proto bindings for **7 languages** (Dart, Go, Python, TS, C++, Java, C#)
 - Self-hosted engine encoded from thousands of lines of Dart
 - **ball_protobuf**: 2,769 upstream conformance tests passing, compiles to both TS and C++
@@ -148,7 +148,7 @@ You mention Claude Code can bootstrap a new language — expand on this. AI-assi
 4. **The Insight**: Code = types + functions + 7 expression types
 5. **Show Don't Tell**: Hello World in Ball JSON → compiled to Dart & TS
 6. **The Architecture**: Encoder → Ball IR → Compiler diagram
-7. **Proof**: Self-hosting story. 277 conformance programs — full TS pass and 277/277 C++ pass, strictly CI-gated.
+7. **Proof**: Self-hosting story. 288 conformance programs — full TS pass and 288/288 C++ pass, strictly CI-gated.
 8. **The Proto Schema**: Your current proto snippets (simplified, marked as such)
 9. **Cross-Language Conversion**: Concrete before/after example
 10. **Current State & Limitations**: Maturity matrix + honesty

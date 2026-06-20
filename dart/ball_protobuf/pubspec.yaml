@@ -3,7 +3,7 @@ description: >-
   Editions-capable, pure-Dart Protocol Buffers runtime: binary + proto3-JSON
   codecs, well-known types, gRPC framing, and the full protobuf Editions
   feature-resolution model. Portable across every Ball target.
-version: 0.3.0
+version: 0.4.0
 homepage: https://github.com/ball-lang/ball
 repository: https://github.com/ball-lang/ball
 issue_tracker: https://github.com/ball-lang/ball/issues
@@ -22,6 +22,6 @@ dev_dependencies:
   # Tests parse the protoc-generated FeatureSet / FeatureSetDefaults descriptors
   # (and the facade Module) from ball_base; the runtime itself has no package
   # dependencies — it is pure dart:core/convert/typed_data + relative imports.
-  ball_base: ^0.3.0
+  ball_base: ^0.4.0
   lints: ^6.1.0
   test: ^1.25.0

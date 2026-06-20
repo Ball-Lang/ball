@@ -28,6 +28,65 @@ concurrency:
 
 jobs:
   # ──────────────────────────────────────────────────
+  # Detect which stacks a PR/push touched, so the heavy per-stack jobs below can
+  # skip when nothing in their stack changed. Native git-diff (no third-party
+  # action). FAIL-OPEN: if a real diff base can't be determined (first push,
+  # force-push, zero/missing base), every output is `true` so NO check is ever
+  # silently skipped. `infra` (proto/** or this workflow) forces every stack to
+  # run, since protos feed all bindings. The post-merge conformance-matrix
+  # re-runs the full cross-language matrix regardless, as a safety net.
+  # ──────────────────────────────────────────────────
+  changes:
+    name: Detect changed stacks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      dart: ${{ steps.f.outputs.dart }}
+      ts: ${{ steps.f.outputs.ts }}
+      cpp: ${{ steps.f.outputs.cpp }}
+      infra: ${{ steps.f.outputs.infra }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0 # full history so the diff base is reachable
+
+      - id: f
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          base=""
+          [ "$EVENT" = "pull_request" ] && base="$PR_BASE" || true
+          [ "$EVENT" = "push" ] && base="$PUSH_BASE" || true
+          zero="0000000000000000000000000000000000000000"
+          if [ -z "$base" ] || [ "$base" = "$zero" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            echo "No usable diff base ('$base') — failing OPEN: run every stack."
+            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "infra=true"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$base" HEAD)"
+          echo "Changed files vs ${base}:"; echo "$files"
+          # here-strings (not `echo | grep`) so `set -o pipefail` can't flake on
+          # SIGPIPE when grep -q early-exits on a large file list.
+          m() { grep -qE "$1" <<< "$files"; }
+          out() { if m "$2"; then echo "$1=true"; else echo "$1=false"; fi; }
+          # infra = ANY changed file OUTSIDE the three single-stack dirs — proto/,
+          # tests/, tools/, examples/, root configs, this workflow, etc. Anything
+          # cross-cutting forces every stack to run, so a path we forgot to map
+          # can never silently skip a check (fail-safe by construction).
+          infra=false
+          if grep -qvE '^(dart/|ts/|cpp/)' <<< "$files"; then infra=true; fi
+          {
+            out dart '^dart/'
+            out ts   '^ts/'
+            out cpp  '^cpp/'
+            echo "infra=$infra"
+          } >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+  # ──────────────────────────────────────────────────
   # Proto — lint, format, breaking change check
   # ──────────────────────────────────────────────────
   proto:
@@ -58,6 +117,11 @@ jobs:
   # ──────────────────────────────────────────────────
   dart:
     name: Dart
+    needs: changes
+    # Dart + TS are coupled: the Dart compiler suite builds and shells out to
+    # @ball-lang/compiler (ts/compiler), and ts tests regenerate from the Dart
+    # self-host source. Run this cluster when either changed.
+    if: ${{ needs.changes.outputs.dart == 'true' || needs.changes.outputs.ts == 'true' || needs.changes.outputs.infra == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -134,6 +198,8 @@ jobs:
   # ──────────────────────────────────────────────────
   ball-freshness:
     name: Ball Artifact Freshness
+    needs: changes
+    if: ${{ needs.changes.outputs.dart == 'true' || needs.changes.outputs.ts == 'true' || needs.changes.outputs.infra == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -209,6 +275,8 @@ jobs:
   # ──────────────────────────────────────────────────
   protobuf-codegen:
     name: Protobuf Codegen (gen + rpc)
+    needs: changes
+    if: ${{ needs.changes.outputs.dart == 'true' || needs.changes.outputs.ts == 'true' || needs.changes.outputs.infra == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -245,6 +313,11 @@ jobs:
   # ──────────────────────────────────────────────────
   cpp:
     name: C++ (${{ matrix.os }})
+    needs: changes
+    # C++ is build-isolated (FetchContents its own protobuf; does not build from
+    # dart/ or ts/). Skip the whole 3-OS matrix — incl. the ~40-min Windows
+    # build — when nothing under cpp/ (or proto/, or this workflow) changed.
+    if: ${{ needs.changes.outputs.cpp == 'true' || needs.changes.outputs.infra == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -295,6 +368,11 @@ jobs:
   # ──────────────────────────────────────────────────
   editions-conformance-upstream:
     name: Upstream Conformance (Editions)
+    needs: changes
+    # Drives ball_protobuf (Dart) through the C++ conformance_test_runner — so it
+    # depends on dart/ and cpp/ (+ proto/). A TS-only PR can't affect it; skip
+    # this ~45-min job there.
+    if: ${{ needs.changes.outputs.dart == 'true' || needs.changes.outputs.cpp == 'true' || needs.changes.outputs.infra == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -362,6 +440,8 @@ jobs:
   # ──────────────────────────────────────────────────
   typescript:
     name: TypeScript
+    needs: changes
+    if: ${{ needs.changes.outputs.dart == 'true' || needs.changes.outputs.ts == 'true' || needs.changes.outputs.infra == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:

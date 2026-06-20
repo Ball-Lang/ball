@@ -1,0 +1,1 @@
+Throwaway file to verify per-stack CI gating (ts-only change should skip the C++ matrix + editions). Safe to delete.

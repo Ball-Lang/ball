@@ -3692,8 +3692,11 @@ class DartCompiler {
       'json_decode' => 'jsonDecode(${_e(f['source'] ?? f['value']!)})',
       'utf8_encode' => 'utf8.encode(${_e(f['source'] ?? f['value']!)})',
       'utf8_decode' => 'utf8.decode(${_e(f['bytes'] ?? f['value']!)})',
-      'base64_encode' => 'base64Encode(${_e(f['bytes'] ?? f['value']!)})',
-      'base64_decode' => 'base64Decode(${_e(f['source'] ?? f['value']!)})',
+      // Member form (base64.encode/decode), consistent with utf8 above and
+      // symmetric with the encoder (which reads `base64.encode` but not the
+      // top-level `base64Encode`) so the compiled Dart round-trips.
+      'base64_encode' => 'base64.encode(${_e(f['bytes'] ?? f['value']!)})',
+      'base64_decode' => 'base64.decode(${_e(f['source'] ?? f['value']!)})',
       _ => '/* unsupported: std_convert.${call.function} */',
     };
   }
@@ -3968,6 +3971,17 @@ class DartCompiler {
       }
     }
     return false;
+  }
+
+  /// Renders [v] as a method-call receiver, parenthesizing when its emitted
+  /// form would otherwise misparse — a prefix/infix/postfix operator binds
+  /// looser than `.method()`, so `-3.clamp(0,10)` is `-(3.clamp(0,10))` not
+  /// `(-3).clamp(0,10)`. Use this anywhere a receiver is emitted via raw
+  /// string interpolation (`${_recv(v)}.foo(...)`) instead of code_builder's
+  /// `.property().call()` (which never needs it). Mirrors [_methodCallExpr].
+  String _recv(Expression v) {
+    final inner = _e(v);
+    return _needsParensAsReceiver(v, inner) ? '($inner)' : inner;
   }
 
   String _methodCallExpr(Map<String, Expression> f, String method) {
@@ -4645,20 +4659,20 @@ class DartCompiler {
     final v = f['value'], s = f['start'], e = f['end'];
     if (v == null || s == null) return '/* invalid substring */';
     final endStr = e != null ? ', ${_e(e)}' : '';
-    return '${_e(v)}.substring(${_e(s)}$endStr)';
+    return '${_recv(v)}.substring(${_e(s)}$endStr)';
   }
 
   String _compileStringCharCodeAt(Map<String, Expression> f) {
     final t = f['target'], i = f['index'];
     return t != null && i != null
-        ? '${_e(t)}.codeUnitAt(${_e(i)})'
+        ? '${_recv(t)}.codeUnitAt(${_e(i)})'
         : '/* invalid codeUnitAt */';
   }
 
   String _compileStringReplace(Map<String, Expression> f, String method) {
     final v = f['value'], from = f['from'], to = f['to'];
     return v != null && from != null && to != null
-        ? '${_e(v)}.$method(${_e(from)}, ${_e(to)})'
+        ? '${_recv(v)}.$method(${_e(from)}, ${_e(to)})'
         : '/* invalid $method */';
   }
 
@@ -4669,7 +4683,7 @@ class DartCompiler {
     final p = f['fill'] ?? f['padding'];
     if (v == null || w == null) return '/* invalid $method */';
     final padStr = p != null ? ', ${_e(p)}' : '';
-    return '${_e(v)}.$method(${_e(w)}$padStr)';
+    return '${_recv(v)}.$method(${_e(w)}$padStr)';
   }
 
   String _compileRegexMatch(Map<String, Expression> f) {
@@ -4696,7 +4710,7 @@ class DartCompiler {
   String _compileRegexReplace(Map<String, Expression> f, String method) {
     final v = f['value'], from = f['from'], to = f['to'];
     return v != null && from != null && to != null
-        ? '${_e(v)}.$method(RegExp(${_e(from)}), ${_e(to)})'
+        ? '${_recv(v)}.$method(RegExp(${_e(from)}), ${_e(to)})'
         : '/* invalid regex $method */';
   }
 
@@ -4707,10 +4721,10 @@ class DartCompiler {
     // in min/max/arg2. Detect this and emit a proper static method call.
     final arg2 = f['arg2'];
     if (v != null && mn != null && mx != null && arg2 != null) {
-      return '${_e(v)}.clamp(${_e(mn)}, ${_e(mx)}, ${_e(arg2)})';
+      return '${_recv(v)}.clamp(${_e(mn)}, ${_e(mx)}, ${_e(arg2)})';
     }
     return v != null && mn != null && mx != null
-        ? '${_e(v)}'
+        ? '${_recv(v)}'
               '.clamp(${_e(mn)}, ${_e(mx)})'
         : '/* invalid clamp */';
   }

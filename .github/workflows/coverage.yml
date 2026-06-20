@@ -65,11 +65,13 @@ jobs:
       # count as 0%, never dropped) and fails if overall line coverage drops
       # below the floor. RAISE the floor toward 100% as tests are added (see
       # docs/TESTING_STRATEGY.md); never lower it without justification.
-      # Honest full-repo baseline measured ~51.7% (all 9 packages, all authored
-      # lib+bin files, cross-package credited). Floor set below it to absorb
-      # local↔CI variance; RAISE toward 100% as tests are added.
+      # Honest full-repo baseline measured ~55.6% (all 9 packages, all authored
+      # lib+bin files, cross-package credited) after the in-process conformance
+      # round-trip lifted the encoder 37→54% (#61). Floor set below it to absorb
+      # local↔CI variance (CI counts ≥ local — it can only cover more); RAISE
+      # toward 100% as tests are added.
       - name: Dart line coverage ratchet (all packages)
-        run: dart run tools/coverage_dart.dart --floor 45
+        run: dart run tools/coverage_dart.dart --floor 53
 
       - name: Upload Dart coverage to Codecov
         uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5

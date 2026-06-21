@@ -250,12 +250,19 @@ jobs:
           output=$(dart test --reporter expanded 2>&1) || { echo "$output"; echo "::error::Dart engine suite exited non-zero"; exit 1; }
           echo "$output"
 
-          # `|| true` on each: under `bash -e` + pipefail a grep with no match
-          # exits non-zero (e.g. an all-green run has no `-N`/`~N`), which would
-          # otherwise abort the step before the count checks run.
-          passed=$(echo "$output"  | grep -oP '\+\K\d+'            | tail -1 || true)
-          failed=$(echo "$output"  | grep -oP '(?<![+~])-\K\d+'    | tail -1 || true)
-          skipped=$(echo "$output" | grep -oP '~\K\d+'             | tail -1 || true)
+          # Parse counts from the reporter's FINAL summary line ONLY — never the
+          # whole output. A test name or printed value containing `-N` (e.g. a
+          # negative-number literal like `-200`) otherwise gets picked up by a
+          # global `grep ... | tail -1`, producing an order-dependent FALSE
+          # failure count. `dart test` already exits non-zero on any real
+          # failure (caught by the `||` guard above), so this run is all-green
+          # and the summary is `+N[ ~S]: All tests passed!`.
+          # `|| true`: under `bash -e` + pipefail a grep with no match exits
+          # non-zero, which would otherwise abort the step before the checks run.
+          summary=$(echo "$output" | grep -E 'All tests passed!|Some tests failed' | tail -1 || true)
+          passed=$(echo "$summary"  | grep -oP '\+\K\d+'            | tail -1 || true)
+          failed=$(echo "$summary"  | grep -oP '(?<![+~])-\K\d+'    | tail -1 || true)
+          skipped=$(echo "$summary" | grep -oP '~\K\d+'             | tail -1 || true)
           failed=${failed:-0}; skipped=${skipped:-0}
 
           if [ -z "$passed" ]; then
@@ -280,12 +287,19 @@ jobs:
           output=$(dart test --reporter expanded 2>&1) || { echo "$output"; echo "::error::Dart encoder suite exited non-zero"; exit 1; }
           echo "$output"
 
-          # `|| true` on each: under `bash -e` + pipefail a grep with no match
-          # exits non-zero (e.g. an all-green run has no `-N`/`~N`), which would
-          # otherwise abort the step before the count checks run.
-          passed=$(echo "$output"  | grep -oP '\+\K\d+'            | tail -1 || true)
-          failed=$(echo "$output"  | grep -oP '(?<![+~])-\K\d+'    | tail -1 || true)
-          skipped=$(echo "$output" | grep -oP '~\K\d+'             | tail -1 || true)
+          # Parse counts from the reporter's FINAL summary line ONLY — never the
+          # whole output. A test name or printed value containing `-N` (e.g. a
+          # negative-number literal like `-200`) otherwise gets picked up by a
+          # global `grep ... | tail -1`, producing an order-dependent FALSE
+          # failure count. `dart test` already exits non-zero on any real
+          # failure (caught by the `||` guard above), so this run is all-green
+          # and the summary is `+N[ ~S]: All tests passed!`.
+          # `|| true`: under `bash -e` + pipefail a grep with no match exits
+          # non-zero, which would otherwise abort the step before the checks run.
+          summary=$(echo "$output" | grep -E 'All tests passed!|Some tests failed' | tail -1 || true)
+          passed=$(echo "$summary"  | grep -oP '\+\K\d+'            | tail -1 || true)
+          failed=$(echo "$summary"  | grep -oP '(?<![+~])-\K\d+'    | tail -1 || true)
+          skipped=$(echo "$summary" | grep -oP '~\K\d+'             | tail -1 || true)
           failed=${failed:-0}; skipped=${skipped:-0}
 
           if [ -z "$passed" ]; then
@@ -310,12 +324,19 @@ jobs:
           output=$(dart test --reporter expanded --exclude-tags slow 2>&1) || { echo "$output"; echo "::error::Dart compiler suite exited non-zero"; exit 1; }
           echo "$output"
 
-          # `|| true` on each: under `bash -e` + pipefail a grep with no match
-          # exits non-zero (e.g. an all-green run has no `-N`/`~N`), which would
-          # otherwise abort the step before the count checks run.
-          passed=$(echo "$output"  | grep -oP '\+\K\d+'            | tail -1 || true)
-          failed=$(echo "$output"  | grep -oP '(?<![+~])-\K\d+'    | tail -1 || true)
-          skipped=$(echo "$output" | grep -oP '~\K\d+'             | tail -1 || true)
+          # Parse counts from the reporter's FINAL summary line ONLY — never the
+          # whole output. A test name or printed value containing `-N` (e.g. a
+          # negative-number literal like `-200`) otherwise gets picked up by a
+          # global `grep ... | tail -1`, producing an order-dependent FALSE
+          # failure count. `dart test` already exits non-zero on any real
+          # failure (caught by the `||` guard above), so this run is all-green
+          # and the summary is `+N[ ~S]: All tests passed!`.
+          # `|| true`: under `bash -e` + pipefail a grep with no match exits
+          # non-zero, which would otherwise abort the step before the checks run.
+          summary=$(echo "$output" | grep -E 'All tests passed!|Some tests failed' | tail -1 || true)
+          passed=$(echo "$summary"  | grep -oP '\+\K\d+'            | tail -1 || true)
+          failed=$(echo "$summary"  | grep -oP '(?<![+~])-\K\d+'    | tail -1 || true)
+          skipped=$(echo "$summary" | grep -oP '~\K\d+'             | tail -1 || true)
           failed=${failed:-0}; skipped=${skipped:-0}
 
           if [ -z "$passed" ]; then

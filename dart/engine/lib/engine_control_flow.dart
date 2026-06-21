@@ -1658,12 +1658,29 @@ extension BallEngineControlFlow on BallEngine {
           return true;
         case 'reduce':
           if (arg0 is Function) {
-            final init = args['arg1'];
-            var acc = init;
+            // `reduce` has no seed: start at the first element, combine from
+            // the second, and treat an empty list as a StateError.
+            var seeded = false;
+            Object? acc;
             for (final item in self) {
-              var r = arg0(<String, Object?>{'arg0': acc, 'arg1': item});
+              if (!seeded) {
+                acc = item;
+                seeded = true;
+                continue;
+              }
+              var r = arg0(<String, Object?>{
+                'arg0': acc,
+                'arg1': item,
+                'a': acc,
+                'b': item,
+                'left': acc,
+                'right': item,
+              });
               if (r is Future) r = await r;
               acc = r;
+            }
+            if (!seeded) {
+              throw StateError('No element');
             }
             return acc;
           }

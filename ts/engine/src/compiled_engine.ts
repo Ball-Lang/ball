@@ -6012,14 +6012,22 @@ export class BallEngine {
         }
         else if ((__sw === 'reduce')) {
           if ((typeof arg0 === 'function')) {
-            let init = __ball_index(args, 'arg1');
-            let acc = init;
+            let seeded = false;
+            let acc = __no_init__;
             for (const item of self) {
-              let r = arg0({ ['arg0']: acc, ['arg1']: item });
+              if (!seeded) {
+                acc = item;
+                seeded = true;
+                continue;
+              }
+              let r = arg0({ ['arg0']: acc, ['arg1']: item, ['a']: acc, ['b']: item, ['left']: acc, ['right']: item });
               if ((r != null)) {
                 r = await r;
               }
               acc = r;
+            }
+            if (!seeded) {
+              throw { '__type__': 'StateError', 'message': 'No element' };
             }
             return acc;
           }
@@ -6841,14 +6849,23 @@ export class BallEngine {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
-        let cb = __ball_index(m, 'callback');
-        let acc = __ball_index(m, 'initial');
+        let cb = ((__ball_index(m, 'callback') ?? __ball_index(m, 'function')) ?? __ball_index(m, 'value'));
+        let seeded = false;
+        let acc = __no_init__;
         for (const e of list) {
-          let v = cb({ ['left']: acc, ['right']: e });
+          if (!seeded) {
+            acc = e;
+            seeded = true;
+            continue;
+          }
+          let v = cb({ ['arg0']: acc, ['arg1']: e, ['a']: acc, ['b']: e, ['left']: acc, ['right']: e });
           if ((v != null)) {
             v = await v;
           }
           acc = v;
+        }
+        if (!seeded) {
+          throw { '__type__': 'StateError', 'message': 'No element' };
         }
         return acc;
       }), ['list_find']: (async (i) => {

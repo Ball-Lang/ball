@@ -119,13 +119,24 @@ void main(List<String> args) async {
       stdout.writeln('Running $name tests with coverage...');
       // `--exclude-tags slow` mirrors what ci.yml gates (the compiler's slow
       // round-trip carries known-failing legs for not-yet-complete features).
-      final result = await Process.run('dart', [
-        'test',
-        '--coverage-path=$lcovPath',
-        '--branch-coverage',
-        '--exclude-tags',
-        'slow',
-      ], workingDirectory: pkgDir.path);
+      // Capture stdout/stderr as RAW BYTES (encoding: null), never UTF-8. A
+      // suite may legitimately print binary to stdout (e.g. the cli's
+      // `encode --format binary` path), and decoding that as UTF-8 throws
+      // `FormatException: Missing extension byte`, crashing the whole coverage
+      // run. We only need the exit code + the lcov file written to disk.
+      final result = await Process.run(
+        'dart',
+        [
+          'test',
+          '--coverage-path=$lcovPath',
+          '--branch-coverage',
+          '--exclude-tags',
+          'slow',
+        ],
+        workingDirectory: pkgDir.path,
+        stdoutEncoding: null,
+        stderrEncoding: null,
+      );
       if (result.exitCode != 0) {
         failedPackages.add(name);
         stderr.writeln(

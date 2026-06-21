@@ -346,13 +346,12 @@ void main() {
       expect(out, contains('<binary:'));
     });
 
-    test('binary to default (real) stdout writes raw bytes', () async {
-      // With default sinks `identical(out, stdout)` is true, exercising the
-      // stdout.add(bytes) branch. The small binary blob goes to the real stdout.
-      final src = writeDart('app.dart', 'void main(){print(1);}');
-      final code = await runBall(['encode', src, '--format', 'binary']);
-      expect(code, 0);
-    });
+    // NOTE: the `identical(out, stdout)` branch in `_encode` (raw
+    // `stdout.add(bytes)`) is deliberately NOT unit-tested — writing binary to
+    // the real test-process stdout corrupts the suite's stdout stream (it broke
+    // the coverage runner, which captured it as UTF-8). That one line is
+    // exercised only via the real CLI; the text-sink note path above covers the
+    // testable behavior.
 
     test('missing argument returns 1', () async {
       final (code, _, err) = await run(['encode']);

@@ -1,8 +1,9 @@
 name: Prepare release
 
-# Fires on push to main. When conventional commits indicate a
-# version bump, Melos opens a release PR with per-package version
-# bumps + CHANGELOG updates for human review.
+# Fires on push to main. When conventional commits indicate a version bump,
+# Melos computes per-package version bumps + CHANGELOG updates, and we open (or
+# update) a SINGLE rolling release PR on the fixed `chore/release` branch for
+# human review. Merge it to cut a release.
 
 on:
   push:
@@ -31,11 +32,33 @@ jobs:
 
       # The Dart pub-workspace / Melos root is the repo root, so melos-action
       # (which runs `melos bootstrap` from the workspace root) works directly.
+      # It bootstraps, runs `melos version` (commits the bumps + CHANGELOG
+      # updates), and a publish dry-run. We deliberately do NOT use its built-in
+      # create-pr: that opens a brand-new PR on a `release-${{ github.run_id }}`
+      # branch every push. Instead we open ONE rolling PR on a fixed branch.
       - uses: bluefireteam/melos-action@2982f8e4fc92440a219490009d6d05195cb1a6a5 # v3
         with:
           run-versioning: true
           publish-dry-run: true
-          create-pr: true
-          # RELEASE_PAT must have contents:write + pull-requests:write
-          # and ideally actions:write so the release-tag.yml triggers.
+
+      # Open or UPDATE a single rolling release PR on the fixed `chore/release`
+      # branch. On each push to main, create-pull-request resets that branch to
+      # main and re-applies Melos's bumps + changelogs, so there is always
+      # exactly one open release PR. Squash-merging it lands a `chore(release)`
+      # commit, which triggers release-tag.yml → release-publish.yml.
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          # RELEASE_PAT (contents+pull-requests:write, ideally actions:write so
+          # release-tag.yml triggers) preferred; falls back to GITHUB_TOKEN
+          # (needs the org/repo "Allow Actions to create PRs" setting enabled).
           token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          branch: chore/release
+          delete-branch: true
+          title: "chore(release): publish packages"
+          commit-message: "chore(release): version packages"
+          body: |
+            Automated version bumps + CHANGELOG updates from Melos.
+
+            **Rolling release PR** — this updates in place on every push to `main`.
+            **Squash-merge** it to cut a release (lands a `chore(release)` commit
+            that triggers tag + pub.dev publish).

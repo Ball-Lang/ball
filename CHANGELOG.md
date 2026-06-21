@@ -1,3 +1,10 @@
+## [1.2.8](https://github.com/Ball-Lang/ball/compare/v1.2.7...v1.2.8) (2026-06-21)
+
+
+### Bug Fixes
+
+* **coverage:** Dart coverage job crashed on binary test stdout (FormatException) ([#121](https://github.com/Ball-Lang/ball/issues/121)) ([ff56a3a](https://github.com/Ball-Lang/ball/commit/ff56a3ae9fcddffed25352b98e23c54cf57da2a0))
+
 ## [1.2.7](https://github.com/Ball-Lang/ball/compare/v1.2.6...v1.2.7) (2026-06-21)
 
 

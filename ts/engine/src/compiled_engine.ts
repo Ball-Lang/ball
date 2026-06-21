@@ -6648,6 +6648,12 @@ export class BallEngine {
         let a = this._toNum(v);
         let b = this._toNum(other);
         return ((a < b) ? __ball_negate(1) : (((a > b) ? 1 : 0)));
+      }), ['to_string_as_fixed']: ((i) => {
+        const input = i;
+        let m = (this._stdAsMap(i) ?? { ['value']: i });
+        let v = (__ball_index(m, 'value') ?? __ball_index(m, 'left'));
+        let digits = (__ball_index(m, 'digits') ?? __ball_index(m, 'fractionDigits'));
+        return (+(this._toNum(v))).toFixed(this._toInt(digits));
       }), ['string_interpolation']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);

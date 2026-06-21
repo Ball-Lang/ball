@@ -1093,6 +1093,8 @@ extension BallEngineStd on BallEngine {
         }
         return <String>[];
       },
+      'string_runes': (i) =>
+          _stdConvert(i, (v) => (v as String).runes.toList()),
       'string_repeat': _stdStringRepeat,
       'string_pad_left': (i) => _stdStringPad(i, true),
       'string_pad_right': (i) => _stdStringPad(i, false),

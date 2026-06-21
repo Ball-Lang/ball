@@ -7497,6 +7497,12 @@ export class BallEngine {
           return result;
         }
         return [];
+      }), ['string_runes']: ((i) => {
+        const input = i;
+        return this._stdConvert(i, ((v) => {
+          const input = v;
+          return [...Array.from(v).map((c) => c.codePointAt(0))];
+        }));
       }), ['string_repeat']: this._stdStringRepeat.bind(this), ['string_pad_left']: ((i) => {
         const input = i;
         return this._stdStringPad(i, true);

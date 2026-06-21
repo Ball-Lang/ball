@@ -3313,6 +3313,7 @@ class DartCompiler {
       'string_replace' => _compileStringReplace(f, 'replaceFirst'),
       'string_replace_all' => _compileStringReplace(f, 'replaceAll'),
       'string_split' => _methodCall2(f, 'split'),
+      'string_runes' => '(${_e(f['value']!)}).runes.toList()',
       'string_repeat' =>
         '(${_e(f['value'] ?? f['left']!)} * ${_e(f['count'] ?? f['right']!)})',
       'string_pad_left' => _compileStringPad(f, 'padLeft'),

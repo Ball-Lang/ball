@@ -2914,6 +2914,7 @@ class DartEncoder {
         'isFinite': 'math_is_finite',
         'isInfinite': 'math_is_infinite',
         'isEmpty': 'string_is_empty',
+        'runes': 'string_runes',
         // isNotEmpty is handled separately below (negation of isEmpty).
       };
       final getterFn = getterRoutes[member];
@@ -2978,6 +2979,7 @@ class DartEncoder {
         'isFinite': 'math_is_finite',
         'isInfinite': 'math_is_infinite',
         'isEmpty': 'string_is_empty',
+        'runes': 'string_runes',
         // isNotEmpty is handled separately below (negation of isEmpty).
       };
       final getterFn = getterRoutes[field];

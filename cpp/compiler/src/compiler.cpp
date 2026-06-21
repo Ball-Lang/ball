@@ -3974,6 +3974,23 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                "r.push_back(std::any(s.substr(p)));return BallDyn(r);"
                "}(" + str + "," + delim + ")";
     }
+    if (fn == "string_runes") {
+        // Dart `s.runes.toList()` — list of Unicode code points (not UTF-16
+        // units). UTF-8 decode mirrors ball_u16_code_unit_at in the runtime.
+        auto v = get_message_field(call, "value");
+        return "[](const BallDyn& sv) -> BallDyn {"
+               "auto s=ball_to_string(sv);BallList r;"
+               "for(size_t i=0;i<s.size();){"
+               "unsigned char c=(unsigned char)s[i];int64_t cp=c;int adv=1;"
+               "if(c<0x80){cp=c;adv=1;}"
+               "else if((c>>5)==0x6&&i+1<s.size()){cp=((int64_t)(c&0x1F)<<6)|((unsigned char)s[i+1]&0x3F);adv=2;}"
+               "else if((c>>4)==0xE&&i+2<s.size()){cp=((int64_t)(c&0x0F)<<12)|(((unsigned char)s[i+1]&0x3F)<<6)|((unsigned char)s[i+2]&0x3F);adv=3;}"
+               "else if((c>>3)==0x1E&&i+3<s.size()){cp=((int64_t)(c&0x07)<<18)|(((int64_t)((unsigned char)s[i+1]&0x3F))<<12)|(((unsigned char)s[i+2]&0x3F)<<6)|((unsigned char)s[i+3]&0x3F);adv=4;}"
+               "else{cp=c;adv=1;}"
+               "r.push_back(std::any(cp));i+=(size_t)adv;}"
+               "return BallDyn(r);"
+               "}(BallDyn(" + v + "))";
+    }
     if (fn == "string_replace") {
         auto str = get_message_field(call, "value");
         auto from = get_message_field(call, "from");

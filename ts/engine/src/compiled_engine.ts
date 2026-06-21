@@ -432,6 +432,15 @@ const bool = {
 // late-initialized variables and block-scoped flow tracking.
 const __no_init__: unique symbol = Symbol('__no_init__');
 
+// Null-aware spread source normalizer (the ...? operator). Returns an
+// iterable for the spread loop, mapping null / undefined / the __no_init__
+// sentinel (an uninitialized nullable, e.g. List<int>? n;) to an empty list
+// — matching Dart's ...?n which contributes nothing when the operand is null.
+function __ball_spread_iter(v: any): any {
+  if (v == null || v === __no_init__) return [];
+  return v;
+}
+
 // Dart type constructor shims — List, Map, etc.
 const List = {
   filled: (count: any, value: any) => Array(count).fill(value),
@@ -1562,7 +1571,7 @@ export class BallEngine {
         let enumValueList = enumDesc.value;
         for (var vi = 0; (vi < enumValueList.length); (vi++)) {
           let v = __ball_index(enumValueList, vi);
-          let entry = { '__type__': enumName, 'name': v.name, 'index': v.number };
+          let entry = { ['__type__']: enumName, ['name']: v.name, ['index']: v.number };
           enumMap[v.name] = entry;
         }
         this._enumValues[enumName] = enumMap;
@@ -2015,7 +2024,7 @@ export class BallEngine {
     if (__ball_eq(typeDef, null)) {
       return null;
     }
-    let inputMap = (this._asMap(input) ?? { 'arg0': input });
+    let inputMap = (this._asMap(input) ?? { ['arg0']: input });
     let instanceFields = {};
     for (const fieldName of typeDef.fieldNames) {
       instanceFields[fieldName] = null;
@@ -3382,7 +3391,7 @@ export class BallEngine {
       }
     }
     if (((__ball_eq(name, 'List') || __ball_eq(name, 'Map')) || __ball_eq(name, 'Set'))) {
-      return { '__class_ref__': name, '__type__': '__builtin_class__' };
+      return { ['__class_ref__']: name, ['__type__']: '__builtin_class__' };
     }
     if (scope.has(name)) {
       let bound = scope.lookup(name);
@@ -3419,7 +3428,7 @@ export class BallEngine {
       }));
       let typeExists = ((name in this._types) || (qualifiedName in this._types));
       if ((typeExists && (hasCtor || hasStaticMethods))) {
-        return { '__class_ref__': name, '__type__': '__class__' };
+        return { ['__class_ref__']: name, ['__type__']: '__class__' };
       }
     }
     let getterKey = ((__ball_to_string(this._currentModule) + '.') + __ball_to_string(name));
@@ -3509,7 +3518,7 @@ export class BallEngine {
       let className = __ball_index(objectMap, '__class_ref__');
       return (async (input) => {
         let argsMap = this._asMap(input);
-        let args = (argsMap ?? { 'arg0': input });
+        let args = (argsMap ?? { ['arg0']: input });
         let result = await this._dispatchBuiltinClassMethod(className, fieldName, args);
         if (!__ball_eq(result, _sentinel)) {
           return result;
@@ -3612,7 +3621,7 @@ export class BallEngine {
         else if ((__sw === 'entries')) {
           return [...objectMap.entries.map(((e) => {
             const input = e;
-            return { 'key': e.key, 'value': e.value };
+            return { ['key']: e.key, ['value']: e.value };
           }))];
         }
       } while (false);
@@ -3782,7 +3791,7 @@ export class BallEngine {
     let getterKey = ((((__ball_to_string(modPart) + '.') + __ball_to_string(typeName)) + '.') + __ball_to_string(fieldName));
     let getterFunc = (__ball_index(this._getters, getterKey) ?? __ball_index(this._functions, getterKey));
     if ((!__ball_eq(getterFunc, null) && this._isGetter(getterFunc))) {
-      return this._callFunction(modPart, getterFunc, { 'self': object });
+      return this._callFunction(modPart, getterFunc, { ['self']: object });
     }
     let superObj = __ball_index(object, '__super__');
     let superMap = this._asMap(superObj);
@@ -3795,7 +3804,7 @@ export class BallEngine {
         let superGetterKey = ((((__ball_to_string(sModPart) + '.') + __ball_to_string(sTypeName)) + '.') + __ball_to_string(fieldName));
         let superGetterFunc = (__ball_index(this._getters, superGetterKey) ?? __ball_index(this._functions, superGetterKey));
         if ((!__ball_eq(superGetterFunc, null) && this._isGetter(superGetterFunc))) {
-          return this._callFunction(sModPart, superGetterFunc, { 'self': object });
+          return this._callFunction(sModPart, superGetterFunc, { ['self']: object });
         }
       }
       superObj = __ball_index(superMap, '__super__');
@@ -3844,7 +3853,7 @@ export class BallEngine {
     let setterKeyNoEq = ((((__ball_to_string(modPart) + '.') + __ball_to_string(typeName)) + '.') + __ball_to_string(fieldName));
     let setterFunc = ((__ball_index(this._setters, setterKey) ?? __ball_index(this._setters, setterKeyNoEq)) ?? __ball_index(this._functions, setterKey));
     if ((!__ball_eq(setterFunc, null) && this._isSetter(setterFunc))) {
-      let result = await this._callFunction(modPart, setterFunc, { 'self': object, 'value': value });
+      let result = await this._callFunction(modPart, setterFunc, { ['self']: object, ['value']: value });
       this._writeBackingField(object, fieldName, result);
       return result;
     }
@@ -3860,7 +3869,7 @@ export class BallEngine {
         let superSetterKeyNoEq = ((((__ball_to_string(sModPart) + '.') + __ball_to_string(sTypeName)) + '.') + __ball_to_string(fieldName));
         let superSetterFunc = ((__ball_index(this._setters, superSetterKey) ?? __ball_index(this._setters, superSetterKeyNoEq)) ?? __ball_index(this._functions, superSetterKey));
         if ((!__ball_eq(superSetterFunc, null) && this._isSetter(superSetterFunc))) {
-          let result = await this._callFunction(sModPart, superSetterFunc, { 'self': object, 'value': value });
+          let result = await this._callFunction(sModPart, superSetterFunc, { ['self']: object, ['value']: value });
           this._writeBackingField(object, fieldName, result);
           return result;
         }
@@ -5464,7 +5473,7 @@ export class BallEngine {
       return __ball_sub(a, b);
     }))) : ((op === '*=') ? (this._numOp(current, val, ((a, b) => {
       return __ball_mul(a, b);
-    }))) : ((op === '~/=') ? (this._intOp(current, val, ((a, b) => {
+    }))) : ((op === '/=') ? (new BallDouble(Number(this._toNum(current)) / Number(this._toNum(val)))) : ((op === '~/=') ? (this._intOp(current, val, ((a, b) => {
       return __ball_divide(a, b);
     }))) : ((op === '%=') ? (this._intOp(current, val, ((a, b) => {
       return __dart_mod(a, b);
@@ -5480,7 +5489,7 @@ export class BallEngine {
       return __ball_shr(a, b);
     }))) : ((op === '>>>=') ? (this._intOp(current, val, ((a, b) => {
       return (a >>> b);
-    }))) : ((op === '??=') ? ((current ?? val)) : val))))))))))));
+    }))) : ((op === '??=') ? ((current ?? val)) : val)))))))))))));
   }
 
   _numOp(a: any, b: any, op: any): any {
@@ -5889,7 +5898,7 @@ export class BallEngine {
               let key = __ball_index(sorted, j);
               let k = __ball_sub(j, 1);
               while ((k >= 0)) {
-                let r = arg0({ 'arg0': __ball_index(sorted, k), 'arg1': key, 'a': __ball_index(sorted, k), 'b': key, 'left': __ball_index(sorted, k), 'right': key });
+                let r = arg0({ ['arg0']: __ball_index(sorted, k), ['arg1']: key, ['a']: __ball_index(sorted, k), ['b']: key, ['left']: __ball_index(sorted, k), ['right']: key });
                 if ((r != null)) {
                   r = await r;
                 }
@@ -5988,7 +5997,7 @@ export class BallEngine {
             let init = __ball_index(args, 'arg1');
             let acc = init;
             for (const item of self) {
-              let r = arg0({ 'arg0': acc, 'arg1': item });
+              let r = arg0({ ['arg0']: acc, ['arg1']: item });
               if ((r != null)) {
                 r = await r;
               }
@@ -6003,7 +6012,7 @@ export class BallEngine {
             let fn = __ball_index(args, 'arg1');
             let acc = arg0;
             for (const item of self) {
-              let r = fn({ 'arg0': acc, 'arg1': item });
+              let r = fn({ ['arg0']: acc, ['arg1']: item });
               if ((r != null)) {
                 r = await r;
               }
@@ -6100,7 +6109,7 @@ export class BallEngine {
         }
         else if ((__sw === 'followedBy')) {
           let other3 = (false /* BallList is List in TS */ ? arg0.items : ((Array.isArray(arg0) ? arg0 : [])));
-          return _wrapList([self, other3]);
+          return _wrapList((() => { const __r: any[] = []; for (const __e of self) { __r.push(__e); } for (const __e of other3) { __r.push(__e); } return __r; })());
         }
       } while (false);
     }
@@ -6110,15 +6119,15 @@ export class BallEngine {
       do {
         const __sw = method;
         if ((__sw === 'union')) {
-          let otherU = ((arg0 instanceof Set) ? arg0 : ((Array.isArray(arg0) ? arg0.toSet() : new Set())));
+          let otherU = ((arg0 instanceof Set) ? arg0 : ((Array.isArray(arg0) ? arg0.toSet() : new Set(['Object?']))));
           return self.union(otherU);
         }
         else if ((__sw === 'intersection')) {
-          let otherI = ((arg0 instanceof Set) ? arg0 : ((Array.isArray(arg0) ? arg0.toSet() : new Set())));
+          let otherI = ((arg0 instanceof Set) ? arg0 : ((Array.isArray(arg0) ? arg0.toSet() : new Set(['Object?']))));
           return self.intersection(otherI);
         }
         else if ((__sw === 'difference')) {
-          let otherD = ((arg0 instanceof Set) ? arg0 : ((Array.isArray(arg0) ? arg0.toSet() : new Set())));
+          let otherD = ((arg0 instanceof Set) ? arg0 : ((Array.isArray(arg0) ? arg0.toSet() : new Set(['Object?']))));
           return self.difference(otherD);
         }
         else if ((__sw === 'add')) {
@@ -6180,7 +6189,7 @@ export class BallEngine {
         }
         else if ((__sw === 'where') || (__sw === 'filter')) {
           if ((typeof arg0 === 'function')) {
-            let result = new Set();
+            let result = new Set(['Object?']);
             for (const item of self) {
               let r = arg0(item);
               if ((r != null)) {
@@ -6392,7 +6401,7 @@ export class BallEngine {
         let method = __ball_index(this._functions, ((((__ball_to_string(cModPart) + '.') + __ball_to_string(cTypeName)) + '.') + __ball_to_string(op)));
         method ??= (__ball_eq(opSymbol, null) ? null : __ball_index(this._functions, ((((__ball_to_string(cModPart) + '.') + __ball_to_string(cTypeName)) + '.') + __ball_to_string(opSymbol))));
         if (!__ball_eq(method, null)) {
-          let methodInput = { 'self': left, 'other': right, 'arg0': right, 'right': right };
+          let methodInput = { ['self']: left, ['other']: right, ['arg0']: right, ['right']: right };
           return this._callFunction(cModPart, method, methodInput);
         }
       }
@@ -6406,12 +6415,12 @@ export class BallEngine {
       if ((__sw === 'List.generate')) {
         let count = (__ball_index(args, 'arg0') ?? __ball_index(args, 'count'));
         let generator = (__ball_index(args, 'arg1') ?? __ball_index(args, 'generator'));
-        return this._callBaseFunction('std', 'dart_list_generate', { 'count': count, 'generator': generator });
+        return this._callBaseFunction('std', 'dart_list_generate', { ['count']: count, ['generator']: generator });
       }
       else if ((__sw === 'List.filled')) {
         let count = (__ball_index(args, 'arg0') ?? __ball_index(args, 'count'));
         let value = (__ball_index(args, 'arg1') ?? __ball_index(args, 'value'));
-        return this._callBaseFunction('std', 'dart_list_filled', { 'count': count, 'value': value });
+        return this._callBaseFunction('std', 'dart_list_filled', { ['count']: count, ['value']: value });
       }
       else if ((__sw === 'List.of') || (__sw === 'List.from')) {
         let source = (__ball_index(args, 'arg0') ?? __ball_index(args, 'value'));
@@ -6433,7 +6442,7 @@ export class BallEngine {
       }
       else if ((__sw === 'Map.fromEntries')) {
         let list = (__ball_index(args, 'arg0') ?? __ball_index(args, 'list'));
-        return this._callBaseFunction('std', 'map_from_entries', { 'list': list });
+        return this._callBaseFunction('std', 'map_from_entries', { ['list']: list });
       }
       else {
         return _sentinel;
@@ -6461,12 +6470,12 @@ export class BallEngine {
 
   _buildStdDispatch(): any {
     return {
-      'print': this._stdPrint.bind(this), 'add': this._stdAdd.bind(this), 'subtract': ((i) => {
+      ['print']: this._stdPrint.bind(this), ['add']: this._stdAdd.bind(this), ['subtract']: ((i) => {
         const input = i;
         return this._stdBinary(i, ((a, b) => {
           return __ball_sub(a, b);
         }));
-      }), 'multiply': ((i) => {
+      }), ['multiply']: ((i) => {
         const input = i;
         let __ball_rec_0 = this._extractBinaryArgs(i);
         let l = __ball_rec_0[0];
@@ -6480,157 +6489,157 @@ export class BallEngine {
         return this._stdBinary(i, ((a, b) => {
           return __ball_mul(a, b);
         }));
-      }), 'divide': ((i) => {
+      }), ['divide']: ((i) => {
         const input = i;
         return this._stdBinaryInt(i, ((a, b) => {
           return __ball_divide(a, b);
         }));
-      }), 'divide_double': ((i) => {
+      }), ['divide_double']: ((i) => {
         const input = i;
         return this._stdBinaryDouble(i, ((a, b) => {
           return new BallDouble(Number(a) / Number(b));
         }));
-      }), 'modulo': ((i) => {
+      }), ['modulo']: ((i) => {
         const input = i;
         return this._stdBinary(i, ((a, b) => {
           return __dart_mod(a, b);
         }));
-      }), 'negate': ((i) => {
+      }), ['negate']: ((i) => {
         const input = i;
         return this._stdUnaryNum(i, ((v) => {
           const input = v;
           return __ball_negate(v);
         }));
-      }), 'equals': ((i) => {
+      }), ['equals']: ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
           return __ball_eq(a, b);
         }));
-      }), 'not_equals': ((i) => {
+      }), ['not_equals']: ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
           return !__ball_eq(a, b);
         }));
-      }), 'less_than': ((i) => {
+      }), ['less_than']: ((i) => {
         const input = i;
         return this._stdBinaryComp(i, ((a, b) => {
           return (a < b);
         }));
-      }), 'greater_than': ((i) => {
+      }), ['greater_than']: ((i) => {
         const input = i;
         return this._stdBinaryComp(i, ((a, b) => {
           return (a > b);
         }));
-      }), 'lte': ((i) => {
+      }), ['lte']: ((i) => {
         const input = i;
         return this._stdBinaryComp(i, ((a, b) => {
           return (a <= b);
         }));
-      }), 'gte': ((i) => {
+      }), ['gte']: ((i) => {
         const input = i;
         return this._stdBinaryComp(i, ((a, b) => {
           return (a >= b);
         }));
-      }), 'and': ((i) => {
+      }), ['and']: ((i) => {
         const input = i;
         return this._stdBinaryBool(i, ((a, b) => {
           return (a && b);
         }));
-      }), 'or': ((i) => {
+      }), ['or']: ((i) => {
         const input = i;
         return this._stdBinaryBool(i, ((a, b) => {
           return (a || b);
         }));
-      }), 'not': this._stdNot.bind(this), 'bitwise_and': ((i) => {
+      }), ['not']: this._stdNot.bind(this), ['bitwise_and']: ((i) => {
         const input = i;
         return this._stdBinaryInt(i, ((a, b) => {
           return __ball_bitand(a, b);
         }));
-      }), 'bitwise_or': ((i) => {
+      }), ['bitwise_or']: ((i) => {
         const input = i;
         return this._stdBinaryInt(i, ((a, b) => {
           return __ball_bitor(a, b);
         }));
-      }), 'bitwise_xor': ((i) => {
+      }), ['bitwise_xor']: ((i) => {
         const input = i;
         return this._stdBinaryInt(i, ((a, b) => {
           return __ball_bitxor(a, b);
         }));
-      }), 'bitwise_not': ((i) => {
+      }), ['bitwise_not']: ((i) => {
         const input = i;
         return this._stdUnaryNum(i, ((v) => {
           const input = v;
           return __ball_bitnot(v);
         }));
-      }), 'left_shift': ((i) => {
+      }), ['left_shift']: ((i) => {
         const input = i;
         return this._stdBinaryInt(i, ((a, b) => {
           return __ball_shl(a, b);
         }));
-      }), 'right_shift': ((i) => {
+      }), ['right_shift']: ((i) => {
         const input = i;
         return this._stdBinaryInt(i, ((a, b) => {
           return __ball_shr(a, b);
         }));
-      }), 'unsigned_right_shift': ((i) => {
+      }), ['unsigned_right_shift']: ((i) => {
         const input = i;
         return this._stdBinaryInt(i, ((a, b) => {
           return (a >>> b);
         }));
-      }), 'pre_increment': ((i) => {
+      }), ['pre_increment']: ((i) => {
         const input = i;
         return __ball_add(this._extractUnaryArg(i), 1);
-      }), 'pre_decrement': ((i) => {
+      }), ['pre_decrement']: ((i) => {
         const input = i;
         return __ball_sub(this._extractUnaryArg(i), 1);
-      }), 'post_increment': ((i) => {
+      }), ['post_increment']: ((i) => {
         const input = i;
         return __ball_add(this._extractUnaryArg(i), 1);
-      }), 'post_decrement': ((i) => {
+      }), ['post_decrement']: ((i) => {
         const input = i;
         return __ball_sub(this._extractUnaryArg(i), 1);
-      }), 'concat': this._stdConcat.bind(this), 'length': this._stdLength.bind(this), 'to_string': (async (i) => {
+      }), ['concat']: this._stdConcat.bind(this), ['length']: this._stdLength.bind(this), ['to_string']: (async (i) => {
         const input = i;
         return await this._ballToStringAsync(this._extractUnaryArg(i));
-      }), 'int_to_string': ((i) => {
+      }), ['int_to_string']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return __ball_to_string(v);
         }));
-      }), 'double_to_string': ((i) => {
+      }), ['double_to_string']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return __ball_to_string(v);
         }));
-      }), 'string_to_int': ((i) => {
+      }), ['string_to_int']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return __ball_parse_int(v);
         }));
-      }), 'string_to_double': ((i) => {
+      }), ['string_to_double']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return __ball_parse_double(v);
         }));
-      }), 'to_double': ((i) => {
+      }), ['to_double']: ((i) => {
         const input = i;
         return _ballToDouble(this._extractUnaryArg(i));
-      }), 'to_int': ((i) => {
+      }), ['to_int']: ((i) => {
         const input = i;
         return _ballDoubleToInt64(this._toNum(this._extractUnaryArg(i)));
-      }), 'int_to_double': ((i) => {
+      }), ['int_to_double']: ((i) => {
         const input = i;
         return _ballToDouble(this._extractUnaryArg(i));
-      }), 'double_to_int': ((i) => {
+      }), ['double_to_int']: ((i) => {
         const input = i;
         return _ballDoubleToInt64(this._toNum(this._extractUnaryArg(i)));
-      }), 'compare_to': ((i) => {
+      }), ['compare_to']: ((i) => {
         const input = i;
-        let m = (this._stdAsMap(i) ?? { 'value': i });
+        let m = (this._stdAsMap(i) ?? { ['value']: i });
         let v = (__ball_index(m, 'value') ?? __ball_index(m, 'left'));
         let other = (__ball_index(m, 'other') ?? __ball_index(m, 'right'));
         if (((typeof v === 'string') && (typeof other === 'string'))) {
@@ -6639,7 +6648,7 @@ export class BallEngine {
         let a = this._toNum(v);
         let b = this._toNum(other);
         return ((a < b) ? __ball_negate(1) : (((a > b) ? 1 : 0)));
-      }), 'string_interpolation': (async (i) => {
+      }), ['string_interpolation']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         if (!__ball_eq(m, null)) {
@@ -6663,29 +6672,29 @@ export class BallEngine {
         let result = await this._ballToStringAsync(i);
         this._trackMemoryAllocation(__ball_mul(result.length, _ballStringCodeUnitBytes));
         return result;
-      }), 'null_coalesce': ((i) => {
+      }), ['null_coalesce']: ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
           return (a ?? b);
         }));
-      }), 'null_check': ((i) => {
+      }), ['null_check']: ((i) => {
         const input = i;
         let v = this._extractUnaryArg(i);
         if (__ball_eq(v, null)) {
           throw new BallRuntimeError('Null check operator used on a null value');
         }
         return v;
-      }), 'null_aware_access': this._stdNullAwareAccess.bind(this), 'null_aware_call': this._stdNullAwareCall.bind(this), 'if': this._stdIf.bind(this), 'is': this._stdTypeCheck.bind(this), 'is_not': ((i) => {
+      }), ['null_aware_access']: this._stdNullAwareAccess.bind(this), ['null_aware_call']: this._stdNullAwareCall.bind(this), ['if']: this._stdIf.bind(this), ['is']: this._stdTypeCheck.bind(this), ['is_not']: ((i) => {
         const input = i;
         return !this._stdTypeCheck(i);
-      }), 'as': this._extractUnaryArg.bind(this), 'index': this._stdIndex.bind(this), 'cascade': this._stdCascade.bind(this), 'null_aware_cascade': this._stdNullAwareCascade.bind(this), 'spread': this._extractUnaryArg.bind(this), 'null_spread': this._extractUnaryArg.bind(this), 'invoke': this._stdInvoke.bind(this), 'tear_off': ((i) => {
+      }), ['as']: this._extractUnaryArg.bind(this), ['index']: this._stdIndex.bind(this), ['cascade']: this._stdCascade.bind(this), ['null_aware_cascade']: this._stdNullAwareCascade.bind(this), ['spread']: this._extractUnaryArg.bind(this), ['null_spread']: this._extractUnaryArg.bind(this), ['invoke']: this._stdInvoke.bind(this), ['tear_off']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         if (!__ball_eq(m, null)) {
           return (__ball_index(m, 'callback') ?? __ball_index(m, 'method'));
         }
         return i;
-      }), 'list_generate': this._stdListGenerate.bind(this), 'dart_list_generate': this._stdListGenerate.bind(this), 'list_filled': this._stdListFilled.bind(this), 'typed_list': ((i) => {
+      }), ['list_generate']: this._stdListGenerate.bind(this), ['dart_list_generate']: this._stdListGenerate.bind(this), ['list_filled']: this._stdListFilled.bind(this), ['typed_list']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         if (__ball_eq(m, null)) {
@@ -6693,7 +6702,7 @@ export class BallEngine {
         }
         let raw = __ball_index(m, 'elements');
         return (this._stdAsList(raw) ?? []);
-      }), 'dart_list_filled': this._stdListFilled.bind(this), 'map_create': this._stdMapCreate.bind(this), 'set_create': this._stdSetCreate.bind(this), 'record': this._stdRecord.bind(this), 'collection_if': this._collectionMisuse.bind(this), 'collection_for': this._collectionMisuse.bind(this), 'list_push': ((i) => {
+      }), ['dart_list_filled']: this._stdListFilled.bind(this), ['map_create']: this._stdMapCreate.bind(this), ['set_create']: this._stdSetCreate.bind(this), ['record']: this._stdRecord.bind(this), ['collection_if']: this._collectionMisuse.bind(this), ['collection_for']: this._collectionMisuse.bind(this), ['list_push']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let raw = __ball_index(m, 'list');
@@ -6701,52 +6710,52 @@ export class BallEngine {
         this._trackMemoryAllocation(_ballPointerBytes);
         list = (list.push(__ball_index(m, 'value')), list);
         return list;
-      }), 'list_pop': ((i) => {
+      }), ['list_pop']: ((i) => {
         const input = i;
         let list = this._stdAsList(__ball_index(this._stdAsMap(i), 'list'));
         if ((list.length === 0)) {
           throw new BallRuntimeError('pop on empty list');
         }
         return list.pop();
-      }), 'list_insert': ((i) => {
+      }), ['list_insert']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = [...this._stdAsList(__ball_index(m, 'list'))];
         this._trackMemoryAllocation(__ball_mul(__ball_add(list.length, 1), _ballPointerBytes));
         list = (list.splice(this._toInt(__ball_index(m, 'index')), 0, __ball_index(m, 'value')), list);
         return list;
-      }), 'list_remove_at': ((i) => {
+      }), ['list_remove_at']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
         return list.splice(this._toInt(__ball_index(m, 'index')), 1)[0];
-      }), 'list_get': ((i) => {
+      }), ['list_get']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         return __ball_index(this._stdAsList(__ball_index(m, 'list')), this._toInt(__ball_index(m, 'index')));
-      }), 'list_set': ((i) => {
+      }), ['list_set']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = [...this._stdAsList(__ball_index(m, 'list'))];
         this._trackMemoryAllocation(__ball_mul(list.length, _ballPointerBytes));
         list[this._toInt(__ball_index(m, 'index'))] = __ball_index(m, 'value');
         return list;
-      }), 'list_length': ((i) => {
+      }), ['list_length']: ((i) => {
         const input = i;
         return this._stdAsList(__ball_index(this._stdAsMap(i), 'list')).length;
-      }), 'list_is_empty': ((i) => {
+      }), ['list_is_empty']: ((i) => {
         const input = i;
         return (this._stdAsList(__ball_index(this._stdAsMap(i), 'list')).length === 0);
-      }), 'list_first': ((i) => {
+      }), ['list_first']: ((i) => {
         const input = i;
         return this._stdAsList(__ball_index(this._stdAsMap(i), 'list')).first;
-      }), 'list_last': ((i) => {
+      }), ['list_last']: ((i) => {
         const input = i;
         return this._stdAsList(__ball_index(this._stdAsMap(i), 'list')).last;
-      }), 'list_single': ((i) => {
+      }), ['list_single']: ((i) => {
         const input = i;
         return this._stdAsList(__ball_index(this._stdAsMap(i), 'list')).single;
-      }), 'list_contains': ((i) => {
+      }), ['list_contains']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let collection = __ball_index(m, 'list');
@@ -6761,7 +6770,7 @@ export class BallEngine {
           return collection.includes(__ball_index(m, 'value'));
         }
         return false;
-      }), 'list_index_of': ((i) => {
+      }), ['list_index_of']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let coll = __ball_index(m, 'list');
@@ -6772,7 +6781,7 @@ export class BallEngine {
           return s.indexOf(n);
         }
         return this._stdAsList(coll).indexOf(needle);
-      }), 'list_map': (async (i) => {
+      }), ['list_map']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
@@ -6787,7 +6796,7 @@ export class BallEngine {
           result = (result.push(v), result);
         }
         return result;
-      }), 'list_filter': (async (i) => {
+      }), ['list_filter']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
@@ -6804,21 +6813,21 @@ export class BallEngine {
           }
         }
         return result;
-      }), 'list_reduce': (async (i) => {
+      }), ['list_reduce']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
         let cb = __ball_index(m, 'callback');
         let acc = __ball_index(m, 'initial');
         for (const e of list) {
-          let v = cb({ 'left': acc, 'right': e });
+          let v = cb({ ['left']: acc, ['right']: e });
           if ((v != null)) {
             v = await v;
           }
           acc = v;
         }
         return acc;
-      }), 'list_find': (async (i) => {
+      }), ['list_find']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
@@ -6833,7 +6842,7 @@ export class BallEngine {
           }
         }
         throw { '__type__': 'StateError', 'message': 'No element' };
-      }), 'list_any': (async (i) => {
+      }), ['list_any']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
@@ -6848,7 +6857,7 @@ export class BallEngine {
           }
         }
         return false;
-      }), 'list_all': (async (i) => {
+      }), ['list_all']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
@@ -6863,7 +6872,7 @@ export class BallEngine {
           }
         }
         return true;
-      }), 'list_none': (async (i) => {
+      }), ['list_none']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
@@ -6878,7 +6887,7 @@ export class BallEngine {
           }
         }
         return true;
-      }), 'list_sort': (async (i) => {
+      }), ['list_sort']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let sorted = [...this._stdAsList(__ball_index(m, 'list'))];
@@ -6894,7 +6903,7 @@ export class BallEngine {
           let key = __ball_index(sorted, j);
           let k = __ball_sub(j, 1);
           while ((k >= 0)) {
-            let r = cb({ 'left': __ball_index(sorted, k), 'right': key, 'arg0': __ball_index(sorted, k), 'arg1': key, 'a': __ball_index(sorted, k), 'b': key });
+            let r = cb({ ['left']: __ball_index(sorted, k), ['right']: key, ['arg0']: __ball_index(sorted, k), ['arg1']: key, ['a']: __ball_index(sorted, k), ['b']: key });
             if ((r != null)) {
               r = await r;
             }
@@ -6908,7 +6917,7 @@ export class BallEngine {
           sorted[__ball_add(k, 1)] = key;
         }
         return sorted;
-      }), 'list_sort_by': (async (i) => {
+      }), ['list_sort_by']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = [...this._stdAsList(__ball_index(m, 'list'))];
@@ -6931,11 +6940,11 @@ export class BallEngine {
           return (__ball_index(keys, a) < __ball_index(keys, b) ? -1 : __ball_index(keys, a) > __ball_index(keys, b) ? 1 : 0);
         }));
         this._trackMemoryAllocation(__ball_mul(indices.length, _ballPointerBytes));
-        return [indices.map((idx: any) => __ball_index(list, idx))];
-      }), 'list_reverse': ((i) => {
+        return (() => { const __r: any[] = []; for (const idx of indices) { __r.push(__ball_index(list, idx)); } return __r; })();
+      }), ['list_reverse']: ((i) => {
         const input = i;
         return this._trackListCopy([...this._stdAsList(__ball_index(this._stdAsMap(i), 'list')).reversed]);
-      }), 'list_slice': ((i) => {
+      }), ['list_slice']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
@@ -6967,7 +6976,7 @@ export class BallEngine {
         let result = list.slice(s, (e ?? list.length));
         this._trackMemoryAllocation(__ball_mul(result.length, _ballPointerBytes));
         return result;
-      }), 'list_flat_map': (async (i) => {
+      }), ['list_flat_map']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
@@ -6986,7 +6995,7 @@ export class BallEngine {
           }
         }
         return result;
-      }), 'list_zip': ((i) => {
+      }), ['list_zip']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let a = this._stdAsList(__ball_index(m, 'list'));
@@ -6998,25 +7007,25 @@ export class BallEngine {
           this._trackMemoryAllocation(__ball_mul(2, _ballPointerBytes));
           return [__ball_index(a, j), __ball_index(b, j)];
         }));
-      }), 'list_take': ((i) => {
+      }), ['list_take']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let result = [...this._stdAsList(__ball_index(m, 'list')).take(this._toInt((__ball_index(m, 'value') ?? __ball_index(m, 'index'))))];
         this._trackMemoryAllocation(__ball_mul(result.length, _ballPointerBytes));
         return result;
-      }), 'list_drop': ((i) => {
+      }), ['list_drop']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let result = [...this._stdAsList(__ball_index(m, 'list')).skip(this._toInt((__ball_index(m, 'value') ?? __ball_index(m, 'index'))))];
         this._trackMemoryAllocation(__ball_mul(result.length, _ballPointerBytes));
         return result;
-      }), 'list_concat': ((i) => {
+      }), ['list_concat']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
-        let result = [this._stdAsList(__ball_index(m, 'list')), this._stdAsList(__ball_index(m, 'value'))];
+        let result = (() => { const __r: any[] = []; for (const __e of this._stdAsList(__ball_index(m, 'list'))) { __r.push(__e); } for (const __e of this._stdAsList(__ball_index(m, 'value'))) { __r.push(__e); } return __r; })();
         this._trackMemoryAllocation(__ball_mul(result.length, _ballPointerBytes));
         return result;
-      }), 'list_clear': ((i) => {
+      }), ['list_clear']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let raw = __ball_index(m, 'list');
@@ -7026,7 +7035,7 @@ export class BallEngine {
           return list;
         }
         return [];
-      }), 'list_to_list': ((i) => {
+      }), ['list_to_list']: ((i) => {
         const input = i;
         let raw = __ball_index(this._stdAsMap(i), 'list');
         let list = this._stdAsList(raw);
@@ -7039,7 +7048,7 @@ export class BallEngine {
           return [...raw];
         }
         return [];
-      }), 'list_foreach': (async (i) => {
+      }), ['list_foreach']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let collection = __ball_index(m, 'list');
@@ -7056,7 +7065,7 @@ export class BallEngine {
           } else {
             if ((typeof collection === 'object' && collection !== null && !Array.isArray(collection) && !(collection instanceof BallDouble) && !(collection instanceof Set))) {
               for (const entry of collection.entries) {
-                let r = fn({ 'key': entry.key, 'value': entry.value, 'arg0': entry.key, 'arg1': entry.value });
+                let r = fn({ ['key']: entry.key, ['value']: entry.value, ['arg0']: entry.key, ['arg1']: entry.value });
                 if ((r != null)) {
                   await r;
                 }
@@ -7064,7 +7073,7 @@ export class BallEngine {
             } else {
               if (false /* BallMap is Map in TS */) {
                 for (const entry of collection.entries.entries) {
-                  let r = fn({ 'key': entry.key, 'value': entry.value, 'arg0': entry.key, 'arg1': entry.value });
+                  let r = fn({ ['key']: entry.key, ['value']: entry.value, ['arg0']: entry.key, ['arg1']: entry.value });
                   if ((r != null)) {
                     await r;
                   }
@@ -7082,7 +7091,7 @@ export class BallEngine {
             }
           }
         }
-      }), 'list_join': (async (i) => {
+      }), ['list_join']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
@@ -7095,13 +7104,13 @@ export class BallEngine {
           parts = (parts.push(await this._ballToStringAsync(e)), parts);
         }
         return parts.join(sep);
-      }), 'map_get': ((i) => {
+      }), ['map_get']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let raw = __ball_index(m, 'map');
         let map = (false /* BallMap is Map in TS */ ? raw.entries : (((typeof raw === 'object' && raw !== null && !Array.isArray(raw) && !(raw instanceof BallDouble) && !(raw instanceof Set)) ? raw : {})));
         return __ball_index(map, __ball_index(m, 'key'));
-      }), 'map_set': ((i) => {
+      }), ['map_set']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let raw = __ball_index(m, 'map');
@@ -7110,14 +7119,14 @@ export class BallEngine {
         }
         _ballMapSetDyn(raw, __ball_index(m, 'key'), __ball_index(m, 'value'));
         return raw;
-      }), 'map_delete': ((i) => {
+      }), ['map_delete']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let raw = __ball_index(m, 'map');
         let map = (false /* BallMap is Map in TS */ ? raw.entries : (((typeof raw === 'object' && raw !== null && !Array.isArray(raw) && !(raw instanceof BallDouble) && !(raw instanceof Set)) ? raw : {})));
         map.remove(__ball_index(m, 'key'));
         return map;
-      }), 'map_contains_key': ((i) => {
+      }), ['map_contains_key']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let target = __ball_index(m, 'map');
@@ -7128,13 +7137,13 @@ export class BallEngine {
           return _ballMapContainsKeyDyn(target, __ball_index(m, 'key'));
         }
         throw new BallRuntimeError('map_contains_key: expected Map or Set');
-      }), 'map_contains_value': ((i) => {
+      }), ['map_contains_value']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let raw = __ball_index(m, 'map');
         let map = (false /* BallMap is Map in TS */ ? raw.entries : (((typeof raw === 'object' && raw !== null && !Array.isArray(raw) && !(raw instanceof BallDouble) && !(raw instanceof Set)) ? raw : {})));
         return Object.values(map).includes(__ball_index(m, 'value'));
-      }), 'map_put_if_absent': ((i) => {
+      }), ['map_put_if_absent']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let map = (this._stdAsMap(__ball_index(m, 'map')) ?? __ball_index(m, 'map'));
@@ -7145,49 +7154,59 @@ export class BallEngine {
           map[key] = ((typeof val === 'function') ? val() : val);
         }
         return __ball_index(map, key);
-      }), 'map_keys': ((i) => {
+      }), ['map_keys']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let result = _ballMapKeysDyn(__ball_index(m, 'map'));
         this._trackMemoryAllocation(__ball_mul(result.length, _ballPointerBytes));
         return result;
-      }), 'map_values': ((i) => {
+      }), ['map_values']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let result = _ballMapValuesDyn(__ball_index(m, 'map'));
         this._trackMemoryAllocation(__ball_mul(result.length, _ballPointerBytes));
         return result;
-      }), 'map_entries': ((i) => {
+      }), ['map_entries']: ((i) => {
         const input = i;
         let map = (this._stdAsMap(__ball_index(this._stdAsMap(i), 'map')) ?? __ball_index(this._stdAsMap(i), 'map'));
         this._trackMemoryAllocation(__ball_mul(map.length, __ball_add(_ballPointerBytes, _ballMapEntryBytes)));
         return [...map.entries.map(((e) => {
           const input = e;
-          return { 'key': e.key, 'value': e.value };
+          return { ['key']: e.key, ['value']: e.value };
         }))];
-      }), 'map_from_entries': ((i) => {
+      }), ['map_from_entries']: ((i) => {
         const input = i;
-        const _own = (o, k) => Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined;
-        const list = _own(i, 'list') ?? _own(i, 'entries') ?? _own(i, 'arg0') ?? [];
-        if (!Array.isArray(list)) return {};
-        const result = {};
+        let list = this._stdAsList(__ball_index(this._stdAsMap(i), 'list'));
+        this._trackMemoryAllocation(__ball_mul(list.length, _ballMapEntryBytes));
+        let result = {};
         for (const e of list) {
-          if (typeof e === 'object' && e !== null) {
-            const k = _own(e, 'key') ?? _own(e, 'arg0') ?? _own(e, 'name') ?? '';
-            const v = Object.prototype.hasOwnProperty.call(e, 'value') ? e['value'] : (_own(e, 'arg1') ?? undefined);
-            result[String(k)] = v;
+          let eMap = this._stdAsMap(e);
+          if (!__ball_eq(eMap, null)) {
+            let k = (__ball_index(eMap, 'key') ?? __ball_index(eMap, 'arg0'));
+            let v = (__ball_index(eMap, 'value') ?? __ball_index(eMap, 'arg1'));
+            if (!__ball_eq(k, null)) {
+              result[__ball_to_string(k)] = v;
+            }
+          } else {
+            if ((typeof e === 'object' && e !== null && !Array.isArray(e) && !(e instanceof BallDouble) && !(e instanceof Set))) {
+              let k = (__ball_index(e, 'key') ?? __ball_index(e, 'arg0'));
+              let v = (__ball_index(e, 'value') ?? __ball_index(e, 'arg1'));
+              if (!__ball_eq(k, null)) {
+                result[__ball_to_string(k)] = v;
+              }
+            }
           }
         }
         return result;
-      }), 'map_merge': ((i) => {
+      }), ['map_merge']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let map1 = (this._stdAsMap(__ball_index(m, 'map')) ?? __ball_index(m, 'map'));
         let map2 = (this._stdAsMap(__ball_index(m, 'value')) ?? __ball_index(m, 'value'));
-        let result = {};
+        let result = (() => { const __r: Record<string, any> = {}; { const __m = map1.cast(); for (const __k in __m) { __r[__k] = __m[__k]; } } { const __m = map2.cast(); for (const __k in __m) { __r[__k] = __m[__k]; } } return __r; })();
         this._trackMemoryAllocation(__ball_mul(result.length, _ballMapEntryBytes));
         return result;
-      }), 'map_map': (async (i) => {
+      }), ['map_map']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let map = (this._stdAsMap(__ball_index(m, 'map')) ?? __ball_index(m, 'map'));
@@ -7195,7 +7214,7 @@ export class BallEngine {
         let result = {};
         this._trackMemoryAllocation(__ball_mul(map.length, _ballMapEntryBytes));
         for (const entry of map.entries) {
-          let r = cb({ 'key': entry.key, 'value': entry.value });
+          let r = cb({ ['key']: entry.key, ['value']: entry.value });
           if ((r != null)) {
             r = await r;
           }
@@ -7207,7 +7226,7 @@ export class BallEngine {
           }
         }
         return result;
-      }), 'map_filter': (async (i) => {
+      }), ['map_filter']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let map = (this._stdAsMap(__ball_index(m, 'map')) ?? __ball_index(m, 'map'));
@@ -7215,7 +7234,7 @@ export class BallEngine {
         let result = {};
         this._trackMemoryAllocation(__ball_mul(map.length, _ballMapEntryBytes));
         for (const entry of map.entries) {
-          let v = cb({ 'key': entry.key, 'value': entry.value });
+          let v = cb({ ['key']: entry.key, ['value']: entry.value });
           if ((v != null)) {
             v = await v;
           }
@@ -7224,15 +7243,15 @@ export class BallEngine {
           }
         }
         return result;
-      }), 'map_is_empty': ((i) => {
+      }), ['map_is_empty']: ((i) => {
         const input = i;
         let map = (this._stdAsMap(__ball_index(this._stdAsMap(i), 'map')) ?? __ball_index(this._stdAsMap(i), 'map'));
         return (map.length === 0);
-      }), 'map_length': ((i) => {
+      }), ['map_length']: ((i) => {
         const input = i;
         let map = (this._stdAsMap(__ball_index(this._stdAsMap(i), 'map')) ?? __ball_index(this._stdAsMap(i), 'map'));
         return map.length;
-      }), 'string_join': ((i) => {
+      }), ['string_join']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let result = this._stdAsList(__ball_index(m, 'list')).map(((e) => {
@@ -7241,44 +7260,44 @@ export class BallEngine {
         })).join((__ball_index(m, 'separator') ?? ''));
         this._trackMemoryAllocation(__ball_mul(result.length, _ballStringCodeUnitBytes));
         return result;
-      }), 'set_add': ((i) => {
+      }), ['set_add']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let s = __ball_index(m, 'set').toSet();
         s = (s.push(__ball_index(m, 'value')), s);
         return s;
-      }), 'set_remove': ((i) => {
+      }), ['set_remove']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let s = __ball_index(m, 'set').toSet();
         s.remove(__ball_index(m, 'value'));
         return s;
-      }), 'set_contains': ((i) => {
+      }), ['set_contains']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         return __ball_index(m, 'set').includes(__ball_index(m, 'value'));
-      }), 'set_union': ((i) => {
+      }), ['set_union']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         return __ball_index(m, 'left').union(__ball_index(m, 'right'));
-      }), 'set_intersection': ((i) => {
+      }), ['set_intersection']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         return __ball_index(m, 'left').intersection(__ball_index(m, 'right'));
-      }), 'set_difference': ((i) => {
+      }), ['set_difference']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         return __ball_index(m, 'left').difference(__ball_index(m, 'right'));
-      }), 'set_length': ((i) => {
+      }), ['set_length']: ((i) => {
         const input = i;
         return __ball_index(this._stdAsMap(i), 'set').length;
-      }), 'set_is_empty': ((i) => {
+      }), ['set_is_empty']: ((i) => {
         const input = i;
         return (__ball_index(this._stdAsMap(i), 'set').length === 0);
-      }), 'set_to_list': ((i) => {
+      }), ['set_to_list']: ((i) => {
         const input = i;
         return [...__ball_index(this._stdAsMap(i), 'set')];
-      }), 'switch_expr': this._stdSwitchExpr.bind(this), 'throw': ((i) => {
+      }), ['switch_expr']: this._stdSwitchExpr.bind(this), ['throw']: ((i) => {
         const input = i;
         let val = this._extractUnaryArg(i);
         let typeName = 'Exception';
@@ -7290,17 +7309,17 @@ export class BallEngine {
           }
         }
         throw new BallException(typeName, val);
-      }), 'rethrow': ((_) => {
+      }), ['rethrow']: ((_) => {
         const input = _;
         let ex = this._activeException;
         if (__ball_eq(ex, null)) {
           throw new BallRuntimeError('rethrow outside of catch');
         }
         throw ex;
-      }), 'paren': ((i) => {
+      }), ['paren']: ((i) => {
         const input = i;
         return this._extractUnaryArg(i);
-      }), 'assert': this._stdAssert.bind(this), 'await': (async (i) => {
+      }), ['assert']: this._stdAssert.bind(this), ['await']: (async (i) => {
         const input = i;
         let val = this._extractUnaryArg(i);
         if ((val != null)) {
@@ -7310,28 +7329,28 @@ export class BallEngine {
           return _unwrapBallFuture(val);
         }
         return val;
-      }), 'yield': (function*(i) {
+      }), ['yield']: (function*(i) {
         const input = i;
         return new _FlowSignal('yield', { value: this._extractUnaryArg(i) });
-      }), 'yield_each': ((i) => {
+      }), ['yield_each']: ((i) => {
         const input = i;
         return new _FlowSignal('yield_each', { value: this._extractUnaryArg(i) });
-      }), 'symbol': ((i) => {
+      }), ['symbol']: ((i) => {
         const input = i;
         return this._extractField(i, 'value');
-      }), 'type_literal': ((i) => {
+      }), ['type_literal']: ((i) => {
         const input = i;
         return this._extractField(i, 'type');
-      }), 'labeled': ((_) => {
+      }), ['labeled']: ((_) => {
         const input = _;
         return null;
-      }), 'string_length': ((i) => {
+      }), ['string_length']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return v.length;
         }));
-      }), 'string_is_empty': ((i) => {
+      }), ['string_is_empty']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
@@ -7357,74 +7376,74 @@ export class BallEngine {
           }
           return (v.length === 0);
         }));
-      }), 'string_concat': this._stdConcat.bind(this), 'string_contains': ((i) => {
+      }), ['string_concat']: this._stdConcat.bind(this), ['string_contains']: ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
           return a.includes(b);
         }));
-      }), 'string_starts_with': ((i) => {
+      }), ['string_starts_with']: ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
           return a.startsWith(b);
         }));
-      }), 'string_ends_with': ((i) => {
+      }), ['string_ends_with']: ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
           return a.endsWith(b);
         }));
-      }), 'string_index_of': ((i) => {
+      }), ['string_index_of']: ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
           return a.indexOf(b);
         }));
-      }), 'string_last_index_of': ((i) => {
+      }), ['string_last_index_of']: ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
           return a.lastIndexOf(b);
         }));
-      }), 'string_substring': this._stdStringSubstring.bind(this), 'string_char_at': this._stdStringCharAt.bind(this), 'string_char_code_at': this._stdStringCharCodeAt.bind(this), 'string_code_unit_at': this._stdStringCharCodeAt.bind(this), 'string_from_char_code': ((i) => {
+      }), ['string_substring']: this._stdStringSubstring.bind(this), ['string_char_at']: this._stdStringCharAt.bind(this), ['string_char_code_at']: this._stdStringCharCodeAt.bind(this), ['string_code_unit_at']: this._stdStringCharCodeAt.bind(this), ['string_from_char_code']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return String.fromCharCode(v);
         }));
-      }), 'string_to_upper': ((i) => {
+      }), ['string_to_upper']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return v.toUpperCase();
         }));
-      }), 'string_to_lower': ((i) => {
+      }), ['string_to_lower']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return v.toLowerCase();
         }));
-      }), 'string_trim': ((i) => {
+      }), ['string_trim']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return v.trim();
         }));
-      }), 'string_trim_start': ((i) => {
+      }), ['string_trim_start']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return v.trimStart();
         }));
-      }), 'string_trim_end': ((i) => {
+      }), ['string_trim_end']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return v.trimEnd();
         }));
-      }), 'string_replace': ((i) => {
+      }), ['string_replace']: ((i) => {
         const input = i;
         return this._stdStringReplace(i, false);
-      }), 'string_replace_all': ((i) => {
+      }), ['string_replace_all']: ((i) => {
         const input = i;
         return this._stdStringReplace(i, true);
-      }), 'string_split': ((i) => {
+      }), ['string_split']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         if (!__ball_eq(m, null)) {
@@ -7437,24 +7456,24 @@ export class BallEngine {
           return result;
         }
         return [];
-      }), 'string_repeat': this._stdStringRepeat.bind(this), 'string_pad_left': ((i) => {
+      }), ['string_repeat']: this._stdStringRepeat.bind(this), ['string_pad_left']: ((i) => {
         const input = i;
         return this._stdStringPad(i, true);
-      }), 'string_pad_right': ((i) => {
+      }), ['string_pad_right']: ((i) => {
         const input = i;
         return this._stdStringPad(i, false);
-      }), 'regex_match': ((i) => {
+      }), ['regex_match']: ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
           return new RegExp(b).hasMatch(a);
         }));
-      }), 'regex_find': ((i) => {
+      }), ['regex_find']: ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
           let __nac_16 = new RegExp(b).firstMatch(a);
           return (__ball_eq(__nac_16, null) ? null : __nac_16.group(0));
         }));
-      }), 'regex_find_all': ((i) => {
+      }), ['regex_find_all']: ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
           return [...new RegExp(b).allMatches(a).map(((m) => {
@@ -7462,135 +7481,135 @@ export class BallEngine {
             return m.group(0);
           }))];
         }));
-      }), 'regex_replace': ((i) => {
+      }), ['regex_replace']: ((i) => {
         const input = i;
         return this._stdRegexReplace(i, false);
-      }), 'regex_replace_all': ((i) => {
+      }), ['regex_replace_all']: ((i) => {
         const input = i;
         return this._stdRegexReplace(i, true);
-      }), 'math_abs': ((i) => {
+      }), ['math_abs']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return __ball_math_abs(this._toNum(v));
         }));
-      }), 'math_floor': ((i) => {
+      }), ['math_floor']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return Math.floor(this._toNum(v));
         }));
-      }), 'math_ceil': ((i) => {
+      }), ['math_ceil']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return Math.ceil(this._toNum(v));
         }));
-      }), 'math_round': ((i) => {
+      }), ['math_round']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return Math.round(this._toNum(v));
         }));
-      }), 'math_trunc': ((i) => {
+      }), ['math_trunc']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return Math.trunc(this._toNum(v));
         }));
-      }), 'math_sqrt': ((i) => {
+      }), ['math_sqrt']: ((i) => {
         const input = i;
         return this._stdMathUnary(i, _mathSqrt);
-      }), 'math_pow': ((i) => {
+      }), ['math_pow']: ((i) => {
         const input = i;
         return this._stdMathBinary(i, _mathPow);
-      }), 'math_log': ((i) => {
+      }), ['math_log']: ((i) => {
         const input = i;
         return this._stdMathUnary(i, _mathLog);
-      }), 'math_log2': ((i) => {
+      }), ['math_log2']: ((i) => {
         const input = i;
         return this._stdMathUnary(i, ((v) => {
           const input = v;
           return new BallDouble(Number(_mathLog(v)) / Number(_mathLog(2)));
         }));
-      }), 'math_log10': ((i) => {
+      }), ['math_log10']: ((i) => {
         const input = i;
         return this._stdMathUnary(i, ((v) => {
           const input = v;
           return new BallDouble(Number(_mathLog(v)) / Number(_mathLog(10)));
         }));
-      }), 'math_exp': ((i) => {
+      }), ['math_exp']: ((i) => {
         const input = i;
         return this._stdMathUnary(i, _mathExp);
-      }), 'math_sin': ((i) => {
+      }), ['math_sin']: ((i) => {
         const input = i;
         return this._stdMathUnary(i, _mathSin);
-      }), 'math_cos': ((i) => {
+      }), ['math_cos']: ((i) => {
         const input = i;
         return this._stdMathUnary(i, _mathCos);
-      }), 'math_tan': ((i) => {
+      }), ['math_tan']: ((i) => {
         const input = i;
         return this._stdMathUnary(i, _mathTan);
-      }), 'math_asin': ((i) => {
+      }), ['math_asin']: ((i) => {
         const input = i;
         return this._stdMathUnary(i, _mathAsin);
-      }), 'math_acos': ((i) => {
+      }), ['math_acos']: ((i) => {
         const input = i;
         return this._stdMathUnary(i, _mathAcos);
-      }), 'math_atan': ((i) => {
+      }), ['math_atan']: ((i) => {
         const input = i;
         return this._stdMathUnary(i, _mathAtan);
-      }), 'math_atan2': ((i) => {
+      }), ['math_atan2']: ((i) => {
         const input = i;
         return this._stdMathBinary(i, _mathAtan2);
-      }), 'math_min': ((i) => {
+      }), ['math_min']: ((i) => {
         const input = i;
         return this._stdBinary(i, ((a, b) => {
           return ((a < b) ? a : b);
         }));
-      }), 'math_max': ((i) => {
+      }), ['math_max']: ((i) => {
         const input = i;
         return this._stdBinary(i, ((a, b) => {
           return ((a > b) ? a : b);
         }));
-      }), 'math_clamp': this._stdMathClamp.bind(this), 'math_pi': ((_) => {
+      }), ['math_clamp']: this._stdMathClamp.bind(this), ['math_pi']: ((_) => {
         const input = _;
         return new BallDouble(3.141592653589793);
-      }), 'math_e': ((_) => {
+      }), ['math_e']: ((_) => {
         const input = _;
         return new BallDouble(2.718281828459045);
-      }), 'math_infinity': ((_) => {
+      }), ['math_infinity']: ((_) => {
         const input = _;
         return double.infinity;
-      }), 'math_nan': ((_) => {
+      }), ['math_nan']: ((_) => {
         const input = _;
         return double.nan;
-      }), 'math_is_nan': ((i) => {
+      }), ['math_is_nan']: ((i) => {
         const input = i;
         return this._stdConvert(i, _ballNumIsNaN);
-      }), 'math_is_finite': ((i) => {
+      }), ['math_is_finite']: ((i) => {
         const input = i;
         return this._stdConvert(i, _ballNumIsFinite);
-      }), 'math_is_infinite': ((i) => {
+      }), ['math_is_infinite']: ((i) => {
         const input = i;
         return this._stdConvert(i, _ballNumIsInfinite);
-      }), 'math_sign': ((i) => {
+      }), ['math_sign']: ((i) => {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
           return Math.sign(Number(v));
         }));
-      }), 'math_gcd': ((i) => {
+      }), ['math_gcd']: ((i) => {
         const input = i;
         return this._stdBinaryInt(i, ((a, b) => {
           return __ball_math_gcd(a, b);
         }));
-      }), 'math_lcm': ((i) => {
+      }), ['math_lcm']: ((i) => {
         const input = i;
         return this._stdBinaryInt(i, ((a, b) => {
           return __ball_divide(__ball_math_abs(__ball_mul(a, b)), __ball_math_gcd(a, b));
         }));
-      }), 'print_error': ((i) => {
+      }), ['print_error']: ((i) => {
         const input = i;
         let im = this._stdAsMap(i);
         let msg = (!__ball_eq(im, null) ? ((() => {
@@ -7598,16 +7617,16 @@ export class BallEngine {
           return (__ball_eq(__nac_17, null) ? null : __nac_17.toString());
         })() ?? '') : __ball_to_string(i));
         this.stderr(msg);
-      }), 'read_line': ((_) => {
+      }), ['read_line']: ((_) => {
         const input = _;
         return ((__ball_eq(this.stdinReader, null) ? null : this.stdinReader.call()) ?? '');
-      }), 'exit': ((i) => {
+      }), ['exit']: ((i) => {
         const input = i;
         this._checkSandbox('exit');
         let im = this._stdAsMap(i);
         let code = (!__ball_eq(im, null) ? (__ball_index(im, 'code') ?? 0) : 0);
         throw new _ExitSignal(code);
-      }), 'panic': ((i) => {
+      }), ['panic']: ((i) => {
         const input = i;
         this._checkSandbox('panic');
         let im = this._stdAsMap(i);
@@ -7617,16 +7636,16 @@ export class BallEngine {
         })() ?? '') : __ball_to_string(i));
         this.stderr(msg);
         throw new _ExitSignal(1);
-      }), 'sleep_ms': (async (i) => {
+      }), ['sleep_ms']: (async (i) => {
         const input = i;
         let ms = ((typeof i === 'number' || i instanceof BallDouble) ? __ball_to_int(i) : 0);
         if ((ms > 0)) {
           await Future.delayed(new Duration({ milliseconds: ms }));
         }
-      }), 'timestamp_ms': ((_) => {
+      }), ['timestamp_ms']: ((_) => {
         const input = _;
         return DateTime.now().millisecondsSinceEpoch;
-      }), 'random_int': ((i) => {
+      }), ['random_int']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let min = ((() => {
@@ -7638,55 +7657,55 @@ export class BallEngine {
           return (__ball_eq(__nac_20, null) ? null : __nac_20.toInt());
         })() ?? 100);
         return __ball_add(min, this._random.nextInt(__ball_add(__ball_sub(max, min), 1)));
-      }), 'random_double': ((_) => {
+      }), ['random_double']: ((_) => {
         const input = _;
         return this._random.nextDouble();
-      }), 'env_get': ((i) => {
+      }), ['env_get']: ((i) => {
         const input = i;
         this._checkSandbox('env_get');
         let im = this._stdAsMap(i);
         let name = (!__ball_eq(im, null) ? (__ball_index(im, 'name') ?? '') : __ball_to_string(i));
         return this._envGet(name);
-      }), 'args_get': ((_) => {
+      }), ['args_get']: ((_) => {
         const input = _;
         return this._args;
-      }), 'json_encode': ((i) => {
+      }), ['json_encode']: ((i) => {
         const input = i;
         let im = this._stdAsMap(i);
         let val = (!__ball_eq(im, null) ? __ball_index(im, 'value') : i);
         return this._jsonEncode(val);
-      }), 'json_decode': ((i) => {
+      }), ['json_decode']: ((i) => {
         const input = i;
         let im = this._stdAsMap(i);
         let str = (!__ball_eq(im, null) ? (__ball_index(im, 'value') ?? '') : __ball_to_string(i));
         return this._jsonDecode(str);
-      }), 'utf8_encode': ((i) => {
+      }), ['utf8_encode']: ((i) => {
         const input = i;
         let im = this._stdAsMap(i);
         let str = (!__ball_eq(im, null) ? (__ball_index(im, 'value') ?? '') : __ball_to_string(i));
         return this._utf8Encode(str);
-      }), 'utf8_decode': ((i) => {
+      }), ['utf8_decode']: ((i) => {
         const input = i;
         let im = this._stdAsMap(i);
         let bytes = (!__ball_eq(im, null) ? (__ball_index(im, 'value') ?? []) : []);
         return this._utf8Decode(bytes);
-      }), 'base64_encode': ((i) => {
+      }), ['base64_encode']: ((i) => {
         const input = i;
         let im = this._stdAsMap(i);
         let bytes = (!__ball_eq(im, null) ? (__ball_index(im, 'value') ?? []) : []);
         return this._base64Encode(bytes);
-      }), 'base64_decode': ((i) => {
+      }), ['base64_decode']: ((i) => {
         const input = i;
         let im = this._stdAsMap(i);
         let str = (!__ball_eq(im, null) ? (__ball_index(im, 'value') ?? '') : __ball_to_string(i));
         return this._base64Decode(str);
-      }), 'now': ((_) => {
+      }), ['now']: ((_) => {
         const input = _;
         return DateTime.now().millisecondsSinceEpoch;
-      }), 'now_micros': ((_) => {
+      }), ['now_micros']: ((_) => {
         const input = _;
         return DateTime.now().microsecondsSinceEpoch;
-      }), 'format_timestamp': ((i) => {
+      }), ['format_timestamp']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let ms = ((() => {
@@ -7695,40 +7714,40 @@ export class BallEngine {
         })() ?? 0);
         let dt = DateTime.fromMillisecondsSinceEpoch(ms, true);
         return dt.toIso8601String();
-      }), 'parse_timestamp': ((i) => {
+      }), ['parse_timestamp']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let str = (__ball_index(m, 'value') ?? '');
         return DateTime.parse(str).millisecondsSinceEpoch;
-      }), 'duration_add': ((i) => {
+      }), ['duration_add']: ((i) => {
         const input = i;
         return this._stdBinaryInt(i, ((a, b) => {
           return __ball_add(a, b);
         }));
-      }), 'duration_subtract': ((i) => {
+      }), ['duration_subtract']: ((i) => {
         const input = i;
         return this._stdBinaryInt(i, ((a, b) => {
           return __ball_sub(a, b);
         }));
-      }), 'year': ((_) => {
+      }), ['year']: ((_) => {
         const input = _;
         return DateTime.now().toUtc().year;
-      }), 'month': ((_) => {
+      }), ['month']: ((_) => {
         const input = _;
         return DateTime.now().toUtc().month;
-      }), 'day': ((_) => {
+      }), ['day']: ((_) => {
         const input = _;
         return DateTime.now().toUtc().day;
-      }), 'hour': ((_) => {
+      }), ['hour']: ((_) => {
         const input = _;
         return DateTime.now().toUtc().hour;
-      }), 'minute': ((_) => {
+      }), ['minute']: ((_) => {
         const input = _;
         return DateTime.now().toUtc().minute;
-      }), 'second': ((_) => {
+      }), ['second']: ((_) => {
         const input = _;
         return DateTime.now().toUtc().second;
-      }), 'file_read': this._stdFileRead.bind(this), 'file_read_bytes': this._stdFileReadBytes.bind(this), 'file_write': this._stdFileWrite.bind(this), 'file_write_bytes': this._stdFileWriteBytes.bind(this), 'file_append': this._stdFileAppend.bind(this), 'file_exists': this._stdFileExists.bind(this), 'file_delete': this._stdFileDelete.bind(this), 'dir_list': this._stdDirList.bind(this), 'dir_create': this._stdDirCreate.bind(this), 'dir_exists': this._stdDirExists.bind(this), 'thread_spawn': (async (i) => {
+      }), ['file_read']: this._stdFileRead.bind(this), ['file_read_bytes']: this._stdFileReadBytes.bind(this), ['file_write']: this._stdFileWrite.bind(this), ['file_write_bytes']: this._stdFileWriteBytes.bind(this), ['file_append']: this._stdFileAppend.bind(this), ['file_exists']: this._stdFileExists.bind(this), ['file_delete']: this._stdFileDelete.bind(this), ['dir_list']: this._stdDirList.bind(this), ['dir_create']: this._stdDirCreate.bind(this), ['dir_exists']: this._stdDirExists.bind(this), ['thread_spawn']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let body = __ball_index(m, 'body');
@@ -7739,19 +7758,19 @@ export class BallEngine {
           }
         }
         return 0;
-      }), 'thread_join': ((_) => {
+      }), ['thread_join']: ((_) => {
         const input = _;
         return null;
-      }), 'mutex_create': ((_) => {
+      }), ['mutex_create']: ((_) => {
         const input = _;
         return (this._nextMutexId++);
-      }), 'mutex_lock': ((_) => {
+      }), ['mutex_lock']: ((_) => {
         const input = _;
         return null;
-      }), 'mutex_unlock': ((_) => {
+      }), ['mutex_unlock']: ((_) => {
         const input = _;
         return null;
-      }), 'scoped_lock': (async (i) => {
+      }), ['scoped_lock']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let body = __ball_index(m, 'body');
@@ -7762,24 +7781,24 @@ export class BallEngine {
           }
           return v;
         }
-      }), 'atomic_load': ((i) => {
+      }), ['atomic_load']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         return __ball_index(m, 'value');
-      }), 'atomic_store': ((i) => {
+      }), ['atomic_store']: ((i) => {
         const input = i;
         return null;
-      }), 'atomic_compare_exchange': ((i) => {
+      }), ['atomic_compare_exchange']: ((i) => {
         const input = i;
         return true;
-      }), 'goto': ((i) => {
+      }), ['goto']: ((i) => {
         const input = i;
         let im = this._stdAsMap(i);
         if (!__ball_eq(im, null)) {
           let label = (__ball_index(im, 'label') ?? '');
           throw new _FlowSignal('goto', { label: label });
         }
-      }), 'label': ((i) => {
+      }), ['label']: ((i) => {
         const input = i;
         let im = this._stdAsMap(i);
         if (!__ball_eq(im, null)) {
@@ -7943,7 +7962,7 @@ export class BallEngine {
         if (!__ball_eq(resolved, null)) {
           map['__tostring_guard__'] = true;
           try {
-            let result = await this._callFunction(resolved.module, resolved.func, { 'self': map });
+            let result = await this._callFunction(resolved.module, resolved.func, { ['self']: map });
             return ((__ball_eq(result, null) ? null : result.toString()) ?? 'null');
           } catch (__ball_active_error) {
             const _ = __ball_active_error;
@@ -8325,7 +8344,7 @@ export class BallEngine {
   _stdSetCreate(input: any): any {
     let m = this._stdAsMap(input);
     if (__ball_eq(m, null)) {
-      return new Set();
+      return new Set(['Object?']);
     }
     let elements = __ball_index(m, 'elements');
     let elementsList = this._stdAsList(elements);
@@ -8333,7 +8352,7 @@ export class BallEngine {
       this._trackMemoryAllocation(__ball_mul(elementsList.length, _ballPointerBytes));
       return elementsList.toSet();
     }
-    return new Set();
+    return new Set(['Object?']);
   }
 
   _collectionMisuse(_: any): any {
@@ -9054,13 +9073,13 @@ export class BallEngine {
     if (false /* BallMap is Map in TS */) {
       return [...v.entries.entries.map(((e) => {
         const input = e;
-        return { 'key': e.key, 'value': e.value };
+        return { ['key']: e.key, ['value']: e.value };
       }))];
     }
     if ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set))) {
       return [...v.entries.map(((e) => {
         const input = e;
-        return { 'key': e.key, 'value': e.value };
+        return { ['key']: e.key, ['value']: e.value };
       }))];
     }
     if ((typeof v === 'string')) {
@@ -9230,10 +9249,10 @@ export class BallEngine {
     }
     let mapVal = this._stdAsMap(v);
     if (!__ball_eq(mapVal, null)) {
-      return {};
+      return (() => { const __r: Record<string, any> = {}; for (const e of mapVal.entries) { if (!e.key.startsWith('__')) { __r[e.key] = this._toJsonSafe(e.value); } } return __r; })();
     }
     if ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set))) {
-      return {};
+      return (() => { const __r: Record<string, any> = {}; for (const e of v.entries) { if (((typeof e.key === 'string') && !e.key.startsWith('__'))) { __r[e.key] = this._toJsonSafe(e.value); } } return __r; })();
     }
     let listVal = this._stdAsList(v);
     if (!__ball_eq(listVal, null)) {
@@ -9483,7 +9502,7 @@ export class StdModuleHandler extends BallModuleHandler {
   }
 
   get registeredFunctions(): any {
-    return Set.unmodifiable(new Set([this._dispatch.keys, this._composedDispatch.keys]));
+    return Set.unmodifiable((() => { const __r = new Set<any>(); for (const __e of this._dispatch.keys) { __r.add(__e); } for (const __e of this._composedDispatch.keys) { __r.add(__e); } return __r; })());
   }
 
   static subset(functions: any): any {
@@ -9558,8 +9577,8 @@ let _builtinTypeNames = (() => { return new Set(['int', 'double', 'num', 'String
 let _ballPointerBytes = (() => { return 8; })();
 let _ballStringCodeUnitBytes = (() => { return 2; })();
 let _ballMapEntryBytes = (() => { return __ball_mul(_ballPointerBytes, 2); })();
-let _stdFunctionToOperator = (() => { return { 'equals': '__op_eq__', 'add': '__op_add__', 'subtract': '__op_sub__', 'multiply': '__op_mul__', 'divide': '__op_idiv__', 'divide_double': '__op_div__', 'modulo': '__op_mod__', 'less_than': '__op_lt__', 'greater_than': '__op_gt__', 'lte': '__op_le__', 'gte': '__op_ge__', 'index': '__op_get_index__' }; })();
-let _stdFunctionToOperatorSymbol = (() => { return { 'equals': '==', 'add': '+', 'subtract': '-', 'multiply': '*', 'divide': '~/', 'divide_double': '/', 'modulo': '%', 'less_than': '<', 'greater_than': '>', 'lte': '<=', 'gte': '>=', 'index': '[]' }; })();
+let _stdFunctionToOperator = (() => { return { ['equals']: '__op_eq__', ['add']: '__op_add__', ['subtract']: '__op_sub__', ['multiply']: '__op_mul__', ['divide']: '__op_idiv__', ['divide_double']: '__op_div__', ['modulo']: '__op_mod__', ['less_than']: '__op_lt__', ['greater_than']: '__op_gt__', ['lte']: '__op_le__', ['gte']: '__op_ge__', ['index']: '__op_get_index__' }; })();
+let _stdFunctionToOperatorSymbol = (() => { return { ['equals']: '==', ['add']: '+', ['subtract']: '-', ['multiply']: '*', ['divide']: '~/', ['divide_double']: '/', ['modulo']: '%', ['less_than']: '<', ['greater_than']: '>', ['lte']: '<=', ['gte']: '>=', ['index']: '[]' }; })();
 
 function _ballUserMap(): any {
   return ({ ...{} });
@@ -9778,12 +9797,12 @@ function _ballNumIsInfinite(v: any): any {
 
 function _ballFuture(value: any): any {
   const input = value;
-  return { '__ball_future__': true, 'value': value, 'completed': true };
+  return { ['__ball_future__']: true, ['value']: value, ['completed']: true };
 }
 
 function _ballFutureError(error: any): any {
   const input = error;
-  return { '__ball_future__': true, 'error': error, 'completed': true };
+  return { ['__ball_future__']: true, ['error']: error, ['completed']: true };
 }
 
 function _isBallFuture(value: any): any {

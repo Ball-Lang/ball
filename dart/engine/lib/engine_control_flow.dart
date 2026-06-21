@@ -1094,6 +1094,9 @@ extension BallEngineControlFlow on BallEngine {
             : _numOp(current, val, (a, b) => a + b),
       '-=' => _numOp(current, val, (a, b) => a - b),
       '*=' => _numOp(current, val, (a, b) => a * b),
+      // `/=` is true (double) division — `10.0 /= 4` is 2.5, not 4. Without this
+      // case it fell through to `_ => val`, silently assigning the RHS.
+      '/=' => _toNum(current) / _toNum(val),
       '~/=' => _intOp(current, val, (a, b) => a ~/ b),
       '%=' => _intOp(current, val, (a, b) => a % b),
       '&=' => _intOp(current, val, (a, b) => a & b),

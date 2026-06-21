@@ -3604,6 +3604,7 @@ class DartEncoder {
           final a = renamedArgs[i];
           if (a.name == 'arg0') {
             a.name = switch (fnName) {
+              'list_reduce' => 'callback',
               'list_add' || 'list_contains' || 'list_index_of' => 'value',
               'list_join' => 'separator',
               'list_insert' => 'index',

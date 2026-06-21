@@ -483,10 +483,27 @@ extension BallEngineStd on BallEngine {
       'list_reduce': (i) async {
         final m = _stdAsMap(i)!;
         final list = _stdAsList(m['list'])!;
-        final cb = m['callback'];
-        var acc = m['initial'];
-        for (final e in list) {
-          var v = (cb as Function)(<String, Object?>{'left': acc, 'right': e});
+        final cb = (m['callback'] ?? m['function'] ?? m['value']) as Function;
+        // Dart's `reduce` takes no seed: the accumulator starts at the first
+        // element and the combine runs from the second. An empty list is a
+        // StateError (matches `Iterable.reduce`). The combine closure is a
+        // 2-param lambda, so pass positionally as arg0/arg1.
+        if (list.isEmpty) {
+          throw StateError('No element');
+        }
+        var acc = list.first;
+        for (var idx = 1; idx < list.length; idx++) {
+          final e = list[idx];
+          // Pass the pair under every alias the closure might name it by:
+          // positional (arg0/arg1), conventional (a/b), or binary (left/right).
+          var v = cb(<String, Object?>{
+            'arg0': acc,
+            'arg1': e,
+            'a': acc,
+            'b': e,
+            'left': acc,
+            'right': e,
+          });
           if (v is Future) v = await v;
           acc = v;
         }

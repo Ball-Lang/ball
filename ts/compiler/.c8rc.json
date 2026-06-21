@@ -1,0 +1,11 @@
+{
+  "all": true,
+  "src": ["src"],
+  "exclude": [
+    "src/gen/**",
+    "**/gen/**",
+    "**/*.d.ts",
+    "src/types.ts"
+  ],
+  "reporter": ["text-summary", "lcovonly"]
+}

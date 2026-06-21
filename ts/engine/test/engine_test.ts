@@ -506,6 +506,321 @@ await test('sandbox allows normal computation', async () => {
   assertEqual(engine.getOutput()[0], 'safe');
 });
 
+// ── engine_setup std-function + method-dispatch coverage ─────────────────────
+//
+// These target the hand-written std registrations and the MethodDispatchHandler
+// in engine_setup.ts that the conformance corpus doesn't fully exercise
+// (collection higher-order functions with lambdas, set/map/string/number
+// method dispatch, and the guard branches for malformed inputs).
+
+console.log('\nengine_setup std functions:');
+
+/** Wrap an expression as a single-print program and run it, returning output. */
+async function runExpr(stdFns: string[], expr: any): Promise<string[]> {
+  const prog = {
+    modules: [
+      { name: 'std', functions: stdFns.map(name => ({ name, isBase: true })) },
+      {
+        name: 'main',
+        functions: [{
+          name: 'main',
+          body: { call: { module: 'std', function: 'print', input: expr } },
+        }],
+      },
+    ],
+    entryModule: 'main', entryFunction: 'main',
+  };
+  const engine = new BallEngine(prog);
+  await engine.run();
+  return engine.getOutput();
+}
+
+/** Build a std.<fn> call with the given messageCreation fields. */
+function stdCall(fn: string, fields: Array<{ name: string; value: any }>, module = 'std'): any {
+  return { call: { module, function: fn, input: { messageCreation: { typeName: '', fields } } } };
+}
+
+/** A list literal expression. */
+function listLit(elements: any[]): any {
+  return { literal: { listValue: { elements } } };
+}
+function intLit(n: number): any { return { literal: { intValue: String(n) } }; }
+function strLit(s: string): any { return { literal: { stringValue: s } }; }
+
+/** A lambda that returns `bodyExpr`, with parameter referenced as `input`. */
+function lambda(bodyExpr: any): any {
+  return {
+    lambda: {
+      name: '', body: bodyExpr,
+      metadata: { kind: 'lambda', expression_body: true, has_return: true },
+    },
+  };
+}
+
+// ── Collection higher-order functions (with lambdas) ──────────────────────────
+
+await test('list_where filters with a predicate lambda', async () => {
+  // [1,2,3,4] where (input > 2) => [3, 4]
+  const pred = lambda(stdCall('greater_than', [
+    { name: 'left', value: { reference: { name: 'input' } } },
+    { name: 'right', value: intLit(2) },
+  ]));
+  const out = await runExpr(
+    ['print', 'list_where', 'greater_than'],
+    stdCall('list_where', [
+      { name: 'list', value: listLit([intLit(1), intLit(2), intLit(3), intLit(4)]) },
+      { name: 'function', value: pred },
+    ], 'std_collections'),
+  );
+  assertEqual(out[0], '[3, 4]');
+});
+
+await test('list_any returns true when a predicate matches', async () => {
+  const pred = lambda(stdCall('equals', [
+    { name: 'left', value: { reference: { name: 'input' } } },
+    { name: 'right', value: intLit(2) },
+  ]));
+  const out = await runExpr(
+    ['print', 'list_any', 'equals'],
+    stdCall('list_any', [
+      { name: 'list', value: listLit([intLit(1), intLit(2), intLit(3)]) },
+      { name: 'function', value: pred },
+    ], 'std_collections'),
+  );
+  assertEqual(out[0], 'true');
+});
+
+await test('list_every returns false when one element fails', async () => {
+  const pred = lambda(stdCall('greater_than', [
+    { name: 'left', value: { reference: { name: 'input' } } },
+    { name: 'right', value: intLit(0) },
+  ]));
+  const out = await runExpr(
+    ['print', 'list_every', 'greater_than'],
+    stdCall('list_every', [
+      { name: 'list', value: listLit([intLit(1), intLit(2), intLit(0)]) },
+      { name: 'function', value: pred },
+    ], 'std_collections'),
+  );
+  assertEqual(out[0], 'false');
+});
+
+await test('list_find returns the first matching element', async () => {
+  const pred = lambda(stdCall('greater_than', [
+    { name: 'left', value: { reference: { name: 'input' } } },
+    { name: 'right', value: intLit(1) },
+  ]));
+  const out = await runExpr(
+    ['print', 'list_find', 'greater_than'],
+    stdCall('list_find', [
+      { name: 'list', value: listLit([intLit(1), intLit(2), intLit(3)]) },
+      { name: 'function', value: pred },
+    ], 'std_collections'),
+  );
+  assertEqual(out[0], '2');
+});
+
+await test('list_filter keeps matching elements', async () => {
+  const pred = lambda(stdCall('less_than', [
+    { name: 'left', value: { reference: { name: 'input' } } },
+    { name: 'right', value: intLit(3) },
+  ]));
+  const out = await runExpr(
+    ['print', 'list_filter', 'less_than'],
+    stdCall('list_filter', [
+      { name: 'list', value: listLit([intLit(1), intLit(2), intLit(3), intLit(4)]) },
+      { name: 'function', value: pred },
+    ], 'std_collections'),
+  );
+  assertEqual(out[0], '[1, 2]');
+});
+
+await test('list_where guard: non-list input yields empty list', async () => {
+  const out = await runExpr(
+    ['print', 'list_where'],
+    stdCall('list_where', [
+      { name: 'list', value: intLit(5) },
+      { name: 'function', value: strLit('not-a-fn') },
+    ], 'std_collections'),
+  );
+  assertEqual(out[0], '[]');
+});
+
+// ── Set operations ────────────────────────────────────────────────────────────
+
+await test('set_union via std_collections', async () => {
+  const out = await runExpr(
+    ['print', 'set_from', 'set_union', 'set_to_list'],
+    stdCall('set_to_list', [
+      { name: 'set', value: stdCall('set_union', [
+        { name: 'set', value: stdCall('set_from', [{ name: 'list', value: listLit([intLit(1), intLit(2)]) }], 'std_collections') },
+        { name: 'other', value: stdCall('set_from', [{ name: 'list', value: listLit([intLit(2), intLit(3)]) }], 'std_collections') },
+      ], 'std_collections') },
+    ], 'std_collections'),
+  );
+  assertEqual(out[0], '[1, 2, 3]');
+});
+
+await test('set_intersection keeps common elements', async () => {
+  const out = await runExpr(
+    ['print', 'set_from', 'set_intersection', 'set_to_list'],
+    stdCall('set_to_list', [
+      { name: 'set', value: stdCall('set_intersection', [
+        { name: 'set', value: stdCall('set_from', [{ name: 'list', value: listLit([intLit(1), intLit(2), intLit(3)]) }], 'std_collections') },
+        { name: 'other', value: stdCall('set_from', [{ name: 'list', value: listLit([intLit(2), intLit(3), intLit(4)]) }], 'std_collections') },
+      ], 'std_collections') },
+    ], 'std_collections'),
+  );
+  assertEqual(out[0], '[2, 3]');
+});
+
+await test('set_difference removes shared elements', async () => {
+  const out = await runExpr(
+    ['print', 'set_from', 'set_difference', 'set_to_list'],
+    stdCall('set_to_list', [
+      { name: 'set', value: stdCall('set_difference', [
+        { name: 'set', value: stdCall('set_from', [{ name: 'list', value: listLit([intLit(1), intLit(2), intLit(3)]) }], 'std_collections') },
+        { name: 'other', value: stdCall('set_from', [{ name: 'list', value: listLit([intLit(2)]) }], 'std_collections') },
+      ], 'std_collections') },
+    ], 'std_collections'),
+  );
+  assertEqual(out[0], '[1, 3]');
+});
+
+// ── String helpers ────────────────────────────────────────────────────────────
+
+await test('string_pad_left pads to the requested width', async () => {
+  const out = await runExpr(
+    ['print', 'string_pad_left'],
+    stdCall('string_pad_left', [
+      { name: 'value', value: strLit('7') },
+      { name: 'width', value: intLit(3) },
+      { name: 'padding', value: strLit('0') },
+    ], 'std'),
+  );
+  assertEqual(out[0], '007');
+});
+
+await test('string_pad_right pads on the right', async () => {
+  const out = await runExpr(
+    ['print', 'string_pad_right'],
+    stdCall('string_pad_right', [
+      { name: 'value', value: strLit('7') },
+      { name: 'width', value: intLit(3) },
+      { name: 'padding', value: strLit('.') },
+    ], 'std'),
+  );
+  assertEqual(out[0], '7..');
+});
+
+await test('string_repeat repeats the string', async () => {
+  const out = await runExpr(
+    ['print', 'string_repeat'],
+    stdCall('string_repeat', [
+      { name: 'value', value: strLit('ab') },
+      { name: 'count', value: intLit(3) },
+    ], 'std'),
+  );
+  assertEqual(out[0], 'ababab');
+});
+
+await test('string_from_char_code builds a character', async () => {
+  const out = await runExpr(
+    ['print', 'string_from_char_code'],
+    stdCall('string_from_char_code', [
+      { name: 'code', value: intLit(65) },
+    ], 'std'),
+  );
+  assertEqual(out[0], 'A');
+});
+
+// ── Conversion + comparison helpers ───────────────────────────────────────────
+
+await test('to_double formats an int with a decimal point', async () => {
+  const out = await runExpr(
+    ['print', 'to_double'],
+    stdCall('to_double', [{ name: 'value', value: intLit(42) }], 'std'),
+  );
+  assertEqual(out[0], '42.0');
+});
+
+await test('compare_to orders two numbers', async () => {
+  const out = await runExpr(
+    ['print', 'compare_to'],
+    stdCall('compare_to', [
+      { name: 'left', value: intLit(2) },
+      { name: 'right', value: intLit(5) },
+    ], 'std'),
+  );
+  assertEqual(out[0], '-1');
+});
+
+await test('math_max picks the larger value', async () => {
+  const out = await runExpr(
+    ['print', 'math_max'],
+    stdCall('math_max', [
+      { name: 'left', value: intLit(3) },
+      { name: 'right', value: intLit(8) },
+    ], 'std'),
+  );
+  assertEqual(out[0], '8');
+});
+
+// ── Map helpers ───────────────────────────────────────────────────────────────
+
+await test('map_keys lists the keys of a created map', async () => {
+  // Build a map via map_create with explicit {key,value} entry messages.
+  const realMap = stdCall('map_create', [
+    { name: 'entries', value: listLit([
+      { messageCreation: { typeName: '', fields: [
+        { name: 'key', value: strLit('a') }, { name: 'value', value: intLit(1) },
+      ] } },
+      { messageCreation: { typeName: '', fields: [
+        { name: 'key', value: strLit('b') }, { name: 'value', value: intLit(2) },
+      ] } },
+    ]) },
+  ], 'std_collections');
+  const out = await runExpr(
+    ['print', 'map_create', 'map_keys'],
+    stdCall('map_keys', [{ name: 'map', value: realMap }], 'std_collections'),
+  );
+  assertEqual(out[0], '[a, b]');
+});
+
+// ── Self-describing ball-file envelope (unwrapBallFile) ───────────────────────
+
+console.log('\nBall-file envelope:');
+
+await test('accepts an @type-wrapped Program envelope', async () => {
+  const prog = {
+    '@type': 'type.googleapis.com/ball.v1.Program',
+    modules: [
+      { name: 'std', functions: [{ name: 'print', isBase: true }] },
+      { name: 'main', functions: [{
+        name: 'main',
+        body: { call: { module: 'std', function: 'print', input: strLit('wrapped') } },
+      }] },
+    ],
+    entryModule: 'main', entryFunction: 'main',
+  };
+  const engine = new BallEngine(prog);
+  await engine.run();
+  assertEqual(engine.getOutput()[0], 'wrapped');
+});
+
+await test('throws on an unknown @type envelope', async () => {
+  const bad = { '@type': 'type.googleapis.com/ball.v1.Widget', modules: [] };
+  try {
+    new BallEngine(bad);
+    throw new Error('Should have thrown');
+  } catch (e: any) {
+    assert(
+      e.message.includes('unknown ball file @type'),
+      `Expected unknown-@type error, got: ${e.message}`,
+    );
+  }
+});
+
 // ── Conformance tests ───────────────────────────────────────────────────────
 
 console.log('\nConformance:');

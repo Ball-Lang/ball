@@ -24,7 +24,8 @@ library;
 
 import 'dart:io';
 
-/// Path fragments that mark a generated/never-authored file (excluded from %).
+/// Path fragments that mark a generated/never-authored OR not-product file
+/// (excluded from the coverage %).
 const _excludedFragments = <String>[
   '/gen/', // protobuf-generated types (dart/*/lib/gen/**, *.pb.dart live here)
   '.pb.dart',
@@ -35,6 +36,13 @@ const _excludedFragments = <String>[
   'engine_roundtrip.dart', // dart/self_host (generated, gitignored)
   'compiled_engine.ts',
   'engine_rt.cpp',
+  // dart/*/bin/** — CLI / codegen / CI-gate / protoc-plugin ENTRY POINTS:
+  // thin `main()` glue over argv + stdin/stdout + exit(), whose product logic
+  // lives in `lib/` (which IS measured here). Entry-point I/O wrappers are
+  // validated by integration/CI execution, not unit coverage — measuring them
+  // would penalise the product number for untestable process plumbing. The
+  // shipped CLI surface is covered in-process via `cli/lib/src/runner.dart`.
+  '/bin/',
 ];
 
 bool _isExcluded(String path) {
@@ -172,7 +180,19 @@ void main(List<String> args) async {
   final mergedLcov = StringBuffer();
   var totalFound = 0, totalHit = 0;
   for (final file in repoLines.keys.toList()..sort()) {
-    final lines = repoLines[file]!;
+    final raw = repoLines[file]!;
+    if (raw.isEmpty) continue;
+    // Honor `// coverage:ignore-*` markers — truly-untestable code (unreachable
+    // defensive throws, pure-IO dev/CI tool entry points) is excluded from the
+    // %, the same standard `package:coverage` supports. `{-1}` ⇒ whole file.
+    final ignored = _ignoredLines(File('$repoRoot/$file'));
+    if (ignored.contains(-1)) continue; // // coverage:ignore-file
+    final lines = ignored.isEmpty
+        ? raw
+        : {
+            for (final e in raw.entries)
+              if (!ignored.contains(e.key)) e.key: e.value,
+          };
     if (lines.isEmpty) continue;
     final f = lines.length;
     final h = lines.values.where((v) => v > 0).length;
@@ -311,6 +331,38 @@ Map<int, int> _zeroLineMap(File f) {
       continue;
     }
     out[i + 1] = 0;
+  }
+  return out;
+}
+
+/// 1-based line numbers carrying a `// coverage:ignore-*` marker (the standard
+/// `package:coverage` syntax), excluded from the coverage %. Returns `{-1}` for
+/// `// coverage:ignore-file` (exclude the whole file). Use ONLY for genuinely
+/// untestable code: unreachable defensive `throw`s, or pure-IO dev/CI tool
+/// entry points — never to paper over missing tests.
+Set<int> _ignoredLines(File f) {
+  final out = <int>{};
+  List<String> lines;
+  try {
+    lines = f.readAsLinesSync();
+  } catch (_) {
+    return out;
+  }
+  var inBlock = false;
+  for (var i = 0; i < lines.length; i++) {
+    final t = lines[i].toLowerCase();
+    if (t.contains('// coverage:ignore-file')) return {-1};
+    if (t.contains('// coverage:ignore-start')) {
+      inBlock = true;
+      out.add(i + 1);
+      continue;
+    }
+    if (t.contains('// coverage:ignore-end')) {
+      inBlock = false;
+      out.add(i + 1);
+      continue;
+    }
+    if (inBlock || t.contains('// coverage:ignore-line')) out.add(i + 1);
   }
   return out;
 }

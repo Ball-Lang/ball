@@ -1,3 +1,10 @@
+## [1.2.4](https://github.com/Ball-Lang/ball/compare/v1.2.3...v1.2.4) (2026-06-21)
+
+
+### Bug Fixes
+
+* **engine,encoder,compiler:** primitive number getters (closes [#106](https://github.com/Ball-Lang/ball/issues/106)) ([#107](https://github.com/Ball-Lang/ball/issues/107)) ([998c2b0](https://github.com/Ball-Lang/ball/commit/998c2b048e541681f6d7fc470f7e70527ed603c7)), closes [#96](https://github.com/Ball-Lang/ball/issues/96) [93/#96](https://github.com/Ball-Lang/ball/issues/96) [#67](https://github.com/Ball-Lang/ball/issues/67)
+
 ## [1.2.3](https://github.com/Ball-Lang/ball/compare/v1.2.2...v1.2.3) (2026-06-21)
 
 

@@ -87,8 +87,12 @@ jobs:
             { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "infra=true"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          files="$(git diff --name-only "$base" HEAD)"
-          echo "Changed files vs ${base}:"; echo "$files"
+          # Three-dot (merge-base) diff: ONLY this branch's own changes, never
+          # commits the base branch gained since we forked (else a sibling PR
+          # that merges first leaks its files in and forces every stack to run).
+          # The merge-base is reachable thanks to fetch-depth: 0 above.
+          files="$(git diff --name-only "$base...HEAD")"
+          echo "Changed files vs merge-base(${base}, HEAD):"; echo "$files"
           m() { grep -qE "$1" <<< "$files"; }
           out() { if m "$2"; then echo "$1=true"; else echo "$1=false"; fi; }
           infra=false

@@ -1,3 +1,10 @@
+## [1.2.2](https://github.com/Ball-Lang/ball/compare/v1.2.1...v1.2.2) (2026-06-21)
+
+
+### Bug Fixes
+
+* **engine:** implement std to_string_as_fixed handler + fixture ([#64](https://github.com/Ball-Lang/ball/issues/64)) ([#102](https://github.com/Ball-Lang/ball/issues/102)) ([50cd6bd](https://github.com/Ball-Lang/ball/commit/50cd6bda4d5126961f3e751d54cdf3263ff745e1)), closes [#101](https://github.com/Ball-Lang/ball/issues/101)
+
 ## [1.2.1](https://github.com/Ball-Lang/ball/compare/v1.2.0...v1.2.1) (2026-06-21)
 
 

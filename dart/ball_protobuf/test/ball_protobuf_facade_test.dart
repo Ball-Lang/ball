@@ -12,8 +12,18 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ball_base/ball_base.dart'
-    show Module, decodeModuleBinary, decodeModuleJson;
+    show InlineSource, Module, decodeModuleBinary, decodeModuleJson;
 import 'package:test/test.dart';
+
+/// Decodes an embedded module from whichever `InlineSource` oneof variant the
+/// generator emitted. `gen_ball_protobuf.dart` inlines each module as
+/// `jsonEncode(m.toProto3Json())` (the `inline.json` variant — a BARE proto3
+/// module, not a self-describing `@type` envelope, so `decodeModuleJson` does
+/// not apply); tolerate the binary (`inline.protoBytes`) variant too so the
+/// test tracks the artifact rather than one encoding.
+Module _decodeInline(InlineSource inline) => inline.hasJson()
+    ? (Module()..mergeFromProto3Json(jsonDecode(inline.json)))
+    : decodeModuleBinary(inline.protoBytes);
 
 /// Locates `ball_protobuf.{json,bin}` (committed under dart/shared) from the
 /// test CWD (the package root under `dart test`).
@@ -42,9 +52,7 @@ void main() {
       );
       inlineModules = {
         for (final imp in facade.moduleImports)
-          Module.fromBuffer(imp.inline.protoBytes).name: Module.fromBuffer(
-            imp.inline.protoBytes,
-          ),
+          _decodeInline(imp.inline).name: _decodeInline(imp.inline),
       };
     });
 
@@ -60,9 +68,13 @@ void main() {
       expect(facade.moduleImports, isNotEmpty);
       for (final imp in facade.moduleImports) {
         expect(imp.hasInline(), isTrue, reason: '${imp.name} not inline');
-        expect(imp.inline.protoBytes, isNotEmpty);
+        expect(
+          imp.inline.hasJson() || imp.inline.protoBytes.isNotEmpty,
+          isTrue,
+          reason: '${imp.name} has no inline content',
+        );
         // The import alias matches the embedded module's own name.
-        expect(Module.fromBuffer(imp.inline.protoBytes).name, imp.name);
+        expect(_decodeInline(imp.inline).name, imp.name);
       }
       // A library does not ship std / std_collections / proto.
       for (final name in inlineModules.keys) {

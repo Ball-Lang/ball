@@ -3,7 +3,8 @@
 /// Encodes each protobuf implementation file under dart/shared/lib/protobuf/
 /// into a Ball [Module], then assembles them into a single **facade [Module]**
 /// whose `module_imports[]` embed each implementation module inline via
-/// [InlineSource] (`proto_bytes`). This keeps `ball_protobuf` a single,
+/// [InlineSource] (`json` = `jsonEncode(m.toProto3Json())`, a bare proto3
+/// module — decode with `mergeFromProto3Json`). This keeps `ball_protobuf` a single,
 /// self-contained file while preserving its internal multi-module structure —
 /// and, unlike the previous `Program`-with-empty-`entry_function` shape, it is a
 /// real reusable library with no fake entry point (see docs/EDITIONS_PLAN.md

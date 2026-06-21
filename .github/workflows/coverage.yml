@@ -65,15 +65,16 @@ jobs:
       # count as 0%, never dropped) and fails if overall line coverage drops
       # below the floor. RAISE the floor toward 100% as tests are added (see
       # docs/TESTING_STRATEGY.md); never lower it without justification.
-      # Honest full-repo coverage measured ~69.4% (all 9 packages, all authored
-      # lib+bin files, cross-package credited): the in-process conformance
-      # round-trips lifted encoder 37→63% and compiler 43→62%, the std-builder
-      # suite lifted shared 39→90%, and the in-process `runBall()` CLI suite
-      # lifted cli 0→93% (and encoder/shared further, via cross-package credit)
-      # (#61). Floor set below it to absorb local↔CI variance (CI counts ≥ local
-      # — it can only cover more); RAISE toward 100% as tests are added.
+      # Honest full-repo coverage measured ~85.0% (all 9 packages, all authored
+      # lib+bin files, cross-package credited). Per-package: ball_protobuf 98%,
+      # shared/protobuf_gen 89%, cli 93%, encoder 83%, compiler 82%, ball_rpc/
+      # resolver 81%, engine 79% (#61). Dedicated per-package test suites
+      # (ball_protobuf round-trips, encoder/engine/compiler unit tests, the
+      # in-process `runBall()` CLI suite) drove it from ~64% → 85%. Floor set
+      # below it to absorb local↔CI variance (CI counts ≥ local — it can only
+      # cover more); RAISE toward 100% as tests are added.
       - name: Dart line coverage ratchet (all packages)
-        run: dart run tools/coverage_dart.dart --floor 67
+        run: dart run tools/coverage_dart.dart --floor 83
 
       - name: Upload Dart coverage to Codecov
         uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5

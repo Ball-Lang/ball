@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/Ball-Lang/ball/compare/v1.2.8...v1.3.0) (2026-06-21)
+
+
+### Features
+
+* **coverage:** honor // coverage:ignore-*, exclude bin/ tooling, floor 83→88 (~89.7%) ([#61](https://github.com/Ball-Lang/ball/issues/61)) ([#123](https://github.com/Ball-Lang/ball/issues/123)) ([d0b7900](https://github.com/Ball-Lang/ball/commit/d0b7900e98f97b1460a6cfc974d9e96a4fa89f9b))
+
 ## [1.2.8](https://github.com/Ball-Lang/ball/compare/v1.2.7...v1.2.8) (2026-06-21)
 
 

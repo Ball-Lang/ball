@@ -1023,10 +1023,16 @@ extension BallEngineEval on BallEngine {
         return _ballNumIsInfinite(object);
       case 'isNegative':
         if (object is num) return object.isNegative;
+        if (object is BallDouble) return object.value.isNegative;
+        if (object is BallInt) return object.value.isNegative;
       case 'sign':
         if (object is num) return object.sign;
+        if (object is BallDouble) return object.value.sign;
+        if (object is BallInt) return object.value.sign;
       case 'abs':
         if (object is num) return object.abs();
+        if (object is BallDouble) return object.value.abs();
+        if (object is BallInt) return object.value.abs();
       case 'toString':
         return await _ballToStringAsync(object);
       case 'runtimeType':

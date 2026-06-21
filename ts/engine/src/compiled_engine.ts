@@ -3739,15 +3739,33 @@ export class BallEngine {
         if ((typeof object === 'number' || object instanceof BallDouble)) {
           return object.isNegative;
         }
+        if ((typeof object === 'number' || object instanceof BallDouble)) {
+          return object.value.isNegative;
+        }
+        if ((typeof object === 'number' && Number.isInteger(object))) {
+          return object.value.isNegative;
+        }
       }
       else if ((__sw === 'sign')) {
         if ((typeof object === 'number' || object instanceof BallDouble)) {
           return Math.sign(Number(object));
         }
+        if ((typeof object === 'number' || object instanceof BallDouble)) {
+          return Math.sign(Number(object.value));
+        }
+        if ((typeof object === 'number' && Number.isInteger(object))) {
+          return Math.sign(Number(object.value));
+        }
       }
       else if ((__sw === 'abs')) {
         if ((typeof object === 'number' || object instanceof BallDouble)) {
           return __ball_math_abs(object);
+        }
+        if ((typeof object === 'number' || object instanceof BallDouble)) {
+          return __ball_math_abs(object.value);
+        }
+        if ((typeof object === 'number' && Number.isInteger(object))) {
+          return __ball_math_abs(object.value);
         }
       }
       else if ((__sw === 'toString')) {
@@ -7603,7 +7621,7 @@ export class BallEngine {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
-          return Math.sign(Number(v));
+          return Math.sign(Number(this._toNum(v)));
         }));
       }), ['math_gcd']: ((i) => {
         const input = i;
@@ -9764,6 +9782,12 @@ function _metadataBool(field: any): any {
 
 function _ballNumIsNaN(v: any): any {
   const input = v;
+  if ((typeof v === 'number' || v instanceof BallDouble)) {
+    v = v.value;
+  }
+  if ((typeof v === 'number' && Number.isInteger(v))) {
+    v = v.value;
+  }
   if ((typeof v === 'number' && Number.isInteger(v))) {
     return false;
   }
@@ -9776,6 +9800,12 @@ function _ballNumIsNaN(v: any): any {
 
 function _ballNumIsFinite(v: any): any {
   const input = v;
+  if ((typeof v === 'number' || v instanceof BallDouble)) {
+    v = v.value;
+  }
+  if ((typeof v === 'number' && Number.isInteger(v))) {
+    v = v.value;
+  }
   if ((typeof v === 'number' && Number.isInteger(v))) {
     return true;
   }
@@ -9791,6 +9821,12 @@ function _ballNumIsFinite(v: any): any {
 
 function _ballNumIsInfinite(v: any): any {
   const input = v;
+  if ((typeof v === 'number' || v instanceof BallDouble)) {
+    v = v.value;
+  }
+  if ((typeof v === 'number' && Number.isInteger(v))) {
+    v = v.value;
+  }
   if ((typeof v === 'number' && Number.isInteger(v))) {
     return false;
   }

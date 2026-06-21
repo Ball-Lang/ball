@@ -1,3 +1,10 @@
+## [1.2.5](https://github.com/Ball-Lang/ball/compare/v1.2.4...v1.2.5) (2026-06-21)
+
+
+### Bug Fixes
+
+* **engine,encoder:** List.reduce no-seed semantics + callback routing ([#108](https://github.com/Ball-Lang/ball/issues/108)) ([#109](https://github.com/Ball-Lang/ball/issues/109)) ([1da2235](https://github.com/Ball-Lang/ball/commit/1da2235219871aa7d1f6c2db2dd6ffe3c886deb1)), closes [#69](https://github.com/Ball-Lang/ball/issues/69)
+
 ## [1.2.4](https://github.com/Ball-Lang/ball/compare/v1.2.3...v1.2.4) (2026-06-21)
 
 

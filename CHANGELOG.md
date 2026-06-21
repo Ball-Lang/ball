@@ -1,3 +1,10 @@
+## [1.2.7](https://github.com/Ball-Lang/ball/compare/v1.2.6...v1.2.7) (2026-06-21)
+
+
+### Bug Fixes
+
+* **ci:** regression gate mis-counts failures from `-N` in test output ([#118](https://github.com/Ball-Lang/ball/issues/118)) ([3fd88ea](https://github.com/Ball-Lang/ball/commit/3fd88ea70c23822966db5122d7e1f6313ad00f73)), closes [#113](https://github.com/Ball-Lang/ball/issues/113)
+
 ## [1.2.6](https://github.com/Ball-Lang/ball/compare/v1.2.5...v1.2.6) (2026-06-21)
 
 

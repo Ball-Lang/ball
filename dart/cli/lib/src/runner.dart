@@ -127,9 +127,7 @@ void _printUsage(StringSink err) {
   err.writeln('Usage: ball <command> [arguments]');
   err.writeln();
   err.writeln('Commands:');
-  err.writeln(
-    '  info     <input.ball.json>   Inspect ball program structure',
-  );
+  err.writeln('  info     <input.ball.json>   Inspect ball program structure');
   err.writeln('  validate <input.ball.json>   Check ball program validity');
   err.writeln(
     '  compile  <input.ball.json>   Compile ball program to Dart source',
@@ -146,23 +144,15 @@ void _printUsage(StringSink err) {
   err.writeln(
     '  init                         Create ball.yaml in current directory',
   );
-  err.writeln(
-    '  add      <spec>              Add dependency (pub:pkg@^1.0.0)',
-  );
-  err.writeln(
-    '  resolve                      Resolve deps → ball.lock.json',
-  );
-  err.writeln(
-    '  publish                      Bake module.ball.bin into lib/',
-  );
+  err.writeln('  add      <spec>              Add dependency (pub:pkg@^1.0.0)');
+  err.writeln('  resolve                      Resolve deps → ball.lock.json');
+  err.writeln('  publish                      Bake module.ball.bin into lib/');
   err.writeln('  tree                         Print dependency tree');
   err.writeln('  version                      Print version');
   err.writeln('  help                         Show this help');
   err.writeln();
   err.writeln('Options:');
-  err.writeln(
-    '  --output <file>              Output file (default: stdout)',
-  );
+  err.writeln('  --output <file>              Output file (default: stdout)');
   err.writeln(
     '  --format <json|binary>       Output format for encode (default: json)',
   );
@@ -679,9 +669,7 @@ Future<void> _build(List<String> args, StringSink out, StringSink err) async {
       final lockData =
           jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
       final packages = lockData['packages'] as List? ?? [];
-      err.writeln(
-        'Using ball.lock.json (${packages.length} packages cached)',
-      );
+      err.writeln('Using ball.lock.json (${packages.length} packages cached)');
       preCache = ContentAddressableCache();
     } catch (_) {}
   }
@@ -1048,9 +1036,7 @@ void _writeArtifacts(Program program, StringSink err) {
     '  ',
   ).convert(encodeBallFileJson(program));
   jsonFile.writeAsStringSync(jsonStr);
-  err.writeln(
-    '  Wrote lib/module.ball.json (${jsonFile.lengthSync()} bytes)',
-  );
+  err.writeln('  Wrote lib/module.ball.json (${jsonFile.lengthSync()} bytes)');
 
   err.writeln('\nBall artifacts ready for publishing.');
   err.writeln('Downstream packages can import via:');

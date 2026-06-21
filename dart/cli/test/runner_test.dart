@@ -271,7 +271,12 @@ void main() {
     test('to --output file', () async {
       final path = writeValidProgram();
       final outFile = p('out.dart');
-      final (code, out, err) = await run(['compile', path, '--output', outFile]);
+      final (code, out, err) = await run([
+        'compile',
+        path,
+        '--output',
+        outFile,
+      ]);
       expect(code, 0);
       expect(err, contains('Compiled to $outFile'));
       expect(out, isEmpty);
@@ -511,9 +516,11 @@ void main() {
       final path = p('lib.ball.json');
       final module = Module()
         ..name = 'mylib'
-        ..functions.add(FunctionDefinition()
-          ..name = 'noop'
-          ..isBase = true);
+        ..functions.add(
+          FunctionDefinition()
+            ..name = 'noop'
+            ..isBase = true,
+        );
       File(path).writeAsStringSync(jsonEncode(encodeBallFileJson(module)));
       final (code, out, err) = await run(['audit', path]);
       expect(code, 0);
@@ -525,14 +532,18 @@ void main() {
       // module_imports[].inline.proto_bytes — exercising _inlineImports.
       final inner = Module()
         ..name = 'impl'
-        ..functions.add(FunctionDefinition()
-          ..name = 'helper'
-          ..isBase = true);
+        ..functions.add(
+          FunctionDefinition()
+            ..name = 'helper'
+            ..isBase = true,
+        );
       final facade = Module()
         ..name = 'facade'
-        ..moduleImports.add(ModuleImport()
-          ..name = 'impl'
-          ..inline = (InlineSource()..protoBytes = inner.writeToBuffer()));
+        ..moduleImports.add(
+          ModuleImport()
+            ..name = 'impl'
+            ..inline = (InlineSource()..protoBytes = inner.writeToBuffer()),
+        );
       final path = p('facade.ball.json');
       File(path).writeAsStringSync(jsonEncode(encodeBallFileJson(facade)));
       final (code, out, _) = await run(['audit', path]);
@@ -544,15 +555,13 @@ void main() {
       final path = p('lib.ball.json');
       final module = Module()
         ..name = 'mylib'
-        ..functions.add(FunctionDefinition()
-          ..name = 'noop'
-          ..isBase = true);
+        ..functions.add(
+          FunctionDefinition()
+            ..name = 'noop'
+            ..isBase = true,
+        );
       File(path).writeAsStringSync(jsonEncode(encodeBallFileJson(module)));
-      final (code, out, err) = await run([
-        'audit',
-        path,
-        '--reachable-only',
-      ]);
+      final (code, out, err) = await run(['audit', path, '--reachable-only']);
       expect(code, 0);
       expect(err, contains('--reachable-only has no effect'));
     });
@@ -641,7 +650,10 @@ void main() {
       // (the file adapter resolves locally, no pub.dev), writing the resolved
       // program to --output.
       final prog = encodeProgram('void main(){print(1);}');
-      prog.modules.firstWhere((m) => m.name == 'main').moduleImports.add(
+      prog.modules
+          .firstWhere((m) => m.name == 'main')
+          .moduleImports
+          .add(
             ModuleImport()
               ..name = 'dep'
               ..file = (FileSource()..path = './dep.ball.bin'),
@@ -651,9 +663,11 @@ void main() {
       // Provide the imported module so the file adapter can load it.
       final dep = Module()
         ..name = 'dep'
-        ..functions.add(FunctionDefinition()
-          ..name = 'noop'
-          ..isBase = true);
+        ..functions.add(
+          FunctionDefinition()
+            ..name = 'noop'
+            ..isBase = true,
+        );
       File(p('dep.ball.bin')).writeAsBytesSync(encodeBallFileBinary(dep));
       final outFile = p('built.ball.json');
       // Resolve relative to the directory holding the input file.
@@ -678,27 +692,33 @@ void main() {
 
     test('program with import + ball.lock.json uses the lock cache', () async {
       final prog = encodeProgram('void main(){print(1);}');
-      prog.modules.firstWhere((m) => m.name == 'main').moduleImports.add(
+      prog.modules
+          .firstWhere((m) => m.name == 'main')
+          .moduleImports
+          .add(
             ModuleImport()
               ..name = 'dep'
               ..file = (FileSource()..path = './dep.ball.bin'),
           );
       final dep = Module()
         ..name = 'dep'
-        ..functions.add(FunctionDefinition()
-          ..name = 'noop'
-          ..isBase = true);
+        ..functions.add(
+          FunctionDefinition()
+            ..name = 'noop'
+            ..isBase = true,
+        );
       final saved = Directory.current;
       Directory.current = tmp;
       try {
-        File('withimport.ball.json')
-            .writeAsStringSync(jsonEncode(encodeBallFileJson(prog)));
+        File(
+          'withimport.ball.json',
+        ).writeAsStringSync(jsonEncode(encodeBallFileJson(prog)));
         File('dep.ball.bin').writeAsBytesSync(encodeBallFileBinary(dep));
         File('ball.lock.json').writeAsStringSync(
           jsonEncode({
             'lock_version': '1',
             'packages': [
-              {'name': 'dep'}
+              {'name': 'dep'},
             ],
           }),
         );
@@ -734,26 +754,37 @@ void main() {
       final prog = encodeProgram('void main(){print(1);}');
       final m = prog.modules.firstWhere((m) => m.name == 'main');
       m.moduleImports
-        ..add(ModuleImport()
-          ..name = 'h'
-          ..http = (HttpSource()..url = 'https://x/m.ball.bin'))
-        ..add(ModuleImport()
-          ..name = 'f'
-          ..file = (FileSource()..path = 'local.ball.bin'))
-        ..add(ModuleImport()
-          ..name = 'g'
-          ..git = (GitSource()
-            ..url = 'https://git/r.git'
-            ..ref = 'v1'))
-        ..add(ModuleImport()
-          ..name = 'r'
-          ..registry = (RegistrySource()
-            ..package = 'pkg'
-            ..version = '^1.0.0'
-            ..registry = Registry.REGISTRY_PUB))
-        ..add(ModuleImport()
-          ..name = 'i'
-          ..inline = (InlineSource()..protoBytes = (Module()..name = 'x').writeToBuffer()));
+        ..add(
+          ModuleImport()
+            ..name = 'h'
+            ..http = (HttpSource()..url = 'https://x/m.ball.bin'),
+        )
+        ..add(
+          ModuleImport()
+            ..name = 'f'
+            ..file = (FileSource()..path = 'local.ball.bin'),
+        )
+        ..add(
+          ModuleImport()
+            ..name = 'g'
+            ..git = (GitSource()
+              ..url = 'https://git/r.git'
+              ..ref = 'v1'),
+        )
+        ..add(
+          ModuleImport()
+            ..name = 'r'
+            ..registry = (RegistrySource()
+              ..package = 'pkg'
+              ..version = '^1.0.0'
+              ..registry = Registry.REGISTRY_PUB),
+        )
+        ..add(
+          ModuleImport()
+            ..name = 'i'
+            ..inline = (InlineSource()
+              ..protoBytes = (Module()..name = 'x').writeToBuffer()),
+        );
       final path = p('imports.ball.json');
       File(path).writeAsStringSync(jsonEncode(encodeBallFileJson(prog)));
       final (code, out, _) = await run(['tree', path]);
@@ -823,8 +854,10 @@ void main() {
     test('add npm/git/http specs parse', () async {
       await run(['init']);
       final (c1, _, _) = await run(['add', 'npm:@scope/utils@^2.0.0']);
-      final (c2, _, _) =
-          await run(['add', 'git:https://github.com/foo/bar.git@v1.0.0']);
+      final (c2, _, _) = await run([
+        'add',
+        'git:https://github.com/foo/bar.git@v1.0.0',
+      ]);
       // http specs still need an @<version> suffix per _parseImportSpec.
       final (c3, _, _) = await run(['add', 'http:https://x/m.ball.bin@v1']);
       expect([c1, c2, c3], everyElement(0));
@@ -873,13 +906,14 @@ void main() {
       expect(err, contains('No dependencies declared'));
     });
 
-    test('resolve fails fast over local/unsupported deps and writes lockfile',
-        () async {
-      // No network: npm/nuget/cargo/pypi/maven have no registered adapter (fail
-      // fast), git/http/file point at bogus targets, and an empty spec is
-      // skipped. Exercises _parseRegistry's cases, every ModuleImport-source
-      // branch, the resolve loop, the FAIL catch, and the lockfile write.
-      File('${projDir.path}/ball.yaml').writeAsStringSync('''
+    test(
+      'resolve fails fast over local/unsupported deps and writes lockfile',
+      () async {
+        // No network: npm/nuget/cargo/pypi/maven have no registered adapter (fail
+        // fast), git/http/file point at bogus targets, and an empty spec is
+        // skipped. Exercises _parseRegistry's cases, every ModuleImport-source
+        // branch, the resolve loop, the FAIL catch, and the lockfile write.
+        File('${projDir.path}/ball.yaml').writeAsStringSync('''
 name: t
 version: 0.1.0
 dependencies:
@@ -907,29 +941,38 @@ dependencies:
     path: ./missing.ball.bin
   skipped: just-a-scalar
 ''');
-      final (code, out, err) = await run(['resolve']);
-      expect(code, 0);
-      expect(err, contains('npmdep... FAIL'));
-      expect(err, contains('No adapter registered for registry REGISTRY_NPM'));
-      expect(err, contains('filedep... FAIL'));
-      expect(err, contains('Wrote ball.lock.json'));
-      final lock = jsonDecode(
-        File('${projDir.path}/ball.lock.json').readAsStringSync(),
-      ) as Map<String, dynamic>;
-      // The bare-scalar "skipped" entry is not a YamlMap → dropped; 6 remain.
-      expect((lock['packages'] as List).length, 6);
-    });
+        final (code, out, err) = await run(['resolve']);
+        expect(code, 0);
+        expect(err, contains('npmdep... FAIL'));
+        expect(
+          err,
+          contains('No adapter registered for registry REGISTRY_NPM'),
+        );
+        expect(err, contains('filedep... FAIL'));
+        expect(err, contains('Wrote ball.lock.json'));
+        final lock =
+            jsonDecode(
+                  File('${projDir.path}/ball.lock.json').readAsStringSync(),
+                )
+                as Map<String, dynamic>;
+        // The bare-scalar "skipped" entry is not a YamlMap → dropped; 6 remain.
+        expect((lock['packages'] as List).length, 6);
+      },
+    );
 
     test('resolve succeeds for a valid local file dependency', () async {
       // A real local module file resolves OK (covers the success branch +
       // integrity computation), with no network.
       final dep = Module()
         ..name = 'dep'
-        ..functions.add(FunctionDefinition()
-          ..name = 'noop'
-          ..isBase = true);
-      File('${projDir.path}/dep.ball.bin')
-          .writeAsBytesSync(encodeBallFileBinary(dep));
+        ..functions.add(
+          FunctionDefinition()
+            ..name = 'noop'
+            ..isBase = true,
+        );
+      File(
+        '${projDir.path}/dep.ball.bin',
+      ).writeAsBytesSync(encodeBallFileBinary(dep));
       File('${projDir.path}/ball.yaml').writeAsStringSync('''
 name: t
 version: 0.1.0
@@ -940,9 +983,9 @@ dependencies:
       final (code, _, err) = await run(['resolve']);
       expect(code, 0);
       expect(err, contains('dep... OK (1 functions)'));
-      final lock = jsonDecode(
-        File('${projDir.path}/ball.lock.json').readAsStringSync(),
-      ) as Map<String, dynamic>;
+      final lock =
+          jsonDecode(File('${projDir.path}/ball.lock.json').readAsStringSync())
+              as Map<String, dynamic>;
       final pkg = (lock['packages'] as List).first as Map<String, dynamic>;
       expect(pkg['integrity'], startsWith('sha256:'));
     });
@@ -957,12 +1000,14 @@ dependencies:
       expect(err, contains('empty or malformed'));
     });
 
-    test('publish with no ball.yaml and no pubspec returns 0 with error msg',
-        () async {
-      final (code, _, err) = await run(['publish']);
-      expect(code, 0);
-      expect(err, contains('No ball.yaml or pubspec.yaml found'));
-    });
+    test(
+      'publish with no ball.yaml and no pubspec returns 0 with error msg',
+      () async {
+        final (code, _, err) = await run(['publish']);
+        expect(code, 0);
+        expect(err, contains('No ball.yaml or pubspec.yaml found'));
+      },
+    );
 
     test('publish converts a .ball.json to artifacts', () async {
       await run(['init']);
@@ -978,34 +1023,43 @@ dependencies:
       expect(File('${projDir.path}/lib/module.ball.json').existsSync(), isTrue);
     });
 
-    test('publish with ball.yaml but no lib/ and no input returns 0 with usage',
-        () async {
-      await run(['init']);
-      final (code, _, err) = await run(['publish']);
-      expect(code, 0);
-      expect(err, contains('No Dart source in lib/'));
-    });
+    test(
+      'publish with ball.yaml but no lib/ and no input returns 0 with usage',
+      () async {
+        await run(['init']);
+        final (code, _, err) = await run(['publish']);
+        expect(code, 0);
+        expect(err, contains('No Dart source in lib/'));
+      },
+    );
 
-    test('publish encodes a Dart package from pubspec.yaml (no ball.yaml)',
-        () async {
-      // No ball.yaml but a pubspec.yaml + lib/ → encodes the package.
-      File('${projDir.path}/pubspec.yaml').writeAsStringSync(
-        'name: mypkg\nversion: 0.1.0\nenvironment:\n  sdk: ^3.0.0\n',
-      );
-      Directory('${projDir.path}/lib').createSync();
-      File('${projDir.path}/lib/m.dart')
-          .writeAsStringSync('int add(int a){return a+1;}\n');
-      final (code, _, err) = await run(['publish']);
-      expect(code, 0);
-      expect(err, contains('Encoding Dart package from pubspec.yaml'));
-      expect(File('${projDir.path}/lib/module.ball.bin').existsSync(), isTrue);
-    });
+    test(
+      'publish encodes a Dart package from pubspec.yaml (no ball.yaml)',
+      () async {
+        // No ball.yaml but a pubspec.yaml + lib/ → encodes the package.
+        File('${projDir.path}/pubspec.yaml').writeAsStringSync(
+          'name: mypkg\nversion: 0.1.0\nenvironment:\n  sdk: ^3.0.0\n',
+        );
+        Directory('${projDir.path}/lib').createSync();
+        File(
+          '${projDir.path}/lib/m.dart',
+        ).writeAsStringSync('int add(int a){return a+1;}\n');
+        final (code, _, err) = await run(['publish']);
+        expect(code, 0);
+        expect(err, contains('Encoding Dart package from pubspec.yaml'));
+        expect(
+          File('${projDir.path}/lib/module.ball.bin').existsSync(),
+          isTrue,
+        );
+      },
+    );
 
     test('publish encodes the package when ball.yaml + lib/ exist', () async {
       await run(['init']);
       Directory('${projDir.path}/lib').createSync();
-      File('${projDir.path}/lib/m.dart')
-          .writeAsStringSync('int add(int a){return a+1;}\n');
+      File(
+        '${projDir.path}/lib/m.dart',
+      ).writeAsStringSync('int add(int a){return a+1;}\n');
       final (code, _, err) = await run(['publish']);
       expect(code, 0);
       expect(err, contains('Encoding Dart package'));

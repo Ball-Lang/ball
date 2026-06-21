@@ -17,7 +17,12 @@ void main() {
   });
 
   tearDown(() {
-    tmpDir.deleteSync(recursive: true);
+    // On Windows the temp dir can be transiently locked (PathAccessException);
+    // cleanup is best-effort so a locked dir doesn't fail an otherwise-passing
+    // test. (Pre-existing dev-machine flakiness; CI on Linux is unaffected.)
+    try {
+      tmpDir.deleteSync(recursive: true);
+    } catch (_) {}
   });
 
   Future<ProcessResult> ball(List<String> args) async {

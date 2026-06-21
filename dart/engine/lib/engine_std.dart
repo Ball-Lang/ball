@@ -290,6 +290,16 @@ extension BallEngineStd on BallEngine {
         return a < b ? -1 : (a > b ? 1 : 0);
       },
 
+      // num.toStringAsFixed(digits): the encoder routes the method here and the
+      // compilers emit it, but the engine had no handler — `to_string_as_fixed`
+      // threw "Unknown std function". Match the encoder's field names.
+      'to_string_as_fixed': (i) {
+        final m = _stdAsMap(i) ?? <String, Object?>{'value': i};
+        final v = m['value'] ?? m['left'];
+        final digits = m['digits'] ?? m['fractionDigits'];
+        return _toNum(v).toStringAsFixed(_toInt(digits));
+      },
+
       // String interpolation — concatenates evaluated parts list.
       // Encoders emit this frequently; was previously missing from the engine.
       'string_interpolation': (i) async {

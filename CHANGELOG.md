@@ -1,3 +1,10 @@
+## [1.2.3](https://github.com/Ball-Lang/ball/compare/v1.2.2...v1.2.3) (2026-06-21)
+
+
+### Bug Fixes
+
+* **ball_protobuf:** fix facade test inline decode + gate the suite in CI ([#75](https://github.com/Ball-Lang/ball/issues/75)) ([#103](https://github.com/Ball-Lang/ball/issues/103)) ([0d5e4cc](https://github.com/Ball-Lang/ball/commit/0d5e4ccae164bdc2c328dfc5d419885a1da4ac14)), closes [#61](https://github.com/Ball-Lang/ball/issues/61)
+
 ## [1.2.2](https://github.com/Ball-Lang/ball/compare/v1.2.1...v1.2.2) (2026-06-21)
 
 

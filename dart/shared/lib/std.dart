@@ -379,6 +379,12 @@ Module buildStdModule() {
     ),
     _fn('string_split', 'BinaryInput', '', 'Split string: left.split(right)'),
     _fn(
+      'string_runes',
+      'UnaryInput',
+      '',
+      'Unicode code points: value.runes.toList()',
+    ),
+    _fn(
       'string_repeat',
       'StringRepeatInput',
       '',

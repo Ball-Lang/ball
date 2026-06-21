@@ -556,6 +556,13 @@
       "isBase": true
     },
     {
+      "name": "string_runes",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Unicode code points: value.runes.toList()",
+      "isBase": true
+    },
+    {
       "name": "string_repeat",
       "inputType": "StringRepeatInput",
       "outputType": "",

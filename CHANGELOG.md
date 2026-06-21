@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/Ball-Lang/ball/compare/v1.2.0...v1.2.1) (2026-06-21)
+
+
+### Bug Fixes
+
+* **engine:** handle /= (double divide-assign); add full compound-op fixture ([#64](https://github.com/Ball-Lang/ball/issues/64)) ([#99](https://github.com/Ball-Lang/ball/issues/99)) ([4f84bed](https://github.com/Ball-Lang/ball/commit/4f84bed570edbdc95dc9ee9ea1c2a6d19aaa4897))
+
 # [1.2.0](https://github.com/Ball-Lang/ball/compare/v1.1.4...v1.2.0) (2026-06-18)
 
 

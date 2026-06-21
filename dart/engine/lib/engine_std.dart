@@ -486,14 +486,17 @@ extension BallEngineStd on BallEngine {
         final cb = (m['callback'] ?? m['function'] ?? m['value']) as Function;
         // Dart's `reduce` takes no seed: the accumulator starts at the first
         // element and the combine runs from the second. An empty list is a
-        // StateError (matches `Iterable.reduce`). The combine closure is a
-        // 2-param lambda, so pass positionally as arg0/arg1.
-        if (list.isEmpty) {
-          throw StateError('No element');
-        }
-        var acc = list.first;
-        for (var idx = 1; idx < list.length; idx++) {
-          final e = list[idx];
+        // StateError (matches `Iterable.reduce`). Iterate with a for-in + flag
+        // (not a C-style indexed loop) so the self-host compiles cleanly to
+        // every target.
+        var seeded = false;
+        Object? acc;
+        for (final e in list) {
+          if (!seeded) {
+            acc = e;
+            seeded = true;
+            continue;
+          }
           // Pass the pair under every alias the closure might name it by:
           // positional (arg0/arg1), conventional (a/b), or binary (left/right).
           var v = cb(<String, Object?>{
@@ -506,6 +509,9 @@ extension BallEngineStd on BallEngine {
           });
           if (v is Future) v = await v;
           acc = v;
+        }
+        if (!seeded) {
+          throw StateError('No element');
         }
         return acc;
       },

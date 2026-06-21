@@ -6850,17 +6850,22 @@ export class BallEngine {
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
         let cb = ((__ball_index(m, 'callback') ?? __ball_index(m, 'function')) ?? __ball_index(m, 'value'));
-        if ((list.length === 0)) {
-          throw { '__type__': 'StateError', 'message': 'No element' };
-        }
-        let acc = list.first;
-        for (var idx = 1; (idx < list.length); (idx++)) {
-          let e = __ball_index(list, idx);
+        let seeded = false;
+        let acc = __no_init__;
+        for (const e of list) {
+          if (!seeded) {
+            acc = e;
+            seeded = true;
+            continue;
+          }
           let v = cb({ ['arg0']: acc, ['arg1']: e, ['a']: acc, ['b']: e, ['left']: acc, ['right']: e });
           if ((v != null)) {
             v = await v;
           }
           acc = v;
+        }
+        if (!seeded) {
+          throw { '__type__': 'StateError', 'message': 'No element' };
         }
         return acc;
       }), ['list_find']: (async (i) => {

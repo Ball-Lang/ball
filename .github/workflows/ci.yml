@@ -168,6 +168,9 @@ jobs:
       - name: Shared tests
         run: cd dart/shared && dart test
 
+      - name: ball_protobuf tests
+        run: cd dart/ball_protobuf && dart test
+
       - name: Editions conformance (legacy↔editions parity + feature codecs)
         run: cd dart/ball_protobuf && dart run tool/editions_conformance.dart
 

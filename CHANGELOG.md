@@ -1,3 +1,10 @@
+## [1.2.6](https://github.com/Ball-Lang/ball/compare/v1.2.5...v1.2.6) (2026-06-21)
+
+
+### Bug Fixes
+
+* **engine,encoder,compilers:** String.runes → code points (closes [#108](https://github.com/Ball-Lang/ball/issues/108)) ([#111](https://github.com/Ball-Lang/ball/issues/111)) ([09bd588](https://github.com/Ball-Lang/ball/commit/09bd588090e4f5b626c1cd792b702fe1d1020299)), closes [#106](https://github.com/Ball-Lang/ball/issues/106)
+
 ## [1.2.5](https://github.com/Ball-Lang/ball/compare/v1.2.4...v1.2.5) (2026-06-21)
 
 

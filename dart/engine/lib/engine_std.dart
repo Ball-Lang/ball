@@ -1121,7 +1121,7 @@ extension BallEngineStd on BallEngine {
       'math_is_nan': (i) => _stdConvert(i, _ballNumIsNaN),
       'math_is_finite': (i) => _stdConvert(i, _ballNumIsFinite),
       'math_is_infinite': (i) => _stdConvert(i, _ballNumIsInfinite),
-      'math_sign': (i) => _stdConvert(i, (v) => (v as num).sign),
+      'math_sign': (i) => _stdConvert(i, (v) => _toNum(v).sign),
       'math_gcd': (i) => _stdBinaryInt(i, (a, b) => a.gcd(b)),
       'math_lcm': (i) => _stdBinaryInt(i, (a, b) => (a * b).abs() ~/ a.gcd(b)),
 

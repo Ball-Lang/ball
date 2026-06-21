@@ -2985,6 +2985,12 @@ class DartCompiler {
         !universalObjectMembers.contains(fa.field_2)) {
       return _raw("${_emit(obj)}['${fa.field_2}']");
     }
+    // Parenthesize an operator receiver so `.field` binds to it, not the
+    // operand: `(-2.5).isNegative`, not `-2.5.isNegative` (= `-(2.5.isNegative)`).
+    final inner = _emit(obj);
+    if (_needsParensAsReceiver(fa.object, inner)) {
+      return _raw('($inner).${fa.field_2}');
+    }
     return obj.property(fa.field_2);
   }
 
@@ -4004,7 +4010,9 @@ class DartCompiler {
   String _propertyAccess(Map<String, Expression> f, String prop) {
     final v = f['value'];
     if (v == null) return '/* invalid .$prop */';
-    return _emit(_compileExpression(v).property(prop));
+    // Parenthesize an operator receiver: `(-3.14).isFinite`, not
+    // `-3.14.isFinite` (which parses as `-(3.14.isFinite)`).
+    return '${_recv(v)}.$prop';
   }
 
   String _staticCallExpr(Map<String, Expression> f, String method) {

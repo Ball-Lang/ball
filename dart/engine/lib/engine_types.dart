@@ -187,6 +187,10 @@ bool _metadataBool(Object? field) {
 /// Numeric predicates using operators the Ball→C++ compiler lowers directly
 /// (not BallDyn property dispatch like `.isNaN`, which recurses infinitely).
 bool _ballNumIsNaN(Object? v) {
+  // Double literals are wrapped in BallDouble (engine_eval); unwrap so the
+  // predicate sees a raw double instead of falling through to `return false`.
+  if (v is BallDouble) v = v.value;
+  if (v is BallInt) v = v.value;
   if (v is int) return false;
   if (v is double) {
     final d = v;
@@ -196,6 +200,8 @@ bool _ballNumIsNaN(Object? v) {
 }
 
 bool _ballNumIsFinite(Object? v) {
+  if (v is BallDouble) v = v.value;
+  if (v is BallInt) v = v.value;
   if (v is int) return true;
   if (v is double) {
     final d = v;
@@ -206,6 +212,8 @@ bool _ballNumIsFinite(Object? v) {
 }
 
 bool _ballNumIsInfinite(Object? v) {
+  if (v is BallDouble) v = v.value;
+  if (v is BallInt) v = v.value;
   if (v is int) return false;
   if (v is double) {
     final d = v;

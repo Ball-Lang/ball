@@ -2935,6 +2935,13 @@ class DartEncoder {
           ),
         );
       }
+      // isEven / isOdd → parity check (no std getter; compose modulo+equals).
+      if (member == 'isEven' || member == 'isOdd') {
+        return _parityCheck(
+          Expression()..reference = (Reference()..name = prefixName),
+          even: member == 'isEven',
+        );
+      }
 
       return Expression()
         ..fieldAccess = (FieldAccess()
@@ -2985,6 +2992,10 @@ class DartEncoder {
           'not',
           _buildUnaryStdCall('string_is_empty', targetExpr),
         );
+      }
+      // isEven / isOdd → parity check (no std getter; compose modulo+equals).
+      if ((field == 'isEven' || field == 'isOdd') && target != null) {
+        return _parityCheck(targetExpr, even: field == 'isEven');
       }
 
       return Expression()
@@ -4956,6 +4967,34 @@ class DartEncoder {
           () => _refExpr(tempName),
           buildInnerCall(() => _refExpr(tempName)),
         ));
+  }
+
+  /// `x.isEven` / `x.isOdd` have no std getter, and emitting a raw fieldAccess
+  /// crashes the engine (no `isEven` field on int) and breaks the TS/C++
+  /// compilers (no such property). Compose from ops every engine + compiler
+  /// already implements: `isEven` => `equals(modulo(x, 2), 0)`,
+  /// `isOdd` => `not_equals(modulo(x, 2), 0)`. (Dart `%` keeps the divisor's
+  /// sign, so this matches `isEven`/`isOdd` for negatives too.)
+  Expression _parityCheck(Expression target, {required bool even}) {
+    _usedBaseFunctions.addAll(['modulo', even ? 'equals' : 'not_equals']);
+    Expression intLit(int v) =>
+        Expression()..literal = (Literal()..intValue = Int64(v));
+    final mod = _buildStdCall('modulo', [
+      FieldValuePair()
+        ..name = 'left'
+        ..value = target,
+      FieldValuePair()
+        ..name = 'right'
+        ..value = intLit(2),
+    ]);
+    return _buildStdCall(even ? 'equals' : 'not_equals', [
+      FieldValuePair()
+        ..name = 'left'
+        ..value = mod,
+      FieldValuePair()
+        ..name = 'right'
+        ..value = intLit(0),
+    ]);
   }
 
   /// Build a base function call with named fields in the 'std' module.

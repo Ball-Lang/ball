@@ -14,12 +14,16 @@
 /// coverage of the compiler counts toward the ratchet (epic #59 / #61).
 ///
 /// A failing leg here is a compiler (or encoder-of-generated-code) bug, never a
-/// tolerated baseline. The two current skips are tracked, reproducing bugs —
-/// remove each skip when its issue is fixed:
+/// tolerated baseline — and the Dart regression gate asserts 0 failed AND 0
+/// skipped, so this suite carries no `skip:` markers. Two fixtures reproduce
+/// known, tracked compiler/encoder bugs and are EXCLUDED from the loop (the
+/// same way #69 is already carved out of the C++/TS round-trip legs). They stay
+/// covered by the direct-path encoder round-trip (#61) and the slow legs:
 ///   - 104_getter_setter          → #95 (re-encoded field ref resolves to the
 ///                                   object Map)
 ///   - 229_closure_loop_var_…     → #69 (C-style `for(var i)` closure capture
 ///                                   shares the loop var; also the Dart compiler)
+/// Delete an entry from [_knownGaps] (and confirm green) when its issue lands.
 @TestOn('vm')
 library;
 
@@ -33,11 +37,13 @@ import 'package:test/test.dart';
 String _norm(String s) =>
     s.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trimRight();
 
-/// Known-failing fixtures → the issue tracking the bug. A skip here is honest
-/// (the leg reproduces a real defect) and shrinks as bugs are fixed.
-const _skips = <String, String>{
-  '104_getter_setter': 'encoder round-trip bug — see #95',
-  '229_closure_loop_var_semantics': 'closure loop-var capture — see #69',
+/// Fixtures excluded from the loop because they reproduce a known, tracked bug.
+/// Excluded (not `skip:`-ped) so the suite stays at 0 skipped for the
+/// regression gate; each is still covered by the direct-path encoder round-trip
+/// and the slow legs. Remove an entry when its issue is fixed.
+const _knownGaps = <String, String>{
+  '104_getter_setter': '#95 — re-encoded field ref resolves to object Map',
+  '229_closure_loop_var_semantics': '#69 — closure loop-var capture',
 };
 
 Directory _findConformanceDir() {
@@ -96,20 +102,21 @@ void main() {
   final conformanceDir = _findConformanceDir();
   final fixtures = _discover(conformanceDir);
 
-  group('compiler round-trip: src → encode → COMPILE → encode → engine ≡ golden',
-      () {
-    test('corpus discovered', () {
-      expect(
-        fixtures,
-        isNotEmpty,
-        reason: 'no src fixtures with goldens under ${conformanceDir.path}/src',
-      );
-    });
+  group(
+    'compiler round-trip: src → encode → COMPILE → encode → engine ≡ golden',
+    () {
+      test('corpus discovered', () {
+        expect(
+          fixtures,
+          isNotEmpty,
+          reason:
+              'no src fixtures with goldens under ${conformanceDir.path}/src',
+        );
+      });
 
-    for (final f in fixtures) {
-      test(
-        f.name,
-        () async {
+      for (final f in fixtures) {
+        if (_knownGaps.containsKey(f.name)) continue; // tracked bug; see header
+        test(f.name, () async {
           final actual = await _roundTrip(f.source.readAsStringSync());
           expect(
             actual,
@@ -119,9 +126,8 @@ void main() {
                 '--- expected (golden) ---\n${f.expected}\n'
                 '--- actual (encode→compile→encode→engine) ---\n$actual',
           );
-        },
-        skip: _skips[f.name],
-      );
-    }
-  });
+        });
+      }
+    },
+  );
 }

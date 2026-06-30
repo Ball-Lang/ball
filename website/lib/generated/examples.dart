@@ -3,6 +3,7 @@
 
 /// Auto-generated YAML from hello_world.ball.json (std stripped)
 const helloWorldYaml = r'''
+@type: type.googleapis.com/ball.v1.Program
 name: hello_world
 modules:
   -
@@ -10,6 +11,7 @@ modules:
     functions:
       -
         name: main
+        outputType: void
         body:
           call:
             module: std
@@ -49,6 +51,7 @@ int main() {
 
 /// Auto-generated YAML from fibonacci.ball.json (std stripped)
 const fibonacciYaml = r'''
+@type: type.googleapis.com/ball.v1.Program
 name: fibonacci
 modules:
   -
@@ -161,6 +164,7 @@ modules:
               name: n
               type: int      -
         name: main
+        outputType: void
         body:
           block:
             statements:
@@ -318,7 +322,8 @@ metadata:
 
 /// Compiled Dart (header stripped)
 const fibonacciDart = r'''
-int fibonacci(int n) {
+int fibonacci(int input) {
+  int n = input;
   if ((n <= 1)) {
     return n;
   }

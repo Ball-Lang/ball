@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/Ball-Lang/ball/compare/v1.3.0...v1.3.1) (2026-06-30)
+
+
+### Bug Fixes
+
+* **ci,website:** repair [#137](https://github.com/Ball-Lang/ball/issues/137) regressions + restore the broken website deploy ([#144](https://github.com/Ball-Lang/ball/issues/144)) ([6dbec37](https://github.com/Ball-Lang/ball/commit/6dbec37d0f3bdb4c8be216d5b7baeccbf8d4c95e))
+
 # [1.3.0](https://github.com/Ball-Lang/ball/compare/v1.2.8...v1.3.0) (2026-06-21)
 
 

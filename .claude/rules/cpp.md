@@ -9,7 +9,7 @@ paths:
 
 - C++20 standard required (set in cpp/CMakeLists.txt:4)
 - CMake build system — root at `cpp/CMakeLists.txt`
-- 3 targets: `ball_shared`, `ball_cpp_compile` (compiler), `ball_cpp_encode` (encoder)
+- Primary targets: `ball_shared`, `ball_cpp_compile` (compiler), `ball_cpp_encode` (encoder) — plus library targets and test executables (see the `CMakeLists.txt` files)
 - Self-hosted engine: `dart/self_host/lib/engine_rt.cpp` (generated from Dart engine via Ball compiler)
 - Self-host conformance: `test_selfhost_conformance` target
 - Encoder requires nlohmann/json (FetchContent from GitHub if not installed)
@@ -69,7 +69,7 @@ buf generate --template cpp/buf.gen.cpp.yaml -o cpp/shared/gen proto/
 - Regenerate: `cd dart && dart run compiler/tool/compile_engine_cpp.dart --monolithic`
 - Conformance: `ctest -L selfhost` — one CTest test per fixture, each run in its own process (a crash/hang fails only that fixture). Run a single fixture directly: `test_selfhost_conformance <fixture_stem>` (the `BALL_TEST_FILTER=<stem>` env var also works)
 
-## Known Issues — MUST READ
+## Test Harness
 
 C++ tests live in `cpp/test/test_compiler.cpp`, `cpp/test/test_selfhost_conformance.cpp`, and `cpp/test/test_encoder.cpp` and use a custom `TEST(name)` macro framework (no gtest). Build + run via:
 

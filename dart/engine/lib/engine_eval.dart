@@ -1575,7 +1575,6 @@ extension BallEngineEval on BallEngine {
     return null;
   }
 
-  /// Get a string value from TypeDefinition metadata.
   /// Initialize fields with default values from the typeDef metadata.
   /// Only sets fields that are not already present in the instance.
   void _initFieldDefaults(String typeName, Map<String, Object?> fields) {

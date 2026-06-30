@@ -1,7 +1,8 @@
 /// Concatenates the split engine files into a single file for encoding.
 ///
-/// The encoder doesn't handle `part`/`extension` yet, so this script
-/// manually merges all engine parts back into one class body.
+/// The self-host encoding path expects the engine as a single file with one
+/// class body, so this script merges the `part`/`extension` split sources back
+/// into one `engine_full.dart` before encoding.
 ///
 ///   dart run dart/encoder/tool/concat_engine.dart
 library;
@@ -25,21 +26,9 @@ void main() {
 
   final buf = StringBuffer();
 
-  // 1. Main file: library, imports, exports. Remove part directives.
+  // 1. Main file: split into imports (before `class BallEngine`) and the class
+  //    body, dropping `part` directives.
   final mainLines = mainFile.split('\n');
-  var insertedTypes = false;
-  for (final line in mainLines) {
-    if (line.startsWith("part '")) continue;
-    buf.writeln(line);
-    // Insert types after the last import/export, before class BallEngine
-    if (!insertedTypes && line.startsWith('class BallEngine')) {
-      // Oops, we already wrote the class line. Let me use a different approach.
-    }
-  }
-  // This approach is fragile. Let me just rewrite properly.
-  buf.clear();
-
-  // Collect imports and class separately
   final imports = <String>[];
   final classLines = <String>[];
   var reachedClass = false;

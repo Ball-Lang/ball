@@ -40,6 +40,7 @@ ball compile my_app.ball.json --output out.dart     # Ball -> Dart
 | `ball add <spec>` | Add a dependency (`pub:pkg@^1.0.0`, `npm:@scope/pkg@1.0`, ...) |
 | `ball resolve` | Resolve declared deps into `ball.lock.json` |
 | `ball tree` | Print the dependency tree |
+| `ball publish` | Encode the current package's Dart source into `lib/module.ball.{json,bin}` for Ball consumers |
 | `ball version` | Print the CLI version |
 
 ## Options

@@ -58,6 +58,23 @@ class DocsPage extends StatelessComponent {
                 '. This proto file is the canonical source of truth for what a valid Ball program looks like.',
               ),
             ]),
+            p(classes: 'docs-text', [
+              Component.text('How to read this page: the '),
+              a(href: '#getting-started', [Component.text('Getting Started')]),
+              Component.text(
+                ' section is a hands-on how-to (install and run Ball). The '),
+              a(href: '#structure', [Component.text('Program Structure')]),
+              Component.text(', '),
+              a(href: '#expressions', [Component.text('Expression Tree')]),
+              Component.text(', and '),
+              a(href: '#stdlib', [Component.text('Standard Library')]),
+              Component.text(
+                ' sections are reference material. The '),
+              a(href: '#principles', [Component.text('Design Principles')]),
+              Component.text(
+                ' section explains the why behind the design. Each is self-contained — jump to the one that matches what you need.',
+              ),
+            ]),
           ],
         ),
 
@@ -123,12 +140,12 @@ class DocsPage extends StatelessComponent {
                   ' \u251C\u2500\u2500 name, version, entryModule, entryFunction\n'
                   ' \u2514\u2500\u2500 modules[]\n'
                   '      \u251C\u2500\u2500 name, description\n'
-                  '      \u251C\u2500\u2500 types[]           (google.protobuf.DescriptorProto)\n'
                   '      \u251C\u2500\u2500 typeDefs[]        (TypeDefinition)\n'
                   '      \u251C\u2500\u2500 typeAliases[]     (TypeAlias)\n'
                   '      \u251C\u2500\u2500 enums[]           (google.protobuf.EnumDescriptorProto)\n'
                   '      \u251C\u2500\u2500 moduleConstants[] (Constant)\n'
                   '      \u251C\u2500\u2500 functions[]       (FunctionDefinition)\n'
+                  '      \u251C\u2500\u2500 assets[]          (ModuleAsset)\n'
                   '      \u2514\u2500\u2500 moduleImports[]   (ModuleImport)',
             ),
           ],
@@ -307,17 +324,20 @@ class DocsPage extends StatelessComponent {
           [
             p(classes: 'docs-text', [
               Component.text(
-                'Ball achieves self-hosting: the Dart engine (3000+ LOC) is encoded to Ball IR, '
-                'then compiled to both TypeScript and C++. The compiled engines execute all 55 '
-                'conformance programs with byte-identical output to the reference Dart engine.',
+                'Ball achieves self-hosting: the Dart engine is encoded to Ball IR, '
+                'then compiled to both TypeScript and C++. The compiled engines execute the '
+                'full conformance corpus with byte-identical output to the reference Dart engine. '
+                'Exact pass tallies are tracked by CI \u2014 see the conformance matrix in ',
               ),
+              code([Component.text('.github/workflows/')]),
+              Component.text('.'),
             ]),
             _buildStdCategory('Dart \u2192 Ball \u2192 TypeScript',
-                '55/55 conformance, runs on Node.js'),
+                'Conformance corpus passes, runs on Node.js'),
             _buildStdCategory('Dart \u2192 Ball \u2192 C++',
-                '92/92 e2e tests, compiles via MSVC/GCC/Clang'),
+                'Conformance corpus passes, compiles via MSVC/GCC/Clang'),
             _buildStdCategory('Scale Validation',
-                '103/103 top pub.dev packages round-trip'),
+                'Round-trips real-world pub.dev packages'),
           ],
         ),
 
@@ -336,8 +356,9 @@ class DocsPage extends StatelessComponent {
                   '# In your code:\n'
                   'import { BallEngine } from "@ball-lang/engine";\n'
                   'const engine = new BallEngine(programJson);\n'
-                  'engine.run();\n'
-                  'console.log(engine.getOutput());',
+                  '// run() is async and resolves to the captured stdout lines\n'
+                  'const output = await engine.run();\n'
+                  'console.log(output.join("\\n"));',
             ),
             h4(classes: 'docs-h4', [Component.text('Dart')]),
             const CodeBlock(
@@ -346,16 +367,16 @@ class DocsPage extends StatelessComponent {
                   'git clone https://github.com/Ball-Lang/ball.git\n'
                   'cd ball\n'
                   '\n'
-                  '# Install Dart dependencies\n'
-                  'cd dart && dart pub get\n'
+                  '# Install Dart dependencies (pub workspace at the repo root)\n'
+                  'dart pub get\n'
                   '\n'
                   '# Run the engine tests\n'
-                  'cd engine && dart test\n'
+                  'cd dart/engine && dart test\n'
                   '\n'
-                  '# Compile an example to Dart\n'
-                  'cd ../compiler\n'
-                  'dart run bin/compile.dart \\\n'
-                  '  ../../examples/hello_world.ball.json',
+                  '# Compile an example to Dart with the unified CLI\n'
+                  'cd ../cli\n'
+                  'dart run bin/ball.dart compile \\\n'
+                  '  ../../examples/hello_world/hello_world.ball.json',
             ),
             h4(classes: 'docs-h4', [Component.text('C++')]),
             const CodeBlock(
@@ -364,8 +385,9 @@ class DocsPage extends StatelessComponent {
                   'cd cpp && mkdir -p build && cd build\n'
                   'cmake .. && cmake --build .\n'
                   '\n'
-                  '# Run conformance tests\n'
-                  './test/test_conformance',
+                  '# Run the self-host conformance suite (ctest, label "selfhost")\n'
+                  '# (already in cpp/build from the step above)\n'
+                  'ctest -L selfhost',
             ),
             p(classes: 'docs-text', [
               Component.text('The proto schema is published on Buf: '),
@@ -455,7 +477,7 @@ class DocsPage extends StatelessComponent {
         tbody([
           tr([
             td([code([Component.text('std')])]),
-            td([Component.text('~130')]),
+            td([Component.text('100+')]),
             td([
               Component.text(
                   'Arithmetic, comparison, logic, bitwise, string, math, control flow, type ops, cascade, spread, invoke'),
@@ -463,20 +485,42 @@ class DocsPage extends StatelessComponent {
           ]),
           tr([
             td([code([Component.text('std_collections')])]),
-            td([Component.text('~43')]),
-            td([Component.text('List and Map operations')]),
+            td([Component.text('50+')]),
+            td([Component.text('List, Map, and Set operations')]),
           ]),
           tr([
             td([code([Component.text('std_io')])]),
-            td([Component.text('~10')]),
+            td([Component.text('10+')]),
             td([Component.text('Console, process, time, random, environment')]),
           ]),
           tr([
             td([code([Component.text('std_memory')])]),
-            td([Component.text('~30')]),
+            td([Component.text('35+')]),
             td([Component.text('Linear memory (C/C++ interop)')]),
           ]),
-          // Note: dart_std has been eliminated — all functions now in std
+          tr([
+            td([code([Component.text('std_convert')])]),
+            td([Component.text('—')]),
+            td([Component.text('Encoding/decoding and value conversions')]),
+          ]),
+          tr([
+            td([code([Component.text('std_time')])]),
+            td([Component.text('—')]),
+            td([Component.text('Dates, durations, and clocks')]),
+          ]),
+          tr([
+            td([code([Component.text('std_fs')])]),
+            td([Component.text('—')]),
+            td([Component.text('Filesystem access')]),
+          ]),
+          tr([
+            td([code([Component.text('std_concurrency')])]),
+            td([Component.text('—')]),
+            td([Component.text('Futures, isolates, and async coordination')]),
+          ]),
+          // dart_std has been eliminated — all functions now route through
+          // universal std modules. Exact counts live in dart/shared/lib/std*.dart;
+          // refer to the source rather than hard-coding tallies here (they drift).
         ]),
       ]),
     ]);

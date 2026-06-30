@@ -117,7 +117,7 @@ extension BallEngineInvocation on BallEngine {
         scope.bind('self', self);
         final selfMap = _asMap(self);
         if (selfMap != null) {
-          // Bind direct fields. Use temporary debug to trace.
+          // Bind direct fields.
           for (final entry in selfMap.entries) {
             if (!entry.key.startsWith('__')) {
               scope.bind(entry.key, entry.value);
@@ -575,7 +575,6 @@ extension BallEngineInvocation on BallEngine {
     return null;
   }
 
-  /// Parse super constructor args like "(name)" or "(name, age)".
   /// Look up a constructor by name, trying bare name, module-qualified, etc.
   ({String module, FunctionDefinition func})? _lookupConstructor(String name) {
     // Direct lookup.

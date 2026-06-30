@@ -11,7 +11,7 @@ marshal/unmarshal, well-known types, gRPC framing, and the complete protobuf
 Because it is authored in Ball-portable Dart, the *same* engine is compiled by
 the Ball toolchain to every target language — so editions-aware protobuf
 behaves identically on Dart, TypeScript, and C++ (see the
-[portability matrix](https://github.com/Ball-Lang/ball/blob/main/tests/editions/portability_matrix.md)).
+[portability matrix](https://github.com/ball-lang/ball/blob/main/tests/editions/portability_matrix.md)).
 
 ## Editions features honoured
 
@@ -31,10 +31,10 @@ behavioural change), so existing callers are unaffected.
 
 The codecs are validated against the **official protobuf
 `conformance_test_runner`** for the proto2, proto3, and edition2023
-`TestAllTypes` messages — **all 2769 registered tests pass** (Well-Known Types
+`TestAllTypes` messages — the full registered corpus passes (Well-Known Types
 incl. Any, oneof, message merge, unknown-field retention, and the full
-proto3-JSON ruleset). See the
-[conformance harness docs](https://github.com/Ball-Lang/ball/blob/main/dart/ball_protobuf/conformance/README.md)
+proto3-JSON ruleset), CI-gated on every change. See the
+[conformance harness docs](https://github.com/ball-lang/ball/blob/main/dart/ball_protobuf/conformance/README.md)
 for how to build the runner and run it locally; CI runs it on every change.
 
 ## Usage
@@ -55,9 +55,7 @@ final features = baseFeaturesForEdition(edition2023);
 
 ## Status
 
-Part of the [Ball language](https://github.com/Ball-Lang/ball) project; versioned
+Part of the [Ball language](https://github.com/ball-lang/ball) project; versioned
 in lockstep with the other Ball Dart packages. See the
-[Editions spec](https://github.com/Ball-Lang/ball/blob/main/docs/EDITIONS_SPEC.md)
-for the feature tables and the
-[Editions plan](https://github.com/Ball-Lang/ball/blob/main/docs/EDITIONS_PLAN.md)
-for design.
+[Editions spec](https://github.com/ball-lang/ball/blob/main/docs/EDITIONS_SPEC.md)
+for the feature tables and design.

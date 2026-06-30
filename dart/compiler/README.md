@@ -29,7 +29,7 @@ void main() {
 |---------|-------|
 | Whole-program compilation | Each Ball `Module` becomes a Dart library |
 | Base-function dispatch | `std.add` -> `a + b`, `std.if` -> Dart `if`, ... |
-| Type emission | Reads `typeDefs[]` (preferred) or legacy `types[]` |
+| Type emission | Reads `typeDefs[]` (the single type-declaration path) |
 | Lazy control flow | `if`, `for`, `while`, `try`, `switch` emitted as real Dart statements |
 | Import resolution | `DartCompiler.resolveImports(program, resolver)` inlines imports before compile |
 | Raw output mode | `DartCompiler(program, noFormat: true)` skips `dart_style` |

@@ -31,12 +31,11 @@ foreach ($tool in @($encoder, $compiler, $clang)) {
 
 # Create output directories
 $astDir      = "$OutputDir\ast"
-$ballJsonDir = "$OutputDir\ball"
 $ballBinDir  = "$OutputDir\ball_bin"
 $cppDir      = "$OutputDir\cpp_compiled"
 $errDir      = "$OutputDir\errors"
 
-foreach ($d in @($astDir, $ballJsonDir, $ballBinDir, $cppDir, $errDir)) {
+foreach ($d in @($astDir, $ballBinDir, $cppDir, $errDir)) {
     New-Item -ItemType Directory -Force -Path $d | Out-Null
 }
 
@@ -122,7 +121,6 @@ for ($i = 0; $i -lt $cFiles.Count; $i++) {
     $rel = $f.FullName.Substring($FfmpegDir.Length + 1) -replace "[/\\]","_" -replace "\.c$",""
     
     $astFile      = "$astDir\${rel}.ast.json"
-    $ballJsonFile = "$ballJsonDir\${rel}.ball.json"
     $ballBinFile  = "$ballBinDir\${rel}.ball.pb"
     $cppFile      = "$cppDir\${rel}.cpp"
 
@@ -173,16 +171,6 @@ for ($i = 0; $i -lt $cFiles.Count; $i++) {
             continue
         }
     }
-
-    # Also produce JSON for Dart (skip during main pipeline — run separately)
-    # if (-not (Test-Path $ballJsonFile) -or (Get-Item $ballJsonFile).Length -lt 100) {
-    #     $proc2 = Start-Process -FilePath $encoder -ArgumentList @(
-    #         $astFile, $ballJsonFile, "--normalize"
-    #     ) -NoNewWindow -Wait -PassThru `
-    #       -RedirectStandardOutput "NUL" `
-    #       -RedirectStandardError "$errDir\encode_json_${rel}.txt"
-    #     # JSON failures are acceptable — binary is the primary path
-    # }
     $encOk++
 
     # --- Stage 3: Compile Ball (binary) to C++ ---

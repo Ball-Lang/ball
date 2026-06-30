@@ -34,10 +34,6 @@ import 'field_int.dart';
 import 'field_fixed.dart';
 import 'field_len.dart';
 
-/// Find a field descriptor by field number.
-///
-/// Scans [descriptor] for an entry whose `'number'` matches [fieldNumber].
-/// Returns `null` if no matching descriptor is found (unknown field).
 /// Reserved message-map key under which a decoded message stores the raw bytes
 /// (tag + value, in wire order) of fields not in its descriptor, so `marshal`
 /// can re-emit them. The `$` prefix cannot collide with a real proto field
@@ -45,6 +41,10 @@ import 'field_len.dart';
 /// `marshal`.
 const String unknownFieldsKey = r'$unknown';
 
+/// Find a field descriptor by field number.
+///
+/// Scans [descriptor] for an entry whose `'number'` matches [fieldNumber].
+/// Returns `null` if no matching descriptor is found (unknown field).
 Map<String, Object?>? findFieldByNumber(
   List<Map<String, Object?>> descriptor,
   int fieldNumber,
@@ -161,10 +161,7 @@ Map<String, Object?> unmarshalFieldValue(
       }
       final result = decodeFixed64(bytes, offset);
       final int rawValue = result['value']!;
-      if (fieldType == 'sfixed64') {
-        // sfixed64 uses two's-complement, same bit pattern as fixed64.
-        return {'value': rawValue, 'bytesRead': 8};
-      }
+      // sfixed64 needs no conversion — same bit pattern as fixed64.
       return {'value': rawValue, 'bytesRead': 8};
 
     case 2:

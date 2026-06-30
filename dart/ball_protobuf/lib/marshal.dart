@@ -342,10 +342,12 @@ List<int> marshalField(
       encodeSfixed64Field(buffer, fieldNumber, v);
     case 'TYPE_FLOAT':
       final v = _toDouble(value);
+      // `identical` (not `==`) so -0.0 is preserved; see encodeFloatField.
       if (!repeated && identical(v, 0.0)) return buffer;
       encodeFloatField(buffer, fieldNumber, v);
     case 'TYPE_DOUBLE':
       final v = _toDouble(value);
+      // `identical` (not `==`) so -0.0 is preserved; see encodeDoubleField.
       if (!repeated && identical(v, 0.0)) return buffer;
       encodeDoubleField(buffer, fieldNumber, v);
     case 'TYPE_STRING':

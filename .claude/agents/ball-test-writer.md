@@ -16,8 +16,8 @@ Tests live in `dart/engine/test/engine_test.dart`. Run with `cd dart/engine && d
 // Load a .ball.json example file
 Program loadProgram(String path);
 
-// Execute a program, capture stdout lines
-List<String> runAndCapture(Program program);
+// Execute a program, capture stdout lines (async — returns a Future)
+Future<List<String>> runAndCapture(Program program);
 
 // Build a minimal test program
 Program buildProgram({
@@ -30,7 +30,7 @@ Program buildProgram({
 ### Test Pattern
 
 ```dart
-test('description', () {
+test('description', () async {
   final program = buildProgram(
     name: 'test',
     functions: [
@@ -51,7 +51,7 @@ test('description', () {
         ),
     ],
   );
-  final output = runAndCapture(program);
+  final output = await runAndCapture(program);
   expect(output, ['Hello']);
 });
 ```

@@ -1,5 +1,5 @@
 /// Verifies the generated `ball_protobuf` artifact is a well-formed, self-
-/// contained facade [Module] (EDITIONS_PLAN.md §2.1) carrying the editions
+/// contained facade [Module] (see docs/EDITIONS_SPEC.md) carrying the editions
 /// engine — the structural prerequisite for the cross-target portability proof.
 ///
 /// This guards the shape produced by `dart/encoder/bin/gen_ball_protobuf.dart`:

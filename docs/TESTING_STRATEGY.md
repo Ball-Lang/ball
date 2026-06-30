@@ -56,8 +56,9 @@ executed conformance fixture, or be a documented carve-out in
 direction that was missing for #55. `check_conformance_sources.dart` enforces
 the reverse (every `.ball.json` has a source).
 
-> Coverage measured by *function-name presence* (the old 67% number in
-> `docs/CONFORMANCE_GAPS.md`) is **not** completeness: it counted
+> Coverage measured by *function-name presence* (the old 67% number tracked in
+> [issue #134](https://github.com/Ball-Lang/ball/issues/134)) is **not**
+> completeness: it counted
 > `collection_for` as "covered" the moment any program referenced it, blind to
 > the broken C-style variant and to wrong *values*. The gate measures
 > **executed** emission instead.
@@ -130,13 +131,16 @@ number lies.** The Dart tool `tools/coverage_dart.dart`:
   `engine_roundtrip.dart`, `compiled_engine.ts`, `engine_rt.cpp`) and pure
   barrel/`export` directives (no instrumentable lines).
 
-**The bar is 100%; the honest full-repo baseline is ~51.7%** (all 9 Dart
-packages, all authored files). Per-package highlights: `engine` 65%, `compiler`
-43%, `encoder` 37%, `shared` 39%, `ball_protobuf_gen` 89%, and `cli` 0% (an
-entry-point package whose only code is `bin/ball.dart`, integration-tested via a
-subprocess that line coverage can't see). Reaching 100% is a deliberate, multi-PR
-climb; the floor in `coverage.yml` locks in non-regression and must be raised
-toward 100% one PR at a time. **Line coverage is the *secondary* metric** — the
+**The bar is 100%; honest product coverage is now ~93.1%** (all 9 Dart
+packages' `lib/`; `bin/` entry-point tooling excluded — see `coverage_dart.dart`).
+Dedicated suites drove the workspace from ~64% to ~93%. Per-package (see the
+authoritative comment in `.github/workflows/coverage.yml`): `compiler` 99.8%,
+`ball_protobuf_gen` 98.5%, `ball_protobuf` 98%, `resolver` 96%, `shared` 95%,
+`encoder` 93%, `ball_rpc` 93%, `cli` 93%, `engine` 84% (the remaining engine gap
+is cross-engine-only code exercised by the conformance matrix, not the Dart
+engine's own suite). The floor in `coverage.yml` is currently **91** and locks in
+non-regression; raise it toward 100% one PR at a time. **Line coverage is the
+*secondary* metric** — the
 primary behavioral guarantee against the #55 class is the construct-completeness
 gate (§2). TS (`c8 --all`) and C++ (`gcov`/`lcov --initial`) are measured the
 same way (all packages, never-executed files at 0%); their **behavioral**

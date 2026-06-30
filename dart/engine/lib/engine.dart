@@ -4,7 +4,7 @@
 /// without generating any intermediate source code.
 ///
 /// Fully compliant with the ball.v1 proto schema.
-/// Supports all 73 std base functions.
+/// Supports the universal std library base functions.
 library;
 
 import 'ball_value.dart';

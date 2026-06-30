@@ -206,7 +206,6 @@ void _validate(List<String> args, StringSink out, StringSink err) {
   final program = _loadProgram(args[0], err);
   final errors = <String>[];
 
-  // Check entry point
   if (program.entryModule.isEmpty) {
     errors.add('Missing entry_module');
   }
@@ -214,7 +213,6 @@ void _validate(List<String> args, StringSink out, StringSink err) {
     errors.add('Missing entry_function');
   }
 
-  // Check that entry function exists
   if (program.entryModule.isNotEmpty && program.entryFunction.isNotEmpty) {
     final entryMod = program.modules
         .where((m) => m.name == program.entryModule)
@@ -234,7 +232,6 @@ void _validate(List<String> args, StringSink out, StringSink err) {
     }
   }
 
-  // Check modules have names
   for (var i = 0; i < program.modules.length; i++) {
     final m = program.modules[i];
     if (m.name.isEmpty) {
@@ -242,7 +239,6 @@ void _validate(List<String> args, StringSink out, StringSink err) {
     }
   }
 
-  // Check for duplicate module names
   final moduleNames = <String>{};
   for (final m in program.modules) {
     if (m.name.isNotEmpty && !moduleNames.add(m.name)) {
@@ -250,8 +246,7 @@ void _validate(List<String> args, StringSink out, StringSink err) {
     }
   }
 
-  // Check functions reference known modules in calls
-  // (lightweight — just checks non-base functions have bodies)
+  // Check non-base functions have a body or metadata.
   for (final m in program.modules) {
     for (final f in m.functions) {
       if (!f.isBase && !f.hasBody() && !f.hasMetadata()) {

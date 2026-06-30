@@ -33,7 +33,7 @@ Programs are **structured data**, not text. A Ball program is a protobuf message
 | **Programs are data** | Protobuf schema enforces structural validity. If it deserializes, it is syntactically valid. No parser, no syntax errors. |
 | **Provably complete security auditing** | `ball audit` statically reports every side effect. No `eval`, no FFI, no hidden capabilities — every I/O operation flows through a named base function. |
 | **Multi-language compilation** | Compile Ball to Dart, C++, and more. Encode Dart source back to Ball. Round-trip real-world code. |
-| **Self-hosted toolchain** | The Dart reference interpreter (3000 LOC) is itself encoded as Ball, then compiled back to Dart with byte-identical conformance output. A TS-native compiler ([@ball-lang/compiler](https://www.npmjs.com/package/@ball-lang/compiler)) uses ts-morph in-process — 37/37 Dart fixtures round-trip to TS and execute byte-identical on Node, and the full engine.dart parses cleanly. The C++ compiler runs 41/41 fixture programs end-to-end. |
+| **Self-hosted toolchain** | The Dart reference interpreter is itself encoded as Ball, then compiled back to Dart with byte-identical conformance output. A TS-native compiler ([@ball-lang/compiler](https://www.npmjs.com/package/@ball-lang/compiler)) uses ts-morph in-process — Dart fixtures round-trip to TS and execute byte-identical on Node, and the full engine.dart parses cleanly. The C++ compiler runs the conformance corpus end-to-end. Exact pass counts are CI-gated, never hand-maintained — see [the conformance matrix](.github/workflows/conformance-matrix.yml). |
 | **Three runtime engines** | Dart (true async), C++ (native), TypeScript (runs in the browser). |
 | **Package management** | Import modules from pub, npm, and more registries with `ball add pub:package@^1.0.0`. |
 | **Web playground** | Try Ball in your browser at [ball-lang.dev/playground](https://ball-lang.dev/playground). |
@@ -57,7 +57,8 @@ await engine.run(program);
 ### Or use the Dart CLI
 
 ```bash
-cd dart && dart pub get
+# The Dart pub-workspace + Melos root is the repo root; resolve from there.
+dart pub get
 
 # Run a program
 dart run ball_cli:ball run examples/hello_world/hello_world.ball.json
@@ -78,20 +79,27 @@ dart run ball_cli:ball audit examples/hello_world/hello_world.ball.json
 
 ```json
 {
+  "@type": "type.googleapis.com/ball.v1.Program",
   "name": "hello_world",
-  "entryModule": "main",
-  "entryFunction": "main",
+  "version": "1.0.0",
   "modules": [
     {
       "name": "std",
-      "types": [{ "name": "PrintInput", "field": [{ "name": "message", "number": 1, "type": "TYPE_STRING" }] }],
-      "functions": [{ "name": "print", "inputType": "PrintInput", "isBase": true }]
+      "functions": [{ "name": "print", "isBase": true }],
+      "typeDefs": [{
+        "name": "PrintInput",
+        "descriptor": {
+          "name": "PrintInput",
+          "field": [{ "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" }]
+        }
+      }]
     },
     {
       "name": "main",
-      "imports": ["std"],
+      "moduleImports": [{ "name": "std" }],
       "functions": [{
         "name": "main",
+        "outputType": "void",
         "body": {
           "call": {
             "module": "std", "function": "print",
@@ -102,7 +110,9 @@ dart run ball_cli:ball audit examples/hello_world/hello_world.ball.json
         }
       }]
     }
-  ]
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
 }
 ```
 
@@ -144,10 +154,14 @@ Every Ball computation is exactly one of these nodes:
 
 Every function takes **one input message** and returns **one output message** (gRPC-style). Base functions have no body — their implementation is provided per-platform:
 
-- **`std`** — 118 functions: arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops, cascade, null-aware access, spread, invoke, record
-- **`std_collections`** — ~53 functions: list/map/set operations
-- **`std_io`** — ~10 functions: console, process, time, random
-- **`std_memory`** — ~38 functions: linear memory for C/C++ interop
+- **`std`** — arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops, cascade, null-aware access, spread, invoke, record (see `dart/shared/std.json` for the canonical base-function inventory)
+- **`std_collections`** — list/map/set operations
+- **`std_io`** — console, process, time, random
+- **`std_memory`** — linear memory for C/C++ interop
+- **`std_convert`** — JSON / UTF-8 / base64 encode-decode
+- **`std_fs`** — file and directory operations
+- **`std_time`** — clock, timestamp formatting/parsing, duration arithmetic
+- **`std_concurrency`** — threads, mutexes, and atomics
 
 Control flow (`if`, `for`, `while`, `for_each`) is implemented as base function calls with lazy evaluation — keeping the language completely uniform.
 
@@ -179,12 +193,14 @@ The single source of truth is [`proto/ball/v1/ball.proto`](proto/ball/v1/ball.pr
 | Language | Proto Bindings | Compiler | Encoder | Engine |
 |---|---|---|---|---|
 | **Dart** | Yes | Full | Full | Full (true async) |
-| **C++** | Yes | Prototype | Prototype | Prototype |
-| **TypeScript** | Yes | -- | -- | Full (browser + Node) |
+| **TypeScript** | Yes | Full | Full | Full (self-hosted, browser + Node) |
+| **C++** | Yes | Full | Full | Full (self-hosted) |
 | **Go** | Yes | -- | -- | -- |
 | **Python** | Yes | -- | -- | -- |
 | **Java** | Yes | -- | -- | -- |
 | **C#** | Yes | -- | -- | -- |
+
+Statuses drift — the authoritative source is CI (`.github/workflows/ci.yml`, `conformance-matrix.yml`), not this table. The TS pipeline is a full CI-gated compiler + self-hosted engine + encoder (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`). C++ has a compiler, encoder (Clang AST → Ball), and self-hosted engine that passes every conformance fixture.
 
 ```mermaid
 flowchart LR
@@ -223,8 +239,8 @@ The [`ball-audit` GitHub Action](.github/actions/ball-audit/action.yml) runs aut
 ### Build Commands
 
 ```bash
-# Dart
-cd dart && dart pub get
+# Dart (the pub-workspace + Melos root is the repo root)
+dart pub get
 cd dart/engine && dart test
 cd dart/encoder && dart test
 
@@ -246,7 +262,7 @@ buf lint && buf generate
 4. Add tests alongside changes
 5. If C++ is in scope, mirror changes in `cpp/`
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for planned work and [docs/STD_COMPLETENESS.md](docs/STD_COMPLETENESS.md) for standard library coverage.
+See the [issues board](https://github.com/Ball-Lang/ball/issues) for planned work and [issue #135](https://github.com/Ball-Lang/ball/issues/135) (std coverage inventory; `dart/shared/std.json` is the canonical source of truth) for standard library coverage.
 
 ## Project Structure
 
@@ -260,8 +276,8 @@ ball/
 │   ├── engine/                     # Interpreter (true async)
 │   ├── resolver/                   # Package manager (pub/npm adapters)
 │   └── cli/                        # ball CLI
-├── cpp/                            # C++ implementation (prototype)
-├── ts/engine/                      # TypeScript engine (browser + Node)
+├── cpp/                            # C++ implementation (compiler + encoder + self-hosted engine)
+├── ts/                             # TypeScript implementation (compiler + encoder + self-hosted engine, browser + Node)
 ├── go/, python/, java/, csharp/    # Proto bindings
 ├── examples/                       # Example Ball programs
 ├── tests/conformance/              # Cross-implementation conformance tests

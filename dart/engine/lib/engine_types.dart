@@ -1,14 +1,16 @@
 part of 'engine.dart';
 
-/// without holding a direct [BallEngine] reference.
+/// A callable that lets handlers invoke other Ball functions without holding a
+/// direct [BallEngine] reference.
 typedef BallCallable =
     FutureOr<Object?> Function(String module, String function, Object? input);
 
 /// Sentinel for break/continue/return flow control.
 class _FlowSignal extends BallValue {
-  final String kind; // 'break', 'continue', 'return'
+  // e.g. 'break', 'continue', 'return', 'yield', 'yield_each', 'goto'
+  final String kind;
   final String? label;
-  final Object? value; // only for 'return'
+  final Object? value; // carries the payload for 'return'/'yield'/'yield_each'
   _FlowSignal(this.kind, {this.label, this.value});
 }
 
@@ -429,7 +431,7 @@ abstract class BallModuleHandler {
 
 /// The built-in `std` module handler.
 ///
-/// Provides all 73+ standard ball functions. Can be customised before
+/// Provides the universal std library functions. Can be customised before
 /// passing to [BallEngine]:
 ///
 /// ```dart
@@ -568,7 +570,6 @@ class StdModuleHandler extends BallModuleHandler {
 /// returned null.
 const Object _sentinel = Object();
 
-/// Executes ball programs directly at runtime.
 /// Built-in type names that should not be resolved as class references.
 const _builtinTypeNames = {
   'int',

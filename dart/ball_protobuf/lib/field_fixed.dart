@@ -132,12 +132,15 @@ List<int> _encodeDoubleBytes(double value) {
 
 /// Encodes a `float` field (wire type 5) into [buffer].
 ///
-/// Proto3 rule: if [value] is 0.0, nothing is written.
+/// Proto3 rule: if [value] is `+0.0`, nothing is written. Note `-0.0` IS
+/// written — it is a distinct wire value from `+0.0` and must round-trip.
 /// The IEEE 754 single-precision [value] is serialized as a field tag followed
 /// by 4 little-endian bytes.
 ///
 /// Returns the same [buffer] list, possibly with bytes appended.
 List<int> encodeFloatField(List<int> buffer, int fieldNumber, double value) {
+  // Use `identical` (not `==`) so -0.0 is preserved: identical(-0.0, 0.0) is
+  // false, so negative zero falls through and is serialized.
   if (identical(value, 0.0)) return buffer;
   encodeTag(buffer, fieldNumber, 5);
   buffer.addAll(_encodeFloatBytes(value));
@@ -146,12 +149,15 @@ List<int> encodeFloatField(List<int> buffer, int fieldNumber, double value) {
 
 /// Encodes a `double` field (wire type 1) into [buffer].
 ///
-/// Proto3 rule: if [value] is 0.0, nothing is written.
+/// Proto3 rule: if [value] is `+0.0`, nothing is written. Note `-0.0` IS
+/// written — it is a distinct wire value from `+0.0` and must round-trip.
 /// The IEEE 754 double-precision [value] is serialized as a field tag followed
 /// by 8 little-endian bytes.
 ///
 /// Returns the same [buffer] list, possibly with bytes appended.
 List<int> encodeDoubleField(List<int> buffer, int fieldNumber, double value) {
+  // Use `identical` (not `==`) so -0.0 is preserved: identical(-0.0, 0.0) is
+  // false, so negative zero falls through and is serialized.
   if (identical(value, 0.0)) return buffer;
   encodeTag(buffer, fieldNumber, 1);
   buffer.addAll(_encodeDoubleBytes(value));

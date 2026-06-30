@@ -146,8 +146,6 @@ Future<void> main(List<String> args) async {
       //    Some programs have patterns (chained assignments, etc.) that compile
       //    to type-unsafe Dart but work fine in the engine's dynamic dispatch.
       stdout.write('  Compiling re-encoded Ball → Dart + run... ');
-      // ignore: unused_local_variable
-      var compileRunOk = false;
       final recompiler = DartCompiler(reencoded);
       final recompiledDart = recompiler.compile();
       final tmpFile = File(
@@ -172,7 +170,6 @@ Future<void> main(List<String> args) async {
           );
         } else {
           stdout.writeln('OK');
-          compileRunOk = true;
         }
       } finally {
         if (tmpFile.existsSync()) tmpFile.deleteSync();

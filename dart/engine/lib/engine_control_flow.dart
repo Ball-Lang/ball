@@ -1409,8 +1409,6 @@ extension BallEngineControlFlow on BallEngine {
     return result;
   }
 
-  /// `dart_await_for` — in a single-threaded engine this is just `for_in`
-  /// over a list (streams aren't real).
   /// Lazy cascade evaluation: evaluate `target`, bind it as `__cascade_self__`
   /// in scope, then evaluate `sections` (list of calls on the target), and
   /// return the target. For `null_aware_cascade`, return null if target is null.
@@ -1444,6 +1442,8 @@ extension BallEngineControlFlow on BallEngine {
     return target;
   }
 
+  /// `dart_await_for` — in a single-threaded engine this is just `for_in`
+  /// over a list (streams aren't real).
   Future<Object?> _evalAwaitFor(FunctionCall call, _Scope scope) {
     // Reuse for_in logic.
     return _evalLazyForIn(call, scope);

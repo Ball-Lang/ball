@@ -30,8 +30,8 @@ types) and `ball_protobuf` (the runtime + editions resolver), so — unlike the
 > map / nested / WKT / Any, plus extensions + registries and gRPC + Connect
 > service stubs, all round-tripping through the `ball_protobuf` runtime. C++/TS
 > *library* targets remain roadmap — see `docs/PROTOBUF_CODEGEN_PLAN.md`,
-> "Multi-target status & roadmap". `dart test` from this package dir runs 63
-> tests.
+> "Multi-target status & roadmap". Run the full suite with `dart test` from
+> this package dir (CI-gated).
 
 ## Generated model shape
 

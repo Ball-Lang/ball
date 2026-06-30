@@ -38,11 +38,11 @@ class EncoderError implements Exception {
       'EncoderError: $message${source != null ? ' at $source' : ''}';
 }
 
-/// All base functions route to the universal `std` module.
-/// Language-specific base modules have been eliminated — encoders emit only
-/// universal modules (`std`, `std_collections`, `std_io`, `std_memory`).
-/// Functions like cascade, null_aware_access, spread, invoke, and record
-/// are part of the `std` dispatch table.
+// All base functions route to the universal `std` module.
+// Language-specific base modules have been eliminated — encoders emit only
+// universal modules (`std`, `std_collections`, `std_io`, `std_memory`).
+// Functions like cascade, null_aware_access, spread, invoke, and record
+// are part of the `std` dispatch table.
 
 /// Encodes Dart source code into a ball [Program].
 class DartEncoder {

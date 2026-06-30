@@ -46,12 +46,12 @@ Before starting, verify:
 > wire + JSON + gRPC runtime for free. There are two distinct layers — do not conflate them:
 >
 > 1. **`ball_protobuf`** — the FULL runtime (binary wire format, proto3 JSON, well-known types,
->    editions defaults, gRPC framing). Source `dart/shared/lib/protobuf/*.dart`; encoded into a Ball
+>    editions defaults, gRPC framing). Source `dart/ball_protobuf/lib/*.dart`; encoded into a Ball
 >    program at `dart/shared/ball_protobuf.json` / `.bin` by `dart/encoder/bin/gen_ball_protobuf.dart`.
 >    Descriptor-driven: messages are plain maps and a field-descriptor list drives `marshal()`
 >    (map→bytes) and `unmarshal()` (bytes→map), with a parallel proto3-JSON codec.
 > 2. **`ball_proto`** — the deterministic ACCESS-PATTERN compat module the self-hosted engine relies
->    on (~101 base functions, no bodies): oneof discriminators (`whichExpr`…), presence checks
+>    on (46 base functions, no bodies — count is `len(functions)` in `dart/shared/ball_proto.json`): oneof discriminators (`whichExpr`…), presence checks
 >    (`hasBody`…), Struct access (`getStructField`…), proto3 defaults (`ensureDefaults`…). Source
 >    `dart/shared/lib/ball_proto.dart`; generated to `dart/shared/ball_proto.json` / `.bin` by
 >    `dart/shared/bin/gen_ball_proto.dart`.
@@ -112,9 +112,12 @@ descriptor glue. You keep binary + JSON serialization.
 **(c) Language has NO protobuf support at all.** This is exactly what Ball is built for — do NOT fall
 back to lossy JSON-only parsing. Compile Ball's own protobuf runtime to your target and use it:
 
-1. The committed Ball program is `dart/shared/ball_protobuf.json` / `.bin` (15 modules: base
-   `std`/`std_collections` + 12 `ball_protobuf.*` runtime modules; entry module
-   `ball_protobuf.marshal`). Regenerate from `dart/` with
+1. The committed artifact `dart/shared/ball_protobuf.json` / `.bin` is a **facade**
+   `ball.v1.Module` (not a `Program`) whose `module_imports[]` inline the `ball_protobuf.*`
+   runtime modules (`edition`, `wire_*`, `field_*`, `marshal`, `unmarshal`, `json_codec`,
+   `well_known`, `editions`, `grpc_frame`, …). It has **no entry point** and does **not**
+   bundle `std`/`std_collections` — those are pulled in by whatever program consumes it.
+   Regenerate from `dart/` with
    `cd dart/encoder && dart run bin/gen_ball_protobuf.dart [out_dir]`.
 2. Compile it to your language with your Phase-2 compiler:
    `<lang>/compiler/compile dart/shared/ball_protobuf.json -o <lang>/shared/ball_protobuf.<ext>`
@@ -171,8 +174,8 @@ In `<lang>/shared/`, create helper utilities that compiler, encoder, and engine 
 
    | Artifact (committed) | Source | Regenerate with | Purpose |
    |----------------------|--------|-----------------|---------|
-   | `dart/shared/ball_protobuf.json` / `.bin` | `dart/shared/lib/protobuf/*.dart` | `melos run regen-protobuf` | Full protobuf runtime as a Ball program. Compile to your language ONLY if it lacks native protobuf (1.2 branch (c)). |
-   | `dart/shared/ball_proto.json` / `.bin` | `dart/shared/lib/ball_proto.dart` | `cd dart/shared && dart run bin/gen_ball_proto.dart` | The `ball_proto` access-pattern module (oneof discriminators, presence checks, Struct access, proto3 defaults). ALWAYS needed to run the self-hosted engine; implement its ~101 base functions per-platform in Phase 4. |
+   | `dart/shared/ball_protobuf.json` / `.bin` | `dart/ball_protobuf/lib/*.dart` | `melos run regen-protobuf` | Full protobuf runtime as a facade Ball `Module` (no entry point; `std` not bundled). Compile to your language ONLY if it lacks native protobuf (1.2 branch (c)). |
+   | `dart/shared/ball_proto.json` / `.bin` | `dart/shared/lib/ball_proto.dart` | `cd dart/shared && dart run bin/gen_ball_proto.dart` | The `ball_proto` access-pattern module (oneof discriminators, presence checks, Struct access, proto3 defaults). ALWAYS needed to run the self-hosted engine; implement its 46 base functions (see `dart/shared/ball_proto.json`) per-platform in Phase 4. |
 
    The `ball_proto` base functions have `isBase: true` and no body — you supply native
    implementations. In Dart they map onto the protobuf-generated methods (`obj.whichExpr()`,
@@ -757,7 +760,7 @@ Before declaring a new language "complete", verify:
 | Compiler | `dart/compiler/lib/compiler.dart` | `ts/compiler/src/compiler.ts` | `cpp/compiler/src/compiler.cpp` |
 | Encoder | `dart/encoder/lib/encoder.dart` | `ts/encoder/src/encoder.ts` | `cpp/encoder/src/encoder.cpp` |
 | Engine | `dart/engine/lib/engine.dart` | `ts/engine/src/index.ts` | `dart/self_host/lib/engine_rt.cpp` |
-| Std module | `dart/shared/lib/std.dart` | (generated from Dart) | `cpp/shared/include/build_std_module.h` |
+| Std module | `dart/shared/lib/std.dart` | (generated from Dart) | `cpp/shared/include/ball_shared.h` (declares `build_std_module()`) |
 | CLI | `dart/cli/` | `ts/cli/` | N/A |
 | Tests | `dart/engine/test/` | `ts/engine/test/` | `cpp/test/` |
 | Self-host | `dart/self_host/engine.ball.json` | `ts/engine/src/compiled_engine.ts` | `dart/self_host/lib/engine_rt.cpp` |

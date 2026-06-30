@@ -1,4 +1,4 @@
-# Async Engine Architecture: Limitations and Migration Path
+# Async Engine Architecture: Limitations and Design Options
 
 ## Current State
 
@@ -99,30 +99,8 @@ Use `dart:async` `Completer` for explicit async points. The engine stays synchro
 **Pros:** Minimal engine changes. Base function authors handle async.
 **Cons:** Only works for base function calls, not for user-defined async functions.
 
-## Recommended Migration Path
+---
 
-### Phase 1: Identify async boundaries (no code changes)
-Add a capability category `async` to the capability analyzer. Flag functions that use `await`, `async`, `Stream`, `Future`. This tells users upfront which parts of their code won't work.
-
-### Phase 2: Async base functions (Option D)
-Make specific base functions async-aware:
-- `std_io.sleep_ms` → actually delay
-- Future `std_net.http_get` → real HTTP client
-- `std_fs.file_read_async` → non-blocking file I/O
-
-The engine's `_callBaseFunction` checks if the result is a `Future` and awaits it inline.
-
-### Phase 3: User-defined async (Option C)
-Implement the selective async approach for user-defined `async` functions. This is the hard part — requires coroutine-like save/restore of the evaluation context.
-
-### Phase 4: Stream support
-Add `std.yield_each` / `std.async_for` as base functions that produce/consume streams. This is the final piece for full Dart async parity.
-
-## Timeline
-
-- Phase 1: ~1 day (add async capability to analyzer)
-- Phase 2: ~1 week (async base functions)
-- Phase 3: ~3-4 weeks (selective async engine)
-- Phase 4: ~2 weeks (stream support)
-
-Total: ~6 weeks for full async support, with Phase 2 providing pragmatic value immediately.
+These four options remain the design menu for moving the engine off synchronous
+async-simulation. Sequencing and effort estimates are tracked as GitHub issues,
+not pinned here.

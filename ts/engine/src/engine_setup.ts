@@ -1007,7 +1007,9 @@ export function createEngineSetup(mod: EngineModule) {
       return 0;
     });
   
-    // Override map_keys/map_values/map_entries — compiled version uses .entries getter which may not work
+    // Override map_keys/map_values/map_entries — the compiled version reads via a
+    // `.entries` getter, which does not handle the proto3-JSON map shapes
+    // (`{map}`/`{value}`/bare object) these overrides normalize here.
     _r('map_keys', (i: any) => { const m = _m(i); const map = m['map'] ?? m['value'] ?? i; if (typeof map !== 'object' || map === null) return []; return Object.keys(map).filter((k: string) => !k.startsWith('__')); });
     _r('map_values', (i: any) => { const m = _m(i); const map = m['map'] ?? m['value'] ?? i; if (typeof map !== 'object' || map === null) return []; return Object.entries(map).filter(([k]: any) => !k.startsWith('__')).map(([, v]: any) => v); });
     _r('map_entries', (i: any) => { const m = _m(i); const map = m['map'] ?? m['value'] ?? i; if (typeof map !== 'object' || map === null) return []; return Object.entries(map).filter(([k]: any) => !k.startsWith('__')).map(([k, v]: any) => ({key: k, value: v})); });
@@ -1393,9 +1395,10 @@ export function createEngineSetup(mod: EngineModule) {
     e._currentGenerator = null;
   
     // Patch _callFunction to:
-    // 1. Fix input binding bug: the compiled engine overwrites 'input' with the
-    //    raw input object at line 1036, overwriting the correct arg0 extraction
-    //    at line 987. We fix this by extracting arg0 before calling the original.
+    // 1. Fix input binding bug: inside _callFunction, the compiled engine first
+    //    binds 'input' to the correct extracted arg0 value, then re-binds 'input'
+    //    to the raw input object, overwriting it. We fix this by extracting arg0
+    //    before calling the original.
     // 2. Handle is_sync_star / is_async_star metadata (compiled engine only checks
     //    is_generator and is_async).
     // 3. Create BallGenerator scope for yield to push values into.
@@ -1461,7 +1464,7 @@ export function createEngineSetup(mod: EngineModule) {
       let result = await origCallFunction(moduleName, func, fixedInput, parentScope);
   
       // Handle async function results.
-      // The compiled engine already wraps async results in BallFuture (line 1051-1053).
+      // The compiled engine's _callFunction already wraps async results in BallFuture.
       // We just need to ensure the result is properly unwrapped if it's a FlowSignal.
       if (isAsync) {
         // Unwrap FlowSignal if present

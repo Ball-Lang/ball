@@ -1,7 +1,7 @@
 /// Emit `dart/engine/lib/engine.dart` as C++ via the existing cpp
 /// compiler (cpp/build/compiler/Debug/ball_cpp_compile.exe).
 ///
-/// Mirrors compile_engine_ts.dart. Writes:
+/// Writes:
 ///   - dart/self_host/engine.ball.pb (binary-encoded program, since
 ///     JSON exceeds protobuf's 100-nesting default)
 ///   - dart/self_host/lib/engine_rt/ (multi-TU emitted C++, default)

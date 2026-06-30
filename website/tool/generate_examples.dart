@@ -96,7 +96,8 @@ String _ballJsonToYaml(String jsonContent) {
   }
   // Remove version field if present (noise)
   data.remove('version');
-  // Remove empty entryModule/entryFunction defaults
+  // Note: empty entryModule/entryFunction defaults are already absent — proto3
+  // JSON omits default-valued fields, so there is nothing to strip here.
   return _toYaml(data).trimRight();
 }
 

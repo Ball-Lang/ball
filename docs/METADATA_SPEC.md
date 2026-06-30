@@ -167,8 +167,9 @@ structured `FunctionCall.type_args` (repeated `TypeRef`) and
 `MessageCreation.metadata.type_args`. The encoder no longer produces the
 `__type_args__` field; compilers retain a legacy fallback for old programs.
 The runtime engine reads from the structured metadata. See `proto/ball/v1/ball.proto`
-for the `TypeRef` message and `FunctionCall.type_args` / `MessageCreation.type_args`
-fields.
+for the `TypeRef` message and the `FunctionCall.type_args` field; `MessageCreation`
+has no dedicated proto field — its generic arguments live under
+`MessageCreation.metadata` as a `type_args` key.
 
 ### Operator method names (`__op_*__`)
 

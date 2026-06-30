@@ -15,8 +15,6 @@ import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'compiler.dart';
 import 'package:ball_encoder/package_encoder.dart' show PackageEncoder;
 
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// Compiles a multi-module ball [Program] into a full Dart package, producing
 /// one `.dart` file per non-std module.
 ///

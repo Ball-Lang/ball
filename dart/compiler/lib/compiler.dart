@@ -3426,7 +3426,9 @@ class DartCompiler {
       // ── Allocation ──
       'memory_alloc' => _memAlloc(f),
       'memory_free' => '/* free(${_addrExpr(f)}) — noop in Dart */',
-      'memory_realloc' => _memAlloc(f), // simplified: just alloc new
+      // NOTE: aliases _memAlloc — allocates a fresh block but does NOT copy the
+      // old contents or free the old block, so compiled `realloc` can lose data.
+      'memory_realloc' => _memAlloc(f),
       // ── Typed reads ──
       'memory_read_i8' => '_ballMemory.getInt8(${_addrExpr(f)})',
       'memory_read_u8' => '_ballMemory.getUint8(${_addrExpr(f)})',
@@ -4283,7 +4285,8 @@ class DartCompiler {
     return '(${buf.toString()})';
   }
 
-  /// string.  The encoder emits this sentinel so that the decoder can
+  /// Strips a leading `__cascade_self__` sentinel from a compiled cascade
+  /// section string.  The encoder emits this sentinel so that the decoder can
   /// restore `..member` syntax.
   static String _stripCascadeSelf(String s) {
     const sentinel = '__cascade_self__';

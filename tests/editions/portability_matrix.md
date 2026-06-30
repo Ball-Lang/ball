@@ -1,6 +1,6 @@
 # Editions Portability Matrix
 
-> The Phase 6 milestone of `docs/EDITIONS_PLAN.md`: proof that **one** Ball-source
+> The portability milestone tracked in `docs/EDITIONS_SPEC.md`: proof that **one** Ball-source
 > protobuf-Editions resolver runs **identically** on every target engine. This is
 > the concrete demonstration of Ball's portability thesis — write the hard
 > protobuf-Editions semantics once in Ball-portable Dart, get a correct,
@@ -8,7 +8,7 @@
 
 ## What is proven
 
-The real Editions resolver — `dart/shared/lib/protobuf/edition.dart` +
+The real Editions resolver — `dart/ball_protobuf/lib/edition.dart` +
 `editions.dart`, the same sources that ship inside `ball_protobuf` — is encoded
 into a single self-contained Ball `Program`,
 [`tests/conformance/256_editions_resolver.ball.json`](256_editions_resolver.ball.json).
@@ -39,7 +39,7 @@ legacy: field_presence=EXPLICIT,enum_type=CLOSED,repeated_field_encoding=EXPANDE
 2023+IMPLICIT: field_presence=IMPLICIT,enum_type=OPEN,repeated_field_encoding=PACKED,utf8_validation=VERIFY,message_encoding=LENGTH_PREFIXED,json_format=ALLOW
 ```
 
-All three engines pass the full conformance corpus (288 fixtures, including the
+All three engines pass the full conformance corpus (293 fixtures, including the
 `256` program); the CI `conformance-matrix` is green for the Dart engine, the TS
 self-hosted + compiled engines, the C++ Compiled engine, and the Parity Matrix:
 
@@ -79,11 +79,11 @@ test passes (0 failed, 0 skipped) on each engine.
   only adds `RETENTION_SOURCE` features the runtime ignores) and so are not
   separately exercised here; see the *Known limitations* section of
   [`docs/EDITIONS_SPEC.md`](../../docs/EDITIONS_SPEC.md).
-- **C++ linear memory.** `docs/EDITIONS_PLAN.md` §7-Q4 flagged the C++ engine's
-  65 KB linear-memory budget as a risk for the resolver + defaults table. The
+- **C++ linear memory.** The C++ engine's 65 KB linear-memory budget was flagged
+  as a risk for the resolver + defaults table. The
   full resolver fits and runs (1.3 s, no memory error), so that risk is retired
   for the resolver path.
 - This proves the **resolver**. The feature-aware binary/JSON codecs
   (`marshal.dart` / `unmarshal.dart` / `json_codec.dart`) are validated by the
-  Dart suite + `dart/shared/tool/editions_conformance.dart`; extending the
+  Dart suite + `dart/ball_protobuf/tool/editions_conformance.dart`; extending the
   cross-target program to exercise the codecs end-to-end is a natural follow-on.

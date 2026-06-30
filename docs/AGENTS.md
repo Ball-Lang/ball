@@ -15,13 +15,13 @@ Design specifications, architecture plans, and post-mortem documents for the Bal
 | `SELF_HOST_STATUS.md` | Current C++ / TS self-hosted engine conformance gaps; kept current (not prose) |
 | `PROTOBUF_CODEGEN_PLAN.md` | Design + status for `ball_protobuf_gen` + `ball_rpc`; target-language roadmap |
 | `ASYNC_DESIGN.md` | Async evaluation model for the Ball engine |
-| `IMPLEMENTING_A_COMPILER.md` | Step-by-step guide for writing a new Ball compiler |
-| `CROSS_TARGET_STRATEGY.md` | Strategy for reaching full compiler+encoder+engine parity across targets |
-| `CONFORMANCE_GAPS.md` | Known gaps in the cross-language conformance matrix; tracked failures |
-| `STD_COMPLETENESS.md` | Coverage of `std`/`std_collections`/`std_io`/`std_memory` across all engines |
+| `IMPLEMENTING_A_COMPILER.md` | Step-by-step guide for writing a new Ball compiler; includes the cross-target design notes (reified generics, BigInt/int64 contract, multi-target patterns) folded in from the former `CROSS_TARGET_STRATEGY.md`/`scaling.md` |
 | `PATTERN_DESIGN.md` | Design rationale for Ball's pattern-matching constructs |
-| `ARTICLE_REVIEW.md` | Reviewer notes for public-facing articles and blog posts |
-| `scaling.md` | Performance and scaling notes for large Ball programs |
+| Cross-target compiler gap analysis | Tracked in [#132](https://github.com/Ball-Lang/ball/issues/132) (was `CROSS_TARGET_STRATEGY.md`; durable design folded into `IMPLEMENTING_A_COMPILER.md`) |
+| JSON-only language participation / scaling schema gaps | Tracked in [#133](https://github.com/Ball-Lang/ball/issues/133) (was `scaling.md`) |
+| Conformance coverage gaps | Tracked in [#134](https://github.com/Ball-Lang/ball/issues/134) (was `CONFORMANCE_GAPS.md`; function-name presence is **not** completeness — see `TESTING_STRATEGY.md`) |
+| std coverage inventory | Tracked in [#135](https://github.com/Ball-Lang/ball/issues/135) (was `STD_COMPLETENESS.md`; generate from `dart/shared/std.json` rather than hand-maintain) |
+| Article editorial review | Tracked in [#136](https://github.com/Ball-Lang/ball/issues/136) (was `ARTICLE_REVIEW.md`) |
 
 ## For AI Agents
 

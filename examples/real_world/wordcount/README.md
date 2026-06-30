@@ -25,7 +25,7 @@ Prerequisites: Dart SDK 3.9+. Works offline once dependencies are fetched.
 - uses **string ops** (`length`, `substring`, indexing, concatenation).
 
 ```dart
-// src/wordcount.dart  (121 lines, trimmed here)
+// src/wordcount.dart  (120 lines, trimmed here)
 
 const sampleText =
     'The quick brown fox jumps over the lazy dog.\n'
@@ -271,6 +271,7 @@ examples/real_world/wordcount/
   decode.dart                # Ball -> Dart (uses DartCompiler directly)
   demo.sh                    # orchestrator, runs the whole pipeline
   pubspec.yaml               # path-overridden deps on the local ball_* packages
+  pubspec.lock               # resolved dependency versions
   ball/wordcount.ball.json   # (generated) Ball program
   compiled/wordcount.dart    # (generated) regenerated Dart source
   audit.json                 # (generated) structured audit report

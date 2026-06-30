@@ -10271,10 +10271,10 @@ CompileLibraryResult CppCompiler::compile_library(
     compiler.emit_newline();
     compiler.emit_line("} // namespace " + ns);
 
-    // The header contains everything (header-only library).
-    // For larger libraries, we could split declarations into .h and
-    // definitions into .cpp, but for now a header-only approach is simpler
-    // and matches how ball_emit_runtime.h works.
+    // The header contains everything: this is deliberately a header-only
+    // library. A .h/.cpp split would be possible for very large libraries, but
+    // the header-only approach is simpler and matches how ball_emit_runtime.h
+    // is consumed.
     CompileLibraryResult result;
     result.ns = ns;
     result.header = compiler.out_.str();

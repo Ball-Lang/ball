@@ -4,6 +4,8 @@
 
 Command-line interface for the [Ball programming language](https://github.com/ball-lang/ball). Runs Ball programs and performs static capability analysis, powered by [`@ball-lang/engine`](https://www.npmjs.com/package/@ball-lang/engine).
 
+> Note: `@ball-lang/cli` depends on a published `@ball-lang/engine`. Keep its dependency range in `package.json` aligned with the current engine major (the engine is at 1.x) so npm can resolve a compatible engine — a stale `^0.3.0` range will not accept engine 1.x.
+
 ## Install
 
 ```bash

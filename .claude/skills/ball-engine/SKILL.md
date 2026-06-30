@@ -104,12 +104,15 @@ class MyHandler extends BallModuleHandler {
 ## Testing Pattern
 
 ```dart
-final program = buildProgram(
-  name: 'test',
-  functions: [mainFunc(body: printCall('Hello'))],
-);
-final output = runAndCapture(program);
-expect(output, ['Hello']);
+test('prints hello', () async {
+  final program = buildProgram(
+    name: 'test',
+    functions: [mainFunc(body: printCall('Hello'))],
+  );
+  // runAndCapture is async (Future<List<String>>) — await it.
+  final output = await runAndCapture(program);
+  expect(output, ['Hello']);
+});
 ```
 
 ## Creating a New Engine for a New Language

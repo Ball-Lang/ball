@@ -27,7 +27,7 @@ Future<void> main() async {
 
 | Feature | Status |
 |---------|--------|
-| All 118 `std` base functions | Supported |
+| All universal `std` base functions | Supported |
 | `std_collections`, `std_io`, `std_memory` | Supported |
 | Lexical scoping, closures, lambdas | Supported |
 | Object-oriented dispatch (getters, setters, operator overloading) | Supported |
@@ -57,16 +57,21 @@ Implement `BallModuleHandler` to expose your own base functions to Ball code:
 
 ```dart
 class TimeHandler extends BallModuleHandler {
+  // Claim the `time` module so the engine routes its calls here.
   @override
-  String get moduleName => 'time';
+  bool handles(String module) => module == 'time';
 
+  // `input` is the function's single argument value; `engine` lets you
+  // compose other ball functions. Return type is FutureOr<Object?>.
   @override
-  Future<BallValue> call(String fn, BallValue input, BallCallable engineCall) async {
-    if (fn == 'now') return DateTime.now().millisecondsSinceEpoch;
-    throw UnimplementedError('time.$fn');
+  Object? call(String function, Object? input, BallCallable engine) {
+    if (function == 'now') return DateTime.now().millisecondsSinceEpoch;
+    throw BallRuntimeError('unknown: time.$function');
   }
 }
 ```
+
+Pass the handler to the engine via `moduleHandlers: [TimeHandler()]`.
 
 ## Related packages
 

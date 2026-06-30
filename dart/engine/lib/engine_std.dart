@@ -2542,7 +2542,7 @@ extension BallEngineStd on BallEngine {
     return result;
   }
 
-  // ---- Math helpers (using dart:math would need import, so inline) ----
+  // ---- Math helpers ----
 
   Object? _stdMathUnary(Object? input, double Function(double) op) {
     final value = _extractUnaryArg(input);

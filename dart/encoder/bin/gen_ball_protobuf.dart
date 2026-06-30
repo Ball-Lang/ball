@@ -1,14 +1,14 @@
 /// Generates the `ball_protobuf` library from the protobuf Dart source files.
 ///
-/// Encodes each protobuf implementation file under dart/shared/lib/protobuf/
+/// Encodes each protobuf implementation file under dart/ball_protobuf/lib/
 /// into a Ball [Module], then assembles them into a single **facade [Module]**
 /// whose `module_imports[]` embed each implementation module inline via
 /// [InlineSource] (`json` = `jsonEncode(m.toProto3Json())`, a bare proto3
 /// module — decode with `mergeFromProto3Json`). This keeps `ball_protobuf` a single,
 /// self-contained file while preserving its internal multi-module structure —
 /// and, unlike the previous `Program`-with-empty-`entry_function` shape, it is a
-/// real reusable library with no fake entry point (see docs/EDITIONS_PLAN.md
-/// §2.1). std / std_collections / proto are intentionally NOT
+/// real reusable library with no fake entry point (see docs/EDITIONS_SPEC.md).
+/// std / std_collections / proto are intentionally NOT
 /// bundled: a library does not ship std; the consuming program or engine
 /// provides it.
 ///
@@ -52,7 +52,7 @@ const _sourceFiles = [
 
 /// Map from relative file path to Ball module name.
 String _fileToModule(String relPath) {
-  // lib/protobuf/wire_varint.dart -> ball_protobuf.wire_varint
+  // lib/wire_varint.dart -> ball_protobuf.wire_varint
   final fileName = relPath.split('/').last.replaceAll('.dart', '');
   return 'ball_protobuf.$fileName';
 }

@@ -505,6 +505,15 @@ code {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 24px;
+  align-items: start;
+}
+
+/* Ball's expression-tree source is intentionally verbose; cap the demo and hero
+   code panels so one long sample can't stretch the whole page (scroll inside). */
+.demo-grid .code-pre,
+.hero-code-preview .code-pre {
+  max-height: 440px;
+  overflow: auto;
 }
 
 /* ===== LANGUAGE SUPPORT ===== */

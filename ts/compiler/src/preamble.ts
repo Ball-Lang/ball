@@ -691,7 +691,7 @@ function __ball_cascade(target: any, ops: any[]): any {
     configurable: true, get() { return this.length !== 0; },
   });
   // Note: undefined/null safety for .isEmpty/.isNotEmpty is handled in the
-  // generated code via `?.isEmpty` patterns and the preamble's protoWrap —
+  // generated code via optional-chaining (?.isEmpty) patterns and protoWrap;
   // properties cannot be installed on undefined/null directly.
   // Dart String methods not on JS String.
   if (!sp.contains) sp.contains = function (s: any) { return this.includes(s); };

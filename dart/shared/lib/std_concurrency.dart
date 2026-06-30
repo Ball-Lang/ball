@@ -77,7 +77,7 @@ Module buildStdConcurrencyModule() {
 }
 
 // ================================================================
-// Helpers (identical to std.dart pattern)
+// Helpers (same shape as std.dart's field builders)
 // ================================================================
 
 google.DescriptorProto _type(

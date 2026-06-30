@@ -19,10 +19,17 @@ The canonical language definition lives at `proto/ball/v1/ball.proto`.
 
 ### Message Types
 
+The lists below are a non-exhaustive orientation aid — `proto/ball/v1/ball.proto`
+is the authoritative, machine-checked catalog. When in doubt, read the proto
+(grep its `message`/`oneof` declarations) rather than trusting this prose, which
+can drift.
+
 Core messages: `Program`, `Module`, `FunctionDefinition`, `Expression`, `TypeDefinition`
-Expression variants: `FunctionCall`, `Literal`, `Reference`, `FieldAccess`, `MessageCreation`, `Block`
-Support messages: `Statement`, `LetBinding`, `FieldValuePair`, `ListLiteral`
-Module system: `ModuleImport`, `HttpSource`, `FileSource`, `InlineSource`, `GitSource`
+Expression variants (the 7 `oneof expr` arms): `FunctionCall`, `Literal`, `Reference`,
+`FieldAccess`, `MessageCreation`, `Block`, `lambda` (a `FunctionDefinition` with empty name)
+Support messages: `Statement`, `LetBinding`, `FieldValuePair`, `ListLiteral`, `TypeRef`
+Module system (`oneof source` arms): `ModuleImport`, `HttpSource`, `FileSource`,
+`InlineSource`, `GitSource`, `RegistrySource`
 Type system: `TypeParameter`, `TypeAlias`, `Constant`, `ModuleAsset`
 
 ### Design Constraints

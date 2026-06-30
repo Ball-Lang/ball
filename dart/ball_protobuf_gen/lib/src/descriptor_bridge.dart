@@ -220,7 +220,10 @@ void _appendExtension(
   final extendee = _strip(ext.extendee);
   final fields = registry[extendee];
   if (fields == null) return; // extendee not in this registry — skip.
-  // ctx.msg is unused by _buildField; only the edition/feature scope matters.
+  // Safe to pass an empty placeholder message: the only `ctx.msg` use in
+  // _buildField is the oneof branch (reads ctx.msg.oneofDecl), and an extension
+  // field never has hasOneofIndex() true, so that branch is unreachable here.
+  // Everything else _buildField needs comes from the edition/feature scope.
   final ctx = _MsgCtx(DescriptorProto(), file, ed, isLegacy, parentFeatures);
   final f = _buildField(ext, ctx, messages, enums, registry);
   // Store under the canonical `[fully.qualified.name]` key. Extensions live in

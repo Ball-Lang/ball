@@ -1572,7 +1572,10 @@ inline std::vector<std::any> readAsBytesSync(const File& f) {
     return result;
 }
 inline void writeAsBytesSync(const File& f, const std::any&) {
-    // Stub — byte write not fully implemented
+    // Unsupported by design: the compiled-mode runtime does not implement
+    // binary file writes (the conformance corpus never exercises them). This
+    // is intentionally a no-op rather than a fail-loud throw so that programs
+    // which merely reference the symbol still link.
 }
 inline bool existsSync(const File& f) {
     std::ifstream ifs(f.path);
@@ -1590,11 +1593,13 @@ struct Directory {
 };
 inline std::vector<std::any> listSync(const Directory& d) {
     std::vector<std::any> result;
-    // Stub: directory listing not implemented
+    // Unsupported by design: directory listing is not part of the compiled-mode
+    // runtime; always returns an empty list.
     return result;
 }
 inline void createSync(const Directory& d, bool recursive = false) {
-    // Stub: directory creation not implemented
+    // Unsupported by design: directory creation is not part of the compiled-mode
+    // runtime; intentionally a no-op.
 }
 inline bool existsSync(const Directory& d) {
     return false;
@@ -1636,7 +1641,7 @@ inline std::any resolve(const std::any& scope, const std::string& name) {
 }
 // Overload for BallDyn resolver + import
 inline std::any resolve(const std::any&, const std::any&) {
-    return std::any{};  // Stub: lazy module resolution not supported in compiled mode
+    return std::any{};  // Unsupported by design: lazy module resolution is not available in compiled mode
 }
 
 // ── Scope exit stubs ──

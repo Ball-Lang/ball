@@ -7,12 +7,17 @@ paths:
 
 ## Package Structure
 
-Ball's Dart implementation is a workspace with 5 packages:
+Ball's Dart implementation is a pub workspace. The five core Ball-portable packages are:
 - `ball_base` (dart/shared/) — Protobuf types, std module builders. Dependency for all others.
 - `ball_compiler` (dart/compiler/) — Ball → Dart code generator using `code_builder` + `dart_style`
 - `ball_encoder` (dart/encoder/) — Dart → Ball using `analyzer` package
 - `ball_engine` (dart/engine/) — Tree-walking Ball interpreter
 - `ball_cli` (dart/cli/) — CLI tool
+
+The same workspace also contains the protobuf-runtime and tooling packages
+`ball_protobuf`, `ball_protobuf_gen`, `ball_rpc`, `resolver`, and `self_host`
+(see root `CLAUDE.md` and the `workspace:` list in the repo-root `pubspec.yaml`
+for the authoritative member set).
 
 ## Key Patterns
 
@@ -33,7 +38,7 @@ Ball's Dart implementation is a workspace with 5 packages:
 
 The encoder parses with `parseString` and has **no static types**, so it dispatches
 by *syntax* and *name heuristics*. When authoring "Ball-portable" Dart (code that
-gets encoded and run on the Dart/TS/C++ engines — e.g. `dart/shared/lib/protobuf/`),
+gets encoded and run on the Dart/TS/C++ engines — e.g. `dart/ball_protobuf/lib/`),
 avoid constructs that need receiver-type info:
 
 - **`Map.addAll` / `List.addAll` are mis-routed to the non-mutating list op

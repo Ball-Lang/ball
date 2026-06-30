@@ -1,6 +1,6 @@
 /// Generates the cross-target editions-resolver conformance program.
 ///
-/// This is the Phase 6 portability proof (EDITIONS_PLAN.md §5): it encodes the
+/// This is the Phase 6 portability proof (see docs/EDITIONS_SPEC.md): it encodes the
 /// REAL editions resolver (`edition.dart` + `editions.dart`, the same sources
 /// that ship in `ball_protobuf`) plus a small driver into a self-contained Ball
 /// Program, and drops it into `tests/conformance/`. The existing conformance

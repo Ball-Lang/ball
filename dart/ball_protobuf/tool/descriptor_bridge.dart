@@ -82,9 +82,9 @@ DescriptorRegistry buildRegistry(List<int> fdsBytes) {
     final ctx = entry.value;
     final fields = registry[fqn.startsWith('.') ? fqn.substring(1) : fqn]!;
     for (final fld in ctx.msg.field) {
-      // Skip fields that are members of a *real* (non-synthetic) oneof? No —
-      // oneof members are still regular wire fields; only the resolution parent
-      // differs. Synthetic proto3-optional oneofs are not relevant for editions.
+      // Oneof members are still regular wire fields, so they are not skipped;
+      // only their feature-resolution parent differs. Synthetic proto3-optional
+      // oneofs are not relevant for editions.
       fields.add(_buildField(fld, ctx, messages, enums, registry));
     }
   }

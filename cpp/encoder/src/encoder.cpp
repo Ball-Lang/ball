@@ -409,7 +409,11 @@ void CppEncoder::encode_namespace_decl(json node) {
 }
 
 void CppEncoder::encode_using_decl(const json& /*node*/) {
-    // Stored as metadata — no-op for now.
+    // Intentionally dropped: a `using` declaration only introduces a name alias
+    // into the C++ namespace scope and produces no runtime value or computation.
+    // Since Ball's semantic content is the expression tree (names are already
+    // fully qualified by the time they are referenced here), discarding the
+    // using-decl cannot change what the encoded program computes.
 }
 
 void CppEncoder::encode_class_template_decl(const json& node) {

@@ -1,16 +1,16 @@
 # Consumer Model Codegen for `ball_protobuf` — Design Plan & Status
 
-> Status: **Phases 0–4 DONE on the Dart target; Phase 5 (cross-target library
-> mode) IN PROGRESS.** The `protoc-gen-ball` / `protoc-gen-ball-connect` /
-> `protoc-gen-ball-grpc` plugins live in `dart/ball_protobuf_gen` (63 tests pass
-> from the package dir) and the transport runtime lives in `dart/ball_rpc` (45
-> tests); the `ball_protobuf` runtime is at 2769/2769 upstream conformance. The
-> Dart toolchain generates message models (Editions / oneof / map / nested / WKT /
-> Any), extensions + registries, and gRPC + Connect service stubs that round-trip
-> through the runtime. **C++ and TS library targets now work:** TS
-> `compileModule()` produces 9217 lines with marshal/unmarshal proven; C++
-> `compile_library()` produces 3942 lines that compile cleanly under g++. See
-> "## Multi-target status & roadmap" below for current state and remaining work.
+> This is a **design spec**. The Dart target ships the full toolchain
+> (Phases 0–4): the `protoc-gen-ball` / `protoc-gen-ball-connect` /
+> `protoc-gen-ball-grpc` plugins in `dart/ball_protobuf_gen` and the transport
+> runtime in `dart/ball_rpc`, generating message models (Editions / oneof / map /
+> nested / WKT / Any), extensions + registries, and gRPC + Connect service stubs
+> that round-trip through the conformance-pinned `ball_protobuf` runtime.
+> **Phase 5 cross-target library compilation is proven** — both TS
+> `compileModule()` and C++ `compile_library()` emit working library output from
+> the `ball_protobuf` source (see "## Multi-target status & roadmap"); what
+> remains is per-target round-trip golden tests + publishing. Live pass counts
+> are CI-gated, not pinned here.
 >
 > Sources cited inline; all repo paths verified against the tree; all external
 > protocol facts verified against primary sources (protobuf `plugin.proto`,
@@ -55,8 +55,9 @@ Every protobuf model generator — `protoc-gen-go`, `protoc-gen-java`,
 executable named `protoc-gen-<NAME>` that reads a **`CodeGeneratorRequest`** from
 stdin and writes a **`CodeGeneratorResponse`** to stdout. It is invoked by
 `protoc --<NAME>_out=…` or by `buf generate` (local or remote plugin). The
-contract, verified from the repo's own
-[`plugin.proto`](../cpp/build3/_deps/protobuf-src/src/google/protobuf/compiler/plugin.proto):
+contract, verified against the upstream
+[`plugin.proto`](https://github.com/protocolbuffers/protobuf/blob/main/src/google/protobuf/compiler/plugin.proto)
+(FetchContent'd into the C++ build tree at build time, not checked in):
 
 **`CodeGeneratorRequest`**
 | field | # | meaning |
@@ -346,9 +347,10 @@ The original ambition — author the generator itself in Ball-portable Dart and
 emits models on every target and the generator runs anywhere Ball runs — depends
 on the Ball **compilers** being able to compile the `ball_protobuf` *runtime*
 into a working native library on those targets. As of June 2026, this is
-**proven**: TS `compileModule()` produces a 9217-line library with
-marshal/unmarshal round-trips working, and C++ `compile_library()` produces a
-3942-line library that compiles cleanly. See "## Multi-target status & roadmap"
+**proven**: TS `compileModule()` produces a multi-thousand-line library with
+marshal/unmarshal round-trips working, and C++ `compile_library()` produces
+`cpp/shared/ball_protobuf_rt.cpp` (~4186 lines) that compiles cleanly. See
+"## Multi-target status & roadmap"
 below for the current state and remaining work.
 
 ---
@@ -378,7 +380,7 @@ None require schema changes; all are additive to `ball_protobuf`'s public API.
 | 2 | **Message codegen, Dart target** — enums, messages, oneofs, maps, nested, WKT views (mutable-over-Map, §4.3) | new conformance: generated-model round-trips for proto2/proto3/edition2023 | **DONE** (golden + round-trip tests) |
 | 3 | **Extensions + registries** (Dart) | extension round-trips; Any-in-JSON via generated registry | **DONE** |
 | 4 | **Services** (separate plugins, §13.2): `ServiceDescriptor` + `protoc-gen-ball-connect` (unary + streaming), then `protoc-gen-ball-grpc`; transports in `dart/ball_rpc` | echo/streaming integration tests against a reference server | **DONE** |
-| 5 | Port the generator front end to **Ball-portable Dart**; add **C++ and TS** emission templates / library targets | same `.proto` → models on Dart/C++/TS; cross-target golden tests | **IN PROGRESS** — TS `compileModule()` and C++ `compile_library()` both work; `ball_protobuf` compiles to TS (9217 lines) and C++ (3942 lines, g++ clean). Marshal/unmarshal proven on TS. Remaining: full round-trip golden tests per target. |
+| 5 | Port the generator front end to **Ball-portable Dart**; add **C++ and TS** emission templates / library targets | same `.proto` → models on Dart/C++/TS; cross-target golden tests | **Library compilation proven** — TS `compileModule()` and C++ `compile_library()` both work; `ball_protobuf` compiles to a TS library and to C++ (`cpp/shared/ball_protobuf_rt.cpp`, ~4186 lines, g++ clean). Marshal/unmarshal proven on TS. Remaining: full round-trip golden tests per target. |
 | 6 | `buf.gen.yaml` wiring, docs (`<lang>/AGENTS.md`, README), CI job | CI green on all targets | Dart docs + READMEs DONE; full CI matrix tracks Phase 5 |
 
 Phases 0–4 are shipped on the Dart target and leave the tree green
@@ -443,8 +445,9 @@ runtime compiles successfully to both targets:
 
 **C++ — compiles cleanly under g++.**
 
-- C++ `compile_library()` (`cpp/compiler/src/compiler.cpp`) emits a 3942-line
-  library (`cpp/shared/ball_protobuf_rt.cpp`) that compiles without errors.
+- C++ `compile_library()` (`cpp/compiler/src/compiler.cpp`) emits a
+  ~4186-line library (`cpp/shared/ball_protobuf_rt.cpp`) that compiles without
+  errors.
 - `dart:typed_data` + `dart:convert` + `StringBuffer` runtime equivalents are
   provided.
 - Named-namespace library mode emits linkable code (no anonymous namespace /
@@ -476,7 +479,7 @@ green.
 
 ## 15. Sources
 
-- protoc plugin contract — repo [`plugin.proto`](../cpp/build3/_deps/protobuf-src/src/google/protobuf/compiler/plugin.proto); [Go `protogen`](https://pkg.go.dev/google.golang.org/protobuf/compiler/protogen)
+- protoc plugin contract — upstream [`plugin.proto`](https://github.com/protocolbuffers/protobuf/blob/main/src/google/protobuf/compiler/plugin.proto); [Go `protogen`](https://pkg.go.dev/google.golang.org/protobuf/compiler/protogen)
 - modern model — [protobuf-es v2](https://buf.build/blog/protobuf-es-v2); [protobuf-es repo](https://github.com/bufbuild/protobuf-es); [`dynamicpb`](https://pkg.go.dev/google.golang.org/protobuf/types/dynamicpb); [hyperpb-go](https://github.com/bufbuild/hyperpb-go)
 - classic model — [Dart generated code](https://protobuf.dev/reference/dart/dart-generated/)
 - Connect protocol — [connectrpc.com/docs/protocol](https://connectrpc.com/docs/protocol/); [connect-es](https://github.com/connectrpc/connect-es)

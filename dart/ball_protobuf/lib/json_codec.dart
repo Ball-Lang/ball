@@ -262,25 +262,6 @@ Object? _defaultForType(String type) {
 }
 
 // ---------------------------------------------------------------------------
-// Single-field value conversion
-// ---------------------------------------------------------------------------
-
-/// Converts a single protobuf field [value] to its Proto3 JSON representation.
-///
-/// Type-specific conversions:
-///   - `TYPE_INT64`, `TYPE_UINT64`, `TYPE_SINT64`, `TYPE_SFIXED64`,
-///     `TYPE_FIXED64`: encoded as JSON string (too large for JS number).
-///   - `TYPE_BYTES`: encoded as base64 string.
-///   - `TYPE_FLOAT`, `TYPE_DOUBLE`: NaN/Infinity/-Infinity as string literals.
-///   - `TYPE_ENUM`: encoded as string name using the [enumValues] map. Falls
-///     back to the integer if no name mapping is available.
-///   - `TYPE_MESSAGE`: recursively marshaled using [messageDescriptor].
-///   - All other scalar types pass through unchanged.
-///
-/// [enumValues] is an optional `Map<int, String>` mapping enum ordinals to
-/// their Proto3 names. [messageDescriptor] is the nested field descriptor
-/// list for `TYPE_MESSAGE` fields.
-// ---------------------------------------------------------------------------
 // Well-Known Types — proto3 JSON mapping
 //
 // WKTs are normal messages on the wire (decoded generically into a snake_case
@@ -619,6 +600,21 @@ Object? _anyFromJson(Object? json, AnyTypeResolver? resolver) {
   return {'type_url': url, 'value': marshal(embedded, desc)};
 }
 
+/// Converts a single protobuf field [value] to its Proto3 JSON representation.
+///
+/// Type-specific conversions:
+///   - `TYPE_INT64`, `TYPE_UINT64`, `TYPE_SINT64`, `TYPE_SFIXED64`,
+///     `TYPE_FIXED64`: encoded as JSON string (too large for JS number).
+///   - `TYPE_BYTES`: encoded as base64 string.
+///   - `TYPE_FLOAT`, `TYPE_DOUBLE`: NaN/Infinity/-Infinity as string literals.
+///   - `TYPE_ENUM`: encoded as string name using the [enumValues] map. Falls
+///     back to the integer if no name mapping is available.
+///   - `TYPE_MESSAGE`: recursively marshaled using [messageDescriptor].
+///   - All other scalar types pass through unchanged.
+///
+/// [enumValues] is an optional `Map<int, String>` mapping enum ordinals to
+/// their Proto3 names. [messageDescriptor] is the nested field descriptor
+/// list for `TYPE_MESSAGE` fields.
 Object? fieldToJson(
   Object? value,
   String type, {

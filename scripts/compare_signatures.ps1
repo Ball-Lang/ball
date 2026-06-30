@@ -17,7 +17,8 @@ function Extract-FunctionSignatures {
     $content = Get-Content $FilePath -Raw -ErrorAction SilentlyContinue
     if (-not $content) { return $signatures }
     
-    # Extract function definitions using regex (simplified but effective approach)
+    # Extract function definitions using regex. Single-line only: misses
+    # multi-line and K&R-style signatures (acceptable for a coarse tally).
     # Matches: return_type function_name(params) {
     $pattern = '(?m)^(?:(?:static|inline|extern|const|unsigned|signed|long|short|volatile)\s+)*\w[\w\s\*]*\s+(\w+)\s*\(([^)]*)\)\s*\{'
     $matches = [regex]::Matches($content, $pattern)
@@ -55,7 +56,8 @@ function Extract-BallFunctions {
             }
         }
     } catch {
-        # JSON parse error
+        # Malformed .ball.json → treat as 0 captured functions (so every
+        # signature in the paired source is reported as missing).
     }
     return $functions
 }

@@ -40,7 +40,7 @@ library;
 /// Returns the same [buffer] list with the varint bytes appended, allowing
 /// fluent chaining.
 List<int> encodeVarint(List<int> buffer, int value) {
-  // Mask to unsigned 64-bit: on the Dart VM, ints are already 64-bit
+  // No mask is needed: on the Dart VM, ints are already 64-bit
   // two's-complement, so negative values naturally produce the unsigned
   // bit pattern when processed with >>> (logical right shift).
   int remaining = value;

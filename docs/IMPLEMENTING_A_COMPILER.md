@@ -356,6 +356,97 @@ Environment: `env_get`, `args_get`
 
 ---
 
+## Cross-Target Design Notes
+
+Durable design guidance distilled from the cross-target research (DDC/dart2js,
+Kotlin/JS, Scala.js, Haxe, KMP, Nim, LLVM, GraalVM Truffle, AssemblyScript,
+Emscripten, protobuf-es, CrossTL). These are the contracts a new compiler must
+honor so that a Ball program computes the same answer regardless of which
+compiler processes it. (Open, target-specific gap work — Rust/Go error-model
+strategy, ownership modules, UTF-8 string indexing, etc. — is tracked in
+[#132](https://github.com/Ball-Lang/ball/issues/132).)
+
+### Reified Generics
+
+JS erases generic type parameters (`new Box<int>(42) instanceof Box` is `true`
+for any `Box<T>`). Dart, C#, and the CLR keep generics reified; Java, Kotlin,
+Scala, and Go erase them; C++ and Rust monomorphize. A Ball compiler that must
+support a parameterized `std.is(value, "Box<int>")` check lowers it per target:
+
+| Target | Mechanism |
+|--------|-----------|
+| Dart | Native reified generics — emit `is List<int>` directly |
+| TypeScript / JS | Type-descriptor `type_args` array on the instance (opt-in) |
+| C++ / Rust | Monomorphization via templates / generics — distinct types |
+| Java | Type-descriptor objects (JVM erases generics — same as TS) |
+| Go | Type-tag field on the struct (no generics runtime checks) |
+| Python | `isinstance()` + a `type_args` attribute |
+| C# | Native reified generics (CLR supports them) |
+
+**Key invariant:** programs that perform no parameterized type checks pay zero
+cost. A compiler only emits type descriptors when the IR actually contains a
+generic `is`-check; the structured generic arguments arrive via
+`FunctionCall.type_args` / `MessageCreation.metadata.type_args` (see
+METADATA_SPEC.md), not the legacy `__type_args__` string.
+
+### BigInt / Int64 Cross-Target Contract
+
+**Ball integers are signed 64-bit with wrapping overflow.** Every target must
+preserve that semantics:
+
+- Native-int64 targets (Dart, C++, Rust, Go, Java, Python, C#) use the platform
+  integer; emit wrapping operations where the platform would trap or widen
+  (Rust `wrapping_add`, C++ `-fwrapv`/explicit cast, Go's naturally-wrapping
+  `int64`).
+- **JavaScript / TypeScript has no native 64-bit integer**, so the TS compiler
+  uses a **promotion-demotion** pattern:
+  - emit `BigInt` literals for values beyond `Number.MAX_SAFE_INTEGER`;
+  - arithmetic helpers promote to `BigInt` when either operand is a `BigInt`,
+    then demote the result back to `Number` when it fits the safe range;
+  - bitwise ops always go through `BigInt` (JS operators truncate to 32 bits);
+  - signed 64-bit wrapping uses `BigInt.asIntN(64, v)`.
+
+`BigInt` is a **JS-only implementation detail** — it must never leak into the
+Ball IR or any other target. The demotion path keeps the common small-integer
+case on `Number` (BigInt arithmetic is several times slower than `Number` in V8).
+This contract aligns with protobuf-es v2, wasm-bindgen, and Emscripten.
+
+### Multi-Target Compiler Patterns
+
+1. **Capability declaration.** Each compiler should declare how it handles every
+   base function — *legal* (direct equivalent, `std.add` → `+`), *expand*
+   (decompose, `std.for_each` → a loop), *libcall* (runtime library call), or
+   *custom* (target-specific lowering). A conformance matrix then detects gaps
+   automatically when a new target is added (the KMP `expect`/`actual` idea).
+2. **Module hierarchy for partial sharing.** Ball is universal-first: there are
+   no language-specific base modules. Encoders expand language-specific
+   constructs into universal `std` expression trees at encoding time. The
+   hierarchy is `std` (universal — includes cascade, spread, invoke,
+   null_aware_access, …) with `std_collections`, `std_io`, `std_memory`,
+   `std_convert`, `std_fs`, `std_time`, and `std_concurrency` layered on top. Any
+   future language-specific module should hold only cosmetic helpers, never base
+   functions every target must implement.
+3. **The IR must not encode target-specific semantics.** Ball's "metadata is
+   cosmetic" invariant enforces this: a program's computed output must be
+   identical regardless of which compiler processes it. Metadata controls
+   formatting and naming, never behavior.
+4. **Memory-model isolation.** Memory-management differences belong in dedicated
+   modules (`std_memory` for C/C++ linear memory today; an ownership module for
+   Rust, GC hints for managed targets, if ever needed), not bled into `std`.
+5. **Whole-module replacement.** A compiler may substitute an entire module
+   implementation (e.g. a hand-optimized STL-backed `std_collections` for C++).
+   This is already possible through the base-function mechanism.
+6. **O(n + m) translation via a canonical IR.** With n encoders and m compilers,
+   total work is O(n + m): each new target needs only one new compiler. The
+   seven-node expression model keeps the IR surface area small enough for that to
+   hold.
+7. **Protobuf-IR advantage.** Ball's protobuf IR is self-describing,
+   schema-evolved, and natively serializable in every language protobuf supports.
+   Adding a target starts with `buf generate` — the new compiler immediately has
+   type-safe bindings, something no other multi-target system gets for free.
+
+---
+
 ## Typed Exceptions
 
 Ball's `std.try` function supports typed catch clauses. The input message has:

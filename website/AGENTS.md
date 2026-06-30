@@ -30,7 +30,7 @@ The ball-lang.dev public website built with Jaspr (Dart SSR). Renders the home p
 
 - `lib/` — Jaspr Dart source (components + pages)
 - `content/` — YAML Ball example data consumed by `generate_examples.dart`
-- `web/` — Static files served at the root (not the `web/playground/` WASM playground)
+- `web/` — Static files served at the root (distinct from the root `web/playground/` app)
 - `playground/` — Jaspr-embedded playground component (distinct from `web/playground/`)
 
 ## For AI Agents
@@ -38,5 +38,5 @@ The ball-lang.dev public website built with Jaspr (Dart SSR). Renders the home p
 - This is a **Jaspr** (Dart SSR) app — follow `jaspr-rules` when modifying components. See `.claude/rules/` for Jaspr-specific conventions.
 - `lib/generated/` and `build/` are generated — never edit them directly.
 - To update example content shown on the site, edit `examples/<name>/<name>.ball.json` and re-run `dart run tool/generate_examples.dart` from this directory.
-- The `web/` static assets here are separate from `web/playground/` (the standalone WASM playground at the root `web/` directory).
+- The `web/` static assets here are separate from `web/playground/` (the standalone in-browser playground at the root `web/` directory — a hand-written JavaScript bundle: `app.js` + `ball-engine.js`, not WebAssembly).
 - After changes, build with `jaspr build` and verify with `jaspr serve`.

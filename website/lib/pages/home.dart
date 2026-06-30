@@ -37,7 +37,7 @@ class HomePage extends StatelessComponent {
       div(classes: 'hero-content', [
         div(classes: 'hero-badge', [
           span(classes: 'hero-badge-dot', []),
-          Component.text('Now with Dart & C++ implementations'),
+          Component.text('Now with Dart, C++ & TypeScript implementations'),
         ]),
         h1(classes: 'hero-title', [
           span(classes: 'hero-title-line', [Component.text('Code is ')]),
@@ -274,8 +274,9 @@ class HomePage extends StatelessComponent {
               'Proto bindings generated. Compiler, encoder, and engine planned.'),
           _buildLangCard('Python', 'Bindings', 'python',
               'Proto bindings generated. Implementation in future roadmap.'),
-          _buildLangCard('TypeScript', 'Bindings', 'ts',
-              'Proto bindings generated. Web-first target language.'),
+          _buildLangCard('TypeScript', 'Prototype', 'ts',
+              'Full compiler (ts-morph), self-hosted engine, encoder, and CLI. '
+                  'CI-gated against the conformance corpus.'),
           _buildLangCard('Java', 'Bindings', 'java',
               'Proto bindings generated. Enterprise target language.'),
           _buildLangCard('C#', 'Bindings', 'csharp',
@@ -380,9 +381,10 @@ class HomePage extends StatelessComponent {
                 'cd ball/dart && dart pub get\n'
                 'cd engine && dart test\n'
                 '\n'
-                '# Compile an example\n'
-                'cd ../compiler\n'
-                'dart run bin/compile.dart ../../examples/hello_world.ball.json',
+                '# Compile an example to Dart\n'
+                'cd ../cli\n'
+                'dart run bin/ball.dart compile \\\n'
+                '  ../../examples/hello_world/hello_world.ball.json',
           ),
         ]),
       ]),

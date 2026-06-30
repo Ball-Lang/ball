@@ -229,7 +229,8 @@ Map<String, Object?> decodeConformanceRequest(List<int> bytes) {
         offset += varintResult['bytesRead']!;
 
       case 6:
-        // jspb_encoding_options (message) — wire type 2, skip for now
+        // jspb_encoding_options (message) — wire type 2, skip (jspb encoding
+        // options are out of scope)
         final lenResult = decodeVarint(bytes, offset);
         final length = lenResult['value']!;
         final varintSize = lenResult['bytesRead']!;

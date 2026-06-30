@@ -106,21 +106,21 @@ class ExamplesPage extends StatelessComponent {
             language: 'bash',
             code: '# List available examples\n'
                 'ls examples/\n'
-                '# \u2192 all_constructs/  comprehensive/  fibonacci/  hello_world/\n'
+                '# \u2192 add/  all_constructs/  comprehensive/  fibonacci/  hello_world/  real_world/\n'
+                '\n'
+                '# The unified `ball` CLI lives in dart/cli\n'
+                'cd dart/cli\n'
                 '\n'
                 '# Compile any example to Dart\n'
-                'cd dart/compiler\n'
-                'dart run bin/compile.dart \\\n'
+                'dart run bin/ball.dart compile \\\n'
                 '  ../../examples/fibonacci/fibonacci.ball.json\n'
                 '\n'
                 '# Run with the Ball engine (interpreter)\n'
-                'cd ../engine\n'
-                'dart run bin/run.dart \\\n'
+                'dart run bin/ball.dart run \\\n'
                 '  ../../examples/hello_world/hello_world.ball.json\n'
                 '\n'
                 '# Encode Dart source to Ball\n'
-                'cd ../encoder\n'
-                'dart run bin/encode.dart some_file.dart',
+                'dart run bin/ball.dart encode some_file.dart',
           ),
         ]),
       ]),

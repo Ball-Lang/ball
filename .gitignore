@@ -120,3 +120,30 @@ cpp/build-conformance/
 # dart/compiler/tool/compile_ball_protobuf_cpp.dart, regenerated on demand and
 # never read as a committed input. Kept out of git (1.2 MB). See issue #27.
 dart/shared/ball_protobuf_program.json
+
+# ----------------------------------
+# /brag video output + HyperFrames tooling (installed by `npx hyperframes skills`,
+# per-machine, not part of Ball). Native .claude/skills/* stay tracked.
+# ----------------------------------
+brag-output/
+.agents/
+agent/
+skills-lock.json
+.claude/skills/embedded-captions/
+.claude/skills/faceless-explainer/
+.claude/skills/general-video/
+.claude/skills/graphic-overlays/
+.claude/skills/hyperframes/
+.claude/skills/hyperframes-animation/
+.claude/skills/hyperframes-cli/
+.claude/skills/hyperframes-core/
+.claude/skills/hyperframes-creative/
+.claude/skills/hyperframes-media/
+.claude/skills/hyperframes-registry/
+.claude/skills/motion-graphics/
+.claude/skills/music-to-video/
+.claude/skills/pr-to-video/
+.claude/skills/product-launch-video/
+.claude/skills/remotion-to-hyperframes/
+.claude/skills/slideshow/
+.claude/skills/website-to-video/

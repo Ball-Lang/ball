@@ -1,3 +1,5 @@
+<!-- Parent: ../AGENTS.md -->
+
 # TypeScript Implementation Agents
 
 TypeScript implementation of Ball tools. The engine is **self-hosted** (compiled from the Dart reference engine); runs in browser and Node.js. **Always reference the Dart implementation** as the canonical behavior.

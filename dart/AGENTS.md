@@ -1,3 +1,5 @@
+<!-- Parent: ../AGENTS.md -->
+
 # Dart Implementation Agents
 
 When working in the Dart packages. The Dart implementation is the **reference** — all other languages mirror it.

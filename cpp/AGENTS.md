@@ -1,3 +1,5 @@
+<!-- Parent: ../AGENTS.md -->
+
 # C++ Implementation Agents
 
 When working in the C++ codebase. The C++ implementation is a **prototype** — Dart is the reference. C++ runs the **self-hosted** engine (`dart/self_host/lib/engine_rt.cpp`, generated from the Dart engine); there is no native C++ engine.

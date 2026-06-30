@@ -1,3 +1,5 @@
+<!-- Parent: ../AGENTS.md -->
+
 # Proto Schema Agents
 
 `proto/ball/v1/ball.proto` is the **single source of truth** for the Ball language. All implementations deserialize from this schema.

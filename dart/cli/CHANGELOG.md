@@ -1,3 +1,7 @@
+## 0.3.0+2
+
+ - Update a dependency to the latest release.
+
 ## 0.3.0+1
 
  - **FIX**(coverage): Dart coverage job crashed on binary test stdout (FormatException) ([#121](https://github.com/ball-lang/ball/issues/121)). ([ff56a3ae](https://github.com/ball-lang/ball/commit/ff56a3ae9fcddffed25352b98e23c54cf57da2a0))

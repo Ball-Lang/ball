@@ -31,6 +31,18 @@ jobs:
         with:
           node-version: 22
 
+      # Dart is needed by the compiler test suite: engine_parse.test.ts
+      # shells out to `dart run dart/encoder/tool/roundtrip_engine.dart` to
+      # regenerate engine.ball.json (same reason ci.yml's TypeScript job
+      # bootstraps the Dart workspace). Without it the v1.3.3 publish died
+      # with `dart: not found`.
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Bootstrap Dart workspace
+        run: cd dart && dart pub get
+
       # ── @ball-lang/engine ───────────────────────────────────────────────
       - name: Install engine dependencies
         working-directory: ts/engine

@@ -231,6 +231,12 @@ export function createEngineSetup(mod: EngineModule) {
   }
 
   function _mathAbs(v: any): any {
+    // `_coerceInt` unconditionally truncates through int64 coercion (needed
+    // for BigInt-magnitude int abs), which silently dropped double-ness for
+    // a BallDouble operand — e.g. `(2.5).abs()` returned `2` instead of
+    // `2.5` (#115). Route a BallDouble operand through double abs instead.
+    const BD = (globalThis as any).BallDouble;
+    if (BD && v instanceof BD) return new BD(Math.abs(v.value));
     const coerced = _coerceInt(v);
     if (typeof coerced === 'bigint') {
       return _int64Result(coerced < 0n ? -coerced : coerced);
@@ -569,6 +575,19 @@ export function createEngineSetup(mod: EngineModule) {
           case 'ceil': return Math.ceil(self);
           case 'compareTo': return self < arg0 ? -1 : self > arg0 ? 1 : 0;
           case 'clamp': return Math.min(Math.max(self, arg0), arg1);
+          case 'remainder': return self % Number(_coerceNum(arg0));
+        }
+      }
+      // A BallDouble-wrapped receiver (e.g. `double d = 2.5; d.remainder(2)`)
+      // falls through every case above (`typeof self !== 'number'`), and the
+      // compiled engine's own dispatch calls `self.remainder(...)` — a real
+      // method call that doesn't exist on the BallDouble class (unlike
+      // floor/ceil/round/abs, which work by accident via Math.* coercing
+      // through BallDouble.valueOf()) (#115). Handle it explicitly here.
+      {
+        const BD = (globalThis as any).BallDouble;
+        if (BD && self instanceof BD && fn === 'remainder') {
+          return new BD(self.value % Number(_coerceNum(arg0)));
         }
       }
       if (typeof self === 'object' && self !== null && '__type__' in self) {
@@ -1231,7 +1250,16 @@ export function createEngineSetup(mod: EngineModule) {
     };
 
     e._stdUnaryNum = function(input: any, op: any) {
-      return op(_coerceNum(e._extractUnaryArg(input)));
+      // Preserve BallDouble-ness through negate (#67): a whole-number
+      // double like `-7.0` must not collapse to a bare JS integer. Mirrors
+      // the _stdBinary patch above. bitwise_not (the only other consumer)
+      // always operates on int, so it never sees a BallDouble operand here.
+      const value = e._extractUnaryArg(input);
+      const BD = (globalThis as any).BallDouble;
+      const vBD = BD && value instanceof BD;
+      const result = op(_coerceNum(value));
+      if (vBD && typeof result === 'number') return new BD(result);
+      return result;
     };
 
     e._stdBinaryComp = function(input: any, op: any) {
@@ -1262,6 +1290,25 @@ export function createEngineSetup(mod: EngineModule) {
         return new BD(result);
       }
       return result;
+    };
+
+    // `remainder` is the one num instance method the compiled engine's own
+    // `_dispatchBuiltinInstanceMethod` calls as a literal Dart method
+    // (`self.remainder(...)`) rather than routing through a Math.*-backed
+    // std function (floor/ceil/round/abs/truncate all get encoder-routed to
+    // math_floor/math_ceil/etc, which is why they survive a BallDouble
+    // receiver via valueOf() coercion). A BallDouble-wrapped receiver has no
+    // `.remainder` method, so it throws (#115). Intercept just that case.
+    const origDispatchBuiltinInstanceMethod = e._dispatchBuiltinInstanceMethod.bind(e);
+    e._dispatchBuiltinInstanceMethod = async function(self: any, method: any, input: any) {
+      const BD = (globalThis as any).BallDouble;
+      if (BD && self instanceof BD && method === 'remainder') {
+        const rec = e._cfAsMap(input) ?? {};
+        const rawArg = rec['arg0'] ?? rec['value'];
+        const other = (BD && rawArg instanceof BD) ? rawArg.value : _coerceNum(rawArg);
+        return new BD(self.value % Number(other));
+      }
+      return origDispatchBuiltinInstanceMethod(self, method, input);
     };
 
     const origPatternKind = e._patternKind?.bind(e);
@@ -1669,7 +1716,17 @@ export function createEngineSetup(mod: EngineModule) {
         const rec = e._extractBinaryArgs(i);
         return _int64Modulo(rec[0], rec[1]);
       });
-      handler.register('negate', (i: any) => _int64Negate(e._extractUnaryArg(i)));
+      handler.register('negate', (i: any) => {
+        // `_int64Negate` unconditionally coerces through `_coerceInt` (it's
+        // the int64-safe path for `bigint`-magnitude values), which silently
+        // truncated a double operand to an int — losing double-ness for
+        // e.g. `-7.0` (#67). Route a BallDouble operand through double
+        // negation instead; only a genuine int reaches `_int64Negate`.
+        const value = e._extractUnaryArg(i);
+        const BD = (globalThis as any).BallDouble;
+        if (BD && value instanceof BD) return new BD(-value.value);
+        return _int64Negate(value);
+      });
       handler.register('bitwise_and', (i: any) => e._stdBinaryInt(i, (a: any, b: any) => _int64Binary((l, r) => l & r, a, b)));
       handler.register('bitwise_or', (i: any) => e._stdBinaryInt(i, (a: any, b: any) => _int64Binary((l, r) => l | r, a, b)));
       handler.register('bitwise_xor', (i: any) => e._stdBinaryInt(i, (a: any, b: any) => _int64Binary((l, r) => l ^ r, a, b)));

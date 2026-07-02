@@ -5767,13 +5767,23 @@ export class BallEngine {
       return null;
     }
     let result = __no_init__;
-    do {
-      result = await this._evalExpression(body, scope);
-      if ((((result instanceof _FlowSignal) && __ball_eq(result.kind, 'goto')) && __ball_eq(result.label, label))) {
-        continue;
+    let repeat = true;
+    while (repeat) {
+      repeat = false;
+      try {
+        result = await this._evalExpression(body, scope);
+      } catch (__ball_active_error) {
+        const e = __ball_active_error;
+        if ((((e instanceof _FlowSignal) && __ball_eq(e['kind'], 'goto')) && __ball_eq(e['label'], label))) {
+          repeat = true;
+        } else {
+          throw __ball_active_error;
+        }
       }
-      break;
-    } while (true);
+      if ((((!repeat && (result instanceof _FlowSignal)) && __ball_eq(result.kind, 'goto')) && __ball_eq(result.label, label))) {
+        repeat = true;
+      }
+    }
     return result;
   }
 
@@ -5854,7 +5864,19 @@ export class BallEngine {
         if (false /* BallMap is Map in TS */) {
           unwrappedSelf = self.entries;
         } else {
-          unwrappedSelf = self;
+          if ((typeof self === 'number' || self instanceof BallDouble)) {
+            unwrappedSelf = self;
+          } else {
+            if ((typeof self === 'number' && Number.isInteger(self))) {
+              unwrappedSelf = self.value;
+            } else {
+              if ((typeof self === 'number' || self instanceof BallDouble)) {
+                unwrappedSelf = self.value;
+              } else {
+                unwrappedSelf = self;
+              }
+            }
+          }
         }
       }
     }
@@ -6632,7 +6654,10 @@ export class BallEngine {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
-          return __ball_to_string(v);
+          if ((typeof v === 'number' || v instanceof BallDouble)) {
+            return __ball_to_string(v);
+          }
+          return __ball_to_string(new BallDouble(v));
         }));
       }), ['string_to_int']: ((i) => {
         const input = i;
@@ -6644,7 +6669,7 @@ export class BallEngine {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
-          return __ball_parse_double(v);
+          return new BallDouble(__ball_parse_double(v));
         }));
       }), ['to_double']: ((i) => {
         const input = i;
@@ -7024,10 +7049,16 @@ export class BallEngine {
           if ((r != null)) {
             r = await r;
           }
-          if (Array.isArray(r)) {
-            __ball_push_all(result, r);
+          if (false /* BallList is List in TS */) {
+            for (const item of r.items) {
+              result = (result.push(item), result);
+            }
           } else {
-            result = (result.push(r), result);
+            if (Array.isArray(r)) {
+              __ball_push_all(result, r);
+            } else {
+              result = (result.push(r), result);
+            }
           }
         }
         return result;
@@ -7373,7 +7404,8 @@ export class BallEngine {
         return new _FlowSignal('yield_each', { value: this._extractUnaryArg(i) });
       }), ['symbol']: ((i) => {
         const input = i;
-        return this._extractField(i, 'value');
+        let name = this._extractField(i, 'value');
+        return (('Symbol("' + __ball_to_string(name)) + '")');
       }), ['type_literal']: ((i) => {
         const input = i;
         return this._extractField(i, 'type');
@@ -8944,7 +8976,10 @@ export class BallEngine {
 
   _stdUnaryNum(input: any, op: any): any {
     let value = this._extractUnaryArg(input);
-    return op(this._toNum(value));
+    const __vBD = value instanceof BallDouble;
+    const __result = op(this._toNum(value));
+    if (__vBD && typeof __result === 'number') return new BallDouble(__result);
+    return __result;
   }
 
   _stdNot(input: any): any {

@@ -2165,12 +2165,13 @@ void main() {
         '7',
       );
     });
-    test('symbol returns value', () async {
+    test('symbol prints like native Dart Symbol("name") (#65)', () async {
+      // Dart's print(#foo) prints `Symbol("foo")`, not the bare name.
       expect(
         await evalPrintStr(
           stdCall('symbol', msg([field('value', literal('foo'))])),
         ),
-        'foo',
+        'Symbol("foo")',
       );
     });
     test('type_literal returns type name', () async {

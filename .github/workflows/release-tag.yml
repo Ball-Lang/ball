@@ -34,12 +34,19 @@ jobs:
         with:
           tag: true
 
-      # Dispatch release-publish.yml once per freshly-tagged package,
-      # in dependency order. `--no-published` skips packages whose
-      # version is already on pub.dev (e.g. republishing unchanged).
+      # Dispatch release-publish.yml once per freshly-tagged package.
+      # NOT --order-dependents: the workspace has dev-dependency cycles
+      # (ball_base↔ball_protobuf, ball_engine↔ball_encoder round-trip tests)
+      # that make melos's topological sort hard-fail — the first-ever run of
+      # this workflow died on exactly that. The ordering was illusory anyway:
+      # `gh workflow run` returns immediately, so the dispatched publishes
+      # run concurrently regardless. Steady-state releases are
+      # order-independent (caret ranges are satisfied by the PREVIOUS
+      # published versions); only a catch-up release for a package whose
+      # deps have never reached pub.dev needs manual, tiered dispatch.
       - name: Dispatch per-package publish workflows
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          dart run melos exec -c 1 --no-private --order-dependents -- \
+          dart run melos exec -c 1 --no-private -- \
             'gh workflow run release-publish.yml --ref $MELOS_PACKAGE_NAME-v$MELOS_PACKAGE_VERSION'

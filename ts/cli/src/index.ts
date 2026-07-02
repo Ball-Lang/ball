@@ -162,12 +162,19 @@ function unwrapBallFile(json: unknown): unknown {
   return body;
 }
 
+/**
+ * Abort the current command with a user-facing error. Thrown (not
+ * process.exit) so the entrypoint can set process.exitCode and let the
+ * process drain naturally — a hard exit() discards buffered stdout/stderr
+ * pipe writes, truncating program output mid-stream (issue #138).
+ */
+class CliError extends Error {}
+
 function fail(message: string): never {
-  process.stderr.write(`ball: ${message}\n`);
-  process.exit(1);
+  throw new CliError(message);
 }
 
-function cmdRun(args: ParsedArgs): number {
+async function cmdRun(args: ParsedArgs): Promise<number> {
   const programPath = args.positional[0];
   if (!programPath) {
     process.stderr.write('ball: run requires a program path\n\n');
@@ -181,8 +188,11 @@ function cmdRun(args: ParsedArgs): number {
     stderr: (msg: string) => process.stderr.write(msg + '\n'),
   });
 
+  // run() is async (Promise<string[]>). Without the await, process.exit(0)
+  // fired before the program executed — `ball run` printed NOTHING and
+  // swallowed runtime errors as unhandled rejections (issue #138).
   try {
-    engine.run();
+    await engine.run();
   } catch (e) {
     const err = e as Error;
     fail(`runtime error: ${err.message}`);
@@ -242,7 +252,7 @@ function cmdAudit(args: ParsedArgs): number {
   return 0;
 }
 
-function main(argv: string[]): number {
+async function main(argv: string[]): Promise<number> {
   const args = parseArgs(argv);
 
   if (args.flags['help'] === true || args.flags['h'] === true) {
@@ -257,7 +267,7 @@ function main(argv: string[]): number {
 
   switch (args.command) {
     case 'run':
-      return cmdRun(args);
+      return await cmdRun(args);
     case 'audit':
       return cmdAudit(args);
     case undefined:
@@ -270,4 +280,17 @@ function main(argv: string[]): number {
   }
 }
 
-process.exit(main(process.argv.slice(2)));
+// Set exitCode instead of process.exit(): a hard exit drops whatever part
+// of the engine's output is still buffered in the stdout pipe (the fib
+// test saw "0 1 1 2" of 8 lines). With exitCode the process exits when
+// the event loop drains, after all writes flush.
+try {
+  process.exitCode = await main(process.argv.slice(2));
+} catch (e) {
+  if (e instanceof CliError) {
+    process.stderr.write(`ball: ${e.message}\n`);
+    process.exitCode = 1;
+  } else {
+    throw e;
+  }
+}

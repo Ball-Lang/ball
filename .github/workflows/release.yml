@@ -10,6 +10,8 @@ permissions:
   pull-requests: write
   id-token: write
   packages: write
+  # gh workflow run (npm-publish dispatch after a release is cut)
+  actions: write
 
 jobs:
   # ──────────────────────────────────────────────────
@@ -99,12 +101,29 @@ jobs:
           @semantic-release/commit-analyzer
           @semantic-release/release-notes-generator
           @semantic-release/changelog
+          @semantic-release/exec
           @semantic-release/github
           @semantic-release/git
 
-      # semantic-release creates the GitHub release + changelog.
-      # npm publishing is handled by publish-npm.yml (OIDC, no token).
+      # semantic-release creates the GitHub release + changelog and bumps the
+      # four npm package.json versions in lockstep (see .releaserc.json). The
+      # exec plugin's successCmd writes `released_version` to this step's
+      # outputs — set ONLY when a release was actually published.
       - name: Run semantic-release
+        id: semrel
         run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # npm publishing runs in publish-npm.yml (OIDC trusted publishing, no
+      # token). Its `release: published` trigger never fires for releases
+      # created here: events produced with the default GITHUB_TOKEN do not
+      # trigger workflows (GitHub recursion protection) — npm silently froze
+      # at 0.2.x for months because of this. Dispatch it explicitly instead,
+      # pinned to the fresh release tag (same proven pattern as
+      # release-tag.yml → release-publish.yml).
+      - name: Dispatch npm publish for the new release
+        if: steps.semrel.outputs.released_version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run publish-npm.yml --ref "v${{ steps.semrel.outputs.released_version }}"

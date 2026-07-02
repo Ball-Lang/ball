@@ -108,15 +108,20 @@ const fib = join(conformanceDir, '28_fibonacci.ball.json');
 
 if (existsSync(fib)) {
   test('run produces correct fibonacci output', () => {
-    const expected = readFileSync(
-      join(conformanceDir, '28_fibonacci.expected_output.txt'),
-      'utf8',
-    ).trim();
+    // Normalize CRLF: on a Windows checkout (.gitattributes text=auto) the
+    // expected file carries \r\n while the CLI emits \n.
+    const norm = (s: string) => s.replace(/\r\n/g, '\n').trim();
+    const expected = norm(
+      readFileSync(
+        join(conformanceDir, '28_fibonacci.expected_output.txt'),
+        'utf8',
+      ),
+    );
     const r = runCli(['run', fib]);
     assert(r.status === 0, `exit ${r.status}: ${r.stderr}`);
     assert(
-      r.stdout.trim() === expected,
-      `output mismatch\nexpected: ${expected}\nactual:   ${r.stdout.trim()}`,
+      norm(r.stdout) === expected,
+      `output mismatch\nexpected: ${expected}\nactual:   ${norm(r.stdout)}`,
     );
   });
 } else {

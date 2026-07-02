@@ -473,6 +473,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             ts/engine/package-lock.json
+            ts/cli/package-lock.json
             ts/compiler/package-lock.json
 
       # Dart is needed to regenerate engine.ball.json for the engine
@@ -487,6 +488,16 @@ jobs:
         run: cd ts/engine && npm run build
       - name: Test @ball-lang/engine
         run: cd ts/engine && npm test
+
+      # @ball-lang/cli (depends on the in-repo engine via file:../engine —
+      # the engine build above must precede; previously the cli had NO CI
+      # gate and shipped built against a stale registry engine)
+      - name: Install @ball-lang/cli deps
+        run: cd ts/cli && npm ci
+      - name: Build @ball-lang/cli
+        run: cd ts/cli && npm run build
+      - name: Test @ball-lang/cli
+        run: cd ts/cli && npm test
 
       # @ball-lang/compiler (self-host TS-native compiler)
       - name: Install @ball-lang/compiler deps

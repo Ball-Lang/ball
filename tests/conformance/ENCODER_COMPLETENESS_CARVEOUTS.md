@@ -13,8 +13,5 @@ loud and reviewed, never silent — the failure mode that produced issue #55).
 
 ## Known-broken (tracked) — REMOVE the carve-out once fixed + add a fixture
 
-- `symbol` — `#foo` round-trips Dart→Ball→engine to `foo` but native Dart prints
-  `Symbol("foo")`. Silent-wrong-output: the engine's symbol value/`toString`
-  does not match Dart. Surfaced by the completeness gate 2026-06-18. TODO: make
-  the engine represent a symbol so it stringifies as `Symbol("name")` across the
-  Dart/TS/C++ engines, then replace this carve-out with a fixture.
+_None currently._ `type_literal` was fixed by #66 (PR #158) and is now
+exercised by `tests/conformance/src/340_type_literal.dart`.

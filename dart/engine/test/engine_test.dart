@@ -1163,6 +1163,139 @@ void main() {
     });
   });
 
+  // `goto`/`label` are not encoder-reachable from any source language (Dart
+  // has no goto statement), so they cannot be exercised by a
+  // tests/conformance/src/*.dart fixture (the conformance oracle is native
+  // `dart run`). Cover the fix directly via a hand-built Program instead.
+  group('engine: goto/label (#125)', () {
+    final gotoFns = [
+      {'name': 'goto', 'isBase': true},
+      {'name': 'label', 'isBase': true},
+    ];
+
+    test(
+      'backward goto thrown from a nested if re-executes the label body',
+      () async {
+        // _evalGoto THROWS its flow signal so it escapes nested evaluation
+        // immediately; _evalLabel must catch a matching backward goto and
+        // re-run the body rather than only inspecting a *returned* signal.
+        // The goto call here is nested two levels deep (label -> block -> if
+        // -> then -> block -> goto) to reproduce the exact escape path.
+        final program = buildProgram(
+          stdFunctions: gotoFns,
+          functions: [
+            mainFn([
+              letStmt('i', literal(0), keyword: 'var'),
+              stmt(
+                stdCall(
+                  'label',
+                  msg([
+                    field('name', literal('loop')),
+                    field('body', {
+                      'block': {
+                        'statements': [
+                          stmt(printToString(ref('i'))),
+                          stmt(
+                            stdCall(
+                              'assign',
+                              msg([
+                                field('target', ref('i')),
+                                field(
+                                  'value',
+                                  stdCall(
+                                    'add',
+                                    msg([
+                                      field('left', ref('i')),
+                                      field('right', literal(1)),
+                                    ]),
+                                  ),
+                                ),
+                              ]),
+                            ),
+                          ),
+                          stmt(
+                            stdCall(
+                              'if',
+                              msg([
+                                field(
+                                  'condition',
+                                  stdCall(
+                                    'less_than',
+                                    msg([
+                                      field('left', ref('i')),
+                                      field('right', literal(3)),
+                                    ]),
+                                  ),
+                                ),
+                                field('then', {
+                                  'block': {
+                                    'statements': [
+                                      stmt(
+                                        stdCall(
+                                          'goto',
+                                          msg([
+                                            field('label', literal('loop')),
+                                          ]),
+                                        ),
+                                      ),
+                                    ],
+                                  },
+                                }),
+                              ]),
+                            ),
+                          ),
+                        ],
+                      },
+                    }),
+                  ]),
+                ),
+              ),
+            ]),
+          ],
+        );
+        expect(await runAndCapture(program), ['0', '1', '2']);
+      },
+    );
+  });
+
+  // `list_flat_map` is a std base function with no current encoder emission
+  // site either (only the compiler + engine implement it today), so cover
+  // it directly rather than via a conformance fixture.
+  group('engine: list_flat_map (#115)', () {
+    test('flattens BallList results from the callback', () async {
+      // List literals evaluate to BallList (not a raw Dart List), and only
+      // raw List results were flattened before — a BallList callback result
+      // was appended as one nested element instead of being spliced in.
+      final program = buildProgram(
+        stdFunctions: [
+          {'name': 'list_flat_map', 'isBase': true},
+        ],
+        functions: [
+          mainFn([
+            stmt(
+              printToString(
+                stdCall(
+                  'list_flat_map',
+                  msg([
+                    field(
+                      'list',
+                      listLit([literal(1), literal(2), literal(3)]),
+                    ),
+                    field(
+                      'callback',
+                      lambdaExpr(listLit([ref('input'), ref('input')])),
+                    ),
+                  ]),
+                ),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(program), ['[1, 1, 2, 2, 3, 3]']);
+    });
+  });
+
   group('engine: memory_limit', () {
     final memoryFns = [
       {'name': 'list_filled', 'isBase': true},

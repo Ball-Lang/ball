@@ -1,0 +1,5 @@
+Symbol("foo")
+Symbol("alpha_beta")
+Symbol("a.b")
+sym: Symbol("bar")
+Symbol("qux")

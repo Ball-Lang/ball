@@ -1136,6 +1136,22 @@ $1async _resolveAndCallFunction(`,
       `(lit.whichValue() === (Literal_Value.doubleValue)) ? (new BallDouble(typeof lit.doubleValue === 'number' ? lit.doubleValue : Number(lit.doubleValue)))`,
     );
 
+    // ── Post-processing: fix _stdUnaryNum to propagate BallDouble (#67) ──
+    // `negate` is the only double-producing consumer of _stdUnaryNum
+    // (bitwise_not always operates on int); wrap the result in BallDouble
+    // when the operand was one so whole-number doubles like `-7.0` don't
+    // collapse to a bare JS integer ("-7") when self-hosted on TS.
+    body = body.replace(
+      /_stdUnaryNum\(input: any, op: any\): any \{\s*let value = this\._extractUnaryArg\(input\);\s*return op\(this\._toNum\(value\)\);\s*\}/,
+      `_stdUnaryNum(input: any, op: any): any {
+    let value = this._extractUnaryArg(input);
+    const __vBD = value instanceof BallDouble;
+    const __result = op(this._toNum(value));
+    if (__vBD && typeof __result === 'number') return new BallDouble(__result);
+    return __result;
+  }`,
+    );
+
     // ── Post-processing: fix _stdBinary to propagate BallDouble ──────────
     // When BallDouble operands are passed, wrap the result in BallDouble.
     // The issue is that _toNum unwraps BallDouble before passing to op,
@@ -4889,8 +4905,16 @@ function __isUnknownFnError(e: any): boolean {
         const v = f.get("value") ?? f.get("input");
         return v ? `[...atob(${this.expr(v)})].map(c => c.charCodeAt(0))` : "[]";
       }
+      // Symbol literal (#foo) — Dart prints `Symbol("foo")`, so the value IS
+      // that canonical string (matches the engine's std.symbol handler, #65).
+      case "symbol": {
+        const v = f.get("value") ?? f.get("name");
+        return v
+          ? `('Symbol("' + __ball_to_string(${this.expr(v)}) + '")')`
+          : "null";
+      }
       // Type ops
-      case "symbol": case "type_literal": {
+      case "type_literal": {
         const v = f.get("value") ?? f.get("name");
         return v ? this.expr(v) : "null";
       }

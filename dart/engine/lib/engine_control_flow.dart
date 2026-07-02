@@ -1396,16 +1396,48 @@ extension BallEngineControlFlow on BallEngine {
     // Execute the body; if a goto signal targeting THIS label arrives,
     // re-execute the body (backward goto). For forward gotos, the signal
     // propagates up until the matching label handler catches it.
+    //
+    // _evalGoto THROWS its signal (so it escapes nested evaluation
+    // immediately), so the goto must be caught here — inspecting only the
+    // RETURNED value let every backward goto escape past its label (#125).
     Object? result;
-    do {
-      result = await _evalExpression(body, scope);
-      if (result is _FlowSignal &&
+    var repeat = true;
+    while (repeat) {
+      repeat = false;
+      try {
+        result = await _evalExpression(body, scope);
+      } catch (e) {
+        // Read the signal through a plain local, NOT the catch variable:
+        // the Dart compiler lowers `e.field` on a catch-bound variable to
+        // map-subscript form (`e['field']`, since Ball-thrown exceptions are
+        // maps), and after the `is _FlowSignal` promotion in the same `&&`
+        // chain that subscript is a static error in the round-tripped engine
+        // ("operator '[]' isn't defined for _FlowSignal"). Aliasing to a
+        // local first matches how the rest of the engine reads flow signals
+        // (`result is _FlowSignal && result.kind == ...`), which round-trips
+        // cleanly on all three targets. The alias also keeps this catch body
+        // a multi-statement Block, which the C++ compiler needs to emit a
+        // statement-form if/else — a bare single-`if` catch body falls back
+        // to expression compilation, rendering `rethrow` (a void C++ throw)
+        // as a ternary branch ("invalid use of void expression").
+        final Object signal = e;
+        if (signal is _FlowSignal &&
+            signal.kind == 'goto' &&
+            signal.label == label) {
+          repeat = true; // backward goto: re-execute the label body
+        } else {
+          rethrow;
+        }
+      }
+      // Defensive: also honor a goto signal that is returned (not thrown)
+      // by the body, mirroring how break/continue signals propagate.
+      if (!repeat &&
+          result is _FlowSignal &&
           result.kind == 'goto' &&
           result.label == label) {
-        continue; // re-execute body (backward goto)
+        repeat = true;
       }
-      break;
-    } while (true);
+    }
     return result;
   }
 
@@ -1531,6 +1563,19 @@ extension BallEngineControlFlow on BallEngine {
       unwrappedSelf = self.value;
     } else if (self is BallMap) {
       unwrappedSelf = self.entries;
+    } else if (self is num) {
+      // Already a raw num — keep as-is. This branch MUST precede the
+      // BallInt/BallDouble unwraps: on the compiled TS/C++ self-hosts a raw
+      // number also satisfies the wrapper type-tests, and reading `.value`
+      // off a bare number there would yield garbage.
+      unwrappedSelf = self;
+    } else if (self is BallInt) {
+      // Numeric wrappers were previously NOT unwrapped, so num instance
+      // methods on a double/int-typed local (e.g. `d.floor()`) fell through
+      // dispatch entirely (#115).
+      unwrappedSelf = self.value;
+    } else if (self is BallDouble) {
+      unwrappedSelf = self.value;
     } else {
       unwrappedSelf = self;
     }

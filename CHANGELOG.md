@@ -1,3 +1,10 @@
+## [1.3.7](https://github.com/Ball-Lang/ball/compare/v1.3.6...v1.3.7) (2026-07-02)
+
+
+### Bug Fixes
+
+* type literals ([#66](https://github.com/Ball-Lang/ball/issues/66)) + setter parameter binding ([#95](https://github.com/Ball-Lang/ball/issues/95)) ([#158](https://github.com/Ball-Lang/ball/issues/158)) ([cd1087b](https://github.com/Ball-Lang/ball/commit/cd1087b9e7bbacac703f1344393b49963698af72))
+
 ## [1.3.6](https://github.com/Ball-Lang/ball/compare/v1.3.5...v1.3.6) (2026-07-02)
 
 

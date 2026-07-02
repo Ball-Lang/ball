@@ -1,6 +1,6 @@
 {
   "name": "@ball-lang/cli",
-  "version": "1.3.5",
+  "version": "1.3.6",
   "description": "Command-line interface for the Ball programming language. Runs Ball programs and performs static capability analysis.",
   "type": "module",
   "main": "dist/index.js",

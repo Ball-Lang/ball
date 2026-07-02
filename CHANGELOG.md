@@ -1,3 +1,10 @@
+## [1.3.6](https://github.com/Ball-Lang/ball/compare/v1.3.5...v1.3.6) (2026-07-02)
+
+
+### Bug Fixes
+
+* **ts:** enum materialization, per-iteration loop capture, engine resource limits (fixes [#120](https://github.com/Ball-Lang/ball/issues/120), [#24](https://github.com/Ball-Lang/ball/issues/24); [#69](https://github.com/Ball-Lang/ball/issues/69) TS part) ([#155](https://github.com/Ball-Lang/ball/issues/155)) ([a4f5a32](https://github.com/Ball-Lang/ball/commit/a4f5a32de00f38a2aa37acf7ce7411dc6b17b29a))
+
 ## [1.3.5](https://github.com/Ball-Lang/ball/compare/v1.3.4...v1.3.5) (2026-07-02)
 
 

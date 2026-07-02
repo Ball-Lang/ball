@@ -2,7 +2,7 @@ name: ball_encoder
 description: >-
   Dart-to-Ball encoder that translates Dart source code into Ball protobuf
   programs, with full package encoding and pubspec.yaml support.
-version: 0.3.0+1
+version: 0.3.0+2
 homepage: https://github.com/ball-lang/ball
 repository: https://github.com/ball-lang/ball
 issue_tracker: https://github.com/ball-lang/ball/issues
@@ -28,5 +28,5 @@ dependencies:
   archive: ^4.0.0
 
 dev_dependencies:
-  ball_engine: ^0.3.0+1
+  ball_engine: ^0.3.0+2
   test: ^1.25.0

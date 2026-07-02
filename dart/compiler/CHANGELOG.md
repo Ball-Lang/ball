@@ -1,3 +1,9 @@
+## 0.3.0+2
+
+ - **FIX**(engine): backward goto, BallDouble unwrapping, and symbol printing ([#159](https://github.com/ball-lang/ball/issues/159)). ([3ab0bb58](https://github.com/ball-lang/ball/commit/3ab0bb58e1d7eec99a63251090999efa650c8a39))
+ - **FIX**: type literals ([#66](https://github.com/ball-lang/ball/issues/66)) + setter parameter binding ([#95](https://github.com/ball-lang/ball/issues/95)) ([#158](https://github.com/ball-lang/ball/issues/158)). ([cd1087b9](https://github.com/ball-lang/ball/commit/cd1087b9e7bbacac703f1344393b49963698af72))
+ - **FIX**(gen,compiler,cpp): presence rule, real memory_realloc, extension guard, orphan runtime removal ([#151](https://github.com/ball-lang/ball/issues/151)). ([97c85be5](https://github.com/ball-lang/ball/commit/97c85be50dc57219abe0b79c220f0ecefee9d739))
+
 ## 0.3.0+1
 
  - **FIX**(engine,encoder,compilers): String.runes → code points (closes [#108](https://github.com/ball-lang/ball/issues/108)) ([#111](https://github.com/ball-lang/ball/issues/111)). ([09bd5880](https://github.com/ball-lang/ball/commit/09bd588090e4f5b626c1cd792b702fe1d1020299))

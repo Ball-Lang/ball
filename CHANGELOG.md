@@ -1,3 +1,53 @@
+# Change Log
+
+All notable changes to this project will be documented in this file.
+See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
+
+## 2026-07-02
+
+### Changes
+
+---
+
+Packages with breaking changes:
+
+ - There are no breaking changes in this release.
+
+Packages with other changes:
+
+ - [`ball_compiler` - `v0.3.0+2`](#ball_compiler---v0302)
+ - [`ball_encoder` - `v0.3.0+2`](#ball_encoder---v0302)
+ - [`ball_engine` - `v0.3.0+2`](#ball_engine---v0302)
+ - [`ball_protobuf_gen` - `v0.3.0+2`](#ball_protobuf_gen---v0302)
+ - [`ball_cli` - `v0.3.0+2`](#ball_cli---v0302)
+
+Packages with dependency updates only:
+
+> Packages listed below depend on other packages in this workspace that have had changes. Their versions have been incremented to bump the minimum dependency versions of the packages they depend upon in this project.
+
+ - `ball_cli` - `v0.3.0+2`
+
+---
+
+#### `ball_compiler` - `v0.3.0+2`
+
+ - **FIX**(engine): backward goto, BallDouble unwrapping, and symbol printing ([#159](https://github.com/ball-lang/ball/issues/159)). ([3ab0bb58](https://github.com/ball-lang/ball/commit/3ab0bb58e1d7eec99a63251090999efa650c8a39))
+ - **FIX**: type literals ([#66](https://github.com/ball-lang/ball/issues/66)) + setter parameter binding ([#95](https://github.com/ball-lang/ball/issues/95)) ([#158](https://github.com/ball-lang/ball/issues/158)). ([cd1087b9](https://github.com/ball-lang/ball/commit/cd1087b9e7bbacac703f1344393b49963698af72))
+ - **FIX**(gen,compiler,cpp): presence rule, real memory_realloc, extension guard, orphan runtime removal ([#151](https://github.com/ball-lang/ball/issues/151)). ([97c85be5](https://github.com/ball-lang/ball/commit/97c85be50dc57219abe0b79c220f0ecefee9d739))
+
+#### `ball_encoder` - `v0.3.0+2`
+
+ - **FIX**: type literals ([#66](https://github.com/ball-lang/ball/issues/66)) + setter parameter binding ([#95](https://github.com/ball-lang/ball/issues/95)) ([#158](https://github.com/ball-lang/ball/issues/158)). ([cd1087b9](https://github.com/ball-lang/ball/commit/cd1087b9e7bbacac703f1344393b49963698af72))
+
+#### `ball_engine` - `v0.3.0+2`
+
+ - **FIX**(engine): backward goto, BallDouble unwrapping, and symbol printing ([#159](https://github.com/ball-lang/ball/issues/159)). ([3ab0bb58](https://github.com/ball-lang/ball/commit/3ab0bb58e1d7eec99a63251090999efa650c8a39))
+ - **FIX**: type literals ([#66](https://github.com/ball-lang/ball/issues/66)) + setter parameter binding ([#95](https://github.com/ball-lang/ball/issues/95)) ([#158](https://github.com/ball-lang/ball/issues/158)). ([cd1087b9](https://github.com/ball-lang/ball/commit/cd1087b9e7bbacac703f1344393b49963698af72))
+
+#### `ball_protobuf_gen` - `v0.3.0+2`
+
+ - **FIX**(gen,compiler,cpp): presence rule, real memory_realloc, extension guard, orphan runtime removal ([#151](https://github.com/ball-lang/ball/issues/151)). ([97c85be5](https://github.com/ball-lang/ball/commit/97c85be50dc57219abe0b79c220f0ecefee9d739))
+
 ## [1.3.9](https://github.com/Ball-Lang/ball/compare/v1.3.8...v1.3.9) (2026-07-02)
 
 
@@ -55,10 +105,6 @@
 
 * **release,cli:** unfreeze the npm lane, lockstep TS versions, await engine.run ([#138](https://github.com/Ball-Lang/ball/issues/138), [#139](https://github.com/Ball-Lang/ball/issues/139)) ([#148](https://github.com/Ball-Lang/ball/issues/148)) ([9ca0d59](https://github.com/Ball-Lang/ball/commit/9ca0d59c9e14691ac1c0d7b7c2c47ef64230b4f6))
 
-# Change Log
-
-All notable changes to this project will be documented in this file.
-See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 ## 2026-07-02
 

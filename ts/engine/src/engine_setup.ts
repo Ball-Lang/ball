@@ -627,9 +627,23 @@ export function createEngineSetup(mod: EngineModule) {
   // for functions that the compiled engine's _buildStdDispatch doesn't cover
   // (collection higher-order functions, string helpers, etc.).
   
-  function registerExtraStdFunctions(stdHandler: StdHandler): void {
+  /**
+   * Register the hand-written std-function overrides on `stdHandler`.
+   *
+   * `engine` is the compiled BallEngine instance the handler is wired to.
+   * It is REQUIRED for handlers that allocate proportionally to their input
+   * (list_filled / list_generate): they charge the allocation against the
+   * engine's memory accounting so `maxMemoryBytes` is enforced (#24). The
+   * compiled engine's handler-call protocol passes a bound `callFunction`
+   * (not the engine) as the third argument, so the engine must be captured
+   * here at registration time.
+   */
+  function registerExtraStdFunctions(stdHandler: StdHandler, engine: any): void {
     const _r = stdHandler.register.bind(stdHandler);
     const _m = (i: any) => (typeof i === 'object' && i !== null) ? i : {};
+    // Mirrors the compiled engine's `_ballPointerBytes` accounting constant.
+    const _ptrBytes = 8;
+    const _track = (bytes: number) => engine._trackMemoryAllocation(bytes);
   
     // ── Collection: list_* ─────────────────────────────────────────────
     _r('list_foreach', async (i: any) => {
@@ -1054,12 +1068,17 @@ export function createEngineSetup(mod: EngineModule) {
       return val;
     });
   
-    // Override dart_list_generate (compiled version's lambda calling may fail)
+    // Override dart_list_generate (compiled version's lambda calling may fail).
+    // These overrides shadow the compiled `_stdListFilled`/`_stdListGenerate`
+    // implementations, which already track allocations — so they must charge
+    // the allocation against the engine's memory accounting themselves
+    // (maxMemoryBytes, #24).
     _r('dart_list_generate', async (i: any) => {
       const m = _m(i);
       const count = Number(m['count'] ?? m['arg0'] ?? 0);
       const gen = m['generator'] ?? m['arg1'];
       if (typeof gen !== 'function') return [];
+      _track(Math.max(0, count | 0) * _ptrBytes);
       const result: any[] = [];
       for (let idx = 0; idx < count; idx++) {
         let v = gen(idx);
@@ -1071,11 +1090,13 @@ export function createEngineSetup(mod: EngineModule) {
     _r('dart_list_filled', (i: any) => {
       const m = _m(i);
       const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
+      _track(Math.max(0, count | 0) * _ptrBytes);
       return Array(Math.max(0, count | 0)).fill(m['value'] ?? m['arg1'] ?? null);
     });
     _r('list_filled', (i: any) => {
       const m = _m(i);
       const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
+      _track(Math.max(0, count | 0) * _ptrBytes);
       return Array(Math.max(0, count | 0)).fill(m['value'] ?? m['arg1'] ?? null);
     });
     _r('list_generate', (i: any) => {
@@ -1083,6 +1104,7 @@ export function createEngineSetup(mod: EngineModule) {
       const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
       const fn = m['function'] ?? m['generator'] ?? m['callback'] ?? m['value'];
       if (typeof fn !== 'function') return [];
+      _track(Math.max(0, count | 0) * _ptrBytes);
       const out: any[] = [];
       for (let i2 = 0; i2 < count; i2++) {
         let r = fn(i2);

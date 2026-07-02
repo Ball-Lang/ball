@@ -336,9 +336,10 @@ await test('generous timeout allows normal execution', async () => {
 
 console.log('\nMemory limit:');
 
-// Skip: compiled engine memory tracking uses Dart-internal allocation counters not available in TS
-await test('small memory limit throws on large allocation [SKIP]', async () => {
-  return; // skipped
+// list_filled allocates 8 bytes/element in the engine's memory accounting
+// (200 elements = 1600 bytes > the 1000-byte limit) — see the composer
+// registrations in engine_setup.ts (#24).
+await test('small memory limit throws on large allocation', async () => {
   const prog = {
     modules: [{
       name: 'std', functions: [{ name: 'list_filled', isBase: true }],
@@ -433,9 +434,9 @@ await test('throws when program has too many modules', async () => {
   }
 });
 
-// Skip: compiled engine uses Dart protobuf writeToBuffer for size check, not available in TS
-await test('throws when program JSON size exceeds configured limit [SKIP]', async () => {
-  return; // skipped
+// The wrapper exposes the program's UTF-8 JSON byte length through a
+// `writeToBuffer` shim, so the compiled engine's size validation runs (#24).
+await test('throws when program JSON size exceeds configured limit', async () => {
   const prog = {
     modules: [{
       name: 'std', functions: [{ name: 'print', isBase: true }],
@@ -457,6 +458,23 @@ await test('throws when program JSON size exceeds configured limit [SKIP]', asyn
       `Expected program-too-large error, got: ${e.message}`,
     );
   }
+});
+
+await test('generous program size limit allows normal execution', async () => {
+  const prog = {
+    modules: [{
+      name: 'std', functions: [{ name: 'print', isBase: true }],
+    }, {
+      name: 'main', functions: [{
+        name: 'main',
+        body: { call: { module: 'std', function: 'print', input: { literal: { stringValue: 'fits' } } } },
+      }],
+    }],
+    entryModule: 'main', entryFunction: 'main',
+  };
+  const engine = new BallEngine(prog, { maxProgramSizeBytes: 10_000_000 });
+  await engine.run();
+  assertEqual(engine.getOutput()[0], 'fits');
 });
 
 console.log('\nSandbox mode:');

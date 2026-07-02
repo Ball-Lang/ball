@@ -104,5 +104,13 @@ cd ts/encoder && npm ci && npm run build
 
 ## Publishing
 
-- npm via OIDC trusted publishing (see `.github/workflows/publish-npm.yml`)
-- Package names: `@ball-lang/shared`, `@ball-lang/compiler`, `@ball-lang/engine`, `@ball-lang/cli`
+- npm via OIDC trusted publishing (see `.github/workflows/publish-npm.yml`
+  and `docs/RELEASE.md` for the full lane: semantic-release bumps all four
+  package.json versions in lockstep, then release.yml dispatches the publish)
+- Published packages: `@ball-lang/engine`, `@ball-lang/cli`,
+  `@ball-lang/compiler`, `@ball-lang/encoder` (`@ball-lang/shared` is
+  in-repo only, not published)
+- `ts/cli` depends on the in-repo engine via
+  `"@ball-lang/engine": "file:../engine"` — INTENTIONAL, do not change it to
+  a registry range (dev/CI must test the engine being released;
+  publish-npm.yml rewrites it to `^<version>` right before `npm publish`)

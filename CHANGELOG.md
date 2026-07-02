@@ -1,3 +1,10 @@
+## [1.3.9](https://github.com/Ball-Lang/ball/compare/v1.3.8...v1.3.9) (2026-07-02)
+
+
+### Bug Fixes
+
+* **cpp:** lower std.type_literal to its canonical display string ([#161](https://github.com/Ball-Lang/ball/issues/161)) ([934a40b](https://github.com/Ball-Lang/ball/commit/934a40bcca65eb60f722f72657d5604acbe85581))
+
 ## [1.3.8](https://github.com/Ball-Lang/ball/compare/v1.3.7...v1.3.8) (2026-07-02)
 
 

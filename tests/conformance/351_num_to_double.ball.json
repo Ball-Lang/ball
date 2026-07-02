@@ -7,7 +7,7 @@
       "name": "std",
       "functions": [
         {
-          "name": "to_string_as_fixed",
+          "name": "round_to_double",
           "isBase": true
         },
         {
@@ -19,7 +19,23 @@
           "isBase": true
         },
         {
-          "name": "string_to_double",
+          "name": "floor_to_double",
+          "isBase": true
+        },
+        {
+          "name": "ceil_to_double",
+          "isBase": true
+        },
+        {
+          "name": "truncate_to_double",
+          "isBase": true
+        },
+        {
+          "name": "divide_double",
+          "isBase": true
+        },
+        {
+          "name": "add",
           "isBase": true
         }
       ],
@@ -35,6 +51,26 @@
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
               }
             ]
           }
@@ -78,23 +114,16 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "to_string_as_fixed",
+                                  "function": "round_to_double",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
                                           "value": {
                                             "literal": {
-                                              "doubleValue": 3.14159
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "2"
+                                              "doubleValue": 3.7
                                             }
                                           }
                                         }
@@ -124,23 +153,16 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "to_string_as_fixed",
+                                  "function": "round_to_double",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
                                           "value": {
                                             "literal": {
-                                              "doubleValue": 3.14159
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "0"
+                                              "doubleValue": 3.2
                                             }
                                           }
                                         }
@@ -170,23 +192,32 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "to_string_as_fixed",
+                                  "function": "round_to_double",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
                                           "value": {
-                                            "literal": {
-                                              "doubleValue": 3.14159
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "4"
+                                            "call": {
+                                              "module": "std",
+                                              "function": "negate",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "literal": {
+                                                          "doubleValue": 3.7
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
                                             }
                                           }
                                         }
@@ -216,115 +247,431 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "to_string_as_fixed",
+                                  "function": "round_to_double",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "negate",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "literal": {
+                                                          "doubleValue": 3.2
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "floor_to_double",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "literal": {
+                                              "doubleValue": 3.7
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "floor_to_double",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "negate",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "literal": {
+                                                          "doubleValue": 3.2
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "floor_to_double",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "literal": {
+                                              "doubleValue": 3
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "ceil_to_double",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "literal": {
+                                              "doubleValue": 3.2
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "ceil_to_double",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "negate",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "literal": {
+                                                          "doubleValue": 3.7
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "ceil_to_double",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "literal": {
+                                              "doubleValue": 3
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "truncate_to_double",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "literal": {
+                                              "doubleValue": 3.7
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "truncate_to_double",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "negate",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "value",
+                                                      "value": {
+                                                        "literal": {
+                                                          "doubleValue": 3.7
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "round_to_double",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
                                           "value": {
                                             "literal": {
                                               "doubleValue": 0
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "2"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "to_string_as_fixed",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "literal": {
-                                              "doubleValue": 123.456
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "1"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "to_string_as_fixed",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "literal": {
-                                              "doubleValue": 1000
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "2"
                                             }
                                           }
                                         }
@@ -345,7 +692,7 @@
                     "name": "n",
                     "value": {
                       "literal": {
-                        "intValue": "42"
+                        "intValue": "5"
                       }
                     },
                     "metadata": {
@@ -368,9 +715,10 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "to_string_as_fixed",
+                                  "function": "round_to_double",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
@@ -379,14 +727,6 @@
                                               "name": "n"
                                             }
                                           }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "2"
-                                            }
-                                          }
                                         }
                                       ]
                                     }
@@ -397,20 +737,6 @@
                           ]
                         }
                       }
-                    }
-                  }
-                },
-                {
-                  "let": {
-                    "name": "pi",
-                    "value": {
-                      "literal": {
-                        "doubleValue": 3.14159265358979
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "double"
                     }
                   }
                 },
@@ -428,333 +754,16 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "to_string_as_fixed",
+                                  "function": "floor_to_double",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
                                           "value": {
                                             "reference": {
-                                              "name": "pi"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "5"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "to_string_as_fixed",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "call": {
-                                              "module": "std",
-                                              "function": "negate",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "typeName": "",
-                                                  "fields": [
-                                                    {
-                                                      "name": "value",
-                                                      "value": {
-                                                        "literal": {
-                                                          "doubleValue": 2.71828
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "3"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "to_string_as_fixed",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "call": {
-                                              "module": "std",
-                                              "function": "string_to_double",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "typeName": "",
-                                                  "fields": [
-                                                    {
-                                                      "name": "value",
-                                                      "value": {
-                                                        "literal": {
-                                                          "stringValue": "-2.71828"
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "3"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "to_string_as_fixed",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "call": {
-                                              "module": "std",
-                                              "function": "negate",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "typeName": "",
-                                                  "fields": [
-                                                    {
-                                                      "name": "value",
-                                                      "value": {
-                                                        "literal": {
-                                                          "doubleValue": 123.456
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "1"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "to_string_as_fixed",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "call": {
-                                              "module": "std",
-                                              "function": "negate",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "typeName": "",
-                                                  "fields": [
-                                                    {
-                                                      "name": "value",
-                                                      "value": {
-                                                        "literal": {
-                                                          "doubleValue": 1000
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "2"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "to_string_as_fixed",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "call": {
-                                              "module": "std",
-                                              "function": "negate",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "typeName": "",
-                                                  "fields": [
-                                                    {
-                                                      "name": "value",
-                                                      "value": {
-                                                        "literal": {
-                                                          "doubleValue": 2.5
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "0"
+                                              "name": "n"
                                             }
                                           }
                                         }
@@ -772,20 +781,52 @@
                 },
                 {
                   "let": {
-                    "name": "negPi",
+                    "name": "avg",
                     "value": {
                       "call": {
                         "module": "std",
-                        "function": "negate",
+                        "function": "divide_double",
                         "input": {
                           "messageCreation": {
                             "typeName": "",
                             "fields": [
                               {
-                                "name": "value",
+                                "name": "left",
+                                "value": {
+                                  "call": {
+                                    "module": "std",
+                                    "function": "add",
+                                    "input": {
+                                      "messageCreation": {
+                                        "typeName": "",
+                                        "fields": [
+                                          {
+                                            "name": "left",
+                                            "value": {
+                                              "literal": {
+                                                "intValue": "10"
+                                              }
+                                            }
+                                          },
+                                          {
+                                            "name": "right",
+                                            "value": {
+                                              "literal": {
+                                                "intValue": "3"
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "name": "right",
                                 "value": {
                                   "literal": {
-                                    "doubleValue": 3.14159265358979
+                                    "intValue": "2"
                                   }
                                 }
                               }
@@ -814,99 +855,16 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "to_string_as_fixed",
+                                  "function": "floor_to_double",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
                                           "value": {
                                             "reference": {
-                                              "name": "negPi"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "5"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "let": {
-                    "name": "neg",
-                    "value": {
-                      "call": {
-                        "module": "std",
-                        "function": "negate",
-                        "input": {
-                          "messageCreation": {
-                            "typeName": "",
-                            "fields": [
-                              {
-                                "name": "value",
-                                "value": {
-                                  "literal": {
-                                    "intValue": "42"
-                                  }
-                                }
-                              }
-                            ]
-                          }
-                        }
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "int"
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "to_string_as_fixed",
-                                  "input": {
-                                    "messageCreation": {
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "reference": {
-                                              "name": "neg"
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "2"
+                                              "name": "avg"
                                             }
                                           }
                                         }
@@ -936,39 +894,16 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "to_string_as_fixed",
+                                  "function": "ceil_to_double",
                                   "input": {
                                     "messageCreation": {
+                                      "typeName": "",
                                       "fields": [
                                         {
                                           "name": "value",
                                           "value": {
-                                            "call": {
-                                              "module": "std",
-                                              "function": "negate",
-                                              "input": {
-                                                "messageCreation": {
-                                                  "typeName": "",
-                                                  "fields": [
-                                                    {
-                                                      "name": "value",
-                                                      "value": {
-                                                        "literal": {
-                                                          "doubleValue": 0
-                                                        }
-                                                      }
-                                                    }
-                                                  ]
-                                                }
-                                              }
-                                            }
-                                          }
-                                        },
-                                        {
-                                          "name": "digits",
-                                          "value": {
-                                            "literal": {
-                                              "intValue": "1"
+                                            "reference": {
+                                              "name": "avg"
                                             }
                                           }
                                         }

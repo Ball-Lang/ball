@@ -3582,6 +3582,7 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
             "memory_set",       "memory_compare",    "ptr_add",
             "ptr_sub",          "ptr_diff",           "stack_alloc",
             "stack_push_frame", "stack_pop_frame",   "memory_sizeof",
+            "nullptr",          "memory_heap_size",  "memory_stack_size",
         };
         if (!kImplemented.count(fn)) {
             return "[]{ static_assert(false, \"std_memory." + fn +
@@ -7734,6 +7735,13 @@ inline int64_t _ball_memory_sizeof(const std::string& type_name) {
   if (type_name == "void") return 1;
   return 8;
 }
+
+// ── Introspection — mirrors the Dart compiler: nullptr is address 0,
+//    heap size is the whole linear buffer, stack size is the bytes the
+//    downward-growing stack currently occupies.
+inline int64_t _ball_nullptr() { return 0; }
+inline int64_t _ball_memory_heap_size() { return static_cast<int64_t>(sizeof(_ball_memory)); }
+inline int64_t _ball_memory_stack_size() { return static_cast<int64_t>(sizeof(_ball_memory) - _ball_stack_ptr); }
 )";
     emit_newline();
 }

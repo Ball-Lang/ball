@@ -1084,6 +1084,27 @@ TEST(compile_std_memory_stack_frame_and_sizeof) {
     ASSERT_CONTAINS(out, "inline int64_t _ball_memory_sizeof(const std::string& type_name)");
 }
 
+// nullptr / heap-size / stack-size introspection — one-liners mirroring the
+// Dart compiler (nullptr => 0; heap size = whole linear buffer; stack size =
+// bytes the downward-growing stack occupies). Flagged in the PR #169 review:
+// these were fail-loud gaps while Dart and TS both implement them.
+TEST(compile_std_memory_introspection) {
+    ball::v1::Program prog =
+        build_program(mem_call("memory_heap_size", "Empty", {}));
+    add_base_module(prog, "std_memory");
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_memory_heap_size()");
+    ASSERT_CONTAINS(out, "inline int64_t _ball_nullptr() { return 0; }");
+    ASSERT_CONTAINS(out,
+                    "inline int64_t _ball_memory_heap_size() { return "
+                    "static_cast<int64_t>(sizeof(_ball_memory)); }");
+    ASSERT_CONTAINS(out,
+                    "inline int64_t _ball_memory_stack_size() { return "
+                    "static_cast<int64_t>(sizeof(_ball_memory) - "
+                    "_ball_stack_ptr); }");
+    ASSERT_NOT_CONTAINS(out, "static_assert(false");
+}
+
 // Any std_memory function NOT natively implemented must fail LOUD at C++
 // compile time (a static_assert naming the function) — never silently emit
 // an undefined-identifier call like `_ball_address_of(...)`.

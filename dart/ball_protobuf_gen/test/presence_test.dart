@@ -48,9 +48,7 @@ void main() {
     test('plain proto3 scalar stays implicit — no presence accessors', () {
       // Method absence can't be asserted at runtime without mirrors; scan the
       // TestAllTypesProto3 class body in the golden source instead.
-      final src = File(
-        'test/golden/test_messages.pb.dart',
-      ).readAsStringSync();
+      final src = File('test/golden/test_messages.pb.dart').readAsStringSync();
       final start = src.indexOf('class TestAllTypesProto3 ');
       expect(start, greaterThanOrEqualTo(0));
       final end = src.indexOf('\nclass ', start + 1);

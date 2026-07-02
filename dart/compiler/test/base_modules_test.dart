@@ -93,8 +93,10 @@ void main() {
       // The copy loop that preserves the old block's bytes.
       expect(
         out,
-        contains('_ballMemory.setUint8(__addr + __i, '
-            '_ballMemory.getUint8(__old + __i))'),
+        contains(
+          '_ballMemory.setUint8(__addr + __i, '
+          '_ballMemory.getUint8(__old + __i))',
+        ),
       );
     });
     test('memory_free is a noop comment', () {

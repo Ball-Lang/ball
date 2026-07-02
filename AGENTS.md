@@ -45,7 +45,7 @@ Each implementation documents its own generated/editable files. See the per-lang
 | `ts/engine/src/compiled_engine.ts` | Self-hosted TS engine | NO — generated |
 | `ts/engine/src/index.ts` | TS engine wrapper / dispatch | Yes |
 | `ts/compiler/src/compiler.ts` | TypeScript compiler | Yes |
-| `cpp/shared/ball_runtime.h` | C++ runtime/type system | Yes |
+| `cpp/shared/include/ball_dyn.h` + `ball_emit_runtime.h` | C++ runtime/type system (spliced into every emitted program) | Yes |
 | `website/` | ball-lang.dev + playground (Jaspr) | Yes |
 
 ## Adding a New Language Implementation

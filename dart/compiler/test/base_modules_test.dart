@@ -71,16 +71,30 @@ String _compile(Expression expr) =>
 void main() {
   group('std_memory', () {
     final addr = _field('address', _intLit(16));
-    test('memory_alloc / realloc emit bump-allocator IIFE', () {
+    test('memory_alloc emits bump-allocator IIFE', () {
       final out = _compile(
         _call('std_memory', 'memory_alloc', [_field('size', _intLit(8))]),
       );
       expect(out, contains('_ballHeapPtr += 8'));
+    });
+    test('memory_realloc allocates new_size and copies the old block', () {
+      // ReallocInput carries `address` + `new_size` (NOT `size`) — the old
+      // emission aliased memory_alloc, losing the contents and allocating
+      // zero bytes (#141).
+      final out = _compile(
+        _call('std_memory', 'memory_realloc', [
+          _field('address', _intLit(16)),
+          _field('new_size', _intLit(8)),
+        ]),
+      );
+      expect(out, contains('final __old = 16'));
+      expect(out, contains('final __size = 8'));
+      expect(out, contains('_ballHeapPtr += __size'));
+      // The copy loop that preserves the old block's bytes.
       expect(
-        _compile(
-          _call('std_memory', 'memory_realloc', [_field('size', _intLit(8))]),
-        ),
-        contains('_ballHeapPtr += 8'),
+        out,
+        contains('_ballMemory.setUint8(__addr + __i, '
+            '_ballMemory.getUint8(__old + __i))'),
       );
     });
     test('memory_free is a noop comment', () {

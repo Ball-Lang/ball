@@ -702,13 +702,31 @@ class GenModelBuilder {
     DescriptorProto owner,
   ) {
     final features = (d['features'] as Map<String, String>?) ?? const {};
+    // Presence per the protobuf spec:
+    // - LEGACY_REQUIRED -> required.
+    // - Singular message/group fields and oneof members ALWAYS track
+    //   presence — the field_presence feature only governs scalars, so a
+    //   proto3 message field is explicit even though its resolved feature
+    //   says IMPLICIT. (The old chain collapsed everything non-explicit to
+    //   implicit — both arms of its last ternary were identical — which
+    //   silently dropped hasX()/clearX() from proto3 singular message
+    //   fields and oneof members; #140.)
+    // - Otherwise the resolved feature decides; a missing/unknown value
+    //   falls back to EXPLICIT (the editions-2023 default), never silently
+    //   implicit.
+    final isSingularMessage =
+        (fld.type == FieldDescriptorProto_Type.TYPE_MESSAGE ||
+            fld.type == FieldDescriptorProto_Type.TYPE_GROUP) &&
+        d['mapEntry'] != true &&
+        fld.label != FieldDescriptorProto_Label.LABEL_REPEATED;
+    final inOneof = d['oneof'] != null;
     final presence = isRequired(features)
         ? PresenceKind.required
-        : (hasExplicitPresence(features)
-              ? PresenceKind.explicit
-              : (isImplicitPresence(features)
-                    ? PresenceKind.implicit
-                    : PresenceKind.implicit));
+        : (hasExplicitPresence(features) || isSingularMessage || inOneof)
+        ? PresenceKind.explicit
+        : (isImplicitPresence(features)
+              ? PresenceKind.implicit
+              : PresenceKind.explicit);
 
     final cardinality = d['mapEntry'] == true
         ? FieldCardinality.map

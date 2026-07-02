@@ -224,6 +224,17 @@ void _appendExtension(
   // _buildField is the oneof branch (reads ctx.msg.oneofDecl), and an extension
   // field never has hasOneofIndex() true, so that branch is unreachable here.
   // Everything else _buildField needs comes from the edition/feature scope.
+  // Enforce that invariant loudly (#142): if some future path ever produces an
+  // extension carrying a oneof_index, fail here instead of letting _buildField
+  // index into the placeholder's empty oneofDecl (crash or silently-wrong
+  // descriptor).
+  if (ext.hasOneofIndex()) {
+    throw StateError(
+      'extension ${ext.name} on $extendee unexpectedly carries '
+      'oneof_index ${ext.oneofIndex}; the placeholder _MsgCtx cannot '
+      'resolve oneofs',
+    );
+  }
   final ctx = _MsgCtx(DescriptorProto(), file, ed, isLegacy, parentFeatures);
   final f = _buildField(ext, ctx, messages, enums, registry);
   // Store under the canonical `[fully.qualified.name]` key. Extensions live in

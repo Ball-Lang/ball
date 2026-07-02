@@ -1076,6 +1076,11 @@ public:
     friend int64_t& operator*=(int64_t& l, const BallDyn& d) { l *= static_cast<int64_t>(d); return l; }
     friend int64_t& operator/=(int64_t& l, const BallDyn& d) { l /= static_cast<int64_t>(d); return l; }
     friend int64_t& operator%=(int64_t& l, const BallDyn& d) { l %= static_cast<int64_t>(d); return l; }
+    friend int64_t& operator&=(int64_t& l, const BallDyn& d) { l &= static_cast<int64_t>(d); return l; }
+    friend int64_t& operator|=(int64_t& l, const BallDyn& d) { l |= static_cast<int64_t>(d); return l; }
+    friend int64_t& operator^=(int64_t& l, const BallDyn& d) { l ^= static_cast<int64_t>(d); return l; }
+    friend int64_t& operator<<=(int64_t& l, const BallDyn& d) { l <<= static_cast<int64_t>(d); return l; }
+    friend int64_t& operator>>=(int64_t& l, const BallDyn& d) { l >>= static_cast<int64_t>(d); return l; }
     // Same for a double accumulator (`x -= d` where x is double, d is BallDyn).
     friend double& operator+=(double& l, const BallDyn& d) { l += static_cast<double>(d); return l; }
     friend double& operator-=(double& l, const BallDyn& d) { l -= static_cast<double>(d); return l; }
@@ -1094,6 +1099,17 @@ public:
     template <typename T> BallDyn& operator*=(T&& v) { *this = *this * BallDyn(std::forward<T>(v)); return *this; }
     template <typename T> BallDyn& operator/=(T&& v) { *this = *this / BallDyn(std::forward<T>(v)); return *this; }
     template <typename T> BallDyn& operator%=(T&& v) { *this = *this % BallDyn(std::forward<T>(v)); return *this; }
+
+    // Bitwise compound assignment on a BallDyn LHS (`x &= y`, `|=`, `^=`,
+    // `<<=`, `>>=`). Same delegation pattern as the arithmetic family above;
+    // the binary bitwise operators coerce both sides through int64_t.
+    // Dart's `>>>=` has no C++ operator — the compiler desugars it to the
+    // unsigned_right_shift expansion instead (see the `assign` handler).
+    template <typename T> BallDyn& operator&=(T&& v) { *this = *this & BallDyn(std::forward<T>(v)); return *this; }
+    template <typename T> BallDyn& operator|=(T&& v) { *this = *this | BallDyn(std::forward<T>(v)); return *this; }
+    template <typename T> BallDyn& operator^=(T&& v) { *this = *this ^ BallDyn(std::forward<T>(v)); return *this; }
+    template <typename T> BallDyn& operator<<=(T&& v) { *this = *this << BallDyn(std::forward<T>(v)); return *this; }
+    template <typename T> BallDyn& operator>>=(T&& v) { *this = *this >> BallDyn(std::forward<T>(v)); return *this; }
 
     // Comparison with int64_t
     bool operator<(int64_t v) const { return *this < BallDyn(v); }

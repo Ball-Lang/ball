@@ -3792,6 +3792,13 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         if (op == "~/=") {
             return "(" + target + " = static_cast<int64_t>(" + target + " / " + val + "))";
         }
+        if (op == ">>>=") {
+            // Dart's unsigned right-shift assign. C++ has no `>>>` operator —
+            // desugar through the same zero-fill expansion as the binary
+            // `unsigned_right_shift` handler.
+            return "(" + target + " = static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(" +
+                   target + ")) >> static_cast<int64_t>(" + val + ")))";
+        }
         if (op == "??=") {
             // Dart's null-aware assignment: assign only when LHS is null /
             // empty BallDyn. Lower to a ternary that mirrors Dart's
@@ -10383,15 +10390,47 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
                + list + "," + callback + ")";
     }
     if (fn == "list_reduce") {
+        // Dart's `reduce` takes no seed: the accumulator starts at the first
+        // element and the combine runs from the second; an empty list is a
+        // StateError (matches Iterable.reduce and the Dart engine handler).
         auto list = get_message_field(call, "list");
-        auto callback = get_callback_field(call);
-        auto initial = get_message_field(call, "initial");
-        return "[](const BallDyn& v, auto fn, BallDyn init){"
-               "BallDyn acc=init;for(size_t i=0;i<v.size();i++){"
+        auto* cb_e = get_message_field_expr(call, "callback");
+        if (!cb_e) cb_e = get_message_field_expr(call, "function");
+        if (!cb_e) cb_e = get_message_field_expr(call, "value");
+        auto callback = cb_e ? compile_expr(*cb_e) : "BallDyn()";
+        // An inline `(a, b) => ...` combine compiles to a genuine 2-arg C++
+        // lambda — invoke it with (acc, element) like the list_sort
+        // comparator. Anything else (a stored closure / tear-off) is a unary
+        // callable: pass the pair packed under every alias the Dart engine
+        // uses (engine_std.dart list_reduce).
+        const bool two_arg_lambda =
+            cb_e && cb_e->expr_case() == ball::v1::Expression::kLambda &&
+            cb_e->lambda().has_metadata() &&
+            extract_params(cb_e->lambda().metadata()).size() == 2;
+        if (two_arg_lambda) {
+            return "[](const BallDyn& v, auto fn)->BallDyn{"
+                   "bool seeded=false;BallDyn acc;"
+                   "for(size_t i=0;i<v.size();i++){"
+                   "BallDyn __e(v[static_cast<int64_t>(i)]);"
+                   "if(!seeded){acc=__e;seeded=true;continue;}"
+                   "acc=BallDyn(fn(acc,__e));}"
+                   "if(!seeded)throw BallException(\"StateError\"s,\"Bad state: No element\"s);"
+                   "return acc;}("
+                   + list + "," + callback + ")";
+        }
+        return "[](const BallDyn& v, auto fn)->BallDyn{"
+               "bool seeded=false;BallDyn acc;"
+               "for(size_t i=0;i<v.size();i++){"
                "BallDyn __e(v[static_cast<int64_t>(i)]);"
-               "BallDyn p(BallOrderedMap{});p.set(\"accumulator\"s,acc._val);p.set(\"element\"s,__e._val);"
-               "acc=BallDyn(fn(p));}return acc;}("
-               + list + "," + callback + "," + initial + ")";
+               "if(!seeded){acc=__e;seeded=true;continue;}"
+               "BallDyn p(BallOrderedMap{});"
+               "p.set(\"arg0\"s,acc._val);p.set(\"arg1\"s,__e._val);"
+               "p.set(\"a\"s,acc._val);p.set(\"b\"s,__e._val);"
+               "p.set(\"left\"s,acc._val);p.set(\"right\"s,__e._val);"
+               "acc=BallDyn(fn(p));}"
+               "if(!seeded)throw BallException(\"StateError\"s,\"Bad state: No element\"s);"
+               "return acc;}("
+               + list + "," + callback + ")";
     }
     if (fn == "list_find") {
         auto list = get_message_field(call, "list");

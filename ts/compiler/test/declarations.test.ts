@@ -5,10 +5,6 @@
  * The IR shapes here mirror what the TS encoder emits (verified against
  * `@ball-lang/encoder` output) so the compiler's declaration-emit paths run.
  *
- * NOTE: enum compilation is intentionally not asserted here — the TS compiler
- * currently emits nothing for a Module's `enums[]` (a known gap; see PR
- * description). Enums encode fine but are dropped at compile time.
- *
  * Run: node --experimental-strip-types --test test/*.test.ts
  */
 import { test, describe } from "node:test";
@@ -43,6 +39,49 @@ describe("compiler — type aliases", () => {
     });
     const ts = compile(program, { includePreamble: false });
     assert.match(ts, /type Id = string/);
+  });
+});
+
+describe("compiler — enums (Module.enums[], #120)", () => {
+  test("emits an enum class from an EnumDescriptorProto entry", () => {
+    const program = programWith({
+      enums: [
+        {
+          name: "Color",
+          value: [
+            { name: "red", number: 0 },
+            { name: "green", number: 1 },
+            { name: "blue", number: 2 },
+          ],
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /class Color/);
+    assert.match(ts, /static readonly red = new Color\(0, 'red'\)/);
+    assert.match(ts, /static readonly blue = new Color\(2, 'blue'\)/);
+    assert.match(ts, /static readonly values: Color\[\] = \[Color\.red, Color\.green, Color\.blue\]/);
+  });
+
+  test("strips the module qualifier from Dart-encoder enum names", () => {
+    const program = programWith({
+      enums: [
+        { name: "main:Status", value: [{ name: "ok", number: 0 }] },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /class Status/);
+    assert.match(ts, /static readonly ok = new Status\(0, 'ok'\)/);
+  });
+
+  test("does not duplicate a typeDef class of the same name", () => {
+    const program = programWith({
+      typeDefs: [{ name: "Color", metadata: { kind: "enum", values: ["red"] } }],
+      enums: [{ name: "Color", value: [{ name: "red", number: 0 }] }],
+    });
+    const ts = compile(program, { includePreamble: false });
+    const matches = ts.match(/class Color/g) ?? [];
+    assert.equal(matches.length, 1, "Color must be declared exactly once");
   });
 });
 

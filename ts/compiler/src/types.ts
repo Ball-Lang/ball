@@ -55,14 +55,16 @@ export interface TypeAlias {
   metadata?: Struct;
 }
 
+// google.protobuf.EnumDescriptorProto in proto3 JSON form:
+// `{ "name": "main:Color", "value": [{ "name": "red", "number": 0 }] }`.
 export interface EnumDef {
   name: string;
-  values: EnumValue[];
+  value?: EnumValue[];
 }
 
 export interface EnumValue {
   name: string;
-  intValue?: string | number;
+  number?: number;
 }
 
 export interface DescriptorProto {

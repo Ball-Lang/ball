@@ -18,8 +18,10 @@ import { encode } from "../src/index.ts";
 import { compile } from "../../compiler/src/index.ts";
 
 /**
- * Execute a TypeScript source string via Node's --experimental-strip-types
- * and return trimmed stdout. Uses a temp file to avoid shell escaping issues.
+ * Execute a TypeScript source string via Node's --experimental-transform-types
+ * (a superset of --experimental-strip-types that also supports TS-only
+ * constructs like `enum`, which strip-only mode rejects) and return trimmed
+ * stdout. Uses a temp file to avoid shell escaping issues.
  */
 function executeTs(source: string): string {
   const tmpPath = join(
@@ -28,7 +30,7 @@ function executeTs(source: string): string {
   );
   writeFileSync(tmpPath, source);
   try {
-    return execSync(`node --experimental-strip-types "${tmpPath}"`, {
+    return execSync(`node --experimental-transform-types "${tmpPath}"`, {
       encoding: "utf8",
       timeout: 10_000,
     }).trim();
@@ -173,6 +175,32 @@ function main() {
   console.log(apply(triple, 7));
   console.log(apply(negate, 42));
   console.log(apply((x) => x + 100, 5));
+}
+main();
+`);
+  });
+
+  test("enum declaration with member comparisons (#120)", () => {
+    // The TS enum encodes to Module.enums[] (EnumDescriptorProto) and the
+    // compiler re-materializes it as an enum class with singleton members.
+    // The original (numeric enum) and the round-tripped (singleton class)
+    // representations agree on member identity, so comparison-driven
+    // output must match exactly.
+    assertRoundTrip(`
+enum Color { red, green, blue }
+function label(c) {
+  if (c === Color.red) {
+    return "stop";
+  }
+  if (c === Color.green) {
+    return "go";
+  }
+  return "wait";
+}
+function main() {
+  console.log(label(Color.red));
+  console.log(label(Color.green));
+  console.log(label(Color.blue));
 }
 main();
 `);

@@ -63,7 +63,22 @@ export class BallEngine {
     // the `@type` envelope (if present) before normalizing; callers passing an
     // already-unwrapped Program object are still supported.
     const parsed = typeof program === 'string' ? JSON.parse(program) : program;
-    const normalized = protoWrap(unwrapBallFile(parsed));
+    const unwrapped = unwrapBallFile(parsed);
+    const normalized = protoWrap(unwrapped);
+
+    // The compiled engine's program-size validation (run() →
+    // _validateProgramLimits) calls `program.writeToBuffer()` — the Dart
+    // protobuf binary encoding. Plain-JSON programs have no protobuf runtime
+    // here, so expose the UTF-8 JSON encoding of the (unwrapped) input as the
+    // byte-size source. Non-enumerable so program traversal never sees it.
+    if (typeof normalized === 'object' && normalized !== null) {
+      Object.defineProperty(normalized, 'writeToBuffer', {
+        value: () => new TextEncoder().encode(JSON.stringify(unwrapped)),
+        enumerable: false,
+        writable: true,
+        configurable: true,
+      });
+    }
 
     const stdHandler = new StdModuleHandler();
     const methodHandler = new MethodDispatchHandler();
@@ -108,7 +123,7 @@ export class BallEngine {
       patchScopeBindings(this._compiledEngine._globalScope);
     }
 
-    registerExtraStdFunctions(stdHandler);
+    registerExtraStdFunctions(stdHandler, this._compiledEngine);
     seedGlobalScope(this._compiledEngine);
     patchCompiledEngine(this._compiledEngine);
 

@@ -93,7 +93,7 @@ describe("TsEncoder", () => {
     assert.equal(typeDef!.metadata?.kind, "interface");
   });
 
-  test("encodes enums", () => {
+  test("encodes enums as EnumDescriptorProto (value/number)", () => {
     const program = encode(`
       enum Color { Red, Green, Blue }
       function main() {}
@@ -101,7 +101,24 @@ describe("TsEncoder", () => {
     const userMod = program.modules.find(m => m.name === "main")!;
     const enumDef = userMod.enums?.find(e => e.name === "Color");
     assert.ok(enumDef);
-    assert.equal(enumDef!.values.length, 3);
+    // proto3-JSON shape of google.protobuf.EnumDescriptorProto: the repeated
+    // member field is `value` with `{name, number}` entries (#120).
+    assert.equal(enumDef!.value.length, 3);
+    assert.deepEqual(enumDef!.value[1], { name: "Green", number: 1 });
+  });
+
+  test("encodes enum members with explicit numeric initializers", () => {
+    const program = encode(`
+      enum Status { ok = 200, notFound = 404 }
+      function main() {}
+    `);
+    const userMod = program.modules.find(m => m.name === "main")!;
+    const enumDef = userMod.enums?.find(e => e.name === "Status");
+    assert.ok(enumDef);
+    assert.deepEqual(enumDef!.value, [
+      { name: "ok", number: 200 },
+      { name: "notFound", number: 404 },
+    ]);
   });
 
   test("encodes try/catch/finally", () => {

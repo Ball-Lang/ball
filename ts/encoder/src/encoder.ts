@@ -1020,11 +1020,14 @@ export class TsEncoder {
   }
 
   private encodeEnum(node: ts.EnumDeclaration): EnumDef {
+    // Encode to google.protobuf.EnumDescriptorProto proto3-JSON shape
+    // (`value`/`number`, NOT `values`/`intValue`) so the emitted program
+    // matches ball.proto and the engines' enum lookup tables (#120).
     return {
       name: node.name.text,
-      values: node.members.map((m, i) => ({
+      value: node.members.map((m, i) => ({
         name: ts.isIdentifier(m.name) ? m.name.text : m.name.getText(),
-        intValue: m.initializer && ts.isNumericLiteral(m.initializer)
+        number: m.initializer && ts.isNumericLiteral(m.initializer)
           ? parseInt(m.initializer.text) : i,
       })),
     };

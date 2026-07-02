@@ -115,7 +115,7 @@ const engine = new BallEngine(
 
 // Apply the same post-construction wiring index.ts performs.
 patchScopeBindings((engine as any)._globalScope);
-registerExtraStdFunctions(stdHandler);
+registerExtraStdFunctions(stdHandler, engine);
 seedGlobalScope(engine as any);
 patchCompiledEngine(engine as any);
 

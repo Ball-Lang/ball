@@ -1,3 +1,11 @@
+## [1.3.3](https://github.com/Ball-Lang/ball/compare/v1.3.2...v1.3.3) (2026-07-02)
+
+
+### Bug Fixes
+
+* **cpp:** bitwise compound assigns on BallDyn + Dart reduce semantics for list_reduce ([#145](https://github.com/Ball-Lang/ball/issues/145)) ([889f36e](https://github.com/Ball-Lang/ball/commit/889f36e55b9ae01006bc850e651f4fd2f4b73310))
+* **release:** install compiler before encoder tests in publish-npm ([#149](https://github.com/Ball-Lang/ball/issues/149)) ([869d607](https://github.com/Ball-Lang/ball/commit/869d607774956ecac242e2301aa871e1dca906f6))
+
 ## [1.3.2](https://github.com/Ball-Lang/ball/compare/v1.3.1...v1.3.2) (2026-07-02)
 
 

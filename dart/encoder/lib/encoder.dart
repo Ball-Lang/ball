@@ -2895,6 +2895,27 @@ class DartEncoder {
 
     // ---- References ----
     if (expr is ast.SimpleIdentifier) {
+      // A bare dart:core type name in expression position is a type literal
+      // (`print(int)`), not a variable reference. The parser only produces
+      // `ast.TypeLiteral` for generic instantiations (`List<int>`), so without
+      // resolution a bare `int` parses as a SimpleIdentifier and used to encode
+      // as an undefined-variable reference (#66). Restrict to the exact
+      // builtin list so user identifiers are never hijacked, and skip
+      // value-less positions: static receivers (`List.generate` must keep a
+      // `reference("List")` self for the engine's static dispatch) and
+      // assignment targets (a pathological local shadowing a type name).
+      final typeLiteralName = _builtinTypeLiterals[expr.name];
+      if (typeLiteralName != null &&
+          _isTypeLiteralPosition(expr) &&
+          !_hasEnclosingDeclaration(expr, expr.name)) {
+        _usedBaseFunctions.add('type_literal');
+        return _buildStdCall('type_literal', [
+          FieldValuePair()
+            ..name = 'type'
+            ..value = (Expression()
+              ..literal = (Literal()..stringValue = typeLiteralName)),
+        ]);
+      }
       return Expression()..reference = (Reference()..name = expr.name);
     }
     if (expr is ast.PrefixedIdentifier) {
@@ -3237,6 +3258,148 @@ class DartEncoder {
       ..literal = (Literal()
         ..stringValue =
             '/* unsupported: ${expr.runtimeType}: ${expr.toSource()} */');
+  }
+
+  /// dart:core type names that encode as `std.type_literal` when they appear
+  /// bare in expression position, mapped to their canonical `Type.toString()`
+  /// (raw generics instantiate to bounds: `List` is the type `List<dynamic>`).
+  /// The engines represent a type literal as this string (see the
+  /// `type_literal` handler in `engine_std.dart`), so the value must match
+  /// what native Dart prints for the same expression.
+  static const Map<String, String> _builtinTypeLiterals = {
+    'int': 'int',
+    'double': 'double',
+    'num': 'num',
+    'String': 'String',
+    'bool': 'bool',
+    'List': 'List<dynamic>',
+    'Map': 'Map<dynamic, dynamic>',
+    'Set': 'Set<dynamic>',
+    'Object': 'Object',
+    'Symbol': 'Symbol',
+    'dynamic': 'dynamic',
+  };
+
+  /// True when a bare builtin type name at [expr] is genuinely used as a
+  /// first-class value (type literal), i.e. NOT:
+  ///   * a static receiver — `List.generate(...)` / `List..gen(...)` must keep
+  ///     `reference("List")` as `self` for the engine's static dispatch;
+  ///   * an assignment target or increment/decrement operand — those must stay
+  ///     `Reference`s so `std.assign` can resolve a mutable target (only
+  ///     reachable via a pathological local shadowing a type name).
+  static bool _isTypeLiteralPosition(ast.SimpleIdentifier expr) {
+    final parent = expr.parent;
+    if (parent is ast.MethodInvocation && parent.target == expr) {
+      // A type name as a method receiver is usually a static dispatch
+      // (`int.parse`, `List.generate`, `String.fromCharCode`) that must stay a
+      // `reference`. The exception is `Type`/`Object` instance methods: the
+      // compiler lowers a type literal inside string interpolation to
+      // `<type>.toString()` (e.g. `'$int'` → `'…' + int.toString()`), which
+      // MUST re-encode as `type_literal(...).toString()` — `Type.toString()`
+      // yields the type name (`int.toString()` == 'int'), so this round-trips
+      // through the engine (#66). Static factory names never collide with
+      // `toString`, so only that method promotes the receiver to a type literal.
+      return parent.methodName.name == 'toString';
+    }
+    if (parent is ast.CascadeExpression && parent.target == expr) return false;
+    if (parent is ast.AssignmentExpression && parent.leftHandSide == expr) {
+      return false;
+    }
+    if (parent is ast.PrefixExpression &&
+        (parent.operator.lexeme == '++' || parent.operator.lexeme == '--')) {
+      return false;
+    }
+    if (parent is ast.PostfixExpression &&
+        (parent.operator.lexeme == '++' || parent.operator.lexeme == '--')) {
+      return false;
+    }
+    return true;
+  }
+
+  /// True when [name] is (syntactically) declared by a construct enclosing
+  /// [expr] — a parameter, local variable, loop/catch variable, local
+  /// function, class field, or top-level declaration. `int`, `num`, etc. are
+  /// NOT reserved words in Dart, so `String toRoman(int num)` legally shadows
+  /// the type; a shadowed name must keep encoding as a plain reference.
+  /// Purely syntactic (parseString has no resolution), so it scans whole
+  /// blocks rather than only declarations preceding [expr] — over-matching
+  /// only re-yields the pre-#66 reference encoding, never a wrong hijack.
+  static bool _hasEnclosingDeclaration(ast.SimpleIdentifier expr, String name) {
+    bool declaresParam(ast.FormalParameterList? list) {
+      if (list == null) return false;
+      for (final p in list.parameters) {
+        if (p.name?.lexeme == name) return true;
+      }
+      return false;
+    }
+
+    for (ast.AstNode? node = expr.parent; node != null; node = node.parent) {
+      if (node is ast.FunctionExpression && declaresParam(node.parameters)) {
+        return true;
+      }
+      if (node is ast.MethodDeclaration && declaresParam(node.parameters)) {
+        return true;
+      }
+      if (node is ast.ConstructorDeclaration &&
+          declaresParam(node.parameters)) {
+        return true;
+      }
+      if (node is ast.Block) {
+        for (final stmt in node.statements) {
+          if (stmt is ast.VariableDeclarationStatement) {
+            for (final v in stmt.variables.variables) {
+              if (v.name.lexeme == name) return true;
+            }
+          } else if (stmt is ast.FunctionDeclarationStatement &&
+              stmt.functionDeclaration.name.lexeme == name) {
+            return true;
+          }
+        }
+      }
+      final forParts = node is ast.ForStatement
+          ? node.forLoopParts
+          : (node is ast.ForElement ? node.forLoopParts : null);
+      if (forParts is ast.ForPartsWithDeclarations) {
+        for (final v in forParts.variables.variables) {
+          if (v.name.lexeme == name) return true;
+        }
+      } else if (forParts is ast.ForEachPartsWithDeclaration) {
+        if (forParts.loopVariable.name.lexeme == name) return true;
+      }
+      if (node is ast.CatchClause) {
+        if (node.exceptionParameter?.name.lexeme == name) return true;
+        if (node.stackTraceParameter?.name.lexeme == name) return true;
+      }
+      if (node is ast.ClassDeclaration) {
+        final body = node.body;
+        if (body is ast.BlockClassBody) {
+          for (final member in body.members) {
+            if (member is ast.FieldDeclaration) {
+              for (final v in member.fields.variables) {
+                if (v.name.lexeme == name) return true;
+              }
+            }
+          }
+        }
+      }
+      if (node is ast.CompilationUnit) {
+        for (final decl in node.declarations) {
+          if (decl is ast.FunctionDeclaration && decl.name.lexeme == name) {
+            return true;
+          }
+          if (decl is ast.TopLevelVariableDeclaration) {
+            for (final v in decl.variables.variables) {
+              if (v.name.lexeme == name) return true;
+            }
+          }
+          if (decl is ast.ClassDeclaration &&
+              decl.namePart.typeName.lexeme == name) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   // ---- Binary expression ----

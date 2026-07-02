@@ -15,12 +15,10 @@
 ///
 /// A failing leg here is a compiler (or encoder-of-generated-code) bug, never a
 /// tolerated baseline — and the Dart regression gate asserts 0 failed AND 0
-/// skipped, so this suite carries no `skip:` markers. Two fixtures reproduce
-/// known, tracked compiler/encoder bugs and are EXCLUDED from the loop (the
-/// same way #69 is already carved out of the C++/TS round-trip legs). They stay
+/// skipped, so this suite carries no `skip:` markers. One fixture reproduces a
+/// known, tracked compiler/encoder bug and is EXCLUDED from the loop (the
+/// same way #69 is already carved out of the C++/TS round-trip legs). It stays
 /// covered by the direct-path encoder round-trip (#61) and the slow legs:
-///   - 104_getter_setter          → #95 (re-encoded field ref resolves to the
-///                                   object Map)
 ///   - 229_closure_loop_var_…     → #69 (C-style `for(var i)` closure capture
 ///                                   shares the loop var; also the Dart compiler)
 /// Delete an entry from [_knownGaps] (and confirm green) when its issue lands.
@@ -42,7 +40,6 @@ String _norm(String s) =>
 /// regression gate; each is still covered by the direct-path encoder round-trip
 /// and the slow legs. Remove an entry when its issue is fixed.
 const _knownGaps = <String, String>{
-  '104_getter_setter': '#95 — re-encoded field ref resolves to object Map',
   '229_closure_loop_var_semantics': '#69 — closure loop-var capture',
 };
 

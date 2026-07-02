@@ -677,17 +677,9 @@ function __ball_cascade(target: any, ops: any[]): any {
   Object.defineProperty(sp, 'isNotEmpty', {
     configurable: true, get() { return this.length !== 0; },
   });
-  // Make undefined/null safe for .isEmpty/.isNotEmpty via a global wrapper.
-  // Proto3 JSON omits empty strings, so code like call.module.isEmpty needs
-  // to handle undefined gracefully.
-  const _origObjDefProp = Object.defineProperty;
-  for (const boolProp of ['isEmpty', 'isNotEmpty']) {
-    if (!(undefined as any)?.[boolProp]) {
-      // Can't add properties to undefined/null, but we handle it in the
-      // generated code via ?.isEmpty fallback patterns. The preamble's
-      // protoWrap handles most cases.
-    }
-  }
+  // Note: undefined/null safety for .isEmpty/.isNotEmpty is handled in the
+  // generated code via optional-chaining (?.isEmpty) patterns and protoWrap;
+  // properties cannot be installed on undefined/null directly.
   // Dart String methods not on JS String.
   if (!sp.contains) sp.contains = function (s: any) { return this.includes(s); };
   if (!sp.replaceFirst) sp.replaceFirst = function (from: any, to: any) {
@@ -893,7 +885,6 @@ function __ball_cascade(target: any, ops: any[]): any {
     return Object.keys(this).filter((k: string) => !k.startsWith('__')).length;
   });
 
-  // Number polyfills moved earlier (see "Dart Number polyfills" block above).
   // runtimeType — Dart's Object.runtimeType. Returns the Dart-style
   // type name for any JS value. Used by the compiled engine for type
   // checking and error messages.
@@ -1894,6 +1885,10 @@ export class BallEngine {
               } else {
                 if ((('arg' + __ball_to_string(i)) in inputMap)) {
                   scope.bind(p, __ball_index(inputMap, ('arg' + __ball_to_string(i))));
+                } else {
+                  if ((((__ball_eq(i, 0) && __ball_eq(params.length, 1)) && ('value' in inputMap)) && this._isSetter(func))) {
+                    scope.bind(p, __ball_index(inputMap, 'value'));
+                  }
                 }
               }
             }

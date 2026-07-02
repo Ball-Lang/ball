@@ -1,0 +1,15 @@
+int
+double
+num
+String
+bool
+List<dynamic>
+Map<dynamic, dynamic>
+Set<dynamic>
+Object
+Symbol
+dynamic
+true
+false
+the type is int
+String

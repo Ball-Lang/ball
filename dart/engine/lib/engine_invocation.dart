@@ -99,6 +99,18 @@ extension BallEngineInvocation on BallEngine {
               scope.bind(p, inputMap[p]);
             } else if (inputMap.containsKey('arg$i')) {
               scope.bind(p, inputMap['arg$i']);
+            } else if (i == 0 &&
+                params.length == 1 &&
+                inputMap.containsKey('value') &&
+                _isSetter(func)) {
+              // Setter dispatch passes the assigned value under the fixed
+              // key 'value' (see _trySetterDispatch), but the declared
+              // parameter can have ANY name — `set x(double v)` — or be the
+              // compiler's `input` rename of the original parameter. Without
+              // this binding the body either throws "Undefined variable" or,
+              // worse, resolves `input` to the whole {self, value} envelope
+              // and silently assigns the instance map to the field (#95).
+              scope.bind(p, inputMap['value']);
             }
           }
         } else if (input is List) {

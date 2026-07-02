@@ -307,7 +307,17 @@ extension BallEngineStd on BallEngine {
         final m = _stdAsMap(i) ?? <String, Object?>{'value': i};
         final v = m['value'] ?? m['left'];
         final digits = m['digits'] ?? m['fractionDigits'];
-        return _toNum(v).toStringAsFixed(_toInt(digits));
+        final n = _toNum(v);
+        final s = n.toStringAsFixed(_toInt(digits));
+        // Preserve the sign of negative zero. Dart's toStringAsFixed keeps the
+        // leading '-' for -0.0, but the compiled TS/C++ engines format via the
+        // host's fixed-notation routine (JS Number.toFixed / C++ printf) which
+        // drops the sign of negative zero. Re-add it portably: `1.0 / -0.0` is
+        // negative infinity (< 0) whereas `1.0 / 0.0` is positive infinity.
+        if (n == 0 && (1.0 / n) < 0 && !s.startsWith('-')) {
+          return '-$s';
+        }
+        return s;
       },
 
       // String interpolation — concatenates evaluated parts list.

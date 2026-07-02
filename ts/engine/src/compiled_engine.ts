@@ -5774,8 +5774,8 @@ export class BallEngine {
         result = await this._evalExpression(body, scope);
       } catch (__ball_active_error) {
         const e = __ball_active_error;
-        let isMatchingBackwardGoto = (((e instanceof _FlowSignal) && __ball_eq(e['kind'], 'goto')) && __ball_eq(e['label'], label));
-        if (isMatchingBackwardGoto) {
+        let signal = e;
+        if ((((signal instanceof _FlowSignal) && __ball_eq(signal.kind, 'goto')) && __ball_eq(signal.label, label))) {
           repeat = true;
         } else {
           throw __ball_active_error;

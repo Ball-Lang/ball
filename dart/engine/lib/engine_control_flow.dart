@@ -1407,17 +1407,23 @@ extension BallEngineControlFlow on BallEngine {
       try {
         result = await _evalExpression(body, scope);
       } catch (e) {
-        // Bind the goto-match check to a local first: a catch body that is
-        // JUST a single if/else (assign-or-rethrow) encodes its "body" as a
-        // bare `if` call rather than a Block, and the C++ compiler's catch
-        // emission only special-cases a Block body for real statement-form
-        // if/else — a bare `if` falls back to expression compilation, which
-        // renders `rethrow` (void) as a ternary branch and fails to build
-        // ("invalid use of void expression"). Splitting the condition into
-        // its own statement forces a genuine multi-statement Block.
-        final isMatchingBackwardGoto =
-            e is _FlowSignal && e.kind == 'goto' && e.label == label;
-        if (isMatchingBackwardGoto) {
+        // Read the signal through a plain local, NOT the catch variable:
+        // the Dart compiler lowers `e.field` on a catch-bound variable to
+        // map-subscript form (`e['field']`, since Ball-thrown exceptions are
+        // maps), and after the `is _FlowSignal` promotion in the same `&&`
+        // chain that subscript is a static error in the round-tripped engine
+        // ("operator '[]' isn't defined for _FlowSignal"). Aliasing to a
+        // local first matches how the rest of the engine reads flow signals
+        // (`result is _FlowSignal && result.kind == ...`), which round-trips
+        // cleanly on all three targets. The alias also keeps this catch body
+        // a multi-statement Block, which the C++ compiler needs to emit a
+        // statement-form if/else — a bare single-`if` catch body falls back
+        // to expression compilation, rendering `rethrow` (a void C++ throw)
+        // as a ternary branch ("invalid use of void expression").
+        final Object signal = e;
+        if (signal is _FlowSignal &&
+            signal.kind == 'goto' &&
+            signal.label == label) {
           repeat = true; // backward goto: re-execute the label body
         } else {
           rethrow;

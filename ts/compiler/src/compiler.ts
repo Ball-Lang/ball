@@ -123,11 +123,31 @@ export class BallCompiler {
 
     // Collect ALL non-base modules (entry + user library modules).
     const userModules: Module[] = [];
+    let usesStdMemory = false;
     for (const mod of this.program.modules ?? []) {
       const fns = mod.functions ?? [];
       const allBase = fns.length > 0 && fns.every((f: FunctionDef) => f.isBase);
-      if (allBase) continue;
+      if (allBase) {
+        if (mod.name === "std_memory") usesStdMemory = true;
+        continue;
+      }
       userModules.push(mod);
+    }
+
+    // ── Linear memory runtime preamble ──
+    // If the program imports `std_memory` (linear memory simulation), inject
+    // the runtime variables backing the `ByteData`/`Endian` shims already
+    // defined in the (always-included) runtime preamble. Mirrors the Dart
+    // compiler's conditional injection (dart/compiler/lib/compiler.dart,
+    // "Linear memory runtime preamble") — only emitted when actually used.
+    if (usesStdMemory) {
+      sf.addStatements(
+        "// Ball linear memory runtime\n" +
+        "const _ballMemory = new ByteData(65536);\n" +
+        "let _ballHeapPtr = 0;\n" +
+        "const _ballStackFrames: number[] = [];\n" +
+        "let _ballStackPtr = 65536;\n",
+      );
     }
 
     // Seed the function-name + typeDef lookup tables from ALL user modules.
@@ -4192,6 +4212,7 @@ function __isUnknownFnError(e: any): boolean {
 
   private compileStdCall(call: FunctionCall): string {
     const fn = call.function;
+    if (call.module === "std_memory") return this.compileMemoryCall(call);
     const f = fieldMap(call.input?.messageCreation?.fields ?? []);
     const fg = (...names: string[]) => {
       for (const n of names) { const v = f.get(n); if (v !== undefined) return v; }
@@ -5038,6 +5059,167 @@ function __isUnknownFnError(e: any): boolean {
           }
         }
       }
+    }
+  }
+
+  // ── std_memory → TS linear-memory compilation ──────────────────────
+  //
+  // Mirrors the Dart compiler's `_compileMemoryCall` (dart/compiler/lib/
+  // compiler.dart): lowers std_memory base calls to a `ByteData`-backed
+  // linear memory simulation. The `ByteData`/`Endian` shims live in the
+  // runtime preamble (preamble.ts, "dart:typed_data shims"); `compile()`
+  // conditionally emits the `_ballMemory`/`_ballHeapPtr`/`_ballStackFrames`/
+  // `_ballStackPtr` runtime variables only when the program actually
+  // imports `std_memory` (see `usesStdMemory` in `compile()`).
+  //
+  // Every std_memory base function declared in dart/shared/lib/std_memory.dart
+  // MUST have a case below. An unhandled function throws a compile-time
+  // Error naming it — never falls through to a bare/undefined identifier.
+  private compileMemoryCall(call: FunctionCall): string {
+    const f = fieldMap(call.input?.messageCreation?.fields ?? []);
+    const addrExpr = () => {
+      const a = f.get("address") ?? f.get("dest") ?? f.get("a");
+      return a ? this.expr(a) : "0";
+    };
+    const valExpr = () => {
+      const v = f.get("value");
+      return v ? this.expr(v) : "0";
+    };
+    // i64/u64 memory cells are backed by ByteData's bigint-typed
+    // getInt64/getUint64/setInt64/setUint64 (see preamble.ts). Ball int
+    // literals below Number.MAX_SAFE_INTEGER compile to plain JS `number`
+    // literals (compileLiteral), so writing them straight into a
+    // bigint-typed setter would throw "Cannot mix BigInt and other types"
+    // at runtime — coerce explicitly.
+    const valExprBigInt = () => `BigInt(${valExpr()})`;
+    const ptrArith = (op: "+" | "-") => {
+      const addr = f.get("address");
+      const offset = f.get("offset");
+      const elemSize = f.get("element_size");
+      const a = addr ? this.expr(addr) : "0";
+      const o = offset ? this.expr(offset) : "0";
+      const es = elemSize ? this.expr(elemSize) : "1";
+      return `(${a} ${op} (${o} * ${es}))`;
+    };
+
+    switch (call.function) {
+      // ── Allocation ──
+      case "memory_alloc": {
+        const size = f.get("size");
+        const sizeStr = size ? this.expr(size) : "0";
+        return `(() => { const __addr = _ballHeapPtr; _ballHeapPtr += ${sizeStr}; return __addr; })()`;
+      }
+      case "memory_free":
+        return `(/* free(${addrExpr()}) — noop in TS */ undefined)`;
+      case "memory_realloc": {
+        // Bump-allocates the new block, then copies the old block's bytes
+        // in (mirrors the Dart compiler's `_memRealloc`; see its doc
+        // comment re: realloc semantics and issue #141).
+        const addr = f.get("address") ?? f.get("value");
+        const addrStr = addr ? this.expr(addr) : "0";
+        const size = f.get("new_size") ?? f.get("size");
+        const sizeStr = size ? this.expr(size) : "0";
+        return `(() => { const __old = ${addrStr}; const __size = ${sizeStr}; ` +
+          `const __addr = _ballHeapPtr; _ballHeapPtr += __size; ` +
+          `let __n = __size; ` +
+          `if (__old + __n > _ballMemory.lengthInBytes) { __n = _ballMemory.lengthInBytes - __old; } ` +
+          `if (__addr + __n > _ballMemory.lengthInBytes) { __n = _ballMemory.lengthInBytes - __addr; } ` +
+          `for (let __i = 0; __i < __n; __i++) { _ballMemory.setUint8(__addr + __i, _ballMemory.getUint8(__old + __i)); } ` +
+          `return __addr; })()`;
+      }
+      // ── Typed reads (little-endian) ──
+      case "memory_read_i8": return `_ballMemory.getInt8(${addrExpr()})`;
+      case "memory_read_u8": return `_ballMemory.getUint8(${addrExpr()})`;
+      case "memory_read_i16": return `_ballMemory.getInt16(${addrExpr()}, Endian.little)`;
+      case "memory_read_u16": return `_ballMemory.getUint16(${addrExpr()}, Endian.little)`;
+      case "memory_read_i32": return `_ballMemory.getInt32(${addrExpr()}, Endian.little)`;
+      case "memory_read_u32": return `_ballMemory.getUint32(${addrExpr()}, Endian.little)`;
+      case "memory_read_i64": return `_ballMemory.getInt64(${addrExpr()}, Endian.little)`;
+      case "memory_read_u64": return `_ballMemory.getUint64(${addrExpr()}, Endian.little)`;
+      case "memory_read_f32": return `_ballMemory.getFloat32(${addrExpr()}, Endian.little)`;
+      case "memory_read_f64": return `_ballMemory.getFloat64(${addrExpr()}, Endian.little)`;
+      // ── Typed writes (little-endian) ──
+      case "memory_write_i8": return `_ballMemory.setInt8(${addrExpr()}, ${valExpr()})`;
+      case "memory_write_u8": return `_ballMemory.setUint8(${addrExpr()}, ${valExpr()})`;
+      case "memory_write_i16": return `_ballMemory.setInt16(${addrExpr()}, ${valExpr()}, Endian.little)`;
+      case "memory_write_u16": return `_ballMemory.setUint16(${addrExpr()}, ${valExpr()}, Endian.little)`;
+      case "memory_write_i32": return `_ballMemory.setInt32(${addrExpr()}, ${valExpr()}, Endian.little)`;
+      case "memory_write_u32": return `_ballMemory.setUint32(${addrExpr()}, ${valExpr()}, Endian.little)`;
+      case "memory_write_i64": return `_ballMemory.setInt64(${addrExpr()}, ${valExprBigInt()}, Endian.little)`;
+      case "memory_write_u64": return `_ballMemory.setUint64(${addrExpr()}, ${valExprBigInt()}, Endian.little)`;
+      case "memory_write_f32": return `_ballMemory.setFloat32(${addrExpr()}, ${valExpr()}, Endian.little)`;
+      case "memory_write_f64": return `_ballMemory.setFloat64(${addrExpr()}, ${valExpr()}, Endian.little)`;
+      // ── Bulk operations ──
+      case "memory_copy": {
+        const dest = f.get("dest"), src = f.get("src"), size = f.get("size");
+        const d = dest ? this.expr(dest) : "0";
+        const s = src ? this.expr(src) : "0";
+        const n = size ? this.expr(size) : "0";
+        return `(() => { for (let __i = 0; __i < ${n}; __i++) _ballMemory.setUint8(${d} + __i, _ballMemory.getUint8(${s} + __i)); })()`;
+      }
+      case "memory_set": {
+        const addr = f.get("address"), val = f.get("value"), size = f.get("size");
+        const a = addr ? this.expr(addr) : "0";
+        const v = val ? this.expr(val) : "0";
+        const n = size ? this.expr(size) : "0";
+        return `(() => { for (let __i = 0; __i < ${n}; __i++) _ballMemory.setUint8(${a} + __i, ${v}); })()`;
+      }
+      case "memory_compare": {
+        const a = f.get("a"), b = f.get("b"), size = f.get("size");
+        const aStr = a ? this.expr(a) : "0";
+        const bStr = b ? this.expr(b) : "0";
+        const n = size ? this.expr(size) : "0";
+        return `(() => { for (let __i = 0; __i < ${n}; __i++) { const __d = _ballMemory.getUint8(${aStr} + __i) - _ballMemory.getUint8(${bStr} + __i); if (__d !== 0) return __d; } return 0; })()`;
+      }
+      // ── Pointer arithmetic ──
+      case "ptr_add": return ptrArith("+");
+      case "ptr_sub": return ptrArith("-");
+      case "ptr_diff": {
+        const a = f.get("address"), b = f.get("offset"), elemSize = f.get("element_size");
+        const aStr = a ? this.expr(a) : "0";
+        const bStr = b ? this.expr(b) : "0";
+        const es = elemSize ? this.expr(elemSize) : "1";
+        return `Math.trunc((${aStr} - ${bStr}) / ${es})`;
+      }
+      // ── Stack frame ──
+      case "stack_alloc": {
+        const size = f.get("size");
+        const sizeStr = size ? this.expr(size) : "0";
+        return `(() => { _ballStackPtr -= ${sizeStr}; return _ballStackPtr; })()`;
+      }
+      case "stack_push_frame": return `_ballStackFrames.push(_ballStackPtr)`;
+      case "stack_pop_frame": return `(_ballStackPtr = _ballStackFrames.pop()!)`;
+      // ── Sizeof ──
+      case "memory_sizeof": {
+        const typeName = f.get("type_name")?.literal?.stringValue ?? "int";
+        switch (typeName) {
+          case "int8": case "uint8": case "char": case "bool": return "1";
+          case "int16": case "uint16": case "short": return "2";
+          case "int32": case "uint32": case "int": case "float": return "4";
+          case "int64": case "uint64": case "long": case "double": case "long long": return "8";
+          case "void": return "1";
+          default: return "8"; // default pointer-size
+        }
+      }
+      // ── Address-of / deref (should be resolved by normalizer) ──
+      case "address_of": return `(/* address_of: ${valExpr()} */ undefined)`;
+      case "deref": {
+        const ptr = f.get("pointer");
+        const ptrStr = ptr ? this.expr(ptr) : "0";
+        // Default: read as 64-bit int (pointer-sized).
+        return `_ballMemory.getInt64(${ptrStr}, Endian.little)`;
+      }
+      // ── Null pointer ──
+      case "nullptr": return "0";
+      // ── Info ──
+      case "memory_heap_size": return `_ballMemory.lengthInBytes`;
+      case "memory_stack_size": return `(_ballMemory.lengthInBytes - _ballStackPtr)`;
+      default:
+        // Fail loud (repo CLAUDE.md): never emit a bare/undefined identifier
+        // for an unimplemented std_memory function.
+        throw new Error(
+          `TS compiler: std_memory.${call.function} is not implemented (compileMemoryCall)`,
+        );
     }
   }
 

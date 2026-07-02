@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/Ball-Lang/ball/compare/v1.3.1...v1.3.2) (2026-07-02)
+
+
+### Bug Fixes
+
+* **release,cli:** unfreeze the npm lane, lockstep TS versions, await engine.run ([#138](https://github.com/Ball-Lang/ball/issues/138), [#139](https://github.com/Ball-Lang/ball/issues/139)) ([#148](https://github.com/Ball-Lang/ball/issues/148)) ([9ca0d59](https://github.com/Ball-Lang/ball/commit/9ca0d59c9e14691ac1c0d7b7c2c47ef64230b4f6))
+
 # Change Log
 
 All notable changes to this project will be documented in this file.

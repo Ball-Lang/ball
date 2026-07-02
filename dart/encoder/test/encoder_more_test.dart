@@ -177,6 +177,79 @@ void main() {}
 ''');
       expect(mainModule(p).functions, isNotEmpty);
     });
+
+    test('own-class field named a builtin type shadows it (reference, not '
+        'type_literal)', () {
+      // `List` is declared directly on the enclosing class, so an
+      // unqualified reference resolves to that field.
+      final j = jsonOf('''
+class Foo {
+  var List = [1, 2, 3];
+  void method() {
+    print(List);
+  }
+}
+
+void main() {}
+''');
+      expect(
+        j,
+        isNot(contains('type_literal')),
+        reason: 'List is the class\'s own field, not the builtin type',
+      );
+      expect(j, contains('"reference"'));
+    });
+
+    test('inherited-only field named a builtin type does NOT shadow it — '
+        'still promotes to type_literal (matches `dart run`; investigated '
+        'for #160, see dart-lang/sdk#7051)', () {
+      // Issue #160 assumed an INHERITED (superclass-only) field should
+      // shadow a same-named builtin type just like an own-class field
+      // does. Verified against `dart run` (the project's conformance
+      // oracle — see tests/conformance/src/345_inherited_field_type_name_
+      // collision.dart) that Dart's unqualified-identifier resolution
+      // does NOT let an inherited-only member shadow a same-named
+      // visible type: `List` in `Sub.method()` below resolves to the
+      // `List` type at runtime, not the inherited field, across
+      // value-read, index, for-in, and assignment positions. This is a
+      // long-standing, still-unfixed Dart language quirk (dart-lang/sdk
+      // #7051), not an encoder bug — so `_hasEnclosingDeclaration`
+      // correctly does NOT walk the `extends` chain for this heuristic.
+      final j = jsonOf('''
+class Base {
+  var List = [1, 2, 3];
+}
+
+class Sub extends Base {
+  void method() {
+    print(List);
+  }
+}
+
+void main() {}
+''');
+      expect(
+        j,
+        contains('type_literal'),
+        reason:
+            'an inherited-only field must NOT shadow the builtin type — '
+            'this matches real `dart run` semantics',
+      );
+    });
+
+    test('control: a builtin type name with no declaration anywhere still '
+        'promotes to type_literal', () {
+      final j = jsonOf('''
+class NoList {
+  void method() {
+    print(List);
+  }
+}
+
+void main() {}
+''');
+      expect(j, contains('type_literal'));
+    });
   });
 
   group('local function declarations with modifiers', () {

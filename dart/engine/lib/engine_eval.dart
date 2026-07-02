@@ -800,9 +800,12 @@ extension BallEngineEval on BallEngine {
       final func = staticField.func;
       var value = await _callFunction(staticField.module, func, null);
       if (func.outputType.startsWith('Map')) {
-        if (_isBallSet(value) && _ballSetItems(value).isEmpty)
+        if (_isBallSet(value) && _ballSetItems(value).isEmpty) {
           value = _ballUserMap();
-        if (value is List && value.isEmpty) value = _ballUserMap();
+        }
+        if (value is List && value.isEmpty) {
+          value = _ballUserMap();
+        }
       }
       _globalScope.bind(staticField.fullName, value);
       return value;

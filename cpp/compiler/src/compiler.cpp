@@ -4324,6 +4324,11 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         else if (tn == "bool") ck = "ball_is_bool(" + val + ")";
         else if (tn == "Function") ck = "ball_is_function(" + val + ")";
         else if (tn == "_FlowSignal" || tn == "FlowSignal") ck = "ball_is_flow_signal(" + val + ")";
+        // Portable ordered-set value (issue #68): a one-key
+        // `{'__ball_set__': [...]}` map, never a `__type__`-tagged object, so
+        // this must NOT fall through to the `ball_object_type_matches` default
+        // below (that always returned false for `x is Set`).
+        else if (tn == "Set") ck = "ball_is_ball_set(BallDyn(" + val + "))";
         else ck = "ball_object_type_matches(" + val + ", \"" + tn + "\"s)";
         // For reified generics on user types (e.g. `x is Box<int>`), also check
         // that the object's __type_args__ field matches the expected type args.
@@ -5145,7 +5150,27 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                get_message_field(call, "value") + "), static_cast<int64_t>(" + get_message_field(call, "index") + "))";
     }
     if (fn == "to_string_as_fixed") {
-        return "[](double x, int64_t d){ std::ostringstream o; o << std::fixed << std::setprecision((int)d) << x; return o.str(); }("
+        // Dart's num.toStringAsFixed rounds ties AWAY from zero (2.5 -> "3",
+        // -2.5 -> "-3"), but `std::fixed << std::setprecision` on glibc/MSVC
+        // performs the IEEE-754-default "round half to even" for an exact tie
+        // (2.5 -> "2") — issue #101's extended negative fixture (316) caught
+        // this via `(-2.5).toStringAsFixed(0)`. Round manually (fabs + llround,
+        // which IS round-half-away-from-zero) and re-attach the sign via
+        // std::signbit — this also portably preserves the sign of -0.0
+        // (glibc/libstdc++ already do, but this makes it explicit/guaranteed
+        // rather than relying on ostringstream's implementation-defined
+        // negative-zero formatting). Non-finite/very-large-magnitude values
+        // fall back to the original ostringstream formatting (llround is
+        // undefined for inf/nan, and huge scale factors lose precision).
+        return "[](double x, int64_t d){ "
+               "if (!std::isfinite(x)) { std::ostringstream o; o << std::fixed << std::setprecision((int)d) << x; return o.str(); } "
+               "bool neg = std::signbit(x); double ax = std::fabs(x); "
+               "double scale = std::pow(10.0, static_cast<double>(d)); double scaled = ax * scale; "
+               "if (scaled > 1e15) { std::ostringstream o; o << std::fixed << std::setprecision((int)d) << x; return o.str(); } "
+               "long long r = std::llround(scaled); std::string digits = std::to_string(r); "
+               "while (static_cast<int64_t>(digits.size()) <= d) digits = \"0\" + digits; "
+               "std::string s = (d == 0) ? digits : digits.substr(0, digits.size() - static_cast<size_t>(d)) + \".\" + digits.substr(digits.size() - static_cast<size_t>(d)); "
+               "return neg ? (\"-\" + s) : s; }("
                "static_cast<double>(" + get_message_field(call, "value") + "), static_cast<int64_t>(" +
                get_message_field(call, "digits") + "))";
     }

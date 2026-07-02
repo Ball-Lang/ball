@@ -89,7 +89,15 @@ extension BallEngineStd on BallEngine {
   /// `Set.add`/`Set.remove`); for a native `Set` (TS self-host) it is a copy.
   List<Object?> _ballSetItems(Object? v) {
     if (v is Set) return v.toList();
-    final raw = (v as Map)[_kBallSetTag];
+    // Bind the cast to a plain local before indexing (not `(v as Map)[key]`
+    // inline): field/index access chained directly off a cast expression is a
+    // known Dart→C++ lowering trap for this self-hosted engine source (see
+    // .claude/rules/dart.md), and this helper is the hottest path for the
+    // portable ordered-set value (issue #68) — nearly every set operation
+    // (contains/add/union/intersection/difference/length/printing/toList)
+    // routes through it.
+    final setMap = v as Map;
+    final raw = setMap[_kBallSetTag];
     if (raw is BallList) return raw.items;
     if (raw is List) return raw as List<Object?>;
     return <Object?>[];
@@ -2396,8 +2404,9 @@ extension BallEngineStd on BallEngine {
     if (v is BallDouble) return v.toString();
     if (_isBallFuture(v)) return _ballToStringSimple(_unwrapBallFuture(v));
     // Ordered set — render `{a, b, c}` (must precede the map branch). Issue #68.
-    if (_isBallSet(v))
+    if (_isBallSet(v)) {
       return '{${_ballSetItems(v).map(_ballToStringSimple).join(', ')}}';
+    }
     if (v is BallList)
       return '[${v.items.map(_ballToStringSimple).join(', ')}]';
     if (v is List) return '[${v.map(_ballToStringSimple).join(', ')}]';

@@ -6535,7 +6535,8 @@ export class BallEngine {
     if ((v instanceof Set)) {
       return [...v];
     }
-    let raw = __ball_index(v, _kBallSetTag);
+    let setMap = v;
+    let raw = __ball_index(setMap, _kBallSetTag);
     if (false /* BallList is List in TS */) {
       return raw.items;
     }

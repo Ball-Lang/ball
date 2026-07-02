@@ -917,10 +917,14 @@ public:
     bool operator!=(const std::string& s) const { return !(*this == s); }
     bool operator==(const char* s) const { return *this == std::string(s); }
     bool operator!=(const char* s) const { return !(*this == std::string(s)); }
-    bool operator==(int64_t v) const {
-        if (_val.type() == typeid(int64_t)) return std::any_cast<int64_t>(_val) == v;
-        return false;
-    }
+    // Delegate to operator==(const BallDyn&) rather than duplicating a
+    // type-narrow comparison: that overload already special-cases int64_t-vs-
+    // double cross-type equality (Dart `0 == 0.0` is true), which a bare
+    // `_val.type() == typeid(int64_t)` guard here would silently miss — e.g.
+    // `someDouble == 0` was always false even for `someDouble == -0.0` or
+    // `0.0`, which broke a negative-zero sign guard written as `n == 0` in
+    // the self-hosted engine source (issue #101 fixture 316).
+    bool operator==(int64_t v) const { return *this == BallDyn(v); }
     bool operator!=(int64_t v) const { return !(*this == v); }
     bool operator==(int v) const { return *this == static_cast<int64_t>(v); }
     bool operator!=(int v) const { return !(*this == static_cast<int64_t>(v)); }
@@ -943,10 +947,8 @@ public:
         return false;
     }
     bool operator!=(bool v) const { return !(*this == v); }
-    bool operator==(double v) const {
-        if (_val.type() == typeid(double)) return std::any_cast<double>(_val) == v;
-        return false;
-    }
+    // Same cross-type rationale as operator==(int64_t) above.
+    bool operator==(double v) const { return *this == BallDyn(v); }
     bool operator!=(double v) const { return !(*this == v); }
     friend bool operator==(const std::string& s, const BallDyn& d) { return d == s; }
     friend bool operator!=(const std::string& s, const BallDyn& d) { return d != s; }
@@ -2327,6 +2329,18 @@ inline bool ball_is_map_dyn(const BallDyn& v) {
     if (u.type() == typeid(BallOrderedMap)) return true;
     return u.has_value() &&
            (u.type() == typeid(BallMap) || _ball_any_is_object(u));
+}
+
+// True when `v` is the portable ordered-set value the Ball engine represents
+// sets as on the Dart/C++ targets (`{'__ball_set__': [...]}` — a one-key map
+// with the set marker). Mirrors `_ballValueIsSet` in the Dart engine source
+// (dart/engine/lib/engine_types.dart). The native "is"/"is_not" dispatch
+// previously had no `Set` branch and fell through to `ball_object_type_matches`
+// (a `__type__`-field check a portable set map never has), so `x is Set` on a
+// directly-compiled C++ Ball program always evaluated false (issue #68).
+inline bool ball_is_ball_set(const BallDyn& v) {
+    return ball_is_map_dyn(v) && ball_length(v) == 1 &&
+           v.containsKey(std::string("__ball_set__"));
 }
 
 // Map iteration helpers — moved from compiler preamble (MSVC 64KB limit).

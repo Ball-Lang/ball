@@ -364,6 +364,25 @@ extension BallEngineStd on BallEngine {
         return s;
       },
 
+      // num.toStringAsExponential([fractionDigits]) — the fractionDigits arg is
+      // optional; omit it to get the shortest round-tripping form (issue #100).
+      'to_string_as_exponential': (i) {
+        final m = _stdAsMap(i) ?? <String, Object?>{'value': i};
+        final v = m['value'] ?? m['left'];
+        final digits = m['digits'] ?? m['fractionDigits'];
+        final n = _toNum(v);
+        return digits == null
+            ? n.toStringAsExponential()
+            : n.toStringAsExponential(_toInt(digits));
+      },
+      // num.toStringAsPrecision(precision) — precision is required (issue #100).
+      'to_string_as_precision': (i) {
+        final m = _stdAsMap(i) ?? <String, Object?>{'value': i};
+        final v = m['value'] ?? m['left'];
+        final precision = m['precision'] ?? m['digits'];
+        return _toNum(v).toStringAsPrecision(_toInt(precision));
+      },
+
       // String interpolation — concatenates evaluated parts list.
       // Encoders emit this frequently; was previously missing from the engine.
       'string_interpolation': (i) async {
@@ -1252,6 +1271,14 @@ extension BallEngineStd on BallEngine {
       'math_ceil': (i) => _stdConvert(i, (v) => _toNum(v).ceil()),
       'math_round': (i) => _stdConvert(i, (v) => _toNum(v).round()),
       'math_trunc': (i) => _stdConvert(i, (v) => _toNum(v).truncate()),
+      // num.{round,floor,ceil,truncate}ToDouble() — return a double (issue #100).
+      'round_to_double': (i) =>
+          _stdConvert(i, (v) => _toNum(v).roundToDouble()),
+      'floor_to_double': (i) =>
+          _stdConvert(i, (v) => _toNum(v).floorToDouble()),
+      'ceil_to_double': (i) => _stdConvert(i, (v) => _toNum(v).ceilToDouble()),
+      'truncate_to_double': (i) =>
+          _stdConvert(i, (v) => _toNum(v).truncateToDouble()),
       'math_sqrt': (i) => _stdMathUnary(i, _mathSqrt),
       'math_pow': (i) => _stdMathBinary(i, _mathPow),
       'math_log': (i) => _stdMathUnary(i, _mathLog),

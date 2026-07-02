@@ -3639,6 +3639,11 @@ class DartEncoder {
         'floor': 'math_floor',
         'ceil': 'math_ceil',
         'truncate': 'math_trunc',
+        // num.{round,floor,ceil,truncate}ToDouble() — no-arg, return double (#100)
+        'roundToDouble': 'round_to_double',
+        'floorToDouble': 'floor_to_double',
+        'ceilToDouble': 'ceil_to_double',
+        'truncateToDouble': 'truncate_to_double',
       };
       if (unaryRoutes.containsKey(methodName)) {
         final stdName = unaryRoutes[methodName]!;
@@ -3744,6 +3749,8 @@ class DartEncoder {
         'clamp': ('std', 'math_clamp', 'value'),
         'compareTo': ('std', 'compare_to', 'value'),
         'toStringAsFixed': ('std', 'to_string_as_fixed', 'value'),
+        'toStringAsExponential': ('std', 'to_string_as_exponential', 'value'),
+        'toStringAsPrecision': ('std', 'to_string_as_precision', 'value'),
         'substring': ('std', 'string_substring', 'value'),
         'split': ('std', 'string_split', 'value'),
         'replaceAll': ('std', 'string_replace_all', 'value'),
@@ -3791,6 +3798,8 @@ class DartEncoder {
               'math_clamp' => 'min',
               'compare_to' => 'other',
               'to_string_as_fixed' => 'digits',
+              'to_string_as_exponential' => 'digits',
+              'to_string_as_precision' => 'precision',
               _ => 'value',
             };
           } else if (a.name == 'arg1') {

@@ -3991,6 +3991,15 @@ class DartCompiler {
         first == 0x2D /* - */ ) {
       return true;
     }
+    // A symbol literal (`#foo`) greedily consumes trailing `.identifier`
+    // components as PART of the literal's dotted name — `#foo.toString()`
+    // parses as the symbol `#foo.toString` followed by a call `()` on that
+    // Symbol value (which isn't callable: "std.invoke: callee is not
+    // callable" at runtime). Any `.member` appended directly after a symbol
+    // receiver must be parenthesized (conformance 322).
+    if (v.whichExpr() == Expression_Expr.call && v.call.function == 'symbol') {
+      return true;
+    }
     // Binary op calls via std render as infix (`a + b`, `a == b`, etc.)
     // without outer parens. Detect by checking if the value is one of
     // those std calls.

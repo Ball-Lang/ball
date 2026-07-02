@@ -1407,7 +1407,17 @@ extension BallEngineControlFlow on BallEngine {
       try {
         result = await _evalExpression(body, scope);
       } catch (e) {
-        if (e is _FlowSignal && e.kind == 'goto' && e.label == label) {
+        // Bind the goto-match check to a local first: a catch body that is
+        // JUST a single if/else (assign-or-rethrow) encodes its "body" as a
+        // bare `if` call rather than a Block, and the C++ compiler's catch
+        // emission only special-cases a Block body for real statement-form
+        // if/else — a bare `if` falls back to expression compilation, which
+        // renders `rethrow` (void) as a ternary branch and fails to build
+        // ("invalid use of void expression"). Splitting the condition into
+        // its own statement forces a genuine multi-statement Block.
+        final isMatchingBackwardGoto =
+            e is _FlowSignal && e.kind == 'goto' && e.label == label;
+        if (isMatchingBackwardGoto) {
           repeat = true; // backward goto: re-execute the label body
         } else {
           rethrow;

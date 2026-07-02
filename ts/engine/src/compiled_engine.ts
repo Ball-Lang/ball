@@ -1560,7 +1560,7 @@ export class BallEngine {
         let enumName = enumDesc.name;
         let enumMap = {};
         let enumValueList = enumDesc.value;
-        for (var vi = 0; (vi < enumValueList.length); (vi++)) {
+        for (let vi = 0; (vi < enumValueList.length); (vi++)) {
           let v = __ball_index(enumValueList, vi);
           let entry = { ['__type__']: enumName, ['name']: v.name, ['index']: v.number };
           enumMap[v.name] = entry;
@@ -1878,7 +1878,7 @@ export class BallEngine {
           }
         } else {
           if (!__ball_eq(inputMap, null)) {
-            for (var i = 0; (i < params.length); (i++)) {
+            for (let i = 0; (i < params.length); (i++)) {
               let p = __ball_index(params, i);
               if ((p in inputMap)) {
                 scope.bind(p, __ball_index(inputMap, p));
@@ -1894,7 +1894,7 @@ export class BallEngine {
             }
           } else {
             if (Array.isArray(input)) {
-              for (var i = 0; ((i < params.length) && (i < input.length)); (i++)) {
+              for (let i = 0; ((i < params.length) && (i < input.length)); (i++)) {
                 scope.bind(__ball_index(params, i), __ball_index(input, i));
               }
             }
@@ -2028,7 +2028,7 @@ export class BallEngine {
     let params = (hasMetadata(func) ? this._extractParams(func.metadata) : []);
     let paramsMeta = (hasMetadata(func) ? this._extractParamsMeta(func.metadata) : []);
     let resolvedParams = {};
-    for (var i = 0; (i < params.length); (i++)) {
+    for (let i = 0; (i < params.length); (i++)) {
       let param = __ball_index(params, i);
       let value = __no_init__;
       if ((param in inputMap)) {
@@ -2156,7 +2156,7 @@ export class BallEngine {
     let resolvedParams = {};
     let inputMap = this._asMap(input);
     if (!__ball_eq(inputMap, null)) {
-      for (var i = 0; (i < params.length); (i++)) {
+      for (let i = 0; (i < params.length); (i++)) {
         let p = __ball_index(params, i);
         let isThis = ((i < paramsMeta.length) && __ball_eq(__ball_index(__ball_index(paramsMeta, i), 'is_this'), true));
         let val = __no_init__;
@@ -2234,7 +2234,7 @@ export class BallEngine {
             })() ?? '');
             let argNames = this._parseSuperArgs(argsStr);
             let superInput = {};
-            for (var i = 0; (i < argNames.length); (i++)) {
+            for (let i = 0; (i < argNames.length); (i++)) {
               let token = __ball_index(argNames, i);
               if ((token in resolvedParams)) {
                 superInput[('arg' + __ball_to_string(i))] = __ball_index(resolvedParams, token);
@@ -2268,7 +2268,7 @@ export class BallEngine {
     let superCtorEntry = this._lookupConstructor(superclass);
     if (!__ball_eq(superCtorEntry, null)) {
       let superInput = {};
-      for (var i = 0; (i < resolvedParams.length); (i++)) {
+      for (let i = 0; (i < resolvedParams.length); (i++)) {
         superInput[('arg' + __ball_to_string(i))] = resolvedParams.values.elementAt(i);
       }
       return this._callFunction(superCtorEntry.module, superCtorEntry.func, superInput);
@@ -3973,7 +3973,7 @@ export class BallEngine {
         if ((!__ball_eq(ctorEntry, null) && hasMetadata(ctorEntry.func))) {
           let params = this._extractParams(ctorEntry.func.metadata);
           let paramsMeta = this._extractParamsMeta(ctorEntry.func.metadata);
-          for (var i = 0; (i < params.length); (i++)) {
+          for (let i = 0; (i < params.length); (i++)) {
             let param = __ball_index(params, i);
             let value = __no_init__;
             if ((param in fields)) {
@@ -4453,7 +4453,7 @@ export class BallEngine {
           }
         }
         if (!(paramNames.length === 0)) {
-          for (var i = 0; (i < paramNames.length); (i++)) {
+          for (let i = 0; (i < paramNames.length); (i++)) {
             let p = __ball_index(paramNames, i);
             if (!lambdaScope.has(p)) {
               if ((p in inputMap)) {
@@ -5774,7 +5774,8 @@ export class BallEngine {
         result = await this._evalExpression(body, scope);
       } catch (__ball_active_error) {
         const e = __ball_active_error;
-        if ((((e instanceof _FlowSignal) && __ball_eq(e['kind'], 'goto')) && __ball_eq(e['label'], label))) {
+        let isMatchingBackwardGoto = (((e instanceof _FlowSignal) && __ball_eq(e['kind'], 'goto')) && __ball_eq(e['label'], label));
+        if (isMatchingBackwardGoto) {
           repeat = true;
         } else {
           throw __ball_active_error;
@@ -5929,7 +5930,7 @@ export class BallEngine {
         else if ((__sw === 'sort')) {
           if ((typeof arg0 === 'function')) {
             let sorted = [...self];
-            for (var j = 1; (j < sorted.length); (j++)) {
+            for (let j = 1; (j < sorted.length); (j++)) {
               let key = __ball_index(sorted, j);
               let k = __ball_sub(j, 1);
               while ((k >= 0)) {
@@ -6960,7 +6961,7 @@ export class BallEngine {
           }));
           return sorted;
         }
-        for (var j = 1; (j < sorted.length); (j++)) {
+        for (let j = 1; (j < sorted.length); (j++)) {
           let key = __ball_index(sorted, j);
           let k = __ball_sub(j, 1);
           while ((k >= 0)) {
@@ -8123,7 +8124,7 @@ export class BallEngine {
     }
     this._trackMemoryAllocation(__ball_mul(length, _ballPointerBytes));
     let result = [];
-    for (var index = 0; (index < length); (index++)) {
+    for (let index = 0; (index < length); (index++)) {
       let value = generator(index);
       if ((value != null)) {
         value = await value;
@@ -8273,7 +8274,7 @@ export class BallEngine {
           }
         }
         if (__ball_eq(objTypeArgs.length, typeArgs.length)) {
-          for (var i = 0; (i < typeArgs.length); (i++)) {
+          for (let i = 0; (i < typeArgs.length); (i++)) {
             if (!__ball_eq(__ball_index(objTypeArgs, i), __ball_index(typeArgs, i))) {
               return false;
             }
@@ -8367,7 +8368,7 @@ export class BallEngine {
     let args = [];
     let depth = 0;
     let start = 0;
-    for (var i = 0; (i < str.length); (i++)) {
+    for (let i = 0; (i < str.length); (i++)) {
       if (__ball_eq(__ball_index(str, i), '<')) {
         (depth++);
       }
@@ -8604,7 +8605,7 @@ export class BallEngine {
         if ((!__ball_eq(restIndex, __ball_negate(1)) && (listVal.length < fixedCount))) {
           return false;
         }
-        for (var i = 0; (i < elements.length); (i++)) {
+        for (let i = 0; (i < elements.length); (i++)) {
           let elem = __ball_index(elements, i);
           let elemMap = this._stdAsMap(elem);
           if ((!__ball_eq(elemMap, null) && __ball_eq(this._patternKind(elemMap), 'rest'))) {
@@ -8920,7 +8921,7 @@ export class BallEngine {
 
   _repeatString(s: any, count: any): any {
     let out = '';
-    for (var k = 0; (k < count); (k++)) {
+    for (let k = 0; (k < count); (k++)) {
       out = (__ball_to_string(out) + __ball_to_string(s));
     }
     return out;

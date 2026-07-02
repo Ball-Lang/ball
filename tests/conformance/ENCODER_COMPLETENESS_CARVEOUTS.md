@@ -13,9 +13,5 @@ loud and reviewed, never silent — the failure mode that produced issue #55).
 
 ## Known-broken (tracked) — REMOVE the carve-out once fixed + add a fixture
 
-- `type_literal` — a bare type used as a value (e.g. `print(int);`) throws
-  `BallRuntimeError: Undefined variable: "int"` on the engine; native Dart
-  prints `int`. The construct is emittable but the engine has no runtime
-  representation for a type literal. Surfaced by the completeness gate
-  2026-06-18. TODO: give the engine a `Type` value whose `toString` is the type
-  name, then replace this carve-out with a fixture.
+_None currently._ `type_literal` was fixed by #66 (PR #158) and is now
+exercised by `tests/conformance/src/340_type_literal.dart`.

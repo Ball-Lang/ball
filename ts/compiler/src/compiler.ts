@@ -219,6 +219,26 @@ export class BallCompiler {
       this.emitClass(sf, td, members);
     }
 
+    // Enums declared in Module.enums[] (google.protobuf.EnumDescriptorProto,
+    // proto3 JSON: `{name, value: [{name, number}]}`). Both encoders emit
+    // enum declarations here (the Dart encoder with module-qualified names
+    // like "main:Color"); dropping them left `Color.red` references dangling
+    // in the compiled output (#120).
+    const emittedTypeNames = new Set(allTypeDefs.map((td) => classTsName(td.name)));
+    for (const mod of userModules) {
+      for (const en of mod.enums ?? []) {
+        const tsName = classTsName(en.name);
+        // A typeDef of the same name already produced a class declaration.
+        if (emittedTypeNames.has(tsName)) continue;
+        emittedTypeNames.add(tsName);
+        const entries = (en.value ?? []).map((v, i) => ({
+          name: v.name,
+          index: typeof v.number === "number" ? v.number : i,
+        }));
+        this.emitEnumClass(sf, tsName, entries);
+      }
+    }
+
     // Top-level variables (kind == 'top_level_variable') emit as
     // `const <name> = <body>;` before free functions.
     for (const fn of freeFunctions.filter(
@@ -2350,6 +2370,32 @@ function __isUnknownFnError(e: any): boolean {
     return false;
   }
 
+  /**
+   * Emit a Dart-style enum as a TS class with static singleton instances,
+   * `index`/`name` properties, a `values` list, and `toString()` returning
+   * `'<Enum>.<member>'`. Shared by the two enum declaration paths:
+   * typeDefs with `metadata.kind == "enum"` and `Module.enums[]`
+   * (google.protobuf.EnumDescriptorProto) entries.
+   */
+  private emitEnumClass(
+    sf: ReturnType<Project["createSourceFile"]>,
+    tsName: string,
+    entries: Array<{ name: string; index: number }>,
+  ): void {
+    const staticProps = entries.map(
+      (e) => `static readonly ${sanitize(e.name)} = new ${tsName}(${e.index}, '${e.name}');`,
+    );
+    const valuesArray = entries.map((e) => `${tsName}.${sanitize(e.name)}`).join(", ");
+    sf.addStatements(`export class ${tsName} {
+  readonly index: number;
+  readonly name: string;
+  private constructor(index: number, name: string) { this.index = index; this.name = name; }
+  ${staticProps.join("\n  ")}
+  static readonly values: ${tsName}[] = [${valuesArray}];
+  toString(): string { return '${tsName}.' + this.name; }
+}`);
+  }
+
   private emitClass(
     sf: ReturnType<Project["createSourceFile"]>,
     td: TypeDefinition,
@@ -2361,18 +2407,11 @@ function __isUnknownFnError(e: any): boolean {
     // Enum handling: emit a class with static instances, index, name, values.
     if (meta["kind"] === "enum") {
       const enumValues = Array.isArray(meta["values"]) ? meta["values"] as any[] : [];
-      const valueNames = enumValues.map((v: any) => typeof v === "string" ? v : (v?.name ?? ""));
-      // Build the enum class with index, name, static instances, and values.
-      const staticProps = valueNames.map((name, i) => `static readonly ${sanitize(name)} = new ${tsName}(${i}, '${name}');`);
-      const valuesArray = valueNames.map((name) => `${tsName}.${sanitize(name)}`).join(", ");
-      sf.addStatements(`export class ${tsName} {
-  readonly index: number;
-  readonly name: string;
-  private constructor(index: number, name: string) { this.index = index; this.name = name; }
-  ${staticProps.join("\n  ")}
-  static readonly values: ${tsName}[] = [${valuesArray}];
-  toString(): string { return '${tsName}.' + this.name; }
-}`);
+      const entries = enumValues.map((v: any, i: number) => ({
+        name: typeof v === "string" ? v : (v?.name ?? ""),
+        index: i,
+      }));
+      this.emitEnumClass(sf, tsName, entries);
       return;
     }
 
@@ -3283,10 +3322,12 @@ function __isUnknownFnError(e: any): boolean {
     const start = field(call, "start");
     let initStr: string;
     if (variable && start) {
-      // Use `var` (not `let`) to match Dart's shared-variable loop semantics.
-      // Dart closures in loops capture the shared variable (final value);
-      // JS `let` gives per-iteration copies which breaks this behavior.
-      initStr = `var ${variable} = ${this.expr(start)}`;
+      // Use `let` for a per-iteration binding: Dart's C-style for loop gives
+      // each iteration its OWN copy of the loop variable, so closures created
+      // in the body capture that iteration's value (conformance 229/312).
+      // JS `let` matches this exactly; `var` would share one binding and
+      // leak the final value into every closure (#69).
+      initStr = `let ${variable} = ${this.expr(start)}`;
     } else if (init && init.literal?.stringValue !== undefined) {
       initStr = translateInitString(init.literal.stringValue);
     } else if (init && init.block) {
@@ -3304,7 +3345,7 @@ function __isUnknownFnError(e: any): boolean {
           }
         }
       }
-      initStr = parts.length > 0 ? `var ${parts.join(", ")}` : "";
+      initStr = parts.length > 0 ? `let ${parts.join(", ")}` : "";
     } else if (init) {
       initStr = this.expr(init);
     } else {
@@ -3796,10 +3837,11 @@ function __isUnknownFnError(e: any): boolean {
 
   /**
    * Render a C-style for-init `block` (a single-let, no-result block) as an
-   * inline declaration string like `var i = 0` — NOT an IIFE, so the loop
+   * inline declaration string like `let i = 0` — NOT an IIFE, so the loop
    * variable stays in scope for the condition/update. Mirrors the Dart
-   * compiler's `_renderForInit`. Uses `var` to match Dart's shared-variable
-   * loop-capture semantics. Returns "" on an unrecognized shape.
+   * compiler's `_renderForInit`. Uses `let` so each iteration gets its own
+   * binding, matching Dart's per-iteration loop-variable capture semantics
+   * (#69, conformance 312). Returns "" on an unrecognized shape.
    */
   private renderForInit(initExpr: Expression): string {
     const block = initExpr.block;
@@ -3820,7 +3862,7 @@ function __isUnknownFnError(e: any): boolean {
         bindings.push(name);
       }
     }
-    return bindings.length > 0 ? `var ${bindings.join(", ")}` : "";
+    return bindings.length > 0 ? `let ${bindings.join(", ")}` : "";
   }
 
   private compileFieldAccess(fa: NonNullable<Expression["fieldAccess"]>): string {

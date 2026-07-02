@@ -3920,6 +3920,16 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         return "(std::string(\"Symbol(\\\"\") + ball_to_string(" + v +
                ") + std::string(\"\\\")\"))";
     }
+    // Type literal (print(int), T == String, '$List') — the encoder stores
+    // the canonical Type.toString() display string in the `type` field
+    // (`int`, `List<dynamic>`, ...) and every engine represents a type
+    // literal AS that string (engine_std.dart 'type_literal'), so the
+    // compiled form is simply the string: print / == / interpolation all
+    // match Dart. Previously unhandled — fell through to a default value
+    // that printed 0 and made distinct types compare equal (fixture 340).
+    if (fn == "type_literal") {
+        return get_message_field(call, "type");
+    }
     if (fn == "to_int") {
         auto v = get_message_field(call, "value");
         // Clamp out-of-range double->int (a bare static_cast is UB per

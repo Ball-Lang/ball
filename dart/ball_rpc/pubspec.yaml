@@ -5,7 +5,7 @@ description: >-
   transports for the Connect protocol and gRPC-over-HTTP/2, plus an in-memory
   FakeTransport for testing generated clients. Generated service stubs delegate
   bytes-level calls here. NOT Ball-portable — it uses dart:io / dart:async.
-version: 0.3.0
+version: 0.3.0+1
 homepage: https://github.com/ball-lang/ball
 repository: https://github.com/ball-lang/ball
 issue_tracker: https://github.com/ball-lang/ball/issues
@@ -21,7 +21,7 @@ environment:
 resolution: workspace
 
 dependencies:
-  ball_protobuf: ^0.3.0
+  ball_protobuf: ^0.3.0+1
 
 dev_dependencies:
   lints: ^6.1.0

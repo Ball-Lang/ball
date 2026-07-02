@@ -4,7 +4,7 @@ description: >-
   FileDescriptorSets into the resolved, Editions-aware Map field descriptors that
   the ball_protobuf runtime consumes. Depends on ball_base (descriptor types) and
   ball_protobuf (runtime); not Ball-portable.
-version: 0.3.0
+version: 0.3.0+1
 homepage: https://github.com/ball-lang/ball
 repository: https://github.com/ball-lang/ball
 issue_tracker: https://github.com/ball-lang/ball/issues
@@ -19,15 +19,15 @@ environment:
 resolution: workspace
 
 dependencies:
-  ball_base: ^0.3.0
-  ball_protobuf: ^0.3.0
+  ball_base: ^0.3.0+1
+  ball_protobuf: ^0.3.0+1
 
 dev_dependencies:
   # ball_rpc is NOT imported by this package's library code; it is the runtime
   # the *generated* `.connect.dart` files import. Listed here so the
   # connect-service test's subprocess driver (which compiles a generated client)
   # can resolve `package:ball_rpc` through the workspace package config.
-  ball_rpc: ^0.3.0
+  ball_rpc: ^0.3.0+1
   dart_style: ^3.0.0
   lints: ^6.1.0
   test: ^1.25.0

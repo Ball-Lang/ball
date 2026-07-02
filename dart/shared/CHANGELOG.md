@@ -1,3 +1,10 @@
+## 0.3.0+1
+
+ - **FIX**(ci,website): repair [#137](https://github.com/ball-lang/ball/issues/137) regressions + restore the broken website deploy ([#144](https://github.com/ball-lang/ball/issues/144)). ([6dbec37d](https://github.com/ball-lang/ball/commit/6dbec37d0f3bdb4c8be216d5b7baeccbf8d4c95e))
+ - **FIX**(engine,encoder,compilers): String.runes → code points (closes [#108](https://github.com/ball-lang/ball/issues/108)) ([#111](https://github.com/ball-lang/ball/issues/111)). ([09bd5880](https://github.com/ball-lang/ball/commit/09bd588090e4f5b626c1cd792b702fe1d1020299))
+ - **DOCS**: apply documentation + code-comment audit fixes ([#137](https://github.com/ball-lang/ball/issues/137)). ([58f3bf57](https://github.com/ball-lang/ball/commit/58f3bf578461ab14a29f77098a02e6f4b5a4e5da))
+ - **DOCS**(agents): add hierarchical AGENTS.md across all packages ([#131](https://github.com/ball-lang/ball/issues/131)). ([ae2e547d](https://github.com/ball-lang/ball/commit/ae2e547da5ce0316bcb459eb444aa02550102df2))
+
 ## 0.3.0
 
 * **Extracted the portable protobuf runtime** into the standalone

@@ -963,6 +963,140 @@ TEST(compile_list_null_spread_guards_null) {
     ASSERT_CONTAINS(out, "BallList __r");
 }
 
+// `[for (var i = 0; i < 3; i++) () => i]` (fixture 312: 312_collection_for_capture)
+// — the loop var `i` is captured by an escaping closure, so it must be boxed
+// (shared_ptr<BallDyn>) with a FRESH per-iteration cell, exactly like the
+// statement-form `for`'s closure-capture boxing. Before the fix the C-style
+// header always emitted an unboxed `auto i = ...`, while `compile_reference`
+// (driven by the same `compute_boxed_vars` pre-pass) still dereferenced every
+// read of `i` as `(*i)` — a hard compile error (`operator*` on an int64_t).
+TEST(compile_collection_for_cstyle_boxes_captured_loop_var) {
+    ball::v1::Expression init;
+    auto* let_i = init.mutable_block()->add_statements()->mutable_let();
+    let_i->set_name("i");
+    *let_i->mutable_value() = lit_int(0);
+
+    ball::v1::Expression body_lambda;
+    body_lambda.mutable_lambda()->set_name("");
+    *body_lambda.mutable_lambda()->mutable_body() = ref("i");
+
+    auto cfor = std_call("collection_for", make_msg("", {
+        {"init", std::move(init)},
+        {"condition", std_binary("less_than", ref("i"), lit_int(3))},
+        {"update", std_call("post_increment", make_msg("", {{"value", ref("i")}}))},
+        {"body", std::move(body_lambda)},
+    }));
+
+    ball::v1::Expression main_body;
+    auto* let_fns = main_body.mutable_block()->add_statements()->mutable_let();
+    let_fns->set_name("fns");
+    *let_fns->mutable_value() = lit_list({std::move(cfor)});
+
+    auto prog = build_program(std::move(main_body));
+    auto out = compile_program(prog);
+    // The init cell is boxed...
+    ASSERT_CONTAINS(out, "std::make_shared<BallDyn>(BallDyn(static_cast<int64_t>(0)))");
+    // ...and the body gets a fresh per-iteration shadow cell (mirrors the
+    // statement-form `for`'s `__ball_box_persist_<var>` splice).
+    ASSERT_CONTAINS(out, "__ball_box_persist_i");
+    // Must NOT fall back to the unboxed header (would make every `(*i)` read
+    // ill-formed).
+    ASSERT_NOT_CONTAINS(out, "for (auto i = static_cast<int64_t>(0)");
+}
+
+// ================================================================
+// Tests — std_memory native lowering (issue #154)
+// ================================================================
+
+// Registers an all-base module named `name` (e.g. "std_memory") so
+// `base_modules_` picks it up and the memory runtime preamble is emitted.
+static void add_base_module(ball::v1::Program& prog, const std::string& name) {
+    auto* mod = prog.add_modules();
+    mod->set_name(name);
+    auto* fn = mod->add_functions();
+    fn->set_name("__marker__");
+    fn->set_is_base(true);
+}
+
+ball::v1::Expression mem_call(const std::string& function,
+                               const std::string& type_name,
+                               std::vector<std::pair<std::string, ball::v1::Expression>> fields) {
+    return call("std_memory", function, make_msg(type_name, std::move(fields)));
+}
+
+TEST(compile_std_memory_preamble_declares_runtime_arrays) {
+    ball::v1::Program prog = build_program(
+        mem_call("memory_alloc", "AllocInput", {{"size", lit_int(4)}}));
+    add_base_module(prog, "std_memory");
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "static uint8_t _ball_memory[65536];");
+    ASSERT_CONTAINS(out, "static size_t _ball_heap_ptr = 0;");
+    ASSERT_CONTAINS(out, "static size_t _ball_stack_ptr = 65536;");
+    ASSERT_CONTAINS(out, "static std::vector<size_t> _ball_stack_frames;");
+    ASSERT_CONTAINS(out, "inline int64_t _ball_memory_alloc(int64_t size)");
+}
+
+TEST(compile_std_memory_alloc_free_realloc) {
+    ball::v1::Program prog = build_program(mem_call(
+        "memory_realloc", "ReallocInput",
+        {{"address", ref("a")}, {"new_size", lit_int(8)}}));
+    add_base_module(prog, "std_memory");
+    auto out = compile_program(prog);
+    // ReallocInput field order (std_memory.dart): address(1), new_size(2) —
+    // positional lowering must pass `a` before the size.
+    ASSERT_CONTAINS(out, "_ball_memory_realloc(a, static_cast<int64_t>(8))");
+    ASSERT_CONTAINS(out, "inline int64_t _ball_memory_realloc(int64_t address, int64_t new_size)");
+    ASSERT_CONTAINS(out, "inline int64_t _ball_memory_free(int64_t address)");
+}
+
+TEST(compile_std_memory_typed_read_write) {
+    ball::v1::Program prog = build_program(mem_call(
+        "memory_write_i32", "MemWriteInput",
+        {{"address", lit_int(0)}, {"value", lit_int(42)}}));
+    add_base_module(prog, "std_memory");
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_memory_write_i32(static_cast<int64_t>(0), static_cast<int64_t>(42))");
+    ASSERT_CONTAINS(out, "inline double _ball_memory_read_f64(int64_t address)");
+    ASSERT_CONTAINS(out, "inline double _ball_memory_read_f32(int64_t address)");
+}
+
+TEST(compile_std_memory_bulk_and_ptr_ops) {
+    ball::v1::Program prog = build_program(mem_call(
+        "memory_copy", "MemCopyInput",
+        {{"dest", lit_int(0)}, {"src", lit_int(4)}, {"size", lit_int(4)}}));
+    add_base_module(prog, "std_memory");
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_memory_copy(static_cast<int64_t>(0), static_cast<int64_t>(4), static_cast<int64_t>(4))");
+    ASSERT_CONTAINS(out, "inline int64_t _ball_memory_set(int64_t address, int64_t value, int64_t size)");
+    ASSERT_CONTAINS(out, "inline int64_t _ball_memory_compare(int64_t a, int64_t b, int64_t size)");
+    ASSERT_CONTAINS(out, "inline int64_t _ball_ptr_add(int64_t address, int64_t offset, int64_t element_size)");
+    ASSERT_CONTAINS(out, "inline int64_t _ball_ptr_diff(int64_t address, int64_t offset, int64_t element_size)");
+}
+
+TEST(compile_std_memory_stack_frame_and_sizeof) {
+    ball::v1::Program prog = build_program(mem_call(
+        "stack_alloc", "StackAllocInput", {{"size", lit_int(16)}}));
+    add_base_module(prog, "std_memory");
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_stack_alloc(static_cast<int64_t>(16))");
+    ASSERT_CONTAINS(out, "inline int64_t _ball_stack_push_frame()");
+    ASSERT_CONTAINS(out, "inline int64_t _ball_stack_pop_frame()");
+    ASSERT_CONTAINS(out, "inline int64_t _ball_memory_sizeof(const std::string& type_name)");
+}
+
+// Any std_memory function NOT natively implemented must fail LOUD at C++
+// compile time (a static_assert naming the function) — never silently emit
+// an undefined-identifier call like `_ball_address_of(...)`.
+TEST(compile_std_memory_unimplemented_fails_loud_at_compile_time) {
+    ball::v1::Program prog = build_program(
+        mem_call("address_of", "AddressOfInput", {{"value", lit_int(1)}}));
+    add_base_module(prog, "std_memory");
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "static_assert(false");
+    ASSERT_CONTAINS(out, "std_memory.address_of");
+    ASSERT_NOT_CONTAINS(out, "_ball_address_of(");
+}
+
 // ================================================================
 // Main
 // ================================================================

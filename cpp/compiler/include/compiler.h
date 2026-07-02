@@ -313,6 +313,11 @@ private:
 
     // Structural emitters
     void emit_includes();
+    // Emits the `std_memory` linear-memory runtime: the backing byte array +
+    // heap/stack pointers, plus a native `_ball_<fn>` helper for every
+    // std_memory base function the compiler implements (issue #154). Shared
+    // by compile() and compile_split() so the two codegen paths never drift.
+    void emit_memory_runtime_preamble();
     void emit_forward_decls(const ball::v1::Module& module);
     void emit_struct(const ball::v1::TypeDefinition& td,
                     const std::vector<const ball::v1::FunctionDefinition*>& methods);
@@ -422,8 +427,19 @@ private:
                                                const std::string& map_var);
     // Render the C++ `for (...)` header (no trailing brace) for a C-style
     // `collection_for` (init/condition/update), inlining the single-let init.
+    // When the loop variable is captured by an escaping closure (per
+    // `boxed_vars_`), the init cell is boxed (shared_ptr<BallDyn>) and
+    // `*boxed_var_out` is set to its sanitized name so the caller can wrap the
+    // loop body with a fresh per-iteration cell (see
+    // `_wrap_cstyle_loop_body`). Leave `boxed_var_out` null to opt out.
     std::string _render_collection_for_cstyle_header(
-        const ball::v1::FunctionCall& call);
+        const ball::v1::FunctionCall& call, std::string* boxed_var_out = nullptr);
+    // Wraps a C-style collection_for's body statements with the
+    // shared_ptr<BallDyn> per-iteration shadow cell for `boxed_var` (mirrors
+    // the statement-form `for`'s boxing in compile_statement — see fixture
+    // 312). If `boxed_var` is empty, just braces the body statements.
+    std::string _wrap_cstyle_loop_body(const std::string& boxed_var,
+                                        const std::string& body_stmts);
     std::string sanitize_name(const std::string& name);
     std::string indent_str();
     // Resolve a class's constructor parameter names (in declaration order) so

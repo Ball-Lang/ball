@@ -53,8 +53,10 @@ fixtures in the [Skip-list](#skip-list).
 
 The C++ compiler compiles each `tests/conformance/*.ball.json` fixture to C++
 source; the compiled output runs and matches golden output for every fixture
-except the four host-knob tests (no golden output) and one var-capture carve-out
-(`312`, #69).
+except the four host-knob tests (no golden output). The last compiler
+carve-out (`312`, a C-style `collection_for` loop var captured by an escaping
+closure, #69) was fixed by boxing the loop var the same way the statement-form
+`for` already did.
 
 Key capabilities:
 - Dynamic method dispatch + generics erasure

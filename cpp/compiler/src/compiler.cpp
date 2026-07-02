@@ -3080,15 +3080,20 @@ std::string CppCompiler::compile_map_entry_insert(const ball::v1::Expression& e,
 
 // Renders the C++ `for (...)` HEADER (without the trailing `{`) for a C-style
 // `collection_for` whose `init` is a Block with a single `let`. Mirrors the
-// statement-`for` init extraction (compiler.cpp ~5984) but always inlines the
+// statement-`for` init extraction (compiler.cpp ~6267) but always inlines the
 // declaration as `auto <var> = <val>` so the loop var is in scope for the
 // condition/update — an IIFE would scope it away (issue #55). Returns "" if the
 // shape isn't the expected single-let block (caller falls back).
 //
-// NOTE: closure-capture boxing (the statement-`for`'s shared_ptr<BallDyn> cell
-// for escaping closures) is intentionally NOT replicated here — see fixture 312.
+// When the loop var is captured by an escaping closure (`boxed_vars_`, set by
+// `compute_boxed_vars`), the init cell is boxed as a shared_ptr<BallDyn> — same
+// as the statement-form `for` — because `compile_reference` already emits
+// `(*i)` for every read of a boxed name; an unboxed `auto i = 0` would make
+// those dereferences ill-formed. `*boxed_var_out` (when non-null) receives the
+// sanitized var name so the caller can splice in a per-iteration shadow cell
+// via `_wrap_cstyle_loop_body` (fixture 312).
 std::string CppCompiler::_render_collection_for_cstyle_header(
-    const ball::v1::FunctionCall& call) {
+    const ball::v1::FunctionCall& call, std::string* boxed_var_out) {
     auto* init_e = get_message_field_expr(call, "init");
     std::string init;
     if (init_e &&
@@ -3098,7 +3103,13 @@ std::string CppCompiler::_render_collection_for_cstyle_header(
         const auto& let_stmt = init_e->block().statements(0).let();
         auto var_name = ball_local_var_name(sanitize_name(let_stmt.name()));
         auto val = compile_expr(let_stmt.value());
-        init = "auto " + var_name + " = " + val;
+        if (boxed_vars_.count(let_stmt.name())) {
+            init = "auto " + var_name + " = std::make_shared<BallDyn>(BallDyn(" +
+                   val + "))";
+            if (boxed_var_out) *boxed_var_out = var_name;
+        } else {
+            init = "auto " + var_name + " = " + val;
+        }
     } else if (init_e &&
                init_e->expr_case() == ball::v1::Expression::kLiteral &&
                init_e->literal().value_case() ==
@@ -3115,6 +3126,27 @@ std::string CppCompiler::_render_collection_for_cstyle_header(
     auto cond = get_message_field(call, "condition");
     auto update = get_message_field(call, "update");
     return "for (" + init + "; " + cond + "; " + update + ")";
+}
+
+// See declaration in compiler.h. Mirrors the statement-form `for`'s
+// per-iteration shadow-cell splice (compile_statement, fixture 229) so a
+// closure built inside a C-style `collection_for` body captures THAT
+// iteration's value instead of the one shared header cell.
+//
+// The shadow cell needs its OWN nested block: the for-init variable's scope
+// extends through the loop's own compound-statement body, so re-declaring
+// `auto <var>` directly inside that same brace is a redeclaration error
+// (caught by the g++ e2e run of fixture 312 — "redeclaration of 'auto i'").
+// The outer `{ }` is the loop's required compound-statement body; the inner
+// `{ }` is where the fresh cell shadows the header cell.
+std::string CppCompiler::_wrap_cstyle_loop_body(const std::string& boxed_var,
+                                                 const std::string& body_stmts) {
+    if (boxed_var.empty()) return "{ " + body_stmts + " }";
+    return "{ { auto& __ball_box_persist_" + boxed_var + " = " + boxed_var +
+           "; auto " + boxed_var +
+           " = std::make_shared<BallDyn>(BallDyn(*__ball_box_persist_" +
+           boxed_var + ")); " + body_stmts + " *__ball_box_persist_" +
+           boxed_var + " = *" + boxed_var + "; } }";
 }
 
 // Splices a single list/set collection element into the BallList `list_var`,
@@ -3164,8 +3196,11 @@ std::string CppCompiler::compile_collection_element(
                        ")) { " + body_stmts + " }";
             }
             // C-style collection_for.
-            std::string header = _render_collection_for_cstyle_header(call);
-            if (!header.empty()) return header + " { " + body_stmts + " }";
+            std::string boxed_var;
+            std::string header =
+                _render_collection_for_cstyle_header(call, &boxed_var);
+            if (!header.empty())
+                return header + " " + _wrap_cstyle_loop_body(boxed_var, body_stmts);
             return "/* invalid nested collection_for */";
         }
         // Nested collection_if: conditional append.
@@ -3238,8 +3273,11 @@ std::string CppCompiler::compile_map_collection_element(
                 return "for (auto " + vn + " : BallDyn(" + compile_expr(*iter_e) +
                        ")) { " + body_stmts + " }";
             }
-            std::string header = _render_collection_for_cstyle_header(call);
-            if (!header.empty()) return header + " { " + body_stmts + " }";
+            std::string boxed_var;
+            std::string header =
+                _render_collection_for_cstyle_header(call, &boxed_var);
+            if (!header.empty())
+                return header + " " + _wrap_cstyle_loop_body(boxed_var, body_stmts);
             return "/* invalid nested map collection_for */";
         }
         if (fn == "collection_if") {
@@ -3523,8 +3561,35 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
                argAt(1, "key") + ")) > 0)";
     }
 
-    // std_memory → direct memory calls
+    // std_memory → direct memory calls, lowered POSITIONALLY: MessageCreation
+    // fields are emitted in declaration order as `_ball_<fn>(arg0, arg1, ...)`
+    // — the order matches each input type's field order in
+    // dart/shared/lib/std_memory.dart (e.g. ReallocInput: address(1),
+    // new_size(2)), which the C++ encoder mirrors. Every function implemented
+    // natively by `emit_memory_runtime_preamble` is listed in kImplemented;
+    // anything else fails LOUD at C++ compile time via a static_assert naming
+    // the function — never an undefined-identifier link error (issue #154).
     if (mod == "std_memory") {
+        static const std::unordered_set<std::string> kImplemented = {
+            "memory_alloc",     "memory_free",       "memory_realloc",
+            "memory_read_i8",   "memory_read_u8",    "memory_read_i16",
+            "memory_read_u16",  "memory_read_i32",   "memory_read_u32",
+            "memory_read_i64",  "memory_read_u64",   "memory_read_f32",
+            "memory_read_f64",  "memory_write_i8",   "memory_write_u8",
+            "memory_write_i16", "memory_write_u16",  "memory_write_i32",
+            "memory_write_u32", "memory_write_i64",  "memory_write_u64",
+            "memory_write_f32", "memory_write_f64",  "memory_copy",
+            "memory_set",       "memory_compare",    "ptr_add",
+            "ptr_sub",          "ptr_diff",           "stack_alloc",
+            "stack_push_frame", "stack_pop_frame",   "memory_sizeof",
+            "nullptr",          "memory_heap_size",  "memory_stack_size",
+        };
+        if (!kImplemented.count(fn)) {
+            return "[]{ static_assert(false, \"std_memory." + fn +
+                   " is not implemented for the C++ target (see "
+                   "emit_memory_runtime_preamble in cpp/compiler/src/compiler.cpp)\""
+                   "); return BallDyn(); }()";
+        }
         std::string result = "_ball_" + fn + "(";
         if (call.has_input() &&
             call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
@@ -5236,10 +5301,13 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         // init/condition/update (issue #55: a list-comprehension C-style for had
         // no `iterable` field, so the loop body was never emitted).
         std::string header;
+        std::string boxed_var;  // C-style only: set when the loop var escapes via
+                                 // a closure (fixture 312) — see
+                                 // _render_collection_for_cstyle_header.
         if (iter_expr) {
             header = "for (auto " + vn + " : BallDyn(" + compile_expr(*iter_expr) + "))";
         } else {
-            header = _render_collection_for_cstyle_header(call);
+            header = _render_collection_for_cstyle_header(call, &boxed_var);
         }
         if (fn == "collection_for") {
             auto* body_expr = get_message_field_expr(call, "body");
@@ -5254,9 +5322,10 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 // assignable and `BallDyn(BallOrderedMap)` wraps it
                 // reference-semantically.
                 std::string result =
-                    "[&]() -> BallDyn { BallOrderedMap __m; " + header + " { " +
-                    compile_map_collection_element(*body_expr, "__m") +
-                    " } return BallDyn(__m); }()";
+                    "[&]() -> BallDyn { BallOrderedMap __m; " + header + " " +
+                    _wrap_cstyle_loop_body(
+                        boxed_var, compile_map_collection_element(*body_expr, "__m")) +
+                    " return BallDyn(__m); }()";
                 return result;
             }
             // List/set comprehension. compile_collection_element splices nested
@@ -5265,16 +5334,18 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             std::string body_stmts =
                 body_expr ? compile_collection_element(*body_expr, "__r")
                           : "";
-            return "[&]() -> BallDyn { BallList __r; " + header + " { " +
-                   body_stmts + " } return BallDyn(__r); }()";
+            return "[&]() -> BallDyn { BallList __r; " + header + " " +
+                   _wrap_cstyle_loop_body(boxed_var, body_stmts) +
+                   " return BallDyn(__r); }()";
         }
         // for_in as a statement-position expression (side-effecting): run the
         // body for effect.
         if (header.empty())
             return "/* invalid for_in (no iterable / init) */ BallDyn()";
         auto body = get_message_field(call, "body");
-        return "[&]() -> BallDyn { " + header + " { (void)(" + body +
-               "); } return BallDyn(); }()";
+        return "[&]() -> BallDyn { " + header + " " +
+               _wrap_cstyle_loop_body(boxed_var, "(void)(" + body + ");") +
+               " return BallDyn(); }()";
     }
 
     // Default: unknown std call → comment marker
@@ -7567,6 +7638,114 @@ void CppCompiler::emit_template_prefix_from_meta(
     out_ << ">\n";
 }
 
+// Emits the `std_memory` linear-memory runtime preamble: the backing byte
+// array + heap/stack pointers, plus a native `_ball_<fn>` helper for every
+// std_memory base function the compiler implements. `compile_std_call`'s
+// `mod == "std_memory"` branch lowers a call POSITIONALLY to `_ball_<fn>(args
+// in MessageCreation field order)` — the field order matches each input
+// type's declaration in dart/shared/lib/std_memory.dart (e.g. ReallocInput:
+// address(1), new_size(2)), which the C++ encoder mirrors when it emits
+// std_memory calls. Any function NOT defined here is rejected at the
+// lowering site with a compile-time static_assert naming the function
+// (issue #154) — this list and that lowering's `kImplemented` set MUST stay
+// in sync.
+void CppCompiler::emit_memory_runtime_preamble() {
+    emit_line("// Ball linear memory runtime (std_memory)");
+    emit_line("static uint8_t _ball_memory[65536];");
+    emit_line("static size_t _ball_heap_ptr = 0;");
+    emit_line("static size_t _ball_stack_ptr = 65536;");
+    emit_line("static std::vector<size_t> _ball_stack_frames;");
+    emit_newline();
+    out_ << R"(
+// ── Allocation — bump allocator; memory_free is a no-op (no per-block
+//    bookkeeping to release). memory_realloc mirrors the Dart compiler's
+//    _memRealloc (dart/compiler/lib/compiler.dart ~3529): bump-allocate the
+//    new block, then copy min(old, new) bytes (clamped to the array bounds)
+//    from the old base — the old block is never freed.
+inline int64_t _ball_memory_alloc(int64_t size) {
+  int64_t __addr = static_cast<int64_t>(_ball_heap_ptr);
+  _ball_heap_ptr += static_cast<size_t>(size);
+  return __addr;
+}
+inline int64_t _ball_memory_free(int64_t address) { (void)address; return 0; }
+inline int64_t _ball_memory_realloc(int64_t address, int64_t new_size) {
+  int64_t __old = address;
+  int64_t __size = new_size;
+  int64_t __addr = static_cast<int64_t>(_ball_heap_ptr);
+  _ball_heap_ptr += static_cast<size_t>(__size);
+  int64_t __n = __size;
+  int64_t __len = static_cast<int64_t>(sizeof(_ball_memory));
+  if (__old + __n > __len) __n = __len - __old;
+  if (__addr + __n > __len) __n = __len - __addr;
+  for (int64_t __i = 0; __i < __n; __i++) _ball_memory[__addr + __i] = _ball_memory[__old + __i];
+  return __addr;
+}
+
+// ── Typed reads/writes — little-endian byte-for-byte via memcpy (the
+//    emitted programs target little-endian hosts: x86_64/ARM64). Writes
+//    return the written address for chainability.
+inline int64_t _ball_memory_read_i8(int64_t address) { int8_t __v; std::memcpy(&__v, _ball_memory + address, sizeof(__v)); return static_cast<int64_t>(__v); }
+inline int64_t _ball_memory_read_u8(int64_t address) { uint8_t __v; std::memcpy(&__v, _ball_memory + address, sizeof(__v)); return static_cast<int64_t>(__v); }
+inline int64_t _ball_memory_read_i16(int64_t address) { int16_t __v; std::memcpy(&__v, _ball_memory + address, sizeof(__v)); return static_cast<int64_t>(__v); }
+inline int64_t _ball_memory_read_u16(int64_t address) { uint16_t __v; std::memcpy(&__v, _ball_memory + address, sizeof(__v)); return static_cast<int64_t>(__v); }
+inline int64_t _ball_memory_read_i32(int64_t address) { int32_t __v; std::memcpy(&__v, _ball_memory + address, sizeof(__v)); return static_cast<int64_t>(__v); }
+inline int64_t _ball_memory_read_u32(int64_t address) { uint32_t __v; std::memcpy(&__v, _ball_memory + address, sizeof(__v)); return static_cast<int64_t>(__v); }
+inline int64_t _ball_memory_read_i64(int64_t address) { int64_t __v; std::memcpy(&__v, _ball_memory + address, sizeof(__v)); return __v; }
+inline int64_t _ball_memory_read_u64(int64_t address) { uint64_t __v; std::memcpy(&__v, _ball_memory + address, sizeof(__v)); return static_cast<int64_t>(__v); }
+inline double _ball_memory_read_f32(int64_t address) { float __v; std::memcpy(&__v, _ball_memory + address, sizeof(__v)); return static_cast<double>(__v); }
+inline double _ball_memory_read_f64(int64_t address) { double __v; std::memcpy(&__v, _ball_memory + address, sizeof(__v)); return __v; }
+inline int64_t _ball_memory_write_i8(int64_t address, int64_t value) { int8_t __v = static_cast<int8_t>(value); std::memcpy(_ball_memory + address, &__v, sizeof(__v)); return address; }
+inline int64_t _ball_memory_write_u8(int64_t address, int64_t value) { uint8_t __v = static_cast<uint8_t>(value); std::memcpy(_ball_memory + address, &__v, sizeof(__v)); return address; }
+inline int64_t _ball_memory_write_i16(int64_t address, int64_t value) { int16_t __v = static_cast<int16_t>(value); std::memcpy(_ball_memory + address, &__v, sizeof(__v)); return address; }
+inline int64_t _ball_memory_write_u16(int64_t address, int64_t value) { uint16_t __v = static_cast<uint16_t>(value); std::memcpy(_ball_memory + address, &__v, sizeof(__v)); return address; }
+inline int64_t _ball_memory_write_i32(int64_t address, int64_t value) { int32_t __v = static_cast<int32_t>(value); std::memcpy(_ball_memory + address, &__v, sizeof(__v)); return address; }
+inline int64_t _ball_memory_write_u32(int64_t address, int64_t value) { uint32_t __v = static_cast<uint32_t>(value); std::memcpy(_ball_memory + address, &__v, sizeof(__v)); return address; }
+inline int64_t _ball_memory_write_i64(int64_t address, int64_t value) { int64_t __v = value; std::memcpy(_ball_memory + address, &__v, sizeof(__v)); return address; }
+inline int64_t _ball_memory_write_u64(int64_t address, int64_t value) { uint64_t __v = static_cast<uint64_t>(value); std::memcpy(_ball_memory + address, &__v, sizeof(__v)); return address; }
+inline int64_t _ball_memory_write_f32(int64_t address, double value) { float __v = static_cast<float>(value); std::memcpy(_ball_memory + address, &__v, sizeof(__v)); return address; }
+inline int64_t _ball_memory_write_f64(int64_t address, double value) { double __v = value; std::memcpy(_ball_memory + address, &__v, sizeof(__v)); return address; }
+
+// ── Bulk operations — memcpy/memset/memcmp conventions: copy/set return the
+//    destination address, compare returns memcmp's tri-state.
+inline int64_t _ball_memory_copy(int64_t dest, int64_t src, int64_t size) { std::memmove(_ball_memory + dest, _ball_memory + src, static_cast<size_t>(size)); return dest; }
+inline int64_t _ball_memory_set(int64_t address, int64_t value, int64_t size) { std::memset(_ball_memory + address, static_cast<int>(value & 0xff), static_cast<size_t>(size)); return address; }
+inline int64_t _ball_memory_compare(int64_t a, int64_t b, int64_t size) { return static_cast<int64_t>(std::memcmp(_ball_memory + a, _ball_memory + b, static_cast<size_t>(size))); }
+
+// ── Pointer arithmetic — PtrArithInput field order is address(1),
+//    offset(2), element_size(3); ptr_diff reuses the same shape with
+//    address/offset standing in for the two pointers being diffed.
+inline int64_t _ball_ptr_add(int64_t address, int64_t offset, int64_t element_size) { return address + offset * element_size; }
+inline int64_t _ball_ptr_sub(int64_t address, int64_t offset, int64_t element_size) { return address - offset * element_size; }
+inline int64_t _ball_ptr_diff(int64_t address, int64_t offset, int64_t element_size) { return element_size != 0 ? (address - offset) / element_size : 0; }
+
+// ── Stack frame management — grows downward from the top of _ball_memory.
+inline int64_t _ball_stack_alloc(int64_t size) { _ball_stack_ptr -= static_cast<size_t>(size); return static_cast<int64_t>(_ball_stack_ptr); }
+inline int64_t _ball_stack_push_frame() { _ball_stack_frames.push_back(_ball_stack_ptr); return static_cast<int64_t>(_ball_stack_ptr); }
+inline int64_t _ball_stack_pop_frame() {
+  if (!_ball_stack_frames.empty()) { _ball_stack_ptr = _ball_stack_frames.back(); _ball_stack_frames.pop_back(); }
+  return static_cast<int64_t>(_ball_stack_ptr);
+}
+
+// ── Sizeof — mirrors the Dart compiler's _memSizeof table.
+inline int64_t _ball_memory_sizeof(const std::string& type_name) {
+  if (type_name == "int8" || type_name == "uint8" || type_name == "char" || type_name == "bool") return 1;
+  if (type_name == "int16" || type_name == "uint16" || type_name == "short") return 2;
+  if (type_name == "int32" || type_name == "uint32" || type_name == "int" || type_name == "float") return 4;
+  if (type_name == "int64" || type_name == "uint64" || type_name == "long" || type_name == "double" || type_name == "long long") return 8;
+  if (type_name == "void") return 1;
+  return 8;
+}
+
+// ── Introspection — mirrors the Dart compiler: nullptr is address 0,
+//    heap size is the whole linear buffer, stack size is the bytes the
+//    downward-growing stack currently occupies.
+inline int64_t _ball_nullptr() { return 0; }
+inline int64_t _ball_memory_heap_size() { return static_cast<int64_t>(sizeof(_ball_memory)); }
+inline int64_t _ball_memory_stack_size() { return static_cast<int64_t>(sizeof(_ball_memory) - _ball_stack_ptr); }
+)";
+    emit_newline();
+}
+
 void CppCompiler::emit_forward_decls(const ball::v1::Module& module) {
     // Skip forward declarations for types that are already defined in the
     // runtime preamble (e.g. BallException, File, JsonEncoder, etc.)
@@ -9635,12 +9814,7 @@ std::string CppCompiler::compile() {
 
     // Linear memory runtime preamble
     if (base_modules_.count("std_memory")) {
-        emit_line("// Ball linear memory runtime");
-        emit_line("static uint8_t _ball_memory[65536];");
-        emit_line("static size_t _ball_heap_ptr = 0;");
-        emit_line("static size_t _ball_stack_ptr = 65536;");
-        emit_line("static std::vector<size_t> _ball_stack_frames;");
-        emit_newline();
+        emit_memory_runtime_preamble();
     }
 
     // Wrap user declarations in an anonymous namespace so user function
@@ -9826,12 +10000,7 @@ CompileSplitResult CppCompiler::compile_split(const std::string& output_dir,
     }
 
     if (base_modules_.count("std_memory")) {
-        emit_line("// Ball linear memory runtime");
-        emit_line("static uint8_t _ball_memory[65536];");
-        emit_line("static size_t _ball_heap_ptr = 0;");
-        emit_line("static size_t _ball_stack_ptr = 65536;");
-        emit_line("static std::vector<size_t> _ball_stack_frames;");
-        emit_newline();
+        emit_memory_runtime_preamble();
     }
 
     emit_namespace_open();

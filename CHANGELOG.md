@@ -1,3 +1,10 @@
+## [1.3.8](https://github.com/Ball-Lang/ball/compare/v1.3.7...v1.3.8) (2026-07-02)
+
+
+### Bug Fixes
+
+* **engine:** backward goto, BallDouble unwrapping, and symbol printing ([#159](https://github.com/Ball-Lang/ball/issues/159)) ([3ab0bb5](https://github.com/Ball-Lang/ball/commit/3ab0bb58e1d7eec99a63251090999efa650c8a39)), closes [65/#67](https://github.com/Ball-Lang/ball/issues/67) [65/#67](https://github.com/Ball-Lang/ball/issues/67) [#foo](https://github.com/Ball-Lang/ball/issues/foo) [#125](https://github.com/Ball-Lang/ball/issues/125) [#115](https://github.com/Ball-Lang/ball/issues/115) [#65](https://github.com/Ball-Lang/ball/issues/65) [#67](https://github.com/Ball-Lang/ball/issues/67) [#158](https://github.com/Ball-Lang/ball/issues/158) [#bar](https://github.com/Ball-Lang/ball/issues/bar) [#66](https://github.com/Ball-Lang/ball/issues/66) [#158](https://github.com/Ball-Lang/ball/issues/158) [65/#67](https://github.com/Ball-Lang/ball/issues/67)
+
 ## [1.3.7](https://github.com/Ball-Lang/ball/compare/v1.3.6...v1.3.7) (2026-07-02)
 
 

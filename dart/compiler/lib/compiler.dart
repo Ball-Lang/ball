@@ -3311,7 +3311,7 @@ class DartCompiler {
       'switch_expr' => _compileSwitchExpr(f),
       // Misc
       'symbol' => '#${_stringFieldValue(f, "value") ?? ""}',
-      'type_literal' => _stringFieldValue(f, 'type') ?? 'dynamic',
+      'type_literal' => _compileTypeLiteral(_stringFieldValue(f, 'type')),
       'await' => _awaitExpr(f),
       'throw' => _throwExpr(f),
       // ── Strings ─────────────────────────────────────────────
@@ -5395,6 +5395,21 @@ class DartCompiler {
     }
     return null;
   }
+
+  /// A `type_literal`'s stored value is the canonical `Type.toString()` (e.g.
+  /// `List<dynamic>`), but that string is NOT valid Dart in expression position:
+  /// `print(List<dynamic>)` re-parses as a generic function instantiation
+  /// (`ast.FunctionReference`), not a type literal. Emit the bare source name
+  /// for the raw-generic builtins so the encoder re-reads them via the
+  /// `SimpleIdentifier` → `type_literal` path (#66). Non-builtin/explicitly
+  /// parameterized types (`List<int>`) fall through unchanged.
+  String _compileTypeLiteral(String? type) => switch (type) {
+    null => 'dynamic',
+    'List<dynamic>' => 'List',
+    'Map<dynamic, dynamic>' => 'Map',
+    'Set<dynamic>' => 'Set',
+    _ => type,
+  };
 
   bool _boolFieldValue(Map<String, Expression> fields, String name) {
     final expr = fields[name];

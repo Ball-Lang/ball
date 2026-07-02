@@ -1,3 +1,15 @@
+# [1.4.0](https://github.com/Ball-Lang/ball/compare/v1.3.9...v1.4.0) (2026-07-02)
+
+
+### Bug Fixes
+
+* **ts:** implement std_memory natively in the TS compiler ([#164](https://github.com/Ball-Lang/ball/issues/164)) ([65ac5eb](https://github.com/Ball-Lang/ball/commit/65ac5ebda0ab1090d6a74c1829b7f0c5285325ee)), closes [#157](https://github.com/Ball-Lang/ball/issues/157)
+
+
+### Features
+
+* **encoder:** generate std base-function coverage inventory from std.json ([#165](https://github.com/Ball-Lang/ball/issues/165)) ([7e3f6d6](https://github.com/Ball-Lang/ball/commit/7e3f6d6ea8ba7064ad854614022c0d7a0770a13f)), closes [#134](https://github.com/Ball-Lang/ball/issues/134) [#135](https://github.com/Ball-Lang/ball/issues/135) [#134](https://github.com/Ball-Lang/ball/issues/134)
+
 # Change Log
 
 All notable changes to this project will be documented in this file.

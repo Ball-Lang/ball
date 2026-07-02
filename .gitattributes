@@ -38,4 +38,25 @@
 *.bin binary
 *.pb binary
 *.binpb binary
-*.snapshot binary
+
+# Generated-but-tracked files: collapse in PR diffs and exclude from
+# language stats. Sources of truth: buf generate (gen/ bindings),
+# gen_std.dart (std.json), the TS/C++ engine regeneration tools
+# (compiled_engine.ts / engine_rt.cpp), gen_ball_protobuf.dart
+# (ball_protobuf.{json,bin}), and the snapshot/conformance generators.
+# (The old `*.snapshot binary` rule matched nothing — snapshots end in
+# .cpp/.dart; linguist-generated is the right treatment.)
+dart/shared/lib/gen/** linguist-generated=true
+cpp/shared/gen/** linguist-generated=true
+ts/shared/gen/** linguist-generated=true
+go/shared/gen/** linguist-generated=true
+python/shared/gen/** linguist-generated=true
+java/shared/gen/** linguist-generated=true
+csharp/shared/gen/** linguist-generated=true
+ts/engine/src/compiled_engine.ts linguist-generated=true
+dart/shared/std.json linguist-generated=true
+dart/shared/ball_protobuf.json linguist-generated=true
+dart/shared/ball_protobuf.bin linguist-generated=true
+tests/snapshots/** linguist-generated=true
+tests/fixtures/dart/_generated/** linguist-generated=true
+tests/conformance/*.ball.json linguist-generated=true

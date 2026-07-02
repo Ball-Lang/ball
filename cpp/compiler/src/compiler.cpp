@@ -3913,6 +3913,13 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "to_string" || fn == "int_to_string" || fn == "double_to_string") {
         return "ball_to_string(" + get_message_field(call, "value") + ")";
     }
+    // Symbol literal (#foo) — Dart prints `Symbol("foo")`, so the value IS
+    // that canonical string (matches the engine's std.symbol handler, #65).
+    if (fn == "symbol") {
+        auto v = get_message_field(call, "value");
+        return "(std::string(\"Symbol(\\\"\") + ball_to_string(" + v +
+               ") + std::string(\"\\\")\"))";
+    }
     if (fn == "to_int") {
         auto v = get_message_field(call, "value");
         // Clamp out-of-range double->int (a bare static_cast is UB per

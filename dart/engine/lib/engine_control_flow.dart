@@ -1396,16 +1396,32 @@ extension BallEngineControlFlow on BallEngine {
     // Execute the body; if a goto signal targeting THIS label arrives,
     // re-execute the body (backward goto). For forward gotos, the signal
     // propagates up until the matching label handler catches it.
+    //
+    // _evalGoto THROWS its signal (so it escapes nested evaluation
+    // immediately), so the goto must be caught here — inspecting only the
+    // RETURNED value let every backward goto escape past its label (#125).
     Object? result;
-    do {
-      result = await _evalExpression(body, scope);
-      if (result is _FlowSignal &&
+    var repeat = true;
+    while (repeat) {
+      repeat = false;
+      try {
+        result = await _evalExpression(body, scope);
+      } catch (e) {
+        if (e is _FlowSignal && e.kind == 'goto' && e.label == label) {
+          repeat = true; // backward goto: re-execute the label body
+        } else {
+          rethrow;
+        }
+      }
+      // Defensive: also honor a goto signal that is returned (not thrown)
+      // by the body, mirroring how break/continue signals propagate.
+      if (!repeat &&
+          result is _FlowSignal &&
           result.kind == 'goto' &&
           result.label == label) {
-        continue; // re-execute body (backward goto)
+        repeat = true;
       }
-      break;
-    } while (true);
+    }
     return result;
   }
 
@@ -1531,6 +1547,19 @@ extension BallEngineControlFlow on BallEngine {
       unwrappedSelf = self.value;
     } else if (self is BallMap) {
       unwrappedSelf = self.entries;
+    } else if (self is num) {
+      // Already a raw num — keep as-is. This branch MUST precede the
+      // BallInt/BallDouble unwraps: on the compiled TS/C++ self-hosts a raw
+      // number also satisfies the wrapper type-tests, and reading `.value`
+      // off a bare number there would yield garbage.
+      unwrappedSelf = self;
+    } else if (self is BallInt) {
+      // Numeric wrappers were previously NOT unwrapped, so num instance
+      // methods on a double/int-typed local (e.g. `d.floor()`) fell through
+      // dispatch entirely (#115).
+      unwrappedSelf = self.value;
+    } else if (self is BallDouble) {
+      unwrappedSelf = self.value;
     } else {
       unwrappedSelf = self;
     }

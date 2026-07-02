@@ -271,11 +271,21 @@ extension BallEngineStd on BallEngine {
       'length': _stdLength,
       'to_string': (i) async => await _ballToStringAsync(_extractUnaryArg(i)),
       'int_to_string': (i) => _stdConvert(i, (v) => (v as int).toString()),
-      'double_to_string': (i) =>
-          _stdConvert(i, (v) => (v as double).toString()),
+      // BallDouble-aware: double values reaching the engine are usually
+      // wrapped (literals evaluate to BallDouble), and the old bare
+      // `(v as double)` cast threw on the wrapper (#115). Formatting goes
+      // through BallDouble.toString so whole doubles keep their `.0` on
+      // every self-host target.
+      'double_to_string': (i) => _stdConvert(i, (v) {
+        if (v is BallDouble) return v.toString();
+        return BallDouble(v as double).toString();
+      }),
       'string_to_int': (i) => _stdConvert(i, (v) => int.parse(v as String)),
+      // Wrap in BallDouble so double-ness survives on the compiled TS
+      // self-host: JS numbers erase the int/double distinction, so a bare
+      // parse result made whole doubles print as ints (-7.0 → "-7") (#67).
       'string_to_double': (i) =>
-          _stdConvert(i, (v) => double.parse(v as String)),
+          _stdConvert(i, (v) => BallDouble(double.parse(v as String))),
       'to_double': (i) => _ballToDouble(_extractUnaryArg(i)),
       'to_int': (i) => _ballDoubleToInt64(_toNum(_extractUnaryArg(i))),
       'int_to_double': (i) => _ballToDouble(_extractUnaryArg(i)),
@@ -655,7 +665,14 @@ extension BallEngineStd on BallEngine {
         for (final e in list) {
           var r = cb(e);
           if (r is Future) r = await r;
-          if (r is List) {
+          // Flatten BallList results too (list literals evaluate to
+          // BallList; only raw Lists were flattened before — #115).
+          // Mirrors the `expand` instance-method dispatch.
+          if (r is BallList) {
+            for (final item in r.items) {
+              result.add(item);
+            }
+          } else if (r is List) {
             result.addAll(r);
           } else {
             result.add(r);
@@ -1025,7 +1042,13 @@ extension BallEngineStd on BallEngine {
           _FlowSignal('yield_each', value: _extractUnaryArg(i)),
 
       // Literals
-      'symbol': (i) => _extractField(i, 'value'),
+      // Dart prints a symbol literal as `Symbol("name")` — mirror that
+      // exactly; the bare name leaked out before (#65). The engine's symbol
+      // value is its canonical Dart string form.
+      'symbol': (i) {
+        final name = _extractField(i, 'value');
+        return 'Symbol("$name")';
+      },
       'type_literal': (i) => _extractField(i, 'type'),
 
       // Labels (handled lazily in _evalCall)

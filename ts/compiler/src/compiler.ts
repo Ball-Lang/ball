@@ -4889,8 +4889,16 @@ function __isUnknownFnError(e: any): boolean {
         const v = f.get("value") ?? f.get("input");
         return v ? `[...atob(${this.expr(v)})].map(c => c.charCodeAt(0))` : "[]";
       }
+      // Symbol literal (#foo) — Dart prints `Symbol("foo")`, so the value IS
+      // that canonical string (matches the engine's std.symbol handler, #65).
+      case "symbol": {
+        const v = f.get("value") ?? f.get("name");
+        return v
+          ? `('Symbol("' + __ball_to_string(${this.expr(v)}) + '")')`
+          : "null";
+      }
       // Type ops
-      case "symbol": case "type_literal": {
+      case "type_literal": {
         const v = f.get("value") ?? f.get("name");
         return v ? this.expr(v) : "null";
       }

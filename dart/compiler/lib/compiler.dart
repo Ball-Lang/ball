@@ -3426,9 +3426,7 @@ class DartCompiler {
       // ── Allocation ──
       'memory_alloc' => _memAlloc(f),
       'memory_free' => '/* free(${_addrExpr(f)}) — noop in Dart */',
-      // NOTE: aliases _memAlloc — allocates a fresh block but does NOT copy the
-      // old contents or free the old block, so compiled `realloc` can lose data.
-      'memory_realloc' => _memAlloc(f),
+      'memory_realloc' => _memRealloc(f),
       // ── Typed reads ──
       'memory_read_i8' => '_ballMemory.getInt8(${_addrExpr(f)})',
       'memory_read_u8' => '_ballMemory.getUint8(${_addrExpr(f)})',
@@ -3518,6 +3516,29 @@ class DartCompiler {
     final size = f['size'];
     final sizeStr = size != null ? _e(size) : '0';
     return '(() { final __addr = _ballHeapPtr; _ballHeapPtr += $sizeStr; return __addr; })()';
+  }
+
+  /// Emits a real realloc: bump-allocate the new block, then copy the old
+  /// block's bytes into it. The bump allocator tracks no per-block sizes, so
+  /// it copies `new_size` bytes from the old base (realloc only guarantees
+  /// `min(old, new)` bytes survive; when growing, the tail beyond the old
+  /// block is indeterminate per C semantics), clamped to the heap bounds.
+  /// The old block is not freed — `memory_free` is a noop in this target.
+  /// (Previously this aliased `_memAlloc`, which both lost the contents AND
+  /// allocated zero bytes: ReallocInput carries `new_size`, not `size`. #141)
+  String _memRealloc(Map<String, Expression> f) {
+    final addr = f['address'] ?? f['value'];
+    final addrStr = addr != null ? _e(addr) : '0';
+    final size = f['new_size'] ?? f['size'];
+    final sizeStr = size != null ? _e(size) : '0';
+    return '(() { final __old = $addrStr; final __size = $sizeStr; '
+        'final __addr = _ballHeapPtr; _ballHeapPtr += __size; '
+        'var __n = __size; '
+        'if (__old + __n > _ballMemory.lengthInBytes) { __n = _ballMemory.lengthInBytes - __old; } '
+        'if (__addr + __n > _ballMemory.lengthInBytes) { __n = _ballMemory.lengthInBytes - __addr; } '
+        'for (var __i = 0; __i < __n; __i++) { '
+        '_ballMemory.setUint8(__addr + __i, _ballMemory.getUint8(__old + __i)); } '
+        'return __addr; })()';
   }
 
   String _memCopy(Map<String, Expression> f) {

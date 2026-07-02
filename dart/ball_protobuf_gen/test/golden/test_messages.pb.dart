@@ -4455,24 +4455,34 @@ class Value {
   }
 
   /// `null_value` (enum `google.protobuf.NullValue`).
-  NullValue get nullValue {
+  NullValue? get nullValue {
     final v = $fields['null_value'];
-    return NullValue.fromValue(v == null ? 0 : v as int);
+    return v == null ? null : NullValue.fromValue(v as int);
   }
 
-  set nullValue(NullValue v) => $fields['null_value'] = v.value;
+  set nullValue(NullValue? v) => v == null
+      ? $fields.remove('null_value')
+      : $fields['null_value'] = v.value;
+  bool hasNullValue() => $fields['null_value'] != null;
+  void clearNullValue() => $fields.remove('null_value');
 
   /// `number_value`.
   double get numberValue => ($fields['number_value'] as double?) ?? 0.0;
   set numberValue(double v) => $fields['number_value'] = v;
+  bool hasNumberValue() => $fields['number_value'] != null;
+  void clearNumberValue() => $fields.remove('number_value');
 
   /// `string_value`.
   String get stringValue => ($fields['string_value'] as String?) ?? '';
   set stringValue(String v) => $fields['string_value'] = v;
+  bool hasStringValue() => $fields['string_value'] != null;
+  void clearStringValue() => $fields.remove('string_value');
 
   /// `bool_value`.
   bool get boolValue => ($fields['bool_value'] as bool?) ?? false;
   set boolValue(bool v) => $fields['bool_value'] = v;
+  bool hasBoolValue() => $fields['bool_value'] != null;
+  void clearBoolValue() => $fields.remove('bool_value');
 
   /// `struct_value` (message `google.protobuf.Struct`).
   Struct? get structValue {
@@ -4484,6 +4494,8 @@ class Value {
   set structValue(Struct? v) => v == null
       ? $fields.remove('struct_value')
       : $fields['struct_value'] = v.$fields;
+  bool hasStructValue() => $fields['struct_value'] != null;
+  void clearStructValue() => $fields.remove('struct_value');
 
   /// `list_value` (message `google.protobuf.ListValue`).
   ListValue? get listValue {
@@ -4495,6 +4507,8 @@ class Value {
   set listValue(ListValue? v) => v == null
       ? $fields.remove('list_value')
       : $fields['list_value'] = v.$fields;
+  bool hasListValue() => $fields['list_value'] != null;
+  void clearListValue() => $fields.remove('list_value');
 
   /// Encodes this message to protobuf binary bytes.
   List<int> toBytes() => $pb.marshal($fields, descriptor);
@@ -5139,6 +5153,9 @@ class TestAllTypesProto3 {
   set optionalNestedMessage(TestAllTypesProto3_NestedMessage? v) => v == null
       ? $fields.remove('optional_nested_message')
       : $fields['optional_nested_message'] = v.$fields;
+  bool hasOptionalNestedMessage() => $fields['optional_nested_message'] != null;
+  void clearOptionalNestedMessage() =>
+      $fields.remove('optional_nested_message');
 
   /// `optional_foreign_message` (message `protobuf_test_messages.proto3.ForeignMessage`).
   ForeignMessage? get optionalForeignMessage {
@@ -5150,6 +5167,10 @@ class TestAllTypesProto3 {
   set optionalForeignMessage(ForeignMessage? v) => v == null
       ? $fields.remove('optional_foreign_message')
       : $fields['optional_foreign_message'] = v.$fields;
+  bool hasOptionalForeignMessage() =>
+      $fields['optional_foreign_message'] != null;
+  void clearOptionalForeignMessage() =>
+      $fields.remove('optional_foreign_message');
 
   /// `optional_nested_enum` (enum `protobuf_test_messages.proto3.TestAllTypesProto3.NestedEnum`).
   TestAllTypesProto3_NestedEnum get optionalNestedEnum {
@@ -5197,6 +5218,8 @@ class TestAllTypesProto3 {
   set recursiveMessage(TestAllTypesProto3? v) => v == null
       ? $fields.remove('recursive_message')
       : $fields['recursive_message'] = v.$fields;
+  bool hasRecursiveMessage() => $fields['recursive_message'] != null;
+  void clearRecursiveMessage() => $fields.remove('recursive_message');
 
   /// repeated `repeated_int32`.
   List<int> get repeatedInt32 =>
@@ -5641,6 +5664,8 @@ class TestAllTypesProto3 {
   /// `oneof_uint32`.
   int get oneofUint32 => ($fields['oneof_uint32'] as int?) ?? 0;
   set oneofUint32(int v) => $fields['oneof_uint32'] = v;
+  bool hasOneofUint32() => $fields['oneof_uint32'] != null;
+  void clearOneofUint32() => $fields.remove('oneof_uint32');
 
   /// `oneof_nested_message` (message `protobuf_test_messages.proto3.TestAllTypesProto3.NestedMessage`).
   TestAllTypesProto3_NestedMessage? get oneofNestedMessage {
@@ -5652,47 +5677,68 @@ class TestAllTypesProto3 {
   set oneofNestedMessage(TestAllTypesProto3_NestedMessage? v) => v == null
       ? $fields.remove('oneof_nested_message')
       : $fields['oneof_nested_message'] = v.$fields;
+  bool hasOneofNestedMessage() => $fields['oneof_nested_message'] != null;
+  void clearOneofNestedMessage() => $fields.remove('oneof_nested_message');
 
   /// `oneof_string`.
   String get oneofString => ($fields['oneof_string'] as String?) ?? '';
   set oneofString(String v) => $fields['oneof_string'] = v;
+  bool hasOneofString() => $fields['oneof_string'] != null;
+  void clearOneofString() => $fields.remove('oneof_string');
 
   /// `oneof_bytes`.
   List<int> get oneofBytes => ($fields['oneof_bytes'] as List<int>?) ?? <int>[];
   set oneofBytes(List<int> v) => $fields['oneof_bytes'] = v;
+  bool hasOneofBytes() => $fields['oneof_bytes'] != null;
+  void clearOneofBytes() => $fields.remove('oneof_bytes');
 
   /// `oneof_bool`.
   bool get oneofBool => ($fields['oneof_bool'] as bool?) ?? false;
   set oneofBool(bool v) => $fields['oneof_bool'] = v;
+  bool hasOneofBool() => $fields['oneof_bool'] != null;
+  void clearOneofBool() => $fields.remove('oneof_bool');
 
   /// `oneof_uint64`.
   int get oneofUint64 => ($fields['oneof_uint64'] as int?) ?? 0;
   set oneofUint64(int v) => $fields['oneof_uint64'] = v;
+  bool hasOneofUint64() => $fields['oneof_uint64'] != null;
+  void clearOneofUint64() => $fields.remove('oneof_uint64');
 
   /// `oneof_float`.
   double get oneofFloat => ($fields['oneof_float'] as double?) ?? 0.0;
   set oneofFloat(double v) => $fields['oneof_float'] = v;
+  bool hasOneofFloat() => $fields['oneof_float'] != null;
+  void clearOneofFloat() => $fields.remove('oneof_float');
 
   /// `oneof_double`.
   double get oneofDouble => ($fields['oneof_double'] as double?) ?? 0.0;
   set oneofDouble(double v) => $fields['oneof_double'] = v;
+  bool hasOneofDouble() => $fields['oneof_double'] != null;
+  void clearOneofDouble() => $fields.remove('oneof_double');
 
   /// `oneof_enum` (enum `protobuf_test_messages.proto3.TestAllTypesProto3.NestedEnum`).
-  TestAllTypesProto3_NestedEnum get oneofEnum {
+  TestAllTypesProto3_NestedEnum? get oneofEnum {
     final v = $fields['oneof_enum'];
-    return TestAllTypesProto3_NestedEnum.fromValue(v == null ? 0 : v as int);
+    return v == null ? null : TestAllTypesProto3_NestedEnum.fromValue(v as int);
   }
 
-  set oneofEnum(TestAllTypesProto3_NestedEnum v) =>
-      $fields['oneof_enum'] = v.value;
+  set oneofEnum(TestAllTypesProto3_NestedEnum? v) => v == null
+      ? $fields.remove('oneof_enum')
+      : $fields['oneof_enum'] = v.value;
+  bool hasOneofEnum() => $fields['oneof_enum'] != null;
+  void clearOneofEnum() => $fields.remove('oneof_enum');
 
   /// `oneof_null_value` (enum `google.protobuf.NullValue`).
-  NullValue get oneofNullValue {
+  NullValue? get oneofNullValue {
     final v = $fields['oneof_null_value'];
-    return NullValue.fromValue(v == null ? 0 : v as int);
+    return v == null ? null : NullValue.fromValue(v as int);
   }
 
-  set oneofNullValue(NullValue v) => $fields['oneof_null_value'] = v.value;
+  set oneofNullValue(NullValue? v) => v == null
+      ? $fields.remove('oneof_null_value')
+      : $fields['oneof_null_value'] = v.value;
+  bool hasOneofNullValue() => $fields['oneof_null_value'] != null;
+  void clearOneofNullValue() => $fields.remove('oneof_null_value');
 
   /// `optional_bool_wrapper` (message `google.protobuf.BoolValue`).
   BoolValue? get optionalBoolWrapper {
@@ -5704,6 +5750,8 @@ class TestAllTypesProto3 {
   set optionalBoolWrapper(BoolValue? v) => v == null
       ? $fields.remove('optional_bool_wrapper')
       : $fields['optional_bool_wrapper'] = v.$fields;
+  bool hasOptionalBoolWrapper() => $fields['optional_bool_wrapper'] != null;
+  void clearOptionalBoolWrapper() => $fields.remove('optional_bool_wrapper');
 
   /// `optional_int32_wrapper` (message `google.protobuf.Int32Value`).
   Int32Value? get optionalInt32Wrapper {
@@ -5715,6 +5763,8 @@ class TestAllTypesProto3 {
   set optionalInt32Wrapper(Int32Value? v) => v == null
       ? $fields.remove('optional_int32_wrapper')
       : $fields['optional_int32_wrapper'] = v.$fields;
+  bool hasOptionalInt32Wrapper() => $fields['optional_int32_wrapper'] != null;
+  void clearOptionalInt32Wrapper() => $fields.remove('optional_int32_wrapper');
 
   /// `optional_int64_wrapper` (message `google.protobuf.Int64Value`).
   Int64Value? get optionalInt64Wrapper {
@@ -5726,6 +5776,8 @@ class TestAllTypesProto3 {
   set optionalInt64Wrapper(Int64Value? v) => v == null
       ? $fields.remove('optional_int64_wrapper')
       : $fields['optional_int64_wrapper'] = v.$fields;
+  bool hasOptionalInt64Wrapper() => $fields['optional_int64_wrapper'] != null;
+  void clearOptionalInt64Wrapper() => $fields.remove('optional_int64_wrapper');
 
   /// `optional_uint32_wrapper` (message `google.protobuf.UInt32Value`).
   UInt32Value? get optionalUint32Wrapper {
@@ -5737,6 +5789,9 @@ class TestAllTypesProto3 {
   set optionalUint32Wrapper(UInt32Value? v) => v == null
       ? $fields.remove('optional_uint32_wrapper')
       : $fields['optional_uint32_wrapper'] = v.$fields;
+  bool hasOptionalUint32Wrapper() => $fields['optional_uint32_wrapper'] != null;
+  void clearOptionalUint32Wrapper() =>
+      $fields.remove('optional_uint32_wrapper');
 
   /// `optional_uint64_wrapper` (message `google.protobuf.UInt64Value`).
   UInt64Value? get optionalUint64Wrapper {
@@ -5748,6 +5803,9 @@ class TestAllTypesProto3 {
   set optionalUint64Wrapper(UInt64Value? v) => v == null
       ? $fields.remove('optional_uint64_wrapper')
       : $fields['optional_uint64_wrapper'] = v.$fields;
+  bool hasOptionalUint64Wrapper() => $fields['optional_uint64_wrapper'] != null;
+  void clearOptionalUint64Wrapper() =>
+      $fields.remove('optional_uint64_wrapper');
 
   /// `optional_float_wrapper` (message `google.protobuf.FloatValue`).
   FloatValue? get optionalFloatWrapper {
@@ -5759,6 +5817,8 @@ class TestAllTypesProto3 {
   set optionalFloatWrapper(FloatValue? v) => v == null
       ? $fields.remove('optional_float_wrapper')
       : $fields['optional_float_wrapper'] = v.$fields;
+  bool hasOptionalFloatWrapper() => $fields['optional_float_wrapper'] != null;
+  void clearOptionalFloatWrapper() => $fields.remove('optional_float_wrapper');
 
   /// `optional_double_wrapper` (message `google.protobuf.DoubleValue`).
   DoubleValue? get optionalDoubleWrapper {
@@ -5770,6 +5830,9 @@ class TestAllTypesProto3 {
   set optionalDoubleWrapper(DoubleValue? v) => v == null
       ? $fields.remove('optional_double_wrapper')
       : $fields['optional_double_wrapper'] = v.$fields;
+  bool hasOptionalDoubleWrapper() => $fields['optional_double_wrapper'] != null;
+  void clearOptionalDoubleWrapper() =>
+      $fields.remove('optional_double_wrapper');
 
   /// `optional_string_wrapper` (message `google.protobuf.StringValue`).
   StringValue? get optionalStringWrapper {
@@ -5781,6 +5844,9 @@ class TestAllTypesProto3 {
   set optionalStringWrapper(StringValue? v) => v == null
       ? $fields.remove('optional_string_wrapper')
       : $fields['optional_string_wrapper'] = v.$fields;
+  bool hasOptionalStringWrapper() => $fields['optional_string_wrapper'] != null;
+  void clearOptionalStringWrapper() =>
+      $fields.remove('optional_string_wrapper');
 
   /// `optional_bytes_wrapper` (message `google.protobuf.BytesValue`).
   BytesValue? get optionalBytesWrapper {
@@ -5792,6 +5858,8 @@ class TestAllTypesProto3 {
   set optionalBytesWrapper(BytesValue? v) => v == null
       ? $fields.remove('optional_bytes_wrapper')
       : $fields['optional_bytes_wrapper'] = v.$fields;
+  bool hasOptionalBytesWrapper() => $fields['optional_bytes_wrapper'] != null;
+  void clearOptionalBytesWrapper() => $fields.remove('optional_bytes_wrapper');
 
   /// repeated `repeated_bool_wrapper`.
   List<BoolValue> get repeatedBoolWrapper {
@@ -5893,6 +5961,8 @@ class TestAllTypesProto3 {
   set optionalDuration(Duration? v) => v == null
       ? $fields.remove('optional_duration')
       : $fields['optional_duration'] = v.$fields;
+  bool hasOptionalDuration() => $fields['optional_duration'] != null;
+  void clearOptionalDuration() => $fields.remove('optional_duration');
 
   /// `optional_timestamp` (message `google.protobuf.Timestamp`).
   Timestamp? get optionalTimestamp {
@@ -5904,6 +5974,8 @@ class TestAllTypesProto3 {
   set optionalTimestamp(Timestamp? v) => v == null
       ? $fields.remove('optional_timestamp')
       : $fields['optional_timestamp'] = v.$fields;
+  bool hasOptionalTimestamp() => $fields['optional_timestamp'] != null;
+  void clearOptionalTimestamp() => $fields.remove('optional_timestamp');
 
   /// `optional_field_mask` (message `google.protobuf.FieldMask`).
   FieldMask? get optionalFieldMask {
@@ -5915,6 +5987,8 @@ class TestAllTypesProto3 {
   set optionalFieldMask(FieldMask? v) => v == null
       ? $fields.remove('optional_field_mask')
       : $fields['optional_field_mask'] = v.$fields;
+  bool hasOptionalFieldMask() => $fields['optional_field_mask'] != null;
+  void clearOptionalFieldMask() => $fields.remove('optional_field_mask');
 
   /// `optional_struct` (message `google.protobuf.Struct`).
   Struct? get optionalStruct {
@@ -5926,6 +6000,8 @@ class TestAllTypesProto3 {
   set optionalStruct(Struct? v) => v == null
       ? $fields.remove('optional_struct')
       : $fields['optional_struct'] = v.$fields;
+  bool hasOptionalStruct() => $fields['optional_struct'] != null;
+  void clearOptionalStruct() => $fields.remove('optional_struct');
 
   /// `optional_any` (message `google.protobuf.Any`).
   Any? get optionalAny {
@@ -5937,6 +6013,8 @@ class TestAllTypesProto3 {
   set optionalAny(Any? v) => v == null
       ? $fields.remove('optional_any')
       : $fields['optional_any'] = v.$fields;
+  bool hasOptionalAny() => $fields['optional_any'] != null;
+  void clearOptionalAny() => $fields.remove('optional_any');
 
   /// `optional_value` (message `google.protobuf.Value`).
   Value? get optionalValue {
@@ -5948,6 +6026,8 @@ class TestAllTypesProto3 {
   set optionalValue(Value? v) => v == null
       ? $fields.remove('optional_value')
       : $fields['optional_value'] = v.$fields;
+  bool hasOptionalValue() => $fields['optional_value'] != null;
+  void clearOptionalValue() => $fields.remove('optional_value');
 
   /// `optional_null_value` (enum `google.protobuf.NullValue`).
   NullValue get optionalNullValue {
@@ -5968,6 +6048,8 @@ class TestAllTypesProto3 {
   set optionalEmpty(Empty? v) => v == null
       ? $fields.remove('optional_empty')
       : $fields['optional_empty'] = v.$fields;
+  bool hasOptionalEmpty() => $fields['optional_empty'] != null;
+  void clearOptionalEmpty() => $fields.remove('optional_empty');
 
   /// repeated `repeated_duration`.
   List<Duration> get repeatedDuration {
@@ -6176,6 +6258,8 @@ class TestAllTypesProto3_NestedMessage {
   set corecursive(TestAllTypesProto3? v) => v == null
       ? $fields.remove('corecursive')
       : $fields['corecursive'] = v.$fields;
+  bool hasCorecursive() => $fields['corecursive'] != null;
+  void clearCorecursive() => $fields.remove('corecursive');
 
   /// Encodes this message to protobuf binary bytes.
   List<int> toBytes() => $pb.marshal($fields, descriptor);

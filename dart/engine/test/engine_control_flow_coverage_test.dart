@@ -766,9 +766,11 @@ void main() {
           msg([field('left', ref('input')), field('right', literal(1))]),
         ),
       );
+      // `Set.where` returns a lazy `Iterable`; the engine materializes it as a
+      // list (same as `Set.map`), so it renders `[2, 3]`, not `{2, 3}`.
       expect(
         await evalPrint(method(setOf([1, 2, 3]), 'where', arg0: cb)),
-        '{2, 3}',
+        '[2, 3]',
       );
     });
     test('union returns combined set', () async {

@@ -55,11 +55,55 @@ extension BallEngineStd on BallEngine {
     return null;
   }
 
-  /// Unwrap a value that may be a [BallList] or a raw [List].
+  /// Unwrap a value that may be a [BallList] or a raw [List]. An ordered set
+  /// (see [_isBallSet]) is treated as its backing list so every Iterable-shaped
+  /// list operation (contains/join/foreach/map/where/…) works on a set too,
+  /// matching Dart's `Set implements Iterable`.
   List<Object?>? _stdAsList(Object? v) {
     if (v is BallList) return v.items;
+    if (_isBallSet(v)) return _ballSetItems(v);
     if (v is List) return v as List<Object?>;
     return null;
+  }
+
+  // ---- Ordered set value ----
+  //
+  // The engine has no native set type that survives self-hosting: C++
+  // (`BallValue = std::any`) has no set variant, so a Dart `Set` compiled to
+  // C++/TS collapses to a list and prints `[...]` instead of `{...}` (issue
+  // #68). Represent an ordered set portably as a one-key map
+  // `{'__ball_set__': [<insertion-ordered, de-duplicated items>]}` (the marker
+  // key `_kBallSetTag` + arity 1). A map of that exact shape is only ever
+  // produced by set construction, so it is distinguishable from a user map on
+  // every target (Dart/TS/C++).
+
+  /// True when [v] is an ordered set. The Dart reference engine and the compiled
+  /// C++ self-host use the portable `{'__ball_set__': [...]}` form; the TS
+  /// self-host keeps native `Set`s (its `engine_setup.ts` overrides
+  /// `set_create`/`set_*` with JS `Set`s). Recognize both so the shared paths
+  /// (type test, rendering, iteration, `.length`) work on every target.
+  bool _isBallSet(Object? v) => v is Set || _ballValueIsSet(v);
+
+  /// The backing list of an ordered set. For the portable map form this is the
+  /// live list (callers may mutate it to mutate the set, mirroring
+  /// `Set.add`/`Set.remove`); for a native `Set` (TS self-host) it is a copy.
+  List<Object?> _ballSetItems(Object? v) {
+    if (v is Set) return v.toList();
+    final raw = (v as Map)[_kBallSetTag];
+    if (raw is BallList) return raw.items;
+    if (raw is List) return raw as List<Object?>;
+    return <Object?>[];
+  }
+
+  /// Build an ordered set from [items], preserving first-seen order and
+  /// dropping duplicates by `==` (portable: uses `List.contains`, not a native
+  /// Set, so it self-hosts to C++/TS).
+  Map<String, Object?> _ballSetOf(Iterable<Object?> items) {
+    final result = <Object?>[];
+    for (final item in items) {
+      if (!result.contains(item)) result.add(item);
+    }
+    return <String, Object?>{_kBallSetTag: result};
   }
 
   /// Try to dispatch a std operator call to a user-defined operator override.
@@ -411,8 +455,19 @@ extension BallEngineStd on BallEngine {
       'list_push': (i) {
         final m = _stdAsMap(i)!;
         final raw = m['list'];
-        final list =
-            _stdAsList(raw) ?? (raw is Set ? raw.toList() : <Object?>[]);
+        // `.add` is syntactically routed here for List AND Set receivers (the
+        // encoder cannot tell them apart). Preserve set-ness: adding to a set
+        // returns a set (de-duplicated), not a list (issue #68).
+        if (_isBallSet(raw)) {
+          final items = _ballSetItems(raw);
+          final value = m['value'];
+          if (!items.contains(value)) {
+            _trackMemoryAllocation(_ballPointerBytes);
+            return _ballSetOf(<Object?>[...items, value]);
+          }
+          return _ballSetOf(items);
+        }
+        final list = _stdAsList(raw) ?? <Object?>[];
         _trackMemoryAllocation(_ballPointerBytes);
         list.add(m['value']);
         return list;
@@ -719,6 +774,14 @@ extension BallEngineStd on BallEngine {
       },
       'list_concat': (i) {
         final m = _stdAsMap(i)!;
+        // `.addAll` is syntactically routed here for List AND Set receivers.
+        // Preserve set-ness: `set.addAll(x)` yields a de-duplicated set (#68).
+        if (_isBallSet(m['list'])) {
+          return _ballSetOf(<Object?>[
+            ..._ballSetItems(m['list']),
+            ...(_stdAsList(m['value']) ?? const <Object?>[]),
+          ]);
+        }
         final result = [..._stdAsList(m['list'])!, ..._stdAsList(m['value'])!];
         _trackMemoryAllocation(result.length * _ballPointerBytes);
         return result;
@@ -726,6 +789,11 @@ extension BallEngineStd on BallEngine {
       'list_clear': (i) {
         final m = _stdAsMap(i)!;
         final raw = m['list'];
+        // `.clear()` on a set must stay a set (issue #68).
+        if (_isBallSet(raw)) {
+          _ballSetItems(raw).clear();
+          return raw;
+        }
         final list = _stdAsList(raw);
         if (list != null) {
           list.clear();
@@ -829,7 +897,9 @@ extension BallEngineStd on BallEngine {
       'map_contains_key': (i) {
         final m = _stdAsMap(i)!;
         final target = m['map'];
-        if (target is Set) return target.contains(m['key']);
+        // A set receiver checks membership (`.contains`). Must precede the
+        // Map branch: an ordered set is stored as a one-key map (issue #68).
+        if (_isBallSet(target)) return _ballSetItems(target).contains(m['key']);
         if (target is Map || target is BallMap) {
           return _ballMapContainsKeyDyn(target, m['key']);
         }
@@ -856,12 +926,15 @@ extension BallEngineStd on BallEngine {
       },
       'map_keys': (i) {
         final m = _stdAsMap(i)!;
+        // A set has no map keys (it is a one-key set map, not a data map).
+        if (_isBallSet(m['map'])) return const <Object?>[];
         final result = _ballMapKeysDyn(m['map']);
         _trackMemoryAllocation(result.length * _ballPointerBytes);
         return result;
       },
       'map_values': (i) {
         final m = _stdAsMap(i)!;
+        if (_isBallSet(m['map'])) return const <Object?>[];
         final result = _ballMapValuesDyn(m['map']);
         _trackMemoryAllocation(result.length * _ballPointerBytes);
         return result;
@@ -968,38 +1041,61 @@ extension BallEngineStd on BallEngine {
         return result;
       },
 
-      // std_collections — set operations
+      // std_collections — set operations. Sets are the portable ordered-set
+      // value (see [_ballSetOf]); every handler routes through the backing list
+      // so it self-hosts to C++/TS with Dart Set semantics.
       'set_add': (i) {
         final m = _stdAsMap(i)!;
-        final s = (m['set'] as Set).toSet();
-        s.add(m['value']);
-        return s;
+        final items = _ballSetItems(m['set']);
+        final value = m['value'];
+        if (!items.contains(value)) {
+          _trackMemoryAllocation(_ballPointerBytes);
+          return _ballSetOf(<Object?>[...items, value]);
+        }
+        return _ballSetOf(items);
       },
       'set_remove': (i) {
         final m = _stdAsMap(i)!;
-        final s = (m['set'] as Set).toSet();
-        s.remove(m['value']);
-        return s;
+        final items = _ballSetItems(m['set']);
+        final value = m['value'];
+        final kept = <Object?>[];
+        for (final e in items) {
+          if (e != value) kept.add(e);
+        }
+        return _ballSetOf(kept);
       },
       'set_contains': (i) {
         final m = _stdAsMap(i)!;
-        return (m['set'] as Set).contains(m['value']);
+        return _ballSetItems(m['set']).contains(m['value']);
       },
       'set_union': (i) {
         final m = _stdAsMap(i)!;
-        return (m['left'] as Set).union(m['right'] as Set);
+        return _ballSetOf(<Object?>[
+          ..._ballSetItems(m['left']),
+          ..._ballSetItems(m['right']),
+        ]);
       },
       'set_intersection': (i) {
         final m = _stdAsMap(i)!;
-        return (m['left'] as Set).intersection(m['right'] as Set);
+        final right = _ballSetItems(m['right']);
+        final result = <Object?>[];
+        for (final e in _ballSetItems(m['left'])) {
+          if (right.contains(e)) result.add(e);
+        }
+        return _ballSetOf(result);
       },
       'set_difference': (i) {
         final m = _stdAsMap(i)!;
-        return (m['left'] as Set).difference(m['right'] as Set);
+        final right = _ballSetItems(m['right']);
+        final result = <Object?>[];
+        for (final e in _ballSetItems(m['left'])) {
+          if (!right.contains(e)) result.add(e);
+        }
+        return _ballSetOf(result);
       },
-      'set_length': (i) => ((_stdAsMap(i)!)['set'] as Set).length,
-      'set_is_empty': (i) => ((_stdAsMap(i)!)['set'] as Set).isEmpty,
-      'set_to_list': (i) => ((_stdAsMap(i)!)['set'] as Set).toList(),
+      'set_length': (i) => _ballSetItems((_stdAsMap(i)!)['set']).length,
+      'set_is_empty': (i) => _ballSetItems((_stdAsMap(i)!)['set']).isEmpty,
+      'set_to_list': (i) => <Object?>[..._ballSetItems((_stdAsMap(i)!)['set'])],
 
       // Switch expression
       'switch_expr': _stdSwitchExpr,
@@ -1450,6 +1546,15 @@ extension BallEngineStd on BallEngine {
     if (v is BallInt) return v.value.toString();
     if (v is double) return v.toString();
     if (v is BallDouble) return v.toString();
+    // Ordered set (portable {'__ball_set__': [...]} form) — must precede the
+    // generic map branch below. Renders Dart-exactly as `{a, b, c}` (issue #68).
+    if (_isBallSet(v)) {
+      final parts = <String>[];
+      for (final item in _ballSetItems(v)) {
+        parts.add(await _ballToStringAsync(item));
+      }
+      return '{${parts.join(', ')}}';
+    }
     if (v is BallList) {
       final parts = <String>[];
       for (final item in v.items) {
@@ -1527,6 +1632,25 @@ extension BallEngineStd on BallEngine {
             map.remove('__tostring_guard__');
           }
         }
+      }
+      // Plain data map (no user type): render `{k: v, …}` by recursing through
+      // _ballToStringAsync, mirroring the List branch above. This is required
+      // for nested ordered sets — a set is stored as a one-key map, so relying
+      // on the map's native `toString()` here would leak `{__ball_set__: […]}`
+      // for a set nested inside a map/list (issue #68). Engine maps are
+      // string-keyed (map_create stringifies keys), so iterating the unwrapped
+      // `map` is safe and self-hosts like every other `_stdAsMap` use.
+      if (typeName == null) {
+        final parts = <String>[];
+        for (final e in map.entries) {
+          // Await into locals BEFORE interpolating: `await` inside a string
+          // interpolation does not survive the self-host round-trip (it embeds
+          // an unawaited Future), so mirror the List branch's statement form.
+          final k = await _ballToStringAsync(e.key);
+          final val = await _ballToStringAsync(e.value);
+          parts.add('$k: $val');
+        }
+        return '{${parts.join(', ')}}';
       }
     }
     return v.toString();
@@ -1688,9 +1812,11 @@ extension BallEngineStd on BallEngine {
         }
         return true;
       }
-      if (baseType == 'Set' && value is Set) {
+      if (baseType == 'Set' && _isBallSet(value)) {
         if (typeArgs.length == 1) {
-          return value.every((e) => _typeMatches(e, typeArgs[0]));
+          return _ballSetItems(
+            value,
+          ).every((e) => _typeMatches(e, typeArgs[0]));
         }
         return true;
       }
@@ -1734,7 +1860,7 @@ extension BallEngineStd on BallEngine {
     if (type == 'bool') return _ballIsBool(value);
     if (type == 'List') return _ballIsList(value);
     if (type == 'Map') return _ballIsMap(value);
-    if (type == 'Set') return value is Set;
+    if (type == 'Set') return _isBallSet(value);
     if (type == 'Null' || type == 'void') {
       return value == null || value is BallNull;
     }
@@ -1829,14 +1955,14 @@ extension BallEngineStd on BallEngine {
 
   Object? _stdSetCreate(Object? input) {
     final m = _stdAsMap(input);
-    if (m == null) return <Object?>{};
+    if (m == null) return _ballSetOf(const <Object?>[]);
     final elements = m['elements'];
     final elementsList = _stdAsList(elements);
     if (elementsList != null) {
       _trackMemoryAllocation(elementsList.length * _ballPointerBytes);
-      return elementsList.toSet();
+      return _ballSetOf(elementsList);
     }
-    return <Object?>{};
+    return _ballSetOf(const <Object?>[]);
   }
 
   /// Fail-loud guard for collection_if / collection_for. These must be spliced
@@ -2242,6 +2368,9 @@ extension BallEngineStd on BallEngine {
     if (v is double) return v.toString();
     if (v is BallDouble) return v.toString();
     if (_isBallFuture(v)) return _ballToStringSimple(_unwrapBallFuture(v));
+    // Ordered set — render `{a, b, c}` (must precede the map branch). Issue #68.
+    if (_isBallSet(v))
+      return '{${_ballSetItems(v).map(_ballToStringSimple).join(', ')}}';
     if (v is BallList)
       return '[${v.items.map(_ballToStringSimple).join(', ')}]';
     if (v is List) return '[${v.map(_ballToStringSimple).join(', ')}]';
@@ -2288,7 +2417,7 @@ extension BallEngineStd on BallEngine {
     if (p == 'bool') return _ballIsBool(value);
     if (p == 'List') return _ballIsList(value);
     if (p == 'Map') return _ballIsMap(value);
-    if (p == 'Set') return value is Set;
+    if (p == 'Set') return _isBallSet(value);
     return false;
   }
 
@@ -2458,6 +2587,9 @@ extension BallEngineStd on BallEngine {
   /// Handles List, Set, Map (iterates entries as {key, value} maps), and String.
   List<Object?> _toIterable(Object? v) {
     if (v is BallList) return v.items;
+    // Ordered set — iterate its elements (must precede the Map branch, since a
+    // set is stored as a one-key map). Issue #68.
+    if (_isBallSet(v)) return _ballSetItems(v);
     if (v is List) return v;
     if (v is Set) return v.toList();
     if (v is BallMap) {
@@ -2629,6 +2761,8 @@ extension BallEngineStd on BallEngine {
     if (v is BallBool) return v.value;
     if (v is BallString) return v.value;
     if (v is num || v is bool || v is String) return v;
+    // Ordered set → JSON array (must precede the map branch). Issue #68.
+    if (_isBallSet(v)) return _ballSetItems(v).map(_toJsonSafe).toList();
     final mapVal = _stdAsMap(v);
     if (mapVal != null) {
       return {

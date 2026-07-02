@@ -874,8 +874,18 @@ extension BallEngineControlFlow on BallEngine {
       final indexTarget = indexFields['target'];
       final indexExpr = indexFields['index'];
       if (indexTarget != null && indexExpr != null) {
-        final list = await _evalExpression(indexTarget, scope);
+        var list = await _evalExpression(indexTarget, scope);
         final idx = await _evalExpression(indexExpr, scope);
+
+        // An ordered set used with index assignment (`m[k] = v`) is really an
+        // ambiguous empty `{}` map literal: the syntactic encoder cannot tell
+        // an empty set from an empty map, so `Map<…> m = {}` arrives as an empty
+        // ordered set. Coerce it to a real (Object-keyed) map so int/string keys
+        // work, and write the fresh map back to the target. Issue #68.
+        if (_isBallSet(list)) {
+          list = _ballUserMap();
+          _cfWritebackIndexed(indexTarget, list, scope);
+        }
 
         // Compound assignment on index (e.g. list[i] ??= val, map[k] += val)
         if (op != null && op.isNotEmpty && op != '=') {
@@ -1580,6 +1590,62 @@ extension BallEngineControlFlow on BallEngine {
       unwrappedSelf = self;
     }
 
+    // ── Ordered-set methods (portable map form only) ──
+    // Sets are the portable `{'__ball_set__': [...]}` value on the Dart and C++
+    // engines (issue #68); this must precede the Map block below since a set is
+    // stored as a one-key map. Guard on the MAP form specifically
+    // (`_ballValueIsSet`) — NOT `_isBallSet`, which also matches a native
+    // `Set`: the TS self-host keeps native `Set`s (handled by `engine_setup.ts`
+    // and the native-`Set` block below), and intercepting them here would emit
+    // the map form and leak `{__ball_set__: […]}`. Set-specific methods keep
+    // set-ness; every other (Iterable-shaped) method delegates to the List
+    // block via the backing item list.
+    if (_ballValueIsSet(unwrappedSelf)) {
+      final items = _ballSetItems(unwrappedSelf);
+      switch (method) {
+        case 'add':
+          // Set.add returns true when the element was newly inserted.
+          if (items.contains(arg0)) return false;
+          items.add(arg0);
+          return true;
+        case 'remove':
+          final had = items.contains(arg0);
+          items.remove(arg0);
+          return had;
+        case 'addAll':
+          for (final e in (_stdAsList(arg0) ?? const <Object?>[])) {
+            if (!items.contains(e)) items.add(e);
+          }
+          return null;
+        case 'contains':
+          return items.contains(arg0);
+        case 'union':
+          final out = <Object?>[...items];
+          for (final e in (_stdAsList(arg0) ?? const <Object?>[])) {
+            if (!out.contains(e)) out.add(e);
+          }
+          return _ballSetOf(out);
+        case 'intersection':
+          final other = _stdAsList(arg0) ?? const <Object?>[];
+          return _ballSetOf(items.where((e) => other.contains(e)));
+        case 'difference':
+          final other = _stdAsList(arg0) ?? const <Object?>[];
+          return _ballSetOf(items.where((e) => !other.contains(e)));
+        case 'toSet':
+          return _ballSetOf(items);
+        case 'length':
+          return items.length;
+        case 'isEmpty':
+          return items.isEmpty;
+        case 'isNotEmpty':
+          return items.isNotEmpty;
+        default:
+          // Iterable-shaped methods (toList/map/where/forEach/any/every/reduce/
+          // fold/take/skip/join/first/last/…) share the List implementation.
+          return _dispatchBuiltinInstanceMethod(items, method, input);
+      }
+    }
+
     // ── List / Set methods ──
     if (unwrappedSelf is List) {
       final self = unwrappedSelf;
@@ -1587,6 +1653,15 @@ extension BallEngineControlFlow on BallEngine {
       Object? _wrapList(List<Object?> result) =>
           wasBallList ? BallList(result) : result;
       switch (method) {
+        // `length`/`isEmpty`/`isNotEmpty` are normally field accesses, but a
+        // materialized Iterable (e.g. `set.where(...)` → list) may reach here
+        // as a method call; handle them like the Set/String blocks do.
+        case 'length':
+          return self.length;
+        case 'isEmpty':
+          return self.isEmpty;
+        case 'isNotEmpty':
+          return self.isNotEmpty;
         case 'add':
           self.add(arg0);
           return null;

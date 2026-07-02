@@ -800,7 +800,8 @@ extension BallEngineEval on BallEngine {
       final func = staticField.func;
       var value = await _callFunction(staticField.module, func, null);
       if (func.outputType.startsWith('Map')) {
-        if (value is Set && value.isEmpty) value = _ballUserMap();
+        if (_isBallSet(value) && _ballSetItems(value).isEmpty)
+          value = _ballUserMap();
         if (value is List && value.isEmpty) value = _ballUserMap();
       }
       _globalScope.bind(staticField.fullName, value);
@@ -819,6 +820,30 @@ extension BallEngineEval on BallEngine {
     // Unwrap BallFuture so field access on async results works transparently.
     if (_isBallFuture(object))
       object = (object as Map<String, Object?>)['value'];
+
+    // ── Ordered-set virtual getters ── (portable set value, issue #68). A set
+    // is stored as a one-key map, so resolve its Iterable getters here before
+    // the generic map field-access path treats `.length` as the map key count.
+    if (_isBallSet(object)) {
+      final items = _ballSetItems(object);
+      switch (fieldName) {
+        case 'length':
+          return items.length;
+        case 'isEmpty':
+          return items.isEmpty;
+        case 'isNotEmpty':
+          return items.isNotEmpty;
+        case 'first':
+          if (items.isNotEmpty) return items.first;
+          throw BallRuntimeError('First element of empty set');
+        case 'last':
+          if (items.isNotEmpty) return items.last;
+          throw BallRuntimeError('Last element of empty set');
+        case 'single':
+          if (items.length == 1) return items.single;
+          throw BallRuntimeError('Set does not have exactly one element');
+      }
+    }
 
     // Unwrap BallMap once so all downstream checks work uniformly.
     final objectMap = _asMap(object);
@@ -1837,7 +1862,8 @@ extension BallEngineEval on BallEngine {
         if (stmt.let.hasMetadata()) {
           final letType = stmt.let.metadata.fields['type']?.stringValue;
           if (letType != null && letType.startsWith('Map')) {
-            if (value is Set && value.isEmpty) value = _ballUserMap();
+            if (_isBallSet(value) && _ballSetItems(value).isEmpty)
+              value = _ballUserMap();
             if (value is List && value.isEmpty) value = _ballUserMap();
           }
         }

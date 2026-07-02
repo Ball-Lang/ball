@@ -4271,6 +4271,10 @@ class DartEncoder {
     // For/If element rather than the entry itself. Look THROUGH comprehension
     // elements so `{for (...) k: v}` encodes as a map, not a set (issue #55).
     final hasMapEntry = expr.elements.any(_collectionElementYieldsMapEntry);
+    // A bare empty `{}` is ambiguous without type resolution (Dart defaults it
+    // to a Map, but `Set<T> x = {}` is a set). It stays encoded as an empty
+    // `set_create`; the engine coerces an empty set to a map when the declared
+    // `let`/field type is a Map (see `_ballUserMap` coercion in engine_eval).
     final isMap = hasDoubleTypeArgs || hasMapEntry;
 
     if (isMap) {

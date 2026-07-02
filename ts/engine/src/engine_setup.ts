@@ -775,7 +775,7 @@ export function createEngineSetup(mod: EngineModule) {
     _r('list_reversed', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; return Array.isArray(l) ? [...l].reverse() : []; });
     _r('list_sublist', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; const s = Number(m['start'] ?? m['arg0'] ?? 0); const e = m['end'] ?? m['arg1']; return Array.isArray(l) ? l.slice(s, e != null ? Number(e) : undefined) : []; });
     _r('list_index_of', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; const v = m['value'] ?? m['element']; if (typeof l === 'string') return l.indexOf(String(v)); return Array.isArray(l) ? l.indexOf(v) : -1; });
-    _r('list_add', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const v = m['value'] ?? m['element']; if (Array.isArray(l)) l.push(v); return null; });
+    _r('list_add', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const v = m['value'] ?? m['element']; if (l instanceof Set) { l.add(v); return null; } if (Array.isArray(l)) l.push(v); return null; });
     _r('list_add_all', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const o = m['other'] ?? m['elements'] ?? []; if (Array.isArray(l) && Array.isArray(o)) l.push(...o); return null; });
     _r('list_remove_at', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const idx = Number(m['index'] ?? 0); return Array.isArray(l) ? l.splice(idx, 1)[0] : null; });
     _r('list_insert', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const idx = Number(m['index'] ?? 0); const v = m['value'] ?? m['element']; if (Array.isArray(l)) l.splice(idx, 0, v); return null; });
@@ -793,7 +793,7 @@ export function createEngineSetup(mod: EngineModule) {
       if (!Array.isArray(l)) return '';
       return l.map((x: any) => { if (x === null || x === undefined) return 'null'; if (typeof x === 'boolean') return x ? 'true' : 'false'; return String(x); }).join(String(sep));
     });
-    _r('list_push', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const v = m['value'] ?? m['element']; if (Array.isArray(l)) { l.push(v); return l; } return [...(l ?? []), v]; });
+    _r('list_push', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const v = m['value'] ?? m['element']; if (l instanceof Set) { l.add(v); return l; } if (Array.isArray(l)) { l.push(v); return l; } return [...(l ?? []), v]; });
     _r('list_pop', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; return (Array.isArray(l) && l.length > 0) ? l.pop() : null; });
     _r('list_peek', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; return (Array.isArray(l) && l.length > 0) ? l[l.length - 1] : null; });
     _r('list_take', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; const n = Number(m['count'] ?? m['value'] ?? m['n'] ?? 0); return Array.isArray(l) ? l.slice(0, n) : []; });

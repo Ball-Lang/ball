@@ -104,6 +104,16 @@ double _ballToDouble(Object? value) {
   return 0.0;
 }
 
+/// Marker key of the portable ordered-set value (see `_ballSetOf` in
+/// engine_std.dart). Kept top-level so the strict type tests below can exclude a
+/// set from `Map` without depending on the `BallEngineStd` extension.
+const String _kBallSetTag = '__ball_set__';
+
+/// True when [v] is the portable ordered-set representation
+/// (`{'__ball_set__': [...]}` — a one-key map with the set marker).
+bool _ballValueIsSet(Object? v) =>
+    v is Map && v.length == 1 && v.containsKey(_kBallSetTag);
+
 /// Strict runtime type tests for pattern matching (avoid `is double` → num widen).
 bool _ballIsInt(Object? v) => v is int || v is BallInt;
 bool _ballIsDouble(Object? v) => v is double || v is BallDouble;
@@ -111,7 +121,9 @@ bool _ballIsNum(Object? v) => v is num || v is BallInt || v is BallDouble;
 bool _ballIsString(Object? v) => v is String || v is BallString;
 bool _ballIsBool(Object? v) => v is bool || v is BallBool;
 bool _ballIsList(Object? v) => v is List || v is BallList;
-bool _ballIsMap(Object? v) => v is Map || v is BallMap;
+// An ordered set is stored as a one-key map; exclude it so `x is Map` is false
+// for a set (issue #68), matching Dart where `Set` does not implement `Map`.
+bool _ballIsMap(Object? v) => (v is Map || v is BallMap) && !_ballValueIsSet(v);
 
 /// Yield values collected by a sync*/async* generator.
 List<Object?> _ballGeneratorValues(BallGenerator gen) => gen.values;

@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/Ball-Lang/ball/compare/v1.4.0...v1.4.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* **cpp:** box C-style collection_for loop vars + implement std_memory natively ([#169](https://github.com/Ball-Lang/ball/issues/169)) ([2316bc2](https://github.com/Ball-Lang/ball/commit/2316bc25308c91ccf380a99a4d49af9819835da8)), closes [#69](https://github.com/Ball-Lang/ball/issues/69) [#154](https://github.com/Ball-Lang/ball/issues/154)
+
 # [1.4.0](https://github.com/Ball-Lang/ball/compare/v1.3.9...v1.4.0) (2026-07-02)
 
 

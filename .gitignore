@@ -151,3 +151,15 @@ skills-lock.json
 .claude/skills/remotion-to-hyperframes/
 .claude/skills/slideshow/
 .claude/skills/website-to-video/
+
+# ----------------------------------
+# Per-machine agent skill symlinks (synced by external skill managers as
+# absolute AppData paths — broken symlinks for every other clone). The
+# gitlab-* skills belong to unrelated projects; Ball's native
+# .claude/skills/* stay tracked. .codex/.cursor/.gemini exist here ONLY
+# as skill-sync targets.
+# ----------------------------------
+.codex/
+.cursor/
+.gemini/
+.claude/skills/gitlab-*

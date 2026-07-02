@@ -57,7 +57,7 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
-    "@ball-lang/engine": "^0.3.0"
+    "@ball-lang/engine": "^0.2.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

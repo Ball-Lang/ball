@@ -1,3 +1,10 @@
+## [1.3.4](https://github.com/Ball-Lang/ball/compare/v1.3.3...v1.3.4) (2026-07-02)
+
+
+### Bug Fixes
+
+* **release:** set up Dart before the compiler tests in publish-npm ([#150](https://github.com/Ball-Lang/ball/issues/150)) ([0fdc565](https://github.com/Ball-Lang/ball/commit/0fdc5652765860f5c750650c5bebf67366c82655))
+
 ## [1.3.3](https://github.com/Ball-Lang/ball/compare/v1.3.2...v1.3.3) (2026-07-02)
 
 

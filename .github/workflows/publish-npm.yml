@@ -57,6 +57,25 @@ jobs:
         working-directory: ts/cli
         run: npm test
 
+      # ── @ball-lang/compiler ────────────────────────────────────────
+      # MUST install before the encoder tests run: the encoder's
+      # roundtrip.test.ts imports ts/compiler/src/compiler.ts across
+      # packages, which resolves ts-morph from ts/compiler/node_modules.
+      # ci.yml runs compiler-then-encoder for the same reason; the reversed
+      # order here failed the first dispatched publish with
+      # ERR_MODULE_NOT_FOUND: ts-morph.
+      - name: Install compiler dependencies
+        working-directory: ts/compiler
+        run: npm ci
+
+      - name: Build compiler
+        working-directory: ts/compiler
+        run: npm run build
+
+      - name: Test compiler
+        working-directory: ts/compiler
+        run: npm test
+
       # ── @ball-lang/encoder ─────────────────────────────────────────
       - name: Install encoder dependencies
         working-directory: ts/encoder
@@ -68,19 +87,6 @@ jobs:
 
       - name: Test encoder
         working-directory: ts/encoder
-        run: npm test
-
-      # ── @ball-lang/compiler ────────────────────────────────────────
-      - name: Install compiler dependencies
-        working-directory: ts/compiler
-        run: npm ci
-
-      - name: Build compiler
-        working-directory: ts/compiler
-        run: npm run build
-
-      - name: Test compiler
-        working-directory: ts/compiler
         run: npm test
 
       # Upgrade npm to 11.5.1+ for OIDC trusted publishing.

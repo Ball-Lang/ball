@@ -37,14 +37,18 @@ export interface TypeAlias {
   metadata?: Struct;
 }
 
+// google.protobuf.EnumDescriptorProto in proto3 JSON form:
+// `{ "name": "Color", "value": [{ "name": "red", "number": 0 }] }`.
+// This matches ball.proto's `repeated google.protobuf.EnumDescriptorProto
+// enums = 7` — the shape the Dart/TS/C++ engines and compilers consume.
 export interface EnumDef {
   name: string;
-  values: EnumValue[];
+  value: EnumValue[];
 }
 
 export interface EnumValue {
   name: string;
-  intValue?: string | number;
+  number: number;
 }
 
 export interface DescriptorProto {

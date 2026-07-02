@@ -3,6 +3,12 @@ name: Publish npm
 on:
   release:
     types: [published]
+  # Primary trigger: release.yml dispatches this pinned to the fresh vX.Y.Z
+  # tag after semantic-release cuts a release. The `release: published`
+  # trigger above only fires for MANUALLY-published releases — GitHub
+  # suppresses workflow triggers for events created with the default
+  # GITHUB_TOKEN, which is what semantic-release uses.
+  workflow_dispatch:
 
 permissions:
   id-token: write    # for provenance attestation (not OIDC auth)
@@ -99,6 +105,17 @@ jobs:
         # use token auth instead of OIDC. id-token: write (set at job level)
         # is what lets npm mint the OIDC token for registry.npmjs.org.
         run: npm publish --provenance --access public
+
+      # ts/cli depends on the IN-REPO engine (`file:../engine`) so dev and CI
+      # always build/test against the engine being released — never a stale
+      # registry copy. A file: dep must not ship to npm: rewrite it to the
+      # concrete registry range of the engine version published just above.
+      - name: Point cli at the published engine version
+        working-directory: ts/cli
+        run: |
+          engine_version=$(node -p "require('../engine/package.json').version")
+          npm pkg set "dependencies.@ball-lang/engine=^${engine_version}"
+          node -p "'cli engine range: ' + require('./package.json').dependencies['@ball-lang/engine']"
 
       - name: Publish cli with provenance (OIDC trusted publishing)
         working-directory: ts/cli

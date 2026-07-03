@@ -1,3 +1,11 @@
+## [1.5.1](https://github.com/Ball-Lang/ball/compare/v1.5.0...v1.5.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* **cpp:** regenerate stripped snapshots against post-[#189](https://github.com/Ball-Lang/ball/issues/189) main ([f771311](https://github.com/Ball-Lang/ball/commit/f771311d335d825741d075c9caa4223283c69e98)), closes [188/#184](https://github.com/Ball-Lang/ball/issues/184)
+* **cpp:** strip shared runtime preamble from compiler snapshots ([12d55be](https://github.com/Ball-Lang/ball/commit/12d55be7d4531da6f7f3d96fdefaefcf63e0aeee)), closes [#147](https://github.com/Ball-Lang/ball/issues/147)
+
 # [1.5.0](https://github.com/Ball-Lang/ball/compare/v1.4.5...v1.5.0) (2026-07-03)
 
 

@@ -23,7 +23,7 @@
   },
   "summary": {
     "encoderEmittable": 108,
-    "coveredByFixture": 108,
+    "coveredByFixture": 113,
     "engineImplementedDart": 219,
     "carvedOut": 0
   },
@@ -118,6 +118,7 @@
         "341_setter_param_binding",
         "351_num_to_double",
         "36_string_interpolation",
+        "390_goto_label",
         "42_nested_functions",
         "59_deep_recursion",
         "60_collatz",
@@ -263,6 +264,7 @@
         "35_short_circuit",
         "385_list_insert_at_index",
         "386_list_concat_addall",
+        "390_goto_label",
         "39_compound_assign",
         "41_for_sum",
         "43_countdown",
@@ -576,7 +578,9 @@
       "name": "double_to_string",
       "inputType": "UnaryInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "389_typed_to_string"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -724,6 +728,7 @@
         "297_enc_list_ops",
         "298_enc_fibonacci",
         "350_set_value",
+        "387_list_reverse_getter",
         "41_for_sum",
         "44_for_loop_basic",
         "45_for_in_loop",
@@ -800,6 +805,7 @@
         "257_relational_pattern",
         "290_enc_list_iterate",
         "350_set_value",
+        "387_list_reverse_getter",
         "45_for_in_loop",
         "76_list_map_filter",
         "80_bubble_sort",
@@ -816,7 +822,9 @@
       "name": "goto",
       "inputType": "GotoInput",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "390_goto_label"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -948,6 +956,7 @@
         "30_math_utils",
         "318_list_reduce",
         "380_is_not_type_check",
+        "390_goto_label",
         "48_break_continue",
         "50_if_else_chain",
         "51_nested_if",
@@ -1048,7 +1057,9 @@
       "name": "int_to_string",
       "inputType": "UnaryInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "389_typed_to_string"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -1087,7 +1098,9 @@
       "name": "label",
       "inputType": "LabelInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "390_goto_label"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -1169,6 +1182,7 @@
         "30_math_utils",
         "312_collection_for_capture",
         "33_comparison_chain",
+        "390_goto_label",
         "44_for_loop_basic",
         "48_break_continue",
         "54_abs_value",
@@ -2177,7 +2191,10 @@
         "384_list_filter_where",
         "385_list_insert_at_index",
         "386_list_concat_addall",
+        "387_list_reverse_getter",
+        "389_typed_to_string",
         "38_string_length",
+        "390_goto_label",
         "39_compound_assign",
         "40_increment_decrement",
         "41_for_sum",
@@ -2941,6 +2958,7 @@
         "36_string_interpolation",
         "37_string_concat",
         "38_string_length",
+        "390_goto_label",
         "39_compound_assign",
         "40_increment_decrement",
         "41_for_sum",
@@ -3329,7 +3347,9 @@
       "name": "list_reverse",
       "inputType": "ListInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "387_list_reverse_getter"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -4598,11 +4618,7 @@
       "year"
     ],
     "emittableButUncoveredByFixture": [
-      "double_to_string",
-      "int_to_string",
-      "label",
-      "length",
-      "list_reverse"
+      "length"
     ],
     "notEngineImplementedDart": [
       "address_of",

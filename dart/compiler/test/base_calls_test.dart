@@ -522,6 +522,39 @@ void main() {
         contains('toStringAsFixed(2)'),
       );
     });
+    test('to_string_as_exponential with and without digits (issue #100)', () {
+      expect(
+        _compile(
+          _call('std', 'to_string_as_exponential', [
+            _field('value', _doubleLit(1234.5678)),
+            _field('digits', _intLit(2)),
+          ]),
+        ),
+        contains('toStringAsExponential(2)'),
+      );
+      expect(
+        _compile(
+          _call('std', 'to_string_as_exponential', [
+            _field('value', _doubleLit(1234.5678)),
+          ]),
+        ),
+        contains('toStringAsExponential()'),
+      );
+      // A receiver needing parens as a prefix/infix expression (matches the
+      // toStringAsFixed precedent for negative-literal receivers).
+      expect(
+        _compile(
+          _call('std', 'to_string_as_exponential', [
+            _field(
+              'value',
+              _call('std', 'negate', [_field('value', _doubleLit(1000.0))]),
+            ),
+          ]),
+        ),
+        contains(').toStringAsExponential()'),
+      );
+    });
+
     test('to_double / to_int', () {
       expect(
         _compile(_call('std', 'to_double', [_field('value', _intLit(5))])),

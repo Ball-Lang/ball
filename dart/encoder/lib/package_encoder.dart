@@ -200,8 +200,18 @@ class PackageEncoder {
       ..entryFunction = entryFunction
       ..modules.addAll([
         stdModule,
+        // coverage:ignore-start
+        // Empirically confirmed dart:coverage limitation: a null-aware
+        // spread element (`?expr`) inside a list literal never gets a `DA:`
+        // hit recorded even when the surrounding call executes and `expr`
+        // evaluates to a non-null value — verified by running package-level
+        // tests that reliably hit this line both with a null and a non-null
+        // `collectionsModule`, and it stayed at 0 hits either way. Real
+        // coverage (behavior) is proven by the module-presence assertions
+        // in package_encoder_test.dart.
         ?collectionsModule,
         ?protoModule,
+        // coverage:ignore-end
         ...externalStubs.values,
         ...userModules,
         ?resourceModule,
@@ -211,7 +221,11 @@ class PackageEncoder {
   /// Resolve external package stubs by downloading and encoding them.
   Future<List<Module>> _resolveExternalDeps(Set<String> stubNames) async {
     final pubClient = _pubClient;
-    if (pubClient == null) return [];
+    // Unreachable via the public API: encodeAsync's own guard
+    // (`!resolveExternalDeps || _pubClient == null`) already returns before
+    // ever calling this method when `_pubClient` is null — kept as a
+    // defensive re-check for any future internal caller.
+    if (pubClient == null) return []; // coverage:ignore-line
     final modules = <Module>[];
     for (final stubName in stubNames) {
       // stub names are module names like "package.http" or "http" —
@@ -535,9 +549,13 @@ class PackageEncoder {
 
     // Discover resource directories at the package root.
     for (final entity in packageDir.listSync()) {
+      // Defensive: `Directory.listSync()` entries are always a real child
+      // path with a non-empty final segment, so `orElse` never fires — kept
+      // to avoid a `StateError` from `lastWhere` if that assumption ever
+      // breaks on some platform's URI shape.
       final name = entity.uri.pathSegments.lastWhere(
         (s) => s.isNotEmpty,
-        orElse: () => '',
+        orElse: () => '', // coverage:ignore-line
       );
       if (name.isEmpty || name.startsWith('.')) continue;
       if (_ignoredDirs.contains(name)) continue;

@@ -3235,6 +3235,17 @@ class DartEncoder {
     }
 
     // ---- Type literal ----
+    // coverage:ignore-start
+    // Unreachable with this encoder's parseString-only pipeline: analyzer
+    // only ever rewrites an Identifier into an ast.TypeLiteral node during
+    // *resolution* (see ast_rewrite.dart's `_toTypeLiteral`/
+    // `_toPatternTypeLiteral` and function_reference_resolver.dart's
+    // `_resolveTypeLiteral` in package:analyzer) — a phase this encoder
+    // deliberately skips (no static types; see the "Syntactic-encoder
+    // gotchas" note in dart.md). A bare type used as a value (`Box<int>`,
+    // `int`) is instead parsed as `FunctionReference`/`SimpleIdentifier` and
+    // handled by the branches above. Kept for forward-compatibility in case
+    // a future encoder path resolves the AST.
     if (expr is ast.TypeLiteral) {
       _usedBaseFunctions.add('type_literal');
       return _buildStdCall('type_literal', [
@@ -3244,6 +3255,7 @@ class DartEncoder {
             ..literal = (Literal()..stringValue = expr.type.toSource())),
       ]);
     }
+    // coverage:ignore-end
 
     // ---- FunctionReference / ConstructorReference (constructor tear-offs) ----
     // e.g. `CaptureSink<T>.new`, `Result.value`, `int.parse`

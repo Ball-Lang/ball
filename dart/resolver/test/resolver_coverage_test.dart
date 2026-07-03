@@ -126,6 +126,49 @@ void main() {
         ..path = 'module.ball.json';
       await expectLater(fetchGit(src), throwsA(isA<StateError>()));
     });
+
+    test('a commit SHA ref falls back to a full clone + checkout (the '
+        '`--branch <ref>` clone fails for a SHA, not a branch name)', () async {
+      final json = jsonEncode(
+        encodeBallFileJson(_module('gitsha', functions: ['g'])),
+      );
+      await _initGitRepo(repo, {'module.ball.json': utf8.encode(json)});
+      final headResult = await Process.run('git', [
+        'rev-parse',
+        'HEAD',
+      ], workingDirectory: repo.path);
+      final sha = (headResult.stdout as String).trim();
+
+      final src = GitSource()
+        ..url = repo.uri.toFilePath()
+        ..ref = sha
+        ..path = 'module.ball.json';
+      final m = await fetchGit(src);
+      expect(m.name, 'gitsha');
+    });
+
+    test('an unresolvable ref fails both the branch clone and the full-clone '
+        'checkout fallback', () async {
+      await _initGitRepo(repo, {
+        'module.ball.json': utf8.encode(
+          jsonEncode(encodeBallFileJson(_module('x'))),
+        ),
+      });
+      final src = GitSource()
+        ..url = repo.uri.toFilePath()
+        ..ref = 'no-such-ref-xyz'
+        ..path = 'module.ball.json';
+      await expectLater(
+        fetchGit(src),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'm',
+            contains('Failed to checkout ref'),
+          ),
+        ),
+      );
+    });
   });
 
   group('ModuleResolver _fetch dispatch', () {
@@ -257,10 +300,37 @@ void main() {
 
   group('ContentAddressableCache extra branches', () {
     test('default cache dir is used when none is supplied', () {
-      // Exercises _defaultCacheDir (HOME/USERPROFILE lookup).
+      // Exercises defaultCacheDir (HOME/USERPROFILE lookup) against the real
+      // process environment.
       final cache = ContentAddressableCache();
       expect(cache.cacheDir, isNotEmpty);
       expect(cache.cacheDir, contains('.ball'));
+    });
+
+    test('defaultCacheDir prefers HOME over USERPROFILE', () {
+      expect(
+        ContentAddressableCache.defaultCacheDir({
+          'HOME': '/home/x',
+          'USERPROFILE': 'C:\\Users\\x',
+        }),
+        contains('home'),
+      );
+    });
+
+    test('defaultCacheDir falls back to USERPROFILE when HOME is unset', () {
+      expect(
+        ContentAddressableCache.defaultCacheDir({
+          'USERPROFILE': 'C:\\Users\\x',
+        }),
+        contains('Users'),
+      );
+    });
+
+    test('defaultCacheDir falls back to "." when neither is set', () {
+      expect(
+        ContentAddressableCache.defaultCacheDir(const {}),
+        startsWith('.'),
+      );
     });
 
     test('put is idempotent for identical content (second put is a no-op)', () {
@@ -272,6 +342,27 @@ void main() {
         final h2 = cache.put(m); // file already exists -> early return
         expect(h1, h2);
         expect(cache.has(h1), isTrue);
+      } finally {
+        tmp.deleteSync(recursive: true);
+      }
+    });
+
+    test('put swallows a rename failure (destination path collides with a '
+        'directory) and still returns the hash', () {
+      final tmp = Directory.systemTemp.createTempSync('ball_cache_fail_');
+      try {
+        final cache = ContentAddressableCache(cacheDir: tmp.path);
+        final m = _module('renamefail');
+        final bytes = m.writeToBuffer();
+        final hash = computeIntegrityFromBytes(bytes);
+        final hex = hash.substring(7);
+        // Pre-create the destination *as a directory* so temp.renameSync
+        // onto it throws — put() must swallow that and still return the
+        // hash rather than propagating the FileSystemException.
+        Directory(
+          '${tmp.path}/sha256/${hex.substring(0, 2)}/$hex.ball.bin',
+        ).createSync(recursive: true);
+        expect(cache.put(m), hash);
       } finally {
         tmp.deleteSync(recursive: true);
       }

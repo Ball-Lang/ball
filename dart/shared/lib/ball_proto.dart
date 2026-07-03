@@ -252,5 +252,8 @@ Value _toValue(Object value) {
     }
     return Value()..structValue = struct;
   }
-  return Value()..stringValue = value.toString();
+  // Defensive fallback: every metadata value this module's `_meta()` calls
+  // build is a String/bool/num/List/Map (see the call sites above) — no
+  // other Object subtype is ever passed, so dart_run never exercises this.
+  return Value()..stringValue = value.toString(); // coverage:ignore-line
 }

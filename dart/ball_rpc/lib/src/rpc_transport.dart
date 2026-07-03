@@ -1,5 +1,13 @@
 /// The abstract [RpcTransport] contract: bytes-level RPC for all four
 /// [MethodKind]s.
+///
+// coverage:ignore-file
+// Pure abstract interface — every member is a bodyless signature, so there is
+// no executable statement dart:coverage could ever instrument (confirmed: a
+// suite that imports this file via a concrete subclass, e.g. FakeTransport,
+// produces zero `SF:`/`DA:` records for it). The behavior lives in — and is
+// tested via — the concrete implementations (FakeTransport, ConnectTransport,
+// GrpcTransport), which each have their own dedicated test suites.
 library;
 
 import 'rpc_exception.dart';

@@ -334,6 +334,17 @@ void main() {
       final src = HttpSource()..url = 'https://x.example/m.ball.json';
       expect(fetchHttp(src, client: client), throwsStateError);
     });
+
+    test(
+      'without an injected client, creates + closes its own default client '
+      '(exercised via a fast connection-refused local port, no real network)',
+      () async {
+        // No `client:` argument -> fetchHttp builds its own http.Client()
+        // and closes it in the `finally` block, regardless of outcome.
+        final src = HttpSource()..url = 'http://127.0.0.1:1/unreachable';
+        await expectLater(fetchHttp(src), throwsA(anything));
+      },
+    );
   });
 
   group('RegistryBridge', () {

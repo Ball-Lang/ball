@@ -7,7 +7,9 @@ import 'pubspec_manifest.dart';
 /// Parses `pubspec.yaml` (and optionally `pubspec.lock`) into a
 /// [PackageManifest] with fully-populated dependency maps.
 class PubspecParser {
-  PubspecParser._();
+  // Private constructor to prevent instantiation (all members are static) —
+  // by design, never called.
+  PubspecParser._(); // coverage:ignore-line
 
   /// Parse the `pubspec.yaml` in [dir] and return a [PackageManifest].
   /// If `pubspec.lock` exists alongside it, exact resolved versions are

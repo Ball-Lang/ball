@@ -1,3 +1,17 @@
+# [1.5.0](https://github.com/Ball-Lang/ball/compare/v1.4.5...v1.5.0) (2026-07-03)
+
+
+### Bug Fixes
+
+* **encoder:** route bare .reversed getter to std_collections.list_reverse ([49941db](https://github.com/Ball-Lang/ball/commit/49941dbe8c731f6f7c3f4dded6c5c2e28f604cd2))
+* **ts-engine:** list_insert/list_clear overrides must return the mutated list ([b8446b9](https://github.com/Ball-Lang/ball/commit/b8446b9501c35063f346ae711c4a43801c58c0c7)), closes [#64](https://github.com/Ball-Lang/ball/issues/64)
+
+
+### Features
+
+* **conformance:** fixtures for is_not/unsigned_right_shift/list_all/list_any/list_filter/list_insert/list_concat ([5ff1747](https://github.com/Ball-Lang/ball/commit/5ff1747fba1f297a5032cefcbe36a2a869595186)), closes [64/#134](https://github.com/Ball-Lang/ball/issues/134)
+* **conformance:** hand-authored fixtures for int_to_string/double_to_string/label ([94d53c6](https://github.com/Ball-Lang/ball/commit/94d53c657de1810fe9ccd87a40b59114a7ac65cc)), closes [#125](https://github.com/Ball-Lang/ball/issues/125) [64/#134](https://github.com/Ball-Lang/ball/issues/134)
+
 ## [1.4.5](https://github.com/Ball-Lang/ball/compare/v1.4.4...v1.4.5) (2026-07-03)
 
 

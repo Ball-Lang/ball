@@ -6,6 +6,61 @@
 * **cpp:** regenerate stripped snapshots against post-[#189](https://github.com/Ball-Lang/ball/issues/189) main ([f771311](https://github.com/Ball-Lang/ball/commit/f771311d335d825741d075c9caa4223283c69e98)), closes [188/#184](https://github.com/Ball-Lang/ball/issues/184)
 * **cpp:** strip shared runtime preamble from compiler snapshots ([12d55be](https://github.com/Ball-Lang/ball/commit/12d55be7d4531da6f7f3d96fdefaefcf63e0aeee)), closes [#147](https://github.com/Ball-Lang/ball/issues/147)
 
+# Change Log
+
+All notable changes to this project will be documented in this file.
+See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
+
+## 2026-07-03
+
+### Changes
+
+---
+
+Packages with breaking changes:
+
+ - There are no breaking changes in this release.
+
+Packages with other changes:
+
+ - [`ball_base` - `v0.3.0+3`](#ball_base---v0303)
+ - [`ball_compiler` - `v0.3.0+5`](#ball_compiler---v0305)
+ - [`ball_encoder` - `v0.3.2`](#ball_encoder---v032)
+ - [`ball_engine` - `v0.3.0+5`](#ball_engine---v0305)
+ - [`ball_protobuf_gen` - `v0.3.0+4`](#ball_protobuf_gen---v0304)
+ - [`ball_cli` - `v0.3.0+5`](#ball_cli---v0305)
+ - [`ball_resolver` - `v0.3.0+3`](#ball_resolver---v0303)
+
+Packages with dependency updates only:
+
+> Packages listed below depend on other packages in this workspace that have had changes. Their versions have been incremented to bump the minimum dependency versions of the packages they depend upon in this project.
+
+ - `ball_protobuf_gen` - `v0.3.0+4`
+ - `ball_cli` - `v0.3.0+5`
+ - `ball_resolver` - `v0.3.0+3`
+
+---
+
+#### `ball_base` - `v0.3.0+3`
+
+ - **FIX**(shared): regenerate stale ball_protobuf.json/.bin artifact. ([c2749b63](https://github.com/ball-lang/ball/commit/c2749b63294dbe44bcf3a11af1f8d9c8e39d5a36))
+
+#### `ball_compiler` - `v0.3.0+5`
+
+ - **FIX**(cpp): finish [#18](https://github.com/ball-lang/ball/issues/18) protobuf-RT smoke canary verification; regenerate real functions. ([5b5917f2](https://github.com/ball-lang/ball/commit/5b5917f29ae1a19c4e36a626caa13dde953616ab))
+ - **FIX**(compiler): keep implicit-ctor field initializers, drop synthesized param. ([9e26d421](https://github.com/ball-lang/ball/commit/9e26d421a2a890ad560194922cda95d70e734a8b))
+
+#### `ball_encoder` - `v0.3.2`
+
+ - **FIX**(encoder): route bare .reversed getter to std_collections.list_reverse. ([49941dbe](https://github.com/ball-lang/ball/commit/49941dbe8c731f6f7c3f4dded6c5c2e28f604cd2))
+ - **FIX**(cpp,encoder,engine): collision-free Set representation + self-host Set/goto ([#174](https://github.com/ball-lang/ball/issues/174), [#184](https://github.com/ball-lang/ball/issues/184)). ([b72d9d58](https://github.com/ball-lang/ball/commit/b72d9d5845c48b6b4b2b34e97aa7a50e77392d89))
+ - **FEAT**(conformance): hand-authored fixtures for int_to_string/double_to_string/label. ([94d53c65](https://github.com/ball-lang/ball/commit/94d53c657de1810fe9ccd87a40b59114a7ac65cc))
+
+#### `ball_engine` - `v0.3.0+5`
+
+ - **FIX**(encoder): route bare .reversed getter to std_collections.list_reverse. ([49941dbe](https://github.com/ball-lang/ball/commit/49941dbe8c731f6f7c3f4dded6c5c2e28f604cd2))
+ - **FIX**(cpp,encoder,engine): collision-free Set representation + self-host Set/goto ([#174](https://github.com/ball-lang/ball/issues/174), [#184](https://github.com/ball-lang/ball/issues/184)). ([b72d9d58](https://github.com/ball-lang/ball/commit/b72d9d5845c48b6b4b2b34e97aa7a50e77392d89))
+
 # [1.5.0](https://github.com/Ball-Lang/ball/compare/v1.4.5...v1.5.0) (2026-07-03)
 
 
@@ -30,10 +85,6 @@
 * **cpp:** finish [#18](https://github.com/Ball-Lang/ball/issues/18) protobuf-RT smoke canary verification; regenerate real functions ([5b5917f](https://github.com/Ball-Lang/ball/commit/5b5917f29ae1a19c4e36a626caa13dde953616ab)), closes [18/#25](https://github.com/Ball-Lang/ball/issues/25)
 * **shared:** regenerate stale ball_protobuf.json/.bin artifact ([c2749b6](https://github.com/Ball-Lang/ball/commit/c2749b63294dbe44bcf3a11af1f8d9c8e39d5a36))
 
-# Change Log
-
-All notable changes to this project will be documented in this file.
-See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 ## 2026-07-03
 

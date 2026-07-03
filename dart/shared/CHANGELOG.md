@@ -1,3 +1,7 @@
+## 0.3.0+3
+
+ - **FIX**(shared): regenerate stale ball_protobuf.json/.bin artifact. ([c2749b63](https://github.com/ball-lang/ball/commit/c2749b63294dbe44bcf3a11af1f8d9c8e39d5a36))
+
 ## 0.3.0+2
 
  - **FIX**(engine-chain): negative-zero toStringAsFixed ([#101](https://github.com/ball-lang/ball/issues/101)), portable set value ([#68](https://github.com/ball-lang/ball/issues/68)), num double methods ([#100](https://github.com/ball-lang/ball/issues/100)) ([#170](https://github.com/ball-lang/ball/issues/170)). ([e15b769b](https://github.com/ball-lang/ball/commit/e15b769b09e924e2ae3e5cddcc22df3d44afc6e8))

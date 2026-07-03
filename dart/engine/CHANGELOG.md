@@ -1,3 +1,8 @@
+## 0.3.0+5
+
+ - **FIX**(encoder): route bare .reversed getter to std_collections.list_reverse. ([49941dbe](https://github.com/ball-lang/ball/commit/49941dbe8c731f6f7c3f4dded6c5c2e28f604cd2))
+ - **FIX**(cpp,encoder,engine): collision-free Set representation + self-host Set/goto ([#174](https://github.com/ball-lang/ball/issues/174), [#184](https://github.com/ball-lang/ball/issues/184)). ([b72d9d58](https://github.com/ball-lang/ball/commit/b72d9d5845c48b6b4b2b34e97aa7a50e77392d89))
+
 ## 0.3.0+4
 
  - **FIX**(engine,cpp): inherited field initializers, fields named List/Map/Set, byte-exact toStringAsExponential/Precision ([#166](https://github.com/ball-lang/ball/issues/166), [#167](https://github.com/ball-lang/ball/issues/167), [#100](https://github.com/ball-lang/ball/issues/100)) ([#181](https://github.com/ball-lang/ball/issues/181)). ([f0af3967](https://github.com/ball-lang/ball/commit/f0af3967009c34c36afc4064693a5fdb60b5835e))

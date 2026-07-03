@@ -2,7 +2,7 @@ name: ball_base
 description: >-
   Cross-language standard library for the Ball programming language with
   protobuf types and std module builders shared by all compilers and engines.
-version: 0.3.0+1
+version: 0.3.0+2
 homepage: https://github.com/ball-lang/ball
 repository: https://github.com/ball-lang/ball
 issue_tracker: https://github.com/ball-lang/ball/issues

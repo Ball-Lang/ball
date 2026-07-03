@@ -1,3 +1,8 @@
+## 0.3.1
+
+ - **FIX**(engine-chain): negative-zero toStringAsFixed ([#101](https://github.com/ball-lang/ball/issues/101)), portable set value ([#68](https://github.com/ball-lang/ball/issues/68)), num double methods ([#100](https://github.com/ball-lang/ball/issues/100)) ([#170](https://github.com/ball-lang/ball/issues/170)). ([e15b769b](https://github.com/ball-lang/ball/commit/e15b769b09e924e2ae3e5cddcc22df3d44afc6e8))
+ - **FEAT**(encoder): generate std base-function coverage inventory from std.json ([#165](https://github.com/ball-lang/ball/issues/165)). ([7e3f6d6e](https://github.com/ball-lang/ball/commit/7e3f6d6ea8ba7064ad854614022c0d7a0770a13f))
+
 ## 0.3.0+2
 
  - **FIX**: type literals ([#66](https://github.com/ball-lang/ball/issues/66)) + setter parameter binding ([#95](https://github.com/ball-lang/ball/issues/95)) ([#158](https://github.com/ball-lang/ball/issues/158)). ([cd1087b9](https://github.com/ball-lang/ball/commit/cd1087b9e7bbacac703f1344393b49963698af72))

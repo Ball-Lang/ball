@@ -1,3 +1,7 @@
+## 0.3.0+3
+
+ - **FIX**(engine-chain): negative-zero toStringAsFixed ([#101](https://github.com/ball-lang/ball/issues/101)), portable set value ([#68](https://github.com/ball-lang/ball/issues/68)), num double methods ([#100](https://github.com/ball-lang/ball/issues/100)) ([#170](https://github.com/ball-lang/ball/issues/170)). ([e15b769b](https://github.com/ball-lang/ball/commit/e15b769b09e924e2ae3e5cddcc22df3d44afc6e8))
+
 ## 0.3.0+2
 
  - **FIX**(engine): backward goto, BallDouble unwrapping, and symbol printing ([#159](https://github.com/ball-lang/ball/issues/159)). ([3ab0bb58](https://github.com/ball-lang/ball/commit/3ab0bb58e1d7eec99a63251090999efa650c8a39))

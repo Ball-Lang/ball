@@ -1,3 +1,7 @@
+## 0.3.0+3
+
+ - Update a dependency to the latest release.
+
 ## 0.3.0+2
 
  - **FIX**(gen,compiler,cpp): presence rule, real memory_realloc, extension guard, orphan runtime removal ([#151](https://github.com/ball-lang/ball/issues/151)). ([97c85be5](https://github.com/ball-lang/ball/commit/97c85be50dc57219abe0b79c220f0ecefee9d739))

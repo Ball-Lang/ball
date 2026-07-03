@@ -1,3 +1,55 @@
+# Change Log
+
+All notable changes to this project will be documented in this file.
+See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
+
+## 2026-07-03
+
+### Changes
+
+---
+
+Packages with breaking changes:
+
+ - There are no breaking changes in this release.
+
+Packages with other changes:
+
+ - [`ball_base` - `v0.3.0+2`](#ball_base---v0302)
+ - [`ball_compiler` - `v0.3.0+3`](#ball_compiler---v0303)
+ - [`ball_encoder` - `v0.3.1`](#ball_encoder---v031)
+ - [`ball_engine` - `v0.3.0+3`](#ball_engine---v0303)
+ - [`ball_protobuf_gen` - `v0.3.0+3`](#ball_protobuf_gen---v0303)
+ - [`ball_cli` - `v0.3.0+3`](#ball_cli---v0303)
+ - [`ball_resolver` - `v0.3.0+2`](#ball_resolver---v0302)
+
+Packages with dependency updates only:
+
+> Packages listed below depend on other packages in this workspace that have had changes. Their versions have been incremented to bump the minimum dependency versions of the packages they depend upon in this project.
+
+ - `ball_protobuf_gen` - `v0.3.0+3`
+ - `ball_cli` - `v0.3.0+3`
+ - `ball_resolver` - `v0.3.0+2`
+
+---
+
+#### `ball_base` - `v0.3.0+2`
+
+ - **FIX**(engine-chain): negative-zero toStringAsFixed ([#101](https://github.com/ball-lang/ball/issues/101)), portable set value ([#68](https://github.com/ball-lang/ball/issues/68)), num double methods ([#100](https://github.com/ball-lang/ball/issues/100)) ([#170](https://github.com/ball-lang/ball/issues/170)). ([e15b769b](https://github.com/ball-lang/ball/commit/e15b769b09e924e2ae3e5cddcc22df3d44afc6e8))
+
+#### `ball_compiler` - `v0.3.0+3`
+
+ - **FIX**(engine-chain): negative-zero toStringAsFixed ([#101](https://github.com/ball-lang/ball/issues/101)), portable set value ([#68](https://github.com/ball-lang/ball/issues/68)), num double methods ([#100](https://github.com/ball-lang/ball/issues/100)) ([#170](https://github.com/ball-lang/ball/issues/170)). ([e15b769b](https://github.com/ball-lang/ball/commit/e15b769b09e924e2ae3e5cddcc22df3d44afc6e8))
+
+#### `ball_encoder` - `v0.3.1`
+
+ - **FIX**(engine-chain): negative-zero toStringAsFixed ([#101](https://github.com/ball-lang/ball/issues/101)), portable set value ([#68](https://github.com/ball-lang/ball/issues/68)), num double methods ([#100](https://github.com/ball-lang/ball/issues/100)) ([#170](https://github.com/ball-lang/ball/issues/170)). ([e15b769b](https://github.com/ball-lang/ball/commit/e15b769b09e924e2ae3e5cddcc22df3d44afc6e8))
+ - **FEAT**(encoder): generate std base-function coverage inventory from std.json ([#165](https://github.com/ball-lang/ball/issues/165)). ([7e3f6d6e](https://github.com/ball-lang/ball/commit/7e3f6d6ea8ba7064ad854614022c0d7a0770a13f))
+
+#### `ball_engine` - `v0.3.0+3`
+
+ - **FIX**(engine-chain): negative-zero toStringAsFixed ([#101](https://github.com/ball-lang/ball/issues/101)), portable set value ([#68](https://github.com/ball-lang/ball/issues/68)), num double methods ([#100](https://github.com/ball-lang/ball/issues/100)) ([#170](https://github.com/ball-lang/ball/issues/170)). ([e15b769b](https://github.com/ball-lang/ball/commit/e15b769b09e924e2ae3e5cddcc22df3d44afc6e8))
+
 ## [1.4.1](https://github.com/Ball-Lang/ball/compare/v1.4.0...v1.4.1) (2026-07-02)
 
 
@@ -17,10 +69,6 @@
 
 * **encoder:** generate std base-function coverage inventory from std.json ([#165](https://github.com/Ball-Lang/ball/issues/165)) ([7e3f6d6](https://github.com/Ball-Lang/ball/commit/7e3f6d6ea8ba7064ad854614022c0d7a0770a13f)), closes [#134](https://github.com/Ball-Lang/ball/issues/134) [#135](https://github.com/Ball-Lang/ball/issues/135) [#134](https://github.com/Ball-Lang/ball/issues/134)
 
-# Change Log
-
-All notable changes to this project will be documented in this file.
-See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 ## 2026-07-02
 

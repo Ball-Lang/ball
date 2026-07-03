@@ -1,0 +1,593 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ball-lang.dev/schema/ball.schema.json",
+  "title": "Ball JSON Program",
+  "description": "JSON Schema (Draft 2020-12) for the Ball language wire format. Mirrors proto/ball/v1/ball.proto field-for-field, using the canonical protobuf-JSON mapping (see https://protobuf.dev/programming-guides/json/). The root of this schema validates a serialized ball.v1.Program — the shape every *.ball.json program file takes — optionally wrapped in a self-describing google.protobuf.Any envelope (a top-level \"@type\" key alongside the Program's own fields; this repo's encoders always emit the envelope). Other top-level Ball document kinds (a standalone Module, a BallManifest, a BallLockfile, a BallCapabilityReport) are not produced at the root of a *.ball.json program file but are still fully modeled under $defs for reuse — validate a document of one of those kinds against '#/$defs/<MessageName>' directly. See docs/BALL_JSON_SPEC.md for a narrative walkthrough with worked examples.\n\nProtobuf-JSON rules that apply throughout this schema (see docs/BALL_JSON_SPEC.md #protobuf-json-rules for the full explanation):\n  1. oneof fields: at most ONE of the variant keys is present on the object — there is no separate discriminator field. An entirely-unset oneof (zero variant keys present) is also legal proto3 JSON and is how Ball represents e.g. a `null` literal (an empty `Literal` object, `{}`).\n  2. int64/uint64 scalars are serialized as decimal STRINGS (quoted), never bare JSON numbers, because JSON numbers cannot losslessly represent the full 64-bit range.\n  3. `bytes` scalars are base64-encoded strings (standard alphabet, RFC 4648 §4).\n  4. Enum values are serialized as their string constant name (e.g. \"TYPE_STRING\"), never the underlying integer.\n  5. Fields holding their type's default/zero value (0, \"\", false, an empty list, an unset message) MAY be omitted entirely — proto3 JSON never requires emitting a default. The one exception is rule 1: a field inside a `oneof` is always emitted when that oneof case is selected, even if the value equals the type's default (this is how `intValue: \"0\"` is distinguished from the oneof being unset).\n  Because of rule 5, this schema deliberately marks almost nothing as JSON-Schema `required` — omission is always valid protobuf-JSON. Every message schema instead sets `additionalProperties: false` so the schema's real value is catching typos/unknown fields and wrong field shapes, not enforcing presence.",
+  "$ref": "#/$defs/Program",
+  "$defs": {
+    "Int64String": {
+      "type": "string",
+      "pattern": "^-?[0-9]+$",
+      "description": "protobuf int64/uint64 — encoded as a decimal string per the protobuf-JSON spec (JSON numbers can silently lose precision above 2^53)."
+    },
+    "Int32": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 4294967295,
+      "description": "protobuf int32/uint32 — encoded as a bare JSON number (unlike int64/uint64, 32-bit values always fit in a JSON number losslessly)."
+    },
+    "Bytes": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "description": "protobuf bytes — base64-encoded string (standard alphabet, RFC 4648 §4)."
+    },
+    "Double": {
+      "description": "protobuf double/float. Finite values are a bare JSON number; the protobuf-JSON spec additionally allows the special string tokens \"NaN\", \"Infinity\", and \"-Infinity\" because JSON numbers cannot represent them.",
+      "oneOf": [
+        { "type": "number" },
+        { "enum": ["NaN", "Infinity", "-Infinity"] }
+      ]
+    },
+    "GoogleValue": {
+      "description": "google.protobuf.Value — the proto3-JSON mapping for Value is simply \"any JSON value\" (null, number, string, bool, object, or array).",
+      "anyOf": [
+        { "type": "null" },
+        { "type": "number" },
+        { "type": "string" },
+        { "type": "boolean" },
+        { "$ref": "#/$defs/GoogleStruct" },
+        { "type": "array", "items": { "$ref": "#/$defs/GoogleValue" } }
+      ]
+    },
+    "GoogleStruct": {
+      "type": "object",
+      "description": "google.protobuf.Struct — the proto3-JSON mapping is a plain JSON object whose values are google.protobuf.Value. Ball uses this as the universal \"metadata\" bag: cosmetic hints that a compiler may read but that must never change program semantics if stripped.",
+      "additionalProperties": { "$ref": "#/$defs/GoogleValue" }
+    },
+
+    "FieldDescriptorProtoType": {
+      "type": "string",
+      "description": "google.protobuf.FieldDescriptorProto.Type — the wire/scalar type of a field.",
+      "enum": [
+        "TYPE_DOUBLE", "TYPE_FLOAT", "TYPE_INT64", "TYPE_UINT64", "TYPE_INT32",
+        "TYPE_FIXED64", "TYPE_FIXED32", "TYPE_BOOL", "TYPE_STRING", "TYPE_GROUP",
+        "TYPE_MESSAGE", "TYPE_BYTES", "TYPE_UINT32", "TYPE_ENUM", "TYPE_SFIXED32",
+        "TYPE_SFIXED64", "TYPE_SINT32", "TYPE_SINT64"
+      ]
+    },
+    "FieldDescriptorProtoLabel": {
+      "type": "string",
+      "description": "google.protobuf.FieldDescriptorProto.Label — cardinality of a field.",
+      "enum": ["LABEL_OPTIONAL", "LABEL_REQUIRED", "LABEL_REPEATED"]
+    },
+    "FieldDescriptorProto": {
+      "type": "object",
+      "description": "google.protobuf.FieldDescriptorProto — describes one field of a TypeDefinition.descriptor. Ball reuses protobuf's own descriptor types instead of inventing its own type system (see ball.proto's \"Type System\" section).",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "number": { "$ref": "#/$defs/Int32" },
+        "label": { "$ref": "#/$defs/FieldDescriptorProtoLabel" },
+        "type": { "$ref": "#/$defs/FieldDescriptorProtoType" },
+        "typeName": {
+          "type": "string",
+          "description": "For TYPE_MESSAGE/TYPE_ENUM/TYPE_GROUP fields: the referenced type's name (may be a bare local TypeDefinition name like \"main:Point\", or a fully-qualified proto name like \".ball.v1.Expression\")."
+        },
+        "extendee": { "type": "string" },
+        "defaultValue": { "type": "string" },
+        "oneofIndex": { "$ref": "#/$defs/Int32" },
+        "jsonName": { "type": "string" },
+        "proto3Optional": { "type": "boolean" },
+        "options": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+    "OneofDescriptorProto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "options": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+    "DescriptorProtoExtensionRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start": { "$ref": "#/$defs/Int32" },
+        "end": { "$ref": "#/$defs/Int32" },
+        "options": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+    "DescriptorProtoReservedRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start": { "$ref": "#/$defs/Int32" },
+        "end": { "$ref": "#/$defs/Int32" }
+      }
+    },
+    "EnumValueDescriptorProto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "number": { "$ref": "#/$defs/Int32" },
+        "options": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+    "EnumDescriptorProtoReservedRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start": { "$ref": "#/$defs/Int32" },
+        "end": { "$ref": "#/$defs/Int32" }
+      }
+    },
+    "EnumDescriptorProto": {
+      "type": "object",
+      "description": "google.protobuf.EnumDescriptorProto — used for Module.enums.",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "value": { "type": "array", "items": { "$ref": "#/$defs/EnumValueDescriptorProto" } },
+        "options": { "$ref": "#/$defs/GoogleStruct" },
+        "reservedRange": { "type": "array", "items": { "$ref": "#/$defs/EnumDescriptorProtoReservedRange" } },
+        "reservedName": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "DescriptorProto": {
+      "type": "object",
+      "description": "google.protobuf.DescriptorProto — the field/type layout for a TypeDefinition. Ball never defines its own struct-field syntax; it always reuses this protobuf descriptor message, which every target language already knows how to map to native types.",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "field": { "type": "array", "items": { "$ref": "#/$defs/FieldDescriptorProto" } },
+        "nestedType": { "type": "array", "items": { "$ref": "#/$defs/DescriptorProto" } },
+        "enumType": { "type": "array", "items": { "$ref": "#/$defs/EnumDescriptorProto" } },
+        "extensionRange": { "type": "array", "items": { "$ref": "#/$defs/DescriptorProtoExtensionRange" } },
+        "extension": { "type": "array", "items": { "$ref": "#/$defs/FieldDescriptorProto" } },
+        "oneofDecl": { "type": "array", "items": { "$ref": "#/$defs/OneofDescriptorProto" } },
+        "options": { "$ref": "#/$defs/GoogleStruct" },
+        "reservedRange": { "type": "array", "items": { "$ref": "#/$defs/DescriptorProtoReservedRange" } },
+        "reservedName": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "Program": {
+      "type": "object",
+      "description": "ball.v1.Program — top-level container for a complete Ball program. This is what a *.ball.json file's root object represents (this repo's encoders wrap it in a google.protobuf.Any envelope by adding a sibling \"@type\" key — see the schema-level description).",
+      "additionalProperties": false,
+      "properties": {
+        "@type": {
+          "type": "string",
+          "pattern": "/ball\\.v1\\.Program$",
+          "description": "Present only when this Program is serialized as a self-describing google.protobuf.Any envelope (type_url + inlined fields). Every fixture in tests/conformance/*.ball.json uses this form, e.g. \"type.googleapis.com/ball.v1.Program\". Absent when a Program is embedded as a plain, un-enveloped message."
+        },
+        "name": { "type": "string", "description": "Human-readable program name." },
+        "version": { "type": "string", "description": "Semantic version string (e.g. \"1.0.0\")." },
+        "modules": { "type": "array", "items": { "$ref": "#/$defs/Module" } },
+        "entryModule": { "type": "string", "description": "The module containing the entry point function." },
+        "entryFunction": { "type": "string", "description": "The function to execute as the program's entry point." },
+        "metadata": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+
+    "Module": {
+      "type": "object",
+      "description": "ball.v1.Module — a group of related type definitions and functions. Base modules (like \"std\") provide platform-specific implementations for is_base functions.",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "enums": { "type": "array", "items": { "$ref": "#/$defs/EnumDescriptorProto" } },
+        "functions": { "type": "array", "items": { "$ref": "#/$defs/FunctionDefinition" } },
+        "description": { "type": "string" },
+        "metadata": { "$ref": "#/$defs/GoogleStruct" },
+        "moduleImports": { "type": "array", "items": { "$ref": "#/$defs/ModuleImport" } },
+        "typeDefs": { "type": "array", "items": { "$ref": "#/$defs/TypeDefinition" } },
+        "typeAliases": { "type": "array", "items": { "$ref": "#/$defs/TypeAlias" } },
+        "moduleConstants": { "type": "array", "items": { "$ref": "#/$defs/Constant" } },
+        "assets": { "type": "array", "items": { "$ref": "#/$defs/ModuleAsset" } }
+      }
+    },
+    "ModuleAsset": {
+      "type": "object",
+      "description": "ball.v1.ModuleAsset — an embedded asset file (image, JSON fixture, template, etc.) carried alongside a module's code.",
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "description": "Relative path within the package (forward-slash separated)." },
+        "content": { "$ref": "#/$defs/Bytes" },
+        "mediaType": { "type": "string", "description": "MIME type hint; empty = infer from file extension." },
+        "metadata": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+
+    "ModuleImport": {
+      "type": "object",
+      "description": "ball.v1.ModuleImport — specifies how to resolve a module dependency. `source` is a oneof: at most one of http/file/inline/git/registry is present. All fixtures in this repo only set `name` (resolved by convention, e.g. \"std\"), leaving `source` unset.",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "Local alias used to reference this module in FunctionCall.module." },
+        "integrity": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+:[0-9a-fA-F]+$",
+          "description": "\"<algorithm>:<hex-hash>\", e.g. \"sha256:e3b0c4...\". Absent = no integrity check."
+        },
+        "metadata": { "$ref": "#/$defs/GoogleStruct" },
+        "http": { "$ref": "#/$defs/HttpSource" },
+        "file": { "$ref": "#/$defs/FileSource" },
+        "inline": { "$ref": "#/$defs/InlineSource" },
+        "git": { "$ref": "#/$defs/GitSource" },
+        "registry": { "$ref": "#/$defs/RegistrySource" }
+      },
+      "allOf": [
+        { "not": { "required": ["http", "file"] } },
+        { "not": { "required": ["http", "inline"] } },
+        { "not": { "required": ["http", "git"] } },
+        { "not": { "required": ["http", "registry"] } },
+        { "not": { "required": ["file", "inline"] } },
+        { "not": { "required": ["file", "git"] } },
+        { "not": { "required": ["file", "registry"] } },
+        { "not": { "required": ["inline", "git"] } },
+        { "not": { "required": ["inline", "registry"] } },
+        { "not": { "required": ["git", "registry"] } }
+      ]
+    },
+    "ModuleEncoding": {
+      "type": "string",
+      "description": "ball.v1.ModuleEncoding — serialization format of a resolved module file.",
+      "enum": ["MODULE_ENCODING_UNSPECIFIED", "MODULE_ENCODING_PROTO", "MODULE_ENCODING_JSON"]
+    },
+    "HttpSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string" },
+        "encoding": { "$ref": "#/$defs/ModuleEncoding" },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "FileSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" },
+        "encoding": { "$ref": "#/$defs/ModuleEncoding" }
+      }
+    },
+    "InlineSource": {
+      "type": "object",
+      "description": "ball.v1.InlineSource — `content` is a oneof: at most one of protoBytes/json.",
+      "additionalProperties": false,
+      "maxProperties": 1,
+      "properties": {
+        "protoBytes": { "$ref": "#/$defs/Bytes" },
+        "json": {
+          "type": "string",
+          "description": "A JSON-encoded ball.v1.Module string (i.e. the protobuf-JSON text of a Module, carried as a plain string value — not structurally validated by this schema)."
+        }
+      }
+    },
+    "GitSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string" },
+        "ref": { "type": "string" },
+        "path": { "type": "string" },
+        "encoding": { "$ref": "#/$defs/ModuleEncoding" }
+      }
+    },
+    "Registry": {
+      "type": "string",
+      "enum": [
+        "REGISTRY_UNSPECIFIED", "REGISTRY_PUB", "REGISTRY_NPM",
+        "REGISTRY_NUGET", "REGISTRY_CARGO", "REGISTRY_PYPI", "REGISTRY_MAVEN"
+      ]
+    },
+    "RegistrySource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "registry": { "$ref": "#/$defs/Registry" },
+        "package": { "type": "string" },
+        "version": { "type": "string", "description": "Semver constraint, e.g. \"^1.0.0\". Empty = latest stable." },
+        "modulePath": { "type": "string" },
+        "encoding": { "$ref": "#/$defs/ModuleEncoding" },
+        "registryUrl": { "type": "string" }
+      }
+    },
+
+    "TypeRef": {
+      "type": "object",
+      "description": "ball.v1.TypeRef — a structured, target-agnostic type reference, e.g. Box<int> -> {name:\"Box\", typeArgs:[{name:\"int\"}]}.",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "typeArgs": { "type": "array", "items": { "$ref": "#/$defs/TypeRef" } },
+        "nullable": { "type": "boolean" }
+      }
+    },
+    "TypeParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "metadata": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+    "TypeDefinition": {
+      "type": "object",
+      "description": "ball.v1.TypeDefinition — a named type. Replaces the old \"_meta_Foo\" function convention.",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "descriptor": { "$ref": "#/$defs/DescriptorProto" },
+        "typeParams": { "type": "array", "items": { "$ref": "#/$defs/TypeParameter" } },
+        "description": { "type": "string" },
+        "metadata": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+    "TypeAlias": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "targetType": { "type": "string" },
+        "typeParams": { "type": "array", "items": { "$ref": "#/$defs/TypeParameter" } },
+        "metadata": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+    "Constant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "description": "Type name; empty = infer from value." },
+        "value": { "$ref": "#/$defs/Expression" },
+        "metadata": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+
+    "FunctionDefinition": {
+      "type": "object",
+      "description": "ball.v1.FunctionDefinition — a single-input, single-output function (gRPC-style). Base functions (isBase: true) have no `body`; their implementation is supplied per-platform by the target compiler/engine. A lambda is a FunctionDefinition with name == \"\".",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "inputType": { "type": "string", "description": "Empty string = no input / void." },
+        "outputType": { "type": "string", "description": "Empty string = no output / void." },
+        "body": { "$ref": "#/$defs/Expression" },
+        "description": { "type": "string" },
+        "isBase": { "type": "boolean" },
+        "metadata": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+
+    "Expression": {
+      "type": "object",
+      "description": "ball.v1.Expression — the fundamental unit of computation. `expr` is a oneof over the 7 expression kinds; at most one of the 7 keys is present. All Ball code, in any target language, reduces to a tree of these.",
+      "additionalProperties": false,
+      "maxProperties": 1,
+      "properties": {
+        "call": { "$ref": "#/$defs/FunctionCall" },
+        "literal": { "$ref": "#/$defs/Literal" },
+        "reference": { "$ref": "#/$defs/Reference" },
+        "fieldAccess": { "$ref": "#/$defs/FieldAccess" },
+        "messageCreation": { "$ref": "#/$defs/MessageCreation" },
+        "block": { "$ref": "#/$defs/Block" },
+        "lambda": { "$ref": "#/$defs/FunctionDefinition" }
+      }
+    },
+    "FunctionCall": {
+      "type": "object",
+      "description": "ball.v1.FunctionCall — calls a function with a single input expression.",
+      "additionalProperties": false,
+      "properties": {
+        "module": { "type": "string", "description": "Empty string = current module." },
+        "function": { "type": "string" },
+        "input": { "$ref": "#/$defs/Expression" },
+        "typeArgs": { "type": "array", "items": { "$ref": "#/$defs/TypeRef" } }
+      }
+    },
+    "Literal": {
+      "type": "object",
+      "description": "ball.v1.Literal — `value` is a oneof over the scalar/list kinds. An entirely-empty Literal object (`{}`, no key present) is how Ball represents a null value — there is no dedicated null variant.",
+      "additionalProperties": false,
+      "maxProperties": 1,
+      "properties": {
+        "intValue": { "$ref": "#/$defs/Int64String" },
+        "doubleValue": { "$ref": "#/$defs/Double" },
+        "stringValue": { "type": "string" },
+        "boolValue": { "type": "boolean" },
+        "bytesValue": { "$ref": "#/$defs/Bytes" },
+        "listValue": { "$ref": "#/$defs/ListLiteral" }
+      }
+    },
+    "ListLiteral": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "elements": { "type": "array", "items": { "$ref": "#/$defs/Expression" } }
+      }
+    },
+    "Reference": {
+      "type": "object",
+      "description": "ball.v1.Reference — a named-variable reference. The special name \"input\" always means \"this function's parameter\".",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" }
+      }
+    },
+    "FieldAccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "object": { "$ref": "#/$defs/Expression" },
+        "field": { "type": "string" }
+      }
+    },
+    "MessageCreation": {
+      "type": "object",
+      "description": "ball.v1.MessageCreation — constructs a new message instance (constructor call / struct literal). `typeName` empty = anonymous/inline (e.g. the synthetic input message of a base-function call).",
+      "additionalProperties": false,
+      "properties": {
+        "typeName": { "type": "string" },
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/FieldValuePair" } },
+        "metadata": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+    "FieldValuePair": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "value": { "$ref": "#/$defs/Expression" }
+      }
+    },
+    "Block": {
+      "type": "object",
+      "description": "ball.v1.Block — sequential statements followed by a result expression, whose value is the block's value.",
+      "additionalProperties": false,
+      "properties": {
+        "statements": { "type": "array", "items": { "$ref": "#/$defs/Statement" } },
+        "result": { "$ref": "#/$defs/Expression" }
+      }
+    },
+    "Statement": {
+      "type": "object",
+      "description": "ball.v1.Statement — `stmt` is a oneof over let-binding vs. bare expression; at most one of the 2 keys is present.",
+      "additionalProperties": false,
+      "maxProperties": 1,
+      "properties": {
+        "let": { "$ref": "#/$defs/LetBinding" },
+        "expression": { "$ref": "#/$defs/Expression" }
+      }
+    },
+    "LetBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "value": { "$ref": "#/$defs/Expression" },
+        "metadata": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+
+    "BallManifest": {
+      "type": "object",
+      "description": "ball.v1.BallManifest — a package manifest (analogous to pubspec.yaml / package.json / Cargo.toml). Serialized as ball.yaml (human-friendly) or ball.manifest.json (proto3 JSON). Not produced at the root of a *.ball.json program file — validate a manifest document against this $def directly.",
+      "additionalProperties": false,
+      "properties": {
+        "@type": { "type": "string", "pattern": "/ball\\.v1\\.BallManifest$" },
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "description": { "type": "string" },
+        "entryModule": { "type": "string" },
+        "entryFunction": { "type": "string" },
+        "dependencies": { "type": "array", "items": { "$ref": "#/$defs/ModuleImport" } },
+        "devDependencies": { "type": "array", "items": { "$ref": "#/$defs/ModuleImport" } },
+        "metadata": { "$ref": "#/$defs/GoogleStruct" }
+      }
+    },
+    "BallLockfile": {
+      "type": "object",
+      "description": "ball.v1.BallLockfile — pins every transitive dependency to an exact resolved version + content hash. Serialized as ball.lock.json (proto3 JSON).",
+      "additionalProperties": false,
+      "properties": {
+        "@type": { "type": "string", "pattern": "/ball\\.v1\\.BallLockfile$" },
+        "packages": { "type": "array", "items": { "$ref": "#/$defs/ResolvedDependency" } },
+        "lockVersion": { "type": "string" }
+      }
+    },
+    "ResolvedDependency": {
+      "type": "object",
+      "description": "ball.v1.ResolvedDependency — `resolvedSource` is a oneof over http/git/file/registry; at most one of the 4 keys is present.",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "resolvedVersion": { "type": "string" },
+        "integrity": { "type": "string" },
+        "http": { "$ref": "#/$defs/HttpSource" },
+        "git": { "$ref": "#/$defs/GitSource" },
+        "file": { "$ref": "#/$defs/FileSource" },
+        "registry": { "$ref": "#/$defs/RegistrySource" },
+        "dependencyNames": { "type": "array", "items": { "type": "string" } }
+      },
+      "allOf": [
+        { "not": { "required": ["http", "git"] } },
+        { "not": { "required": ["http", "file"] } },
+        { "not": { "required": ["http", "registry"] } },
+        { "not": { "required": ["git", "file"] } },
+        { "not": { "required": ["git", "registry"] } },
+        { "not": { "required": ["file", "registry"] } }
+      ]
+    },
+
+    "BallCapabilityReport": {
+      "type": "object",
+      "description": "ball.v1.BallCapabilityReport — the output of `ball audit`: a structured, provably-complete report of every side effect a program can perform (every side effect flows through a named base function in a known module).",
+      "additionalProperties": false,
+      "properties": {
+        "@type": { "type": "string", "pattern": "/ball\\.v1\\.BallCapabilityReport$" },
+        "programName": { "type": "string" },
+        "programVersion": { "type": "string" },
+        "capabilities": { "type": "array", "items": { "$ref": "#/$defs/CapabilityEntry" } },
+        "functions": { "type": "array", "items": { "$ref": "#/$defs/FunctionCapability" } },
+        "summary": { "$ref": "#/$defs/CapabilitySummary" }
+      }
+    },
+    "CapabilityEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "type": "string",
+          "description": "\"pure\", \"io\", \"fs\", \"process\", \"time\", \"random\", \"memory\", \"concurrency\", \"network\"."
+        },
+        "riskLevel": { "type": "string", "description": "\"none\", \"low\", \"medium\", \"high\"." },
+        "callSites": { "type": "array", "items": { "$ref": "#/$defs/CallSite" } }
+      }
+    },
+    "CallSite": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "module": { "type": "string" },
+        "function": { "type": "string" },
+        "calleeModule": { "type": "string" },
+        "calleeFunction": { "type": "string" }
+      }
+    },
+    "FunctionCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "module": { "type": "string" },
+        "function": { "type": "string" },
+        "capabilities": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "CapabilitySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "isPure": { "type": "boolean" },
+        "readsFilesystem": { "type": "boolean" },
+        "writesFilesystem": { "type": "boolean" },
+        "readsStdin": { "type": "boolean" },
+        "writesStdout": { "type": "boolean" },
+        "writesStderr": { "type": "boolean" },
+        "readsEnvironment": { "type": "boolean" },
+        "controlsProcess": { "type": "boolean" },
+        "usesMemory": { "type": "boolean" },
+        "usesTime": { "type": "boolean" },
+        "usesRandom": { "type": "boolean" },
+        "usesConcurrency": { "type": "boolean" },
+        "usesNetwork": { "type": "boolean" },
+        "totalFunctions": { "$ref": "#/$defs/Int32" },
+        "pureFunctions": { "$ref": "#/$defs/Int32" },
+        "effectfulFunctions": { "$ref": "#/$defs/Int32" }
+      }
+    }
+  }
+}

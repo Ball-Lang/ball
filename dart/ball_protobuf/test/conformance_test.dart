@@ -370,6 +370,19 @@ void main() {
       }, registry);
       expect(out['parse_error'], contains('parse error'));
     });
+
+    test('an output format outside the WireFormat enum is skipped '
+        '(post-parse default branch)', () {
+      final payload = marshal({'id': 7}, registry['foo.Msg']!);
+      final out = processConformanceRequest({
+        'protobuf_payload': payload,
+        // Not UNSPECIFIED/PROTOBUF/JSON/JSPB/TEXT_FORMAT — reaches the
+        // switch's default branch *after* a successful parse.
+        'requested_output_format': 99,
+        'message_type': 'foo.Msg',
+      }, registry);
+      expect(out['skipped'], contains('unsupported output format 99'));
+    });
   });
 
   group('wire format constants', () {

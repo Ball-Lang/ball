@@ -175,6 +175,11 @@ int answer() => 42;
         'analysis_options.yaml',
         'include: package:lints/core.yaml\n',
       );
+      _write(tmp, 'pubspec.lock', 'packages:\n');
+      _write(tmp, 'dart_test.yaml', 'tags:\n  slow:\n');
+      _write(tmp, 'build.yaml', 'targets:\n  \$default:\n');
+      _write(tmp, 'l10n.yaml', 'arb-dir: lib/l10n\n');
+      _write(tmp, 'CHANGELOG.md', '# 1.0.0\n');
       _write(tmp, 'lib/code.dart', 'int x() => 1;\n');
       // A non-source directory whose files become resources.
       _write(tmp, 'assets/data.json', '{"k": 1}\n');
@@ -186,7 +191,13 @@ int answer() => 42;
       final paths = assets.assets.map((a) => a.path).toSet();
       expect(paths, contains('pubspec.yaml'));
       expect(paths, contains('analysis_options.yaml'));
+      expect(paths, contains('pubspec.lock'));
+      expect(paths, contains('dart_test.yaml'));
+      expect(paths, contains('build.yaml'));
+      expect(paths, contains('l10n.yaml'));
       expect(paths, contains('assets/data.json'));
+      // Root-level non-manifest files (README, CHANGELOG, ...) are skipped.
+      expect(paths, isNot(contains('CHANGELOG.md')));
     });
 
     test('includes test/ files and resources when includeTests is true', () {

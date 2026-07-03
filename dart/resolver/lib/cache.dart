@@ -18,13 +18,14 @@ class ContentAddressableCache {
   final String cacheDir;
 
   ContentAddressableCache({String? cacheDir})
-    : cacheDir = cacheDir ?? _defaultCacheDir();
+    : cacheDir = cacheDir ?? defaultCacheDir(Platform.environment);
 
-  static String _defaultCacheDir() {
-    final home =
-        Platform.environment['HOME'] ??
-        Platform.environment['USERPROFILE'] ??
-        '.';
+  /// Resolves the default `~/.ball/cache` directory from an environment map.
+  /// Takes [env] as a parameter (rather than reading [Platform.environment]
+  /// directly) so both the `HOME` and `USERPROFILE` fallback branches are
+  /// unit-testable without spawning a subprocess with a scrubbed environment.
+  static String defaultCacheDir(Map<String, String> env) {
+    final home = env['HOME'] ?? env['USERPROFILE'] ?? '.';
     return p.join(home, '.ball', 'cache');
   }
 

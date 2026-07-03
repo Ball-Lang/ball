@@ -100,6 +100,46 @@ void main() {
     expect(report.summary.writesStdout, isTrue);
   });
 
+  test('reachableOnly:true actually drives the transitive _analyzeFunction '
+      'merge (unlike the default analyzeAll pass, which analyzes every '
+      'function flatly and never visits _analyzeFunction\'s callees loop)', () {
+    // main -> helper -> std.print, analyzed via the entry-point-reachable
+    // walker (`_analyzeReachable`/`_analyzeFunction`). This is the only
+    // path that exercises the "merge a transitively-called user function's
+    // capabilities into the caller" branch.
+    final program = _build(
+      stdFunctions: [
+        {'name': 'print', 'outputType': 'void'},
+      ],
+      functions: [
+        {'name': 'main', 'body': _call('main', 'helper')},
+        {
+          'name': 'helper',
+          'body': _call(
+            'std',
+            'print',
+            _msg('PrintInput', [_field('value', _litStr('hi'))]),
+          ),
+        },
+      ],
+    );
+
+    final report = analyzeCapabilities(program, reachableOnly: true);
+    expect(report.summary.isPure, isFalse);
+    expect(report.summary.writesStdout, isTrue);
+  });
+
+  test('reachableOnly:true collects an unknown (undefined) callee without '
+      'crashing', () {
+    final program = _build(
+      functions: [
+        {'name': 'main', 'body': _call('main', 'ghost')},
+      ],
+    );
+    final report = analyzeCapabilities(program, reachableOnly: true);
+    expect(report.summary.isPure, isTrue);
+  });
+
   test('an unknown callee is collected without crashing', () {
     // main calls a user function that does not exist; the analyzer collects the
     // callee key and simply finds no capabilities for it.

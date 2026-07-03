@@ -228,6 +228,13 @@ void _appendExtension(
   // extension carrying a oneof_index, fail here instead of letting _buildField
   // index into the placeholder's empty oneofDecl (crash or silently-wrong
   // descriptor).
+  // coverage:ignore-start
+  // Defensive per #142: the protobuf wire format never assigns an
+  // oneof_index to an extension field (extensions are never oneof members —
+  // that's structurally impossible in FileDescriptorProto), so this branch
+  // is unreachable from any real .proto input. Kept as a loud guard rather
+  // than a silent placeholder-descriptor crash if that assumption is ever
+  // violated by a future protoc/buf version.
   if (ext.hasOneofIndex()) {
     throw StateError(
       'extension ${ext.name} on $extendee unexpectedly carries '
@@ -235,6 +242,7 @@ void _appendExtension(
       'resolve oneofs',
     );
   }
+  // coverage:ignore-end
   final ctx = _MsgCtx(DescriptorProto(), file, ed, isLegacy, parentFeatures);
   final f = _buildField(ext, ctx, messages, enums, registry);
   // Store under the canonical `[fully.qualified.name]` key. Extensions live in

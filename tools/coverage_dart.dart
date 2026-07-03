@@ -300,6 +300,14 @@ Map<int, int> _zeroLineMap(File f) {
   }
   final punct = RegExp(r'^[{}()\[\];,]+$');
   var inBlockComment = false;
+  // Multi-line `export`/`import`/`part` directives (e.g. `export 'x.dart'\n
+  // show A, B, C;`) have no instrumentable continuation lines — the VM never
+  // emits coverage tokens for them, so a barrel file that's never loaded by
+  // any suite must not have its `show`/symbol-list continuation lines treated
+  // as uncovered code (that previously inflated e.g. ball_base.dart's "gap"
+  // by 22 lines that dart:coverage would never have reported in the first
+  // place — see the coverage_dart.dart directive-continuation fix).
+  var inDirective = false;
   for (var i = 0; i < lines.length; i++) {
     var t = lines[i].trim();
     if (inBlockComment) {
@@ -314,6 +322,10 @@ Map<int, int> _zeroLineMap(File f) {
       inBlockComment = true;
     }
     if (t.isEmpty) continue;
+    if (inDirective) {
+      if (t.endsWith(';')) inDirective = false;
+      continue;
+    }
     if (t.startsWith('//')) continue; // line + doc comments
     if (t.startsWith('*') || t.startsWith('@'))
       continue; // doc cont. / annotation
@@ -328,6 +340,7 @@ Map<int, int> _zeroLineMap(File f) {
         t.startsWith('part of') ||
         t.startsWith('library ') ||
         t == 'library;') {
+      if (!t.endsWith(';')) inDirective = true;
       continue;
     }
     out[i + 1] = 0;

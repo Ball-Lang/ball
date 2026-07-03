@@ -8933,6 +8933,9 @@ export class BallEngine {
         return true;
       }
       else if ((__sw === 'map')) {
+        if (this._isBallSet(value)) {
+          return false;
+        }
         let mapVal = this._stdAsMap(value);
         if ((__ball_eq(mapVal, null) && !((typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof BallDouble) && !(value instanceof Set))))) {
           return false;

@@ -2259,6 +2259,12 @@ extension BallEngineStd on BallEngine {
         return true;
 
       case 'map':
+        // A portable ordered set is `{'__ball_set__': [...]}` — a real map with
+        // one marker key — so _stdAsMap accepts it. A Set is NOT a Map, so a
+        // MapPattern (e.g. `case {}:`) must not match a set value (issue #178).
+        // _isBallSet covers the portable map form (Dart / C++ self-host) and a
+        // native Set (TS self-host).
+        if (_isBallSet(value)) return false;
         final mapVal = _stdAsMap(value);
         if (mapVal == null && value is! Map) return false;
         final rawMap = value is Map ? value : mapVal!;

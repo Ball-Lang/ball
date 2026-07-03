@@ -1026,7 +1026,9 @@ extension BallEngineEval on BallEngine {
         if (rawList != null && rawList.length == 1) return rawList.single;
         if (object is Set && object.length == 1) return object.single;
       case 'reversed':
-        if (rawList != null) return rawList.reversed.toList();
+        // Manual reverse, not `.reversed` — see _manualReverse's doc comment
+        // in engine_std.dart (self-host encoder blast radius, issue #64).
+        if (rawList != null) return _manualReverse(rawList);
       case 'keys':
         if (object is Map) return object.entries.map((e) => e.key).toList();
       case 'values':

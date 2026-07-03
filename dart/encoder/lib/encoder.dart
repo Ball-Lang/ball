@@ -2964,6 +2964,27 @@ class DartEncoder {
           even: member == 'isEven',
         );
       }
+      // `.reversed` on a bare identifier (e.g. `nums.reversed`) — same
+      // std_collections `list_reverse` route as the PropertyAccess path
+      // below, but the analyzer parses a plain `identifier.identifier` as
+      // PrefixedIdentifier rather than PropertyAccess, so it needs its own
+      // copy of the route here.
+      if (member == 'reversed') {
+        _usedBaseFunctions.add('list_reverse');
+        _usedCollectionsFunctions.add('list_reverse');
+        return Expression()
+          ..call = (FunctionCall()
+            ..module = 'std_collections'
+            ..function = 'list_reverse'
+            ..input = (Expression()
+              ..messageCreation = (MessageCreation()
+                ..fields.add(
+                  FieldValuePair()
+                    ..name = 'list'
+                    ..value = (Expression()
+                      ..reference = (Reference()..name = prefixName)),
+                ))));
+      }
 
       return Expression()
         ..fieldAccess = (FieldAccess()
@@ -3019,6 +3040,25 @@ class DartEncoder {
       // isEven / isOdd → parity check (no std getter; compose modulo+equals).
       if ((field == 'isEven' || field == 'isOdd') && target != null) {
         return _parityCheck(targetExpr, even: field == 'isEven');
+      }
+      // `.reversed` (a getter, not a method call — unlike `getterRoutes`
+      // above, its std_collections target takes a `list` field, not
+      // `value`, so it needs its own MessageCreation rather than
+      // `_buildUnaryStdCall`).
+      if (field == 'reversed' && target != null) {
+        _usedBaseFunctions.add('list_reverse');
+        _usedCollectionsFunctions.add('list_reverse');
+        return Expression()
+          ..call = (FunctionCall()
+            ..module = 'std_collections'
+            ..function = 'list_reverse'
+            ..input = (Expression()
+              ..messageCreation = (MessageCreation()
+                ..fields.add(
+                  FieldValuePair()
+                    ..name = 'list'
+                    ..value = targetExpr,
+                ))));
       }
 
       return Expression()
@@ -3745,7 +3785,9 @@ class DartEncoder {
         'join': ('std_collections', 'list_join', 'list'),
         'sublist': ('std_collections', 'list_slice', 'list'),
         'sort': ('std_collections', 'list_sort', 'list'),
-        'reversed': ('std_collections', 'list_reverse', 'list'),
+        // NOTE: `reversed` is a Dart *getter* (`list.reversed`, no parens),
+        // never a MethodInvocation, so it is NOT routed here — see the
+        // PropertyAccess handler in _encodeExpr instead.
         'toList': ('std_collections', 'list_to_list', 'list'),
         'map': ('std_collections', 'list_map', 'list'),
         'where': ('std_collections', 'list_filter', 'list'),

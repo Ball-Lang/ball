@@ -23,7 +23,7 @@
   },
   "summary": {
     "encoderEmittable": 108,
-    "coveredByFixture": 101,
+    "coveredByFixture": 113,
     "engineImplementedDart": 219,
     "carvedOut": 0
   },
@@ -116,7 +116,9 @@
         "321_whole_double_parse_print",
         "32_arithmetic_negative",
         "341_setter_param_binding",
+        "351_num_to_double",
         "36_string_interpolation",
+        "390_goto_label",
         "42_nested_functions",
         "59_deep_recursion",
         "60_collatz",
@@ -258,7 +260,11 @@
         "297_enc_list_ops",
         "315_compound_assign_all_ops",
         "341_setter_param_binding",
+        "350_set_value",
         "35_short_circuit",
+        "385_list_insert_at_index",
+        "386_list_concat_addall",
+        "390_goto_label",
         "39_compound_assign",
         "41_for_sum",
         "43_countdown",
@@ -549,7 +555,8 @@
         "263_numeric_properties",
         "317_primitive_number_getters",
         "321_whole_double_parse_print",
-        "341_setter_param_binding"
+        "341_setter_param_binding",
+        "351_num_to_double"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -571,7 +578,9 @@
       "name": "double_to_string",
       "inputType": "UnaryInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "389_typed_to_string"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -629,6 +638,8 @@
         "317_primitive_number_getters",
         "33_comparison_chain",
         "340_type_literal",
+        "345_inherited_field_type_name_collision",
+        "384_list_filter_where",
         "48_break_continue",
         "58_mutual_recursion",
         "59_deep_recursion",
@@ -716,6 +727,8 @@
         "291_enc_continue",
         "297_enc_list_ops",
         "298_enc_fibonacci",
+        "350_set_value",
+        "387_list_reverse_getter",
         "41_for_sum",
         "44_for_loop_basic",
         "45_for_in_loop",
@@ -791,6 +804,8 @@
         "256_editions_resolver",
         "257_relational_pattern",
         "290_enc_list_iterate",
+        "350_set_value",
+        "387_list_reverse_getter",
         "45_for_in_loop",
         "76_list_map_filter",
         "80_bubble_sort",
@@ -807,7 +822,9 @@
       "name": "goto",
       "inputType": "GotoInput",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "390_goto_label"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -843,6 +860,9 @@
         "313_assert_statement",
         "318_list_reduce",
         "33_comparison_chain",
+        "382_list_all_every",
+        "383_list_any_check",
+        "384_list_filter_where",
         "43_countdown",
         "47_do_while",
         "50_if_else_chain",
@@ -935,6 +955,8 @@
         "301_enc_math_utils",
         "30_math_utils",
         "318_list_reduce",
+        "380_is_not_type_check",
+        "390_goto_label",
         "48_break_continue",
         "50_if_else_chain",
         "51_nested_if",
@@ -1035,7 +1057,9 @@
       "name": "int_to_string",
       "inputType": "UnaryInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "389_typed_to_string"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -1052,7 +1076,8 @@
         "195_deep_nesting",
         "199_malicious_input_patterns",
         "241_generic_list_covariance",
-        "256_editions_resolver"
+        "256_editions_resolver",
+        "350_set_value"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -1062,7 +1087,9 @@
       "name": "is_not",
       "inputType": "TypeCheckInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "380_is_not_type_check"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -1071,7 +1098,9 @@
       "name": "label",
       "inputType": "LabelInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "390_goto_label"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -1153,6 +1182,7 @@
         "30_math_utils",
         "312_collection_for_capture",
         "33_comparison_chain",
+        "390_goto_label",
         "44_for_loop_basic",
         "48_break_continue",
         "54_abs_value",
@@ -1576,6 +1606,7 @@
         "317_primitive_number_getters",
         "31_arithmetic_basic",
         "32_arithmetic_negative",
+        "384_list_filter_where",
         "60_collatz",
         "63_is_prime",
         "66_digit_sum",
@@ -1693,10 +1724,14 @@
         "307_list_comprehension_foreach",
         "30_math_utils",
         "315_compound_assign_all_ops",
+        "316_to_string_as_fixed",
         "317_primitive_number_getters",
         "320_num_methods_on_double_local",
         "321_whole_double_parse_print",
         "32_arithmetic_negative",
+        "351_num_to_double",
+        "381_unsigned_right_shift",
+        "382_list_all_every",
         "54_abs_value",
         "66_digit_sum",
         "69_early_return",
@@ -1721,6 +1756,7 @@
         "262_getter_properties",
         "278_enc_bool_logic",
         "34_boolean_logic",
+        "350_set_value",
         "97_stack_operations",
         "98_string_tokenizer"
       ],
@@ -2141,11 +2177,24 @@
         "33_comparison_chain",
         "340_type_literal",
         "341_setter_param_binding",
+        "345_inherited_field_type_name_collision",
         "34_boolean_logic",
+        "350_set_value",
+        "351_num_to_double",
         "35_short_circuit",
         "36_string_interpolation",
         "37_string_concat",
+        "380_is_not_type_check",
+        "381_unsigned_right_shift",
+        "382_list_all_every",
+        "383_list_any_check",
+        "384_list_filter_where",
+        "385_list_insert_at_index",
+        "386_list_concat_addall",
+        "387_list_reverse_getter",
+        "389_typed_to_string",
         "38_string_length",
+        "390_goto_label",
         "39_compound_assign",
         "40_increment_decrement",
         "41_for_sum",
@@ -2345,6 +2394,7 @@
         "206_integer_arithmetic_edge",
         "251_bitwise_signed_edges",
         "284_enc_bitwise",
+        "381_unsigned_right_shift",
         "61_bitwise_ops"
       ],
       "engineImplementedDart": true,
@@ -2431,6 +2481,7 @@
         "240_switch_type_guard_patterns",
         "249_string_control_char_edges",
         "262_getter_properties",
+        "350_set_value",
         "97_stack_operations",
         "98_string_tokenizer"
       ],
@@ -2543,7 +2594,8 @@
       "inputType": "BinaryInput",
       "encoderEmittable": true,
       "coveredByFixtures": [
-        "260_string_functions"
+        "260_string_functions",
+        "382_list_all_every"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -2571,6 +2623,7 @@
       "encoderEmittable": true,
       "coveredByFixtures": [
         "314_string_to_double",
+        "316_to_string_as_fixed",
         "321_whole_double_parse_print"
       ],
       "engineImplementedDart": true,
@@ -2905,6 +2958,7 @@
         "36_string_interpolation",
         "37_string_concat",
         "38_string_length",
+        "390_goto_label",
         "39_compound_assign",
         "40_increment_decrement",
         "41_for_sum",
@@ -2983,7 +3037,9 @@
       "name": "unsigned_right_shift",
       "inputType": "BinaryInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "381_unsigned_right_shift"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3042,7 +3098,9 @@
       "name": "list_all",
       "inputType": "ListCallbackInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "382_list_all_every"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3051,7 +3109,9 @@
       "name": "list_any",
       "inputType": "ListCallbackInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "383_list_any_check"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3060,7 +3120,9 @@
       "name": "list_concat",
       "inputType": "ListInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "386_list_concat_addall"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3073,6 +3135,7 @@
         "118_set_operations",
         "129_unique_elements",
         "260_string_functions",
+        "350_set_value",
         "77_string_builder"
       ],
       "engineImplementedDart": true,
@@ -3092,7 +3155,9 @@
       "name": "list_filter",
       "inputType": "ListCallbackInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "384_list_filter_where"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3149,7 +3214,9 @@
       "name": "list_insert",
       "inputType": "ListInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "385_list_insert_at_index"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3244,6 +3311,7 @@
         "223_closure_loop_capture",
         "229_closure_loop_var_semantics",
         "256_editions_resolver",
+        "350_set_value",
         "76_list_map_filter",
         "85_closure_counter",
         "97_stack_operations",
@@ -3279,7 +3347,9 @@
       "name": "list_reverse",
       "inputType": "ListInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "387_list_reverse_getter"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3515,6 +3585,7 @@
         "181_generic_map_ops",
         "237_map_pattern_switch",
         "310_set_map_comprehension",
+        "350_set_value",
         "78_map_operations",
         "95_fibonacci_memo"
       ],
@@ -4547,18 +4618,7 @@
       "year"
     ],
     "emittableButUncoveredByFixture": [
-      "double_to_string",
-      "int_to_string",
-      "is_not",
-      "label",
-      "length",
-      "list_all",
-      "list_any",
-      "list_concat",
-      "list_filter",
-      "list_insert",
-      "list_reverse",
-      "unsigned_right_shift"
+      "length"
     ],
     "notEngineImplementedDart": [
       "address_of",

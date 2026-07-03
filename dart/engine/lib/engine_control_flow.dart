@@ -1720,7 +1720,10 @@ extension BallEngineControlFlow on BallEngine {
             self.sublist(_toInt(arg0), end != null ? _toInt(end) : null),
           );
         case 'reversed':
-          return _wrapList(self.reversed.toList());
+          // Manual reverse, not `.reversed` — see _manualReverse's doc
+          // comment in engine_std.dart (self-host encoder blast radius,
+          // issue #64).
+          return _wrapList(_manualReverse(self));
         case 'sort':
           if (arg0 is Function) {
             // Use insertion sort to support async comparators.

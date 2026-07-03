@@ -786,8 +786,19 @@ export function createEngineSetup(mod: EngineModule) {
     _r('list_add', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const v = m['value'] ?? m['element']; if (l instanceof Set) { l.add(v); return null; } if (Array.isArray(l)) l.push(v); return null; });
     _r('list_add_all', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const o = m['other'] ?? m['elements'] ?? []; if (Array.isArray(l) && Array.isArray(o)) l.push(...o); return null; });
     _r('list_remove_at', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const idx = Number(m['index'] ?? 0); return Array.isArray(l) ? l.splice(idx, 1)[0] : null; });
-    _r('list_insert', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const idx = Number(m['index'] ?? 0); const v = m['value'] ?? m['element']; if (Array.isArray(l)) l.splice(idx, 0, v); return null; });
-    _r('list_clear', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; if (Array.isArray(l)) l.length = 0; return null; });
+    // Both mutate in place AND return the (mutated) list: the encoder wraps
+    // `list.insert(...)` / `list.clear()` statements in
+    // `assign(target: list, value: list_insert(...)/list_clear(...))`
+    // (`mutatingMethods` in encoder.dart), so returning `null` here — as a
+    // literal Dart-`void`-return translation would — reassigns the variable
+    // to `null` instead of the mutated list (issue #64 std-coverage gap:
+    // `385_list_insert_at_index` was the first fixture to actually exercise
+    // the non-cascade `list_insert` path on the TS self-host and caught
+    // this). `list_clear` has the identical bug shape but was previously
+    // only exercised via a cascade (`111_cascade_operator.dart`), which
+    // discards the mutating call's return value and never surfaced it.
+    _r('list_insert', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const idx = Number(m['index'] ?? 0); const v = m['value'] ?? m['element']; if (Array.isArray(l)) l.splice(idx, 0, v); return l; });
+    _r('list_clear', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; if (Array.isArray(l)) l.length = 0; return l; });
     _r('list_contains', (i: any) => {
       const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; const v = m['value'] ?? m['element'];
       if (l instanceof Set) { if (l.has(v)) return true; if (typeof v === 'number') return l.has(String(v)); if (typeof v === 'string') { const n = Number(v); if (!isNaN(n)) return l.has(n); } return false; }

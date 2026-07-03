@@ -1,3 +1,40 @@
+# Change Log
+
+All notable changes to this project will be documented in this file.
+See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
+
+## 2026-07-03
+
+### Changes
+
+---
+
+Packages with breaking changes:
+
+ - There are no breaking changes in this release.
+
+Packages with other changes:
+
+ - [`ball_compiler` - `v0.3.0+4`](#ball_compiler---v0304)
+ - [`ball_engine` - `v0.3.0+4`](#ball_engine---v0304)
+ - [`ball_cli` - `v0.3.0+4`](#ball_cli---v0304)
+
+Packages with dependency updates only:
+
+> Packages listed below depend on other packages in this workspace that have had changes. Their versions have been incremented to bump the minimum dependency versions of the packages they depend upon in this project.
+
+ - `ball_cli` - `v0.3.0+4`
+
+---
+
+#### `ball_compiler` - `v0.3.0+4`
+
+ - **FIX**(engine,cpp): inherited field initializers, fields named List/Map/Set, byte-exact toStringAsExponential/Precision ([#166](https://github.com/ball-lang/ball/issues/166), [#167](https://github.com/ball-lang/ball/issues/167), [#100](https://github.com/ball-lang/ball/issues/100)) ([#181](https://github.com/ball-lang/ball/issues/181)). ([f0af3967](https://github.com/ball-lang/ball/commit/f0af3967009c34c36afc4064693a5fdb60b5835e))
+
+#### `ball_engine` - `v0.3.0+4`
+
+ - **FIX**(engine,cpp): inherited field initializers, fields named List/Map/Set, byte-exact toStringAsExponential/Precision ([#166](https://github.com/ball-lang/ball/issues/166), [#167](https://github.com/ball-lang/ball/issues/167), [#100](https://github.com/ball-lang/ball/issues/100)) ([#181](https://github.com/ball-lang/ball/issues/181)). ([f0af3967](https://github.com/ball-lang/ball/commit/f0af3967009c34c36afc4064693a5fdb60b5835e))
+
 ## [1.4.4](https://github.com/Ball-Lang/ball/compare/v1.4.3...v1.4.4) (2026-07-03)
 
 
@@ -19,10 +56,6 @@
 
 * **engine-chain:** negative-zero toStringAsFixed ([#101](https://github.com/Ball-Lang/ball/issues/101)), portable set value ([#68](https://github.com/Ball-Lang/ball/issues/68)), num double methods ([#100](https://github.com/Ball-Lang/ball/issues/100)) ([#170](https://github.com/Ball-Lang/ball/issues/170)) ([e15b769](https://github.com/Ball-Lang/ball/commit/e15b769b09e924e2ae3e5cddcc22df3d44afc6e8)), closes [hi#precision](https://github.com/hi/issues/precision)
 
-# Change Log
-
-All notable changes to this project will be documented in this file.
-See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 ## 2026-07-03
 

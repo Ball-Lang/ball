@@ -87,19 +87,33 @@ describe("encoder std method mappings", () => {
   });
 
   test("toString maps through the to_string mapping (self under 'value')", () => {
-    // Exercises mapMethodToStd's `toString` branch (selfName: "value"). NOTE: a
-    // latent encoder bug means call.function is set to the native toString
-    // method object rather than the string "to_string" here, so we assert on
-    // the input shape (the `value` self field) instead of the function name.
-    // See the encoder bug report in the PR description.
+    // Exercises mapMethodToStd's `toString` branch (selfName: "value"). Fixed
+    // bug: `method in STR_METHODS`/`ARR_METHODS` (a plain-object dict) matched
+    // "toString" via the *inherited* Object.prototype.toString before ever
+    // reaching this dedicated branch, silently returning the native JS
+    // Function itself as `fn` instead of falling through — producing a
+    // corrupt (non-string) call.function. Now hasOwnProperty-gated (see
+    // encoder.ts), so `.toString()` reaches this branch and call.function is
+    // the real "to_string" string.
     const program = encode(`function main() { const r = (42).toString(); }`);
     const mod = userModule(program);
     const main = mod.functions.find((f) => f.name === "main")!;
     const call = main.body!.block!.statements[0].let!.value!.call!;
     assert.equal(call.module, "std");
+    assert.equal(call.function, "to_string");
+    assert.equal(typeof call.function, "string");
     const selfField = call.input!.messageCreation!.fields.find((f) => f.name === "value");
     assert.ok(selfField, "to_string mapping puts the receiver under 'value'");
     assert.equal(selfField!.value.literal!.intValue, "42");
+  });
+
+  test("Array.toString also reaches the to_string mapping (not the inherited-toString ARR_METHODS collision)", () => {
+    const program = encode(`function main() { const r = [1, 2].toString(); }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[0].let!.value!.call!;
+    assert.equal(call.function, "to_string");
+    assert.equal(typeof call.function, "string");
   });
 
   test("Array.reverse maps to list_reversed", () => {

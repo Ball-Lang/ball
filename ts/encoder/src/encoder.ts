@@ -1085,7 +1085,15 @@ export class TsEncoder {
       charAt: "string_char_at",
       charCodeAt: "string_code_unit_at",
     };
-    if (method in STR_METHODS) {
+    // hasOwnProperty (not `in`) — `in` also matches names inherited from
+    // Object.prototype (toString, valueOf, hasOwnProperty, ...). A bare `in`
+    // check here made `.toString()`/`.valueOf()`/etc. on ANY object silently
+    // match this dict via prototype lookup, setting `fn` to the *native JS
+    // Function* (e.g. `Object.prototype.toString`) instead of a string, which
+    // made the dedicated `toString` mapping below unreachable and produced a
+    // corrupt call.function (a function object, not "to_string") in the Ball
+    // IR. Found via coverage analysis of the always-dead toString branch.
+    if (Object.prototype.hasOwnProperty.call(STR_METHODS, method)) {
       return {
         fn: STR_METHODS[method],
         selfName: "value",
@@ -1117,7 +1125,8 @@ export class TsEncoder {
       every: { fn: "list_every", mod: "std_collections" },
       some: { fn: "list_any", mod: "std_collections" },
     };
-    if (method in ARR_METHODS) {
+    // Same hasOwnProperty rationale as STR_METHODS above.
+    if (Object.prototype.hasOwnProperty.call(ARR_METHODS, method)) {
       const m = ARR_METHODS[method];
       return {
         fn: m.fn,

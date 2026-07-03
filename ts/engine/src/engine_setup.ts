@@ -485,8 +485,16 @@ export function createEngineSetup(mod: EngineModule) {
     if (v && typeof v === 'object' && v.__ball_generator__ === true) return __bts(v.values);
     if (Array.isArray(v)) return '[' + v.map(__bts).join(', ') + ']';
     if (v instanceof Map) {
+      // NOT `v.entries()` — the compiled engine's own preamble shadows
+      // `Map.prototype.entries` with a Dart-style GETTER (returning an array
+      // of {key,value} objects, matching Dart's `Map.entries` property) so
+      // Ball's `.entries` field access works. That shadow makes `v.entries`
+      // non-callable, so `v.entries()` throws "not a function" for any real
+      // Map value. Iterate the Map directly instead — a Map's default
+      // iterator already yields [key, value] pairs and is unaffected by the
+      // entries/keys/values property shadowing.
       const parts: string[] = [];
-      for (const [k, val] of v.entries()) parts.push(__bts(k) + ': ' + __bts(val));
+      for (const [k, val] of v) parts.push(__bts(k) + ': ' + __bts(val));
       return '{' + parts.join(', ') + '}';
     }
     if (v instanceof Set) return '{' + [...v].map(__bts).join(', ') + '}';
@@ -906,7 +914,16 @@ export function createEngineSetup(mod: EngineModule) {
     _r('string_char_at', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').charAt(Number(m['index'] ?? m['arg0'] ?? 0)); });
     _r('string_to_int', (i: any) => {
       const m = _m(i); const s = String(m['value'] ?? m['string'] ?? i ?? '').trim();
-      if (!/^-?\d+$/.test(s)) throw Object.assign(new Error('FormatException: ' + s), { __type__: 'FormatException', message: s });
+      // `.message` must be the bare invalid text (Dart's `FormatException.message`
+      // is never prefixed with the type name — only `.toString()` adds that).
+      // Setting `name: 'FormatException'` (not just a `message` override) lets
+      // the default `Error.prototype.toString()` ("name: message") produce the
+      // Dart-correct "FormatException: <text>" for anything that prints the
+      // caught exception itself rather than `.message`. Previously the message
+      // override clobbered the "FormatException: " prefix right back out,
+      // leaving `.name` as the native "Error" — undetected because no
+      // conformance fixture prints a caught FormatException directly.
+      if (!/^-?\d+$/.test(s)) throw Object.assign(new Error(s), { name: 'FormatException', __type__: 'FormatException' });
       return parseInt(s, 10);
     });
     _r('writeCharCode', (i: any) => { const m = _m(i); const self = m['self']; if (typeof self === 'object' && self !== null) { self['__buffer__'] = (self['__buffer__'] ?? '') + String.fromCharCode(Number(m['arg0'] ?? m['value'] ?? 0)); } return null; });
@@ -965,7 +982,21 @@ export function createEngineSetup(mod: EngineModule) {
       return true;
     });
     _r('concat', (i: any) => { const m = _m(i); return String(m['left'] ?? '') + String(m['right'] ?? ''); });
-    _r('null_check', (i: any) => { const m = _m(i); const v = m['value'] ?? i; if (v == null) throw new Error('Null check operator used on a null value'); return v; });
+    // `?? i` (used by most unary helpers below) can't distinguish "no `value`
+    // field" from "`value` is explicitly null" — for every OTHER helper that's
+    // harmless (a null numeric/string arg just coerces away), but for
+    // null_check it inverts the function's entire purpose: `x!` where `x` is
+    // null must throw (matches the Dart engine's `_extractUnaryArg` + null
+    // check — see engine_std.dart's 'null_check' and its
+    // "throws BallRuntimeError on null" test), yet `m['value'] ?? i` silently
+    // fell back to the (truthy) input map and returned it instead of
+    // throwing. hasOwnProperty-gate so an explicit null is honored.
+    _r('null_check', (i: any) => {
+      const m = _m(i);
+      const v = Object.prototype.hasOwnProperty.call(m, 'value') ? m['value'] : i;
+      if (v == null) throw new Error('Null check operator used on a null value');
+      return v;
+    });
     _r('compare_to', (i: any) => {
       const m = _m(i); const l = m['left'] ?? m['value'] ?? m['self'] ?? m['a'] ?? 0; const r = m['right'] ?? m['other'] ?? m['arg0'] ?? m['b'] ?? 0;
       if (typeof l === 'string' && typeof r === 'string') return l < r ? -1 : l > r ? 1 : 0;

@@ -1,3 +1,10 @@
+## [1.4.4](https://github.com/Ball-Lang/ball/compare/v1.4.3...v1.4.4) (2026-07-03)
+
+
+### Bug Fixes
+
+* **engine,cpp:** inherited field initializers, fields named List/Map/Set, byte-exact toStringAsExponential/Precision ([#166](https://github.com/Ball-Lang/ball/issues/166), [#167](https://github.com/Ball-Lang/ball/issues/167), [#100](https://github.com/Ball-Lang/ball/issues/100)) ([#181](https://github.com/Ball-Lang/ball/issues/181)) ([f0af396](https://github.com/Ball-Lang/ball/commit/f0af3967009c34c36afc4064693a5fdb60b5835e)), closes [#183](https://github.com/Ball-Lang/ball/issues/183) [#170](https://github.com/Ball-Lang/ball/issues/170)
+
 ## [1.4.3](https://github.com/Ball-Lang/ball/compare/v1.4.2...v1.4.3) (2026-07-03)
 
 

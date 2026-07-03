@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Runs the coverage-instrumented test binaries and captures lcov data.
+# Runs the coverage-instrumented test binaries so gcov/lcov has .gcda data
+# to capture. Follow with build-cov-report.sh to generate the coverage
+# summary (issue #63).
 # Usage: ./build-cov-run.sh
 set -uo pipefail
 cd "$(dirname "$0")"

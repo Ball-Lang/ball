@@ -15,6 +15,17 @@ target_include_directories(test_compiler PRIVATE
 )
 target_link_libraries(test_compiler ball_cpp_compiler_lib ball_shared)
 
+# Shared-library tests — the std module descriptor builders
+# (build_std_module/build_std_memory_module/build_std_collections_module/
+# build_std_io_module) and the Struct<->BallMap conversion helpers in
+# cpp/shared/src/ball_shared.cpp. Not exercised by the compiler/encoder/
+# engine themselves, so they need their own direct coverage.
+add_executable(test_shared test_shared.cpp)
+target_include_directories(test_shared PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
+)
+target_link_libraries(test_shared ball_shared)
+
 # End-to-end compiler tests — compile selected conformance programs to C++
 # source, invoke the system C++ compiler to build a binary, run it, and
 # diff the stdout against the expected output.
@@ -184,6 +195,7 @@ endif()
 
 enable_testing()
 add_test(NAME compiler_tests COMMAND test_compiler)
+add_test(NAME shared_tests COMMAND test_shared)
 add_test(NAME encoder_tests COMMAND test_encoder)
 add_test(NAME e2e_tests COMMAND test_e2e)
 add_test(NAME snapshot_tests COMMAND test_snapshot)

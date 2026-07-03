@@ -3726,7 +3726,7 @@ export class BallEngine {
       }
       else if ((__sw === 'reversed')) {
         if (!__ball_eq(rawList, null)) {
-          return [...rawList.reversed];
+          return this._manualReverse(rawList);
         }
       }
       else if ((__sw === 'keys')) {
@@ -6078,7 +6078,7 @@ export class BallEngine {
           return _wrapList(self.slice(this._toInt(arg0), (!__ball_eq(end, null) ? this._toInt(end) : null)));
         }
         else if ((__sw === 'reversed')) {
-          return _wrapList([...self.reversed]);
+          return _wrapList(this._manualReverse(self));
         }
         else if ((__sw === 'sort')) {
           if ((typeof arg0 === 'function')) {
@@ -7223,7 +7223,7 @@ export class BallEngine {
         return (() => { const __r: any[] = []; for (const idx of indices) { __r.push(__ball_index(list, idx)); } return __r; })();
       }), ['list_reverse']: ((i) => {
         const input = i;
-        return this._trackListCopy([...this._stdAsList(__ball_index(this._stdAsMap(i), 'list')).reversed]);
+        return this._trackListCopy(this._manualReverse(this._stdAsList(__ball_index(this._stdAsMap(i), 'list'))));
       }), ['list_slice']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
@@ -8166,6 +8166,15 @@ export class BallEngine {
     const input = list;
     this._trackMemoryAllocation(__ball_mul(list.length, _ballPointerBytes));
     return list;
+  }
+
+  _manualReverse(list: any): any {
+    const input = list;
+    let result = [];
+    for (let i = __ball_sub(list.length, 1); (i >= 0); (i--)) {
+      result = (result.push(__ball_index(list, i)), result);
+    }
+    return result;
   }
 
   _resolveMethod(typeName: any, methodName: any): any {

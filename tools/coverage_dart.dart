@@ -127,6 +127,9 @@ void main(List<String> args) async {
       stdout.writeln('Running $name tests with coverage...');
       // `--exclude-tags slow` mirrors what ci.yml gates (the compiler's slow
       // round-trip carries known-failing legs for not-yet-complete features).
+      // `network`: tests that hit a real external registry (e.g. dart/cli's
+      // `ball resolve` against pub.dev) — excluded so this unattended
+      // measurement never hangs/flakes on network access.
       // Capture stdout/stderr as RAW BYTES (encoding: null), never UTF-8. A
       // suite may legitimately print binary to stdout (e.g. the cli's
       // `encode --format binary` path), and decoding that as UTF-8 throws
@@ -139,7 +142,7 @@ void main(List<String> args) async {
           '--coverage-path=$lcovPath',
           '--branch-coverage',
           '--exclude-tags',
-          'slow',
+          'slow,network',
         ],
         workingDirectory: pkgDir.path,
         stdoutEncoding: null,

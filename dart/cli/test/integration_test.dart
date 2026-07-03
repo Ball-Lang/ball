@@ -55,21 +55,30 @@ void main() {
     expect(content, contains('path'));
   });
 
-  test('full pipeline: init → add → resolve', () async {
-    await ball(['init']);
-    await ball(['add', 'pub:path@^1.0.0']);
+  test(
+    'full pipeline: init → add → resolve',
+    () async {
+      await ball(['init']);
+      await ball(['add', 'pub:path@^1.0.0']);
 
-    final resolveResult = await ball(['resolve']);
-    // resolve may succeed or fail depending on network — check it doesn't crash
-    expect(resolveResult.exitCode, anyOf(0, 1));
-    if (resolveResult.exitCode == 0) {
-      final lockFile = File('${tmpDir.path}/ball.lock.json');
-      expect(lockFile.existsSync(), isTrue);
-      final lock =
-          jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
-      expect(lock.containsKey('packages'), isTrue);
-    }
-  }, timeout: Timeout(Duration(seconds: 60)));
+      final resolveResult = await ball(['resolve']);
+      // resolve may succeed or fail depending on network — check it doesn't crash
+      expect(resolveResult.exitCode, anyOf(0, 1));
+      if (resolveResult.exitCode == 0) {
+        final lockFile = File('${tmpDir.path}/ball.lock.json');
+        expect(lockFile.existsSync(), isTrue);
+        final lock =
+            jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
+        expect(lock.containsKey('packages'), isTrue);
+      }
+      // `resolve` hits the real pub.dev registry (PubClient/PubAdapter) — tagged
+      // so CI (and the coverage tool, both `--exclude-tags network`) never
+      // depends on external network availability. Run explicitly with
+      // `dart test --tags network` to exercise it locally.
+    },
+    timeout: Timeout(Duration(seconds: 60)),
+    tags: ['network'],
+  );
 
   test('ball publish creates artifacts from ball.json', () async {
     // Copy a known ball program to the temp dir

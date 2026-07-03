@@ -57,6 +57,25 @@ static std::string normalize_line_endings(const std::string& s) {
     return out;
 }
 
+// Strip the shared runtime preamble (BALL_EMIT_RUNTIME_SOURCE + BALL_DYN_SOURCE
+// + the compiler's inline proto-compat/dyn helpers) so pinned snapshots
+// contain only the program-specific tail (~2-10 KB) instead of the ~240 KB
+// runtime that is byte-identical across every fixture. The compiler emits
+// ball::CppCompiler::kRuntimePreambleEndMarker as the last line of the
+// preamble (see emit_includes() in compiler.cpp); everything up to and
+// including that line is dropped. Returns false (fail loud, no silent
+// fallback to the unstripped 240 KB text) if the marker isn't found —
+// that would mean emit_includes() changed and this helper needs updating.
+static bool strip_runtime_preamble(const std::string& compiled, std::string& tail) {
+    const std::string marker = ball::CppCompiler::kRuntimePreambleEndMarker;
+    auto marker_pos = compiled.find(marker);
+    if (marker_pos == std::string::npos) return false;
+    auto line_end = compiled.find('\n', marker_pos);
+    tail = (line_end == std::string::npos) ? std::string()
+                                            : compiled.substr(line_end + 1);
+    return true;
+}
+
 int main() {
     std::cout << "Ball C++ Compiler Snapshot Tests\n"
               << "================================\n";
@@ -110,6 +129,15 @@ int main() {
             tests_failed++;
             continue;
         }
+
+        std::string program_tail;
+        if (!strip_runtime_preamble(compiled, program_tail)) {
+            std::cout << "PREAMBLE_MARKER_MISSING (compiler.cpp emit_includes() "
+                          "no longer emits kRuntimePreambleEndMarker)\n";
+            tests_failed++;
+            continue;
+        }
+        compiled = program_tail;
 
         auto snap_file = snap_dir / (name + ".snapshot.cpp");
         if (update_mode || !fs::exists(snap_file)) {

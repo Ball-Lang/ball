@@ -7662,6 +7662,14 @@ inline BallDyn ball_call_method(const BallDyn& recv, const std::string& name,
 }
 )";
     emit_newline();
+
+    // Stable end-of-preamble marker (kRuntimePreambleEndMarker). Everything
+    // above this line is the shared runtime — identical byte-for-byte across
+    // every compiled program. Snapshot tests strip up to and including this
+    // marker so runtime-header edits don't churn every pinned snapshot
+    // (issue #147). Keep this the LAST thing emitted by emit_includes().
+    emit_line(kRuntimePreambleEndMarker);
+    emit_newline();
 }
 
 // Helper: extract a metadata list field as vector<string>

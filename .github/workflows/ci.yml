@@ -360,8 +360,16 @@ jobs:
 
       # Windows: nlohmann-json is fetched by CMake FetchContent
 
+      # -DBALL_BUILD_PROTOBUF_RT=ON builds Ball's own compiled protobuf runtime
+      # (cpp/shared/ball_protobuf_rt.cpp) as a standalone, dependency-free proof
+      # target — the #18 canary that it keeps building under the toolchain. It
+      # links no libprotobuf/abseil, so it adds negligible time next to the
+      # FetchContent protobuf build this job already pays for. Enabled on Linux
+      # (g++) only for now: that's the toolchain the target has been verified
+      # against; extend to macOS (AppleClang) / Windows (MSVC) once each is
+      # confirmed green — a broken canary must never take the whole job red.
       - name: Configure CMake
-        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} -DCMAKE_CXX_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
+        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release ${{ runner.os == 'Linux' && '-DBALL_BUILD_PROTOBUF_RT=ON' || '' }} -DCMAKE_C_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} -DCMAKE_CXX_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
 
       - name: Build all targets
         run: cmake --build cpp/build --config Release

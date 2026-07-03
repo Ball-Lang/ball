@@ -6,6 +6,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 enable_testing()
 
+# ── #18: drop-Google-protobuf staging ────────────────────────
+# When ON, builds `cpp/shared/ball_protobuf_rt.cpp` (Ball's own protobuf
+# runtime, compiled Ball→C++) as a standalone proof/canary executable that
+# links NO libprotobuf / abseil / nlohmann. Default OFF so the normal build is
+# byte-for-byte unchanged; CI enables it with -DBALL_BUILD_PROTOBUF_RT=ON. The
+# target lives in cpp/shared/CMakeLists.txt; deferral notes + the full cutover
+# plan are in cpp/shared/AGENTS.md.
+option(BALL_BUILD_PROTOBUF_RT
+    "Build ball_protobuf_rt.cpp as a standalone proof target (#18 canary)" OFF)
+
 # ── Buf CLI targets (lint, breaking, format) ──────────────────
 # These are available when buf is on PATH; silently skipped otherwise.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")

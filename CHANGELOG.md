@@ -1,3 +1,13 @@
+## [1.4.5](https://github.com/Ball-Lang/ball/compare/v1.4.4...v1.4.5) (2026-07-03)
+
+
+### Bug Fixes
+
+* **compiler:** keep implicit-ctor field initializers, drop synthesized param ([9e26d42](https://github.com/Ball-Lang/ball/commit/9e26d421a2a890ad560194922cda95d70e734a8b)), closes [#183](https://github.com/Ball-Lang/ball/issues/183)
+* **cpp,encoder,engine:** collision-free Set representation + self-host Set/goto ([#174](https://github.com/Ball-Lang/ball/issues/174), [#184](https://github.com/Ball-Lang/ball/issues/184)) ([b72d9d5](https://github.com/Ball-Lang/ball/commit/b72d9d5845c48b6b4b2b34e97aa7a50e77392d89)), closes [#179](https://github.com/Ball-Lang/ball/issues/179)
+* **cpp:** finish [#18](https://github.com/Ball-Lang/ball/issues/18) protobuf-RT smoke canary verification; regenerate real functions ([5b5917f](https://github.com/Ball-Lang/ball/commit/5b5917f29ae1a19c4e36a626caa13dde953616ab)), closes [18/#25](https://github.com/Ball-Lang/ball/issues/25)
+* **shared:** regenerate stale ball_protobuf.json/.bin artifact ([c2749b6](https://github.com/Ball-Lang/ball/commit/c2749b63294dbe44bcf3a11af1f8d9c8e39d5a36))
+
 # Change Log
 
 All notable changes to this project will be documented in this file.

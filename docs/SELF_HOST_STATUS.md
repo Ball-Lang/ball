@@ -83,7 +83,7 @@ Editions support) compiles to both target languages:
 | Target | Output | Status |
 |--------|--------|--------|
 | TypeScript | generated in-process by `compileModule()` (no checked-in artifact) | marshal/unmarshal proven, `compileModule()` works |
-| C++ | `cpp/shared/ball_protobuf_rt.cpp` (~4186 lines) | g++ clean, `compile_library()` works |
+| C++ | `cpp/shared/ball_protobuf_rt.h` (~8834 lines, header-only) | g++ clean, `compile_library()` works, wire-codec round-trips proven via the `ball_protobuf_rt_smoke` CI canary |
 
 Cross-target library compilation is proven: `ts/compiler` `compileModule()` and
 `cpp/compiler` `compile_library()` both produce working library output. The

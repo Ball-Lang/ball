@@ -108,3 +108,39 @@ target_include_directories(ball_shared PUBLIC
 )
 
 target_link_libraries(ball_shared PUBLIC protobuf::libprotobuf)
+
+# ── #18 canary: build the Ball-compiled protobuf runtime standalone ──────────
+# `ball_protobuf_rt.h` is Ball's own `ball_protobuf` runtime, compiled
+# Ball→C++ (header-only, `--library` mode) by the Ball C++ compiler
+# (regenerate via `dart/compiler/tool/compile_ball_protobuf_cpp.dart`, or
+# directly: `ball_cpp_compile dart/shared/ball_protobuf.json --library --ns
+# ball_protobuf --out cpp/shared/ball_protobuf_rt.h`). It is deliberately
+# self-contained — only <std> headers, NO libprotobuf, NO abseil, NO
+# nlohmann/json — which is the whole point of #18/#25 (drop Google protobuf and
+# its abseil-mutex deadlock).
+#
+# Nothing in the DEFAULT build compiles it yet: the compiler/encoder still
+# consume the generated `ball::v1::` protobuf types (migrating their ~600 KB of
+# emission call-sites from `ball::v1::` accessors to the protobuf-free
+# `ball::ir` loader in include/ball_ir.h is the deferred full cutover). Because
+# nothing builds it, it can silently rot. This opt-in target compiles + links +
+# runs `ball_protobuf_rt_smoke.cpp` — which #includes the header and round-trips
+# real values (varint/zigzag/fixed32) through the compiled encode/decode
+# functions — as a CI canary: if the Ball→C++ runtime stops building OR its wire
+# codecs regress, CI goes red HERE instead of the breakage only surfacing during
+# the eventual cutover.
+#
+# Links NOTHING on purpose — proving the runtime stands entirely on its own.
+if(BALL_BUILD_PROTOBUF_RT)
+    add_executable(ball_protobuf_rt_smoke ball_protobuf_rt_smoke.cpp)
+    set_target_properties(ball_protobuf_rt_smoke PROPERTIES
+        CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+    # ball_protobuf_rt.h is a generated single TU (~9k lines, huge functions):
+    # silence its warnings and give MSVC the large object-section count
+    # (/bigobj) it needs. ball_protobuf_rt_smoke.cpp itself is hand-written and
+    # warning-clean, but the flags apply per-target, not per-file.
+    target_compile_options(ball_protobuf_rt_smoke PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W0 /bigobj>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-w>)
+    add_test(NAME protobuf_rt_smoke COMMAND ball_protobuf_rt_smoke)
+endif()

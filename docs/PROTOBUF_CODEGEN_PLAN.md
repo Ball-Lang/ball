@@ -346,10 +346,13 @@ The original ambition — author the generator itself in Ball-portable Dart and
 **compile it with Ball's own compilers** to Dart/C++/TS, so a single source
 emits models on every target and the generator runs anywhere Ball runs — depends
 on the Ball **compilers** being able to compile the `ball_protobuf` *runtime*
-into a working native library on those targets. As of June 2026, this is
+into a working native library on those targets. As of July 2026, this is
 **proven**: TS `compileModule()` produces a multi-thousand-line library with
 marshal/unmarshal round-trips working, and C++ `compile_library()` produces
-`cpp/shared/ball_protobuf_rt.cpp` (~4186 lines) that compiles cleanly. See
+`cpp/shared/ball_protobuf_rt.h` (~8834 lines, header-only) that compiles
+cleanly AND round-trips real values (varint/zigzag/fixed32) through its
+compiled codecs — exercised by the `ball_protobuf_rt_smoke` CI canary behind
+`-DBALL_BUILD_PROTOBUF_RT=ON` (see `cpp/shared/AGENTS.md`). See
 "## Multi-target status & roadmap"
 below for the current state and remaining work.
 
@@ -380,7 +383,7 @@ None require schema changes; all are additive to `ball_protobuf`'s public API.
 | 2 | **Message codegen, Dart target** — enums, messages, oneofs, maps, nested, WKT views (mutable-over-Map, §4.3) | new conformance: generated-model round-trips for proto2/proto3/edition2023 | **DONE** (golden + round-trip tests) |
 | 3 | **Extensions + registries** (Dart) | extension round-trips; Any-in-JSON via generated registry | **DONE** |
 | 4 | **Services** (separate plugins, §13.2): `ServiceDescriptor` + `protoc-gen-ball-connect` (unary + streaming), then `protoc-gen-ball-grpc`; transports in `dart/ball_rpc` | echo/streaming integration tests against a reference server | **DONE** |
-| 5 | Port the generator front end to **Ball-portable Dart**; add **C++ and TS** emission templates / library targets | same `.proto` → models on Dart/C++/TS; cross-target golden tests | **Library compilation proven** — TS `compileModule()` and C++ `compile_library()` both work; `ball_protobuf` compiles to a TS library and to C++ (`cpp/shared/ball_protobuf_rt.cpp`, ~4186 lines, g++ clean). Marshal/unmarshal proven on TS. Remaining: full round-trip golden tests per target. |
+| 5 | Port the generator front end to **Ball-portable Dart**; add **C++ and TS** emission templates / library targets | same `.proto` → models on Dart/C++/TS; cross-target golden tests | **Library compilation proven** — TS `compileModule()` and C++ `compile_library()` both work; `ball_protobuf` compiles to a TS library and to C++ (`cpp/shared/ball_protobuf_rt.h`, ~8834 lines, header-only, g++ clean). Marshal/unmarshal proven on TS; wire-codec round-trips (varint/zigzag/fixed32) proven on C++ via the `ball_protobuf_rt_smoke` canary. Remaining: full round-trip golden tests per target. |
 | 6 | `buf.gen.yaml` wiring, docs (`<lang>/AGENTS.md`, README), CI job | CI green on all targets | Dart docs + READMEs DONE; full CI matrix tracks Phase 5 |
 
 Phases 0–4 are shipped on the Dart target and leave the tree green
@@ -443,15 +446,20 @@ runtime compiles successfully to both targets:
 - Marshal/unmarshal round-trips are proven on the TS target.
 - Functions are exported; the output is importable as a library.
 
-**C++ — compiles cleanly under g++.**
+**C++ — compiles cleanly under g++, wire-codec round-trips proven.**
 
 - C++ `compile_library()` (`cpp/compiler/src/compiler.cpp`) emits a
-  ~4186-line library (`cpp/shared/ball_protobuf_rt.cpp`) that compiles without
-  errors.
+  ~8834-line header-only library (`cpp/shared/ball_protobuf_rt.h`) that
+  compiles without errors.
 - `dart:typed_data` + `dart:convert` + `StringBuffer` runtime equivalents are
   provided.
 - Named-namespace library mode emits linkable code (no anonymous namespace /
   global `main()`).
+- The `ball_protobuf_rt_smoke` CI canary (`cpp/shared/ball_protobuf_rt_smoke.cpp`,
+  behind `-DBALL_BUILD_PROTOBUF_RT=ON`) `#include`s the generated header and
+  round-trips real values through `encodeVarint`/`decodeVarint`,
+  `encodeZigZag64`/`decodeZigZag`, and `encodeFixed32`/`decodeFixed32` — proving
+  the compiled wire codecs actually work, not just that the file compiles.
 
 ### Remaining work
 

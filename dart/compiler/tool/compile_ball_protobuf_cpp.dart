@@ -124,7 +124,7 @@ String? _findCppCompiler(String repoRoot) {
     '$repoRoot/cpp/build/compiler/Debug/ball_cpp_compile.exe',
     '$repoRoot/cpp/build/compiler/Release/ball_cpp_compile.exe',
     '$repoRoot/cpp/build/compiler/ball_cpp_compile',
-    '$repoRoot/cpp/build-wsl/ball_cpp_compile',
+    '$repoRoot/cpp/build-wsl/compiler/ball_cpp_compile',
   ];
   for (final c in candidates) {
     if (File(c).existsSync()) return c;

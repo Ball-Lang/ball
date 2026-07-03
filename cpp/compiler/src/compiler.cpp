@@ -5248,24 +5248,23 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                get_message_field(call, "digits") + "))";
     }
     // num.toStringAsExponential([fractionDigits]) / toStringAsPrecision(precision)
-    // (issue #100). Best-effort: `std::scientific`/`std::setprecision` differ from
-    // Dart's minimal-exponent / trailing-zero output, so these are covered by
-    // Dart engine unit tests + TS round-trip and carved out of the C++
-    // conformance corpus (ENCODER_COMPLETENESS_CARVEOUTS.md); the branches exist
-    // so the self-host still compiles. The exponent is normalized (C++ emits
-    // e+NN with >=2 digits; Dart uses the minimal count) for the common case.
+    // (issue #100). Byte-exact with Dart: `ball_to_string_as_exponential` /
+    // `ball_to_string_as_precision` (ball_emit_runtime.h) reproduce Dart's
+    // minimal exponent, trailing-zero padding, and round-half-away-from-zero by
+    // extracting the value's EXACT decimal digits — so these now run on the C++
+    // self-host conformance corpus (no carve-out); the no-arg exponential uses
+    // the shortest-round-trip mantissa.
     if (fn == "to_string_as_exponential") {
         auto v = get_message_field(call, "value");
         if (get_message_field_expr(call, "digits") != nullptr) {
-            return "[](double x, int64_t d){ std::ostringstream o; o << std::scientific << std::setprecision((int)d) << x; std::string s = o.str(); auto ep = s.find('e'); if (ep != std::string::npos) { std::string head = s.substr(0, ep + 2); std::string ex = s.substr(ep + 2); std::size_t nz = ex.find_first_not_of('0'); ex = (nz == std::string::npos) ? std::string(\"0\") : ex.substr(nz); s = head + ex; } return s; }("
-                   "static_cast<double>(" + v + "), static_cast<int64_t>(" + get_message_field(call, "digits") + "))";
+            return "ball_to_string_as_exponential(static_cast<double>(" + v +
+                   "), static_cast<int64_t>(" + get_message_field(call, "digits") + "))";
         }
-        return "[](double x){ std::ostringstream o; o << std::scientific << x; std::string s = o.str(); auto ep = s.find('e'); if (ep != std::string::npos) { std::string head = s.substr(0, ep + 2); std::string ex = s.substr(ep + 2); std::size_t nz = ex.find_first_not_of('0'); ex = (nz == std::string::npos) ? std::string(\"0\") : ex.substr(nz); s = head + ex; } return s; }("
-               "static_cast<double>(" + v + "))";
+        return "ball_to_string_as_exponential(static_cast<double>(" + v + "))";
     }
     if (fn == "to_string_as_precision") {
-        return "[](double x, int64_t p){ std::ostringstream o; o << std::setprecision((int)p) << x; return o.str(); }("
-               "static_cast<double>(" + get_message_field(call, "value") + "), static_cast<int64_t>(" +
+        return "ball_to_string_as_precision(static_cast<double>(" +
+               get_message_field(call, "value") + "), static_cast<int64_t>(" +
                get_message_field(call, "precision") + "))";
     }
     // ── Comparison / math ──

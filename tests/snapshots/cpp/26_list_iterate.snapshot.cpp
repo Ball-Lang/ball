@@ -54,6 +54,11 @@ using namespace std::string_literals;
 #include <ctime>
 #include <cstdio>
 #include <cstring>
+// num.toStringAsExponential()/toStringAsPrecision() byte-exact formatting
+// (below) needs C string→number parsing and the shortest-round-trip
+// std::to_chars float overload.
+#include <cstdlib>
+#include <charconv>
 
 // Minimal Ball exception type used by `throw` / `try` to preserve
 // typed-catch semantics. Derives from std::exception so untyped
@@ -109,6 +114,127 @@ inline std::string ball_to_string(double d) {
         if (s.back() == '.') s.push_back('0');
     }
     return s;
+}
+
+// ── num.toStringAsExponential / num.toStringAsPrecision (byte-exact Dart) ──
+// Dart's (and ECMAScript's) exponential/precision formatting differs from
+// C++'s `std::scientific`/`std::setprecision` in three ways that MUST match
+// for the self-hosted engine to stay byte-identical with the Dart reference
+// (issue #100): a *minimal* exponent (`1.23e+2`, not `1.23e+02`), significant
+// digits padded with trailing zeros (`1.0.toStringAsPrecision(3)` → `1.00`,
+// which `std::defaultfloat` drops), and round-half-AWAY-from-zero on an exact
+// tie (`2.5.toStringAsExponential(0)` → `3e+0`, where C++'s IEEE ties-to-even
+// gives `2e+0`). We reproduce all three by extracting the value's EXACT decimal
+// digits and rounding the digit string ourselves.
+
+// Round the exact significant digits of `ax` (finite, > 0) to `k` significant
+// digits using round-half-away-from-zero, returning the k-digit string.
+// `*E` receives the decimal exponent of the leading digit (value =
+// D[0].D[1..] × 10^E); a rounding carry (9.99 → 10) bumps it.
+//
+// snprintf("%.1080e") yields 1081 significant digits — more than the 767 a
+// double's exact decimal expansion can ever need — so the printed digits are
+// EXACT (trailing zeros, never a rounding artifact). Because the discarded tail
+// is therefore exact, "away from zero on a tie" reduces to the simple test
+// `D[k] >= '5'` (any exact-half rounds up, matching Dart).
+inline std::string ball_round_sig_digits(double ax, int k, int* E) {
+    char buf[1200];
+    std::snprintf(buf, sizeof(buf), "%.*e", 1080, ax);
+    std::string s(buf);
+    std::size_t epos = s.find('e');
+    int exp = std::atoi(s.c_str() + epos + 1);
+    std::string digits;
+    digits.push_back(s[0]);
+    for (std::size_t i = 2; i < epos; ++i) digits.push_back(s[i]);
+    if (static_cast<int>(digits.size()) <= k) {
+        digits.append(static_cast<std::size_t>(k) - digits.size(), '0');
+        *E = exp;
+        return digits;
+    }
+    const bool round_up = digits[static_cast<std::size_t>(k)] >= '5';
+    std::string kept = digits.substr(0, static_cast<std::size_t>(k));
+    if (round_up) {
+        int i = k - 1;
+        for (; i >= 0; --i) {
+            if (kept[static_cast<std::size_t>(i)] != '9') { kept[static_cast<std::size_t>(i)]++; break; }
+            kept[static_cast<std::size_t>(i)] = '0';
+        }
+        if (i < 0) { kept = "1" + kept.substr(0, static_cast<std::size_t>(k) - 1); exp += 1; }
+    }
+    *E = exp;
+    return kept;
+}
+
+// num.toStringAsExponential(fractionDigits) — `d` fixed fraction digits.
+inline std::string ball_to_string_as_exponential(double x, int64_t d) {
+    if (std::isnan(x)) return "NaN";
+    if (std::isinf(x)) return x < 0 ? "-Infinity" : "Infinity";
+    const bool neg = std::signbit(x);
+    std::string out;
+    if (x == 0.0) {
+        out = "0";
+        if (d > 0) { out += "."; out.append(static_cast<std::size_t>(d), '0'); }
+        out += "e+0";
+    } else {
+        int E;
+        const std::string m = ball_round_sig_digits(std::fabs(x), static_cast<int>(d) + 1, &E);
+        out = m.substr(0, 1);
+        if (d > 0) { out += "."; out += m.substr(1); }
+        out += "e";
+        out += (E < 0) ? "-" : "+";
+        out += std::to_string(E < 0 ? -E : E);
+    }
+    return neg ? "-" + out : out;
+}
+
+// num.toStringAsExponential() — no fractionDigits: shortest round-trip mantissa
+// (Dart uses the minimal digits that uniquely identify the value; std::to_chars
+// with chars_format::scientific produces exactly that).
+inline std::string ball_to_string_as_exponential(double x) {
+    if (std::isnan(x)) return "NaN";
+    if (std::isinf(x)) return x < 0 ? "-Infinity" : "Infinity";
+    const bool neg = std::signbit(x);
+    char buf[64];
+    auto res = std::to_chars(buf, buf + sizeof(buf), std::fabs(x), std::chars_format::scientific);
+    std::string s(buf, res.ptr);
+    const std::size_t epos = s.find('e');
+    const std::string mant = s.substr(0, epos);
+    const char sign = s[epos + 1];          // '+' or '-'
+    const int exp = std::atoi(s.c_str() + epos + 2);
+    std::string out = mant + "e" + sign + std::to_string(exp);
+    return neg ? "-" + out : out;
+}
+
+// num.toStringAsPrecision(precision) — `p` significant digits, choosing fixed
+// vs exponential form by ECMAScript's rule (exponent < -6 or >= p ⇒ exponential).
+inline std::string ball_to_string_as_precision(double x, int64_t p) {
+    if (std::isnan(x)) return "NaN";
+    if (std::isinf(x)) return x < 0 ? "-Infinity" : "Infinity";
+    const bool neg = std::signbit(x);
+    std::string out;
+    if (x == 0.0) {
+        out = "0";
+        if (p > 1) { out += "."; out.append(static_cast<std::size_t>(p) - 1, '0'); }
+    } else {
+        int E;
+        const std::string m = ball_round_sig_digits(std::fabs(x), static_cast<int>(p), &E);
+        if (E < -6 || E >= static_cast<int>(p)) {
+            out = m.substr(0, 1);
+            if (p > 1) { out += "."; out += m.substr(1); }
+            out += "e";
+            out += (E < 0) ? "-" : "+";
+            out += std::to_string(E < 0 ? -E : E);
+        } else if (E >= 0) {
+            const int intd = E + 1;
+            out = m.substr(0, static_cast<std::size_t>(intd));
+            if (static_cast<int>(p) > intd) { out += "."; out += m.substr(static_cast<std::size_t>(intd)); }
+        } else {
+            out = "0.";
+            out.append(static_cast<std::size_t>(-E - 1), '0');
+            out += m;
+        }
+    }
+    return neg ? "-" + out : out;
 }
 
 // ── UTF-16 string semantics (Dart parity) ──

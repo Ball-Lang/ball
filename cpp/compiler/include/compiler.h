@@ -106,6 +106,12 @@ private:
     // emitted. A reference to one resolves to the bare member name, NOT a
     // this-binding method lambda (illegal in a static method) — conformance 106.
     std::unordered_set<std::string> current_class_static_fields_;
+    // Raw (unsanitized) descriptor field names of the class currently being
+    // emitted, including fields inherited through the superclass chain. Lets
+    // compile_reference tell a bare `List`/`Map`/`Set` that names an instance
+    // field from the builtin collection-type sentinel — an own-scope field
+    // shadows the builtin, matching Dart (issue #193 / #167).
+    std::unordered_set<std::string> current_class_fields_;
 
     // OOP class support — populated in build_lookup_tables():
     // Maps a method basename (e.g. "describe") to the set of class names

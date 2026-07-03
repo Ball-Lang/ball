@@ -1,3 +1,10 @@
+## [1.4.2](https://github.com/Ball-Lang/ball/compare/v1.4.1...v1.4.2) (2026-07-03)
+
+
+### Bug Fixes
+
+* **engine-chain:** negative-zero toStringAsFixed ([#101](https://github.com/Ball-Lang/ball/issues/101)), portable set value ([#68](https://github.com/Ball-Lang/ball/issues/68)), num double methods ([#100](https://github.com/Ball-Lang/ball/issues/100)) ([#170](https://github.com/Ball-Lang/ball/issues/170)) ([e15b769](https://github.com/Ball-Lang/ball/commit/e15b769b09e924e2ae3e5cddcc22df3d44afc6e8)), closes [hi#precision](https://github.com/hi/issues/precision)
+
 # Change Log
 
 All notable changes to this project will be documented in this file.

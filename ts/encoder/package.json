@@ -16,6 +16,7 @@
   "scripts": {
     "build": "tsc",
     "test": "node --experimental-strip-types --test test/*.test.ts",
+    "coverage": "c8 --reporter=text --reporter=lcov --include \"src/**\" --check-coverage --lines 97 --branches 90 --functions 98 --statements 97 npm test",
     "prepublishOnly": "npm run build",
     "prepack": "npm run build"
   },
@@ -53,5 +54,7 @@
   "dependencies": {
     "typescript": "^6.0.2"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "c8": "^11.0.0"
+  }
 }

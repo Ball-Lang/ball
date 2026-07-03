@@ -38,7 +38,8 @@
     "directory": "ts/shared"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "coverage": "c8 --reporter=text --reporter=lcov --include \"src/**\" --check-coverage --lines 93 --branches 91 --functions 98 --statements 93 npm test"
   },
   "publishConfig": {
     "access": "public"
@@ -53,5 +54,8 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.12.1"
+  },
+  "devDependencies": {
+    "c8": "^11.0.0"
   }
 }

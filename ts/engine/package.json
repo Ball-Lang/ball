@@ -15,7 +15,8 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc",
-    "test": "node --experimental-strip-types test/engine_test.ts",
+    "test": "node --experimental-strip-types test/engine_test.ts && node --experimental-strip-types --test test/*.test.ts",
+    "coverage": "c8 --reporter=text --reporter=lcov --include \"src/**\" --exclude \"src/compiled_engine.ts\" --check-coverage --lines 91 --branches 62 --functions 95 --statements 91 npm test",
     "prepublishOnly": "npm run build",
     "prepack": "npm run build"
   },
@@ -55,6 +56,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.0.1",
+    "c8": "^11.0.0",
     "typescript": "^6.0.2"
   }
 }

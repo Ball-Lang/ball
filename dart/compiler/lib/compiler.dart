@@ -938,7 +938,7 @@ class DartCompiler {
         doc == null &&
         classAnnots == null &&
         methods.isEmpty;
-    if (isPlain) return _buildSimpleClass(descriptor);
+    if (isPlain) return _buildSimpleClass(descriptor, meta);
 
     return cb.Class((b) {
       b.name = _dartType(descriptor.name);
@@ -1012,24 +1012,64 @@ class DartCompiler {
     });
   }
 
-  cb.Class _buildSimpleClass(google.DescriptorProto type) {
+  cb.Class _buildSimpleClass(
+    google.DescriptorProto type,
+    Map<String, Object?> meta,
+  ) {
+    final fieldsMeta = meta['fields'] as List?;
+
+    // Fields with an inline initializer (carried in metadata) bake their
+    // default straight into the field declaration and are NOT added as
+    // constructor parameters — matching what a hand-written Dart class with
+    // an implicit (unwritten) constructor does. Fields with no initializer
+    // keep the prior behavior: a required named `this.field` parameter on
+    // the synthesized memberwise constructor (see issue #183).
+    Map<String, Object?>? fieldMeta(String protoName) {
+      if (fieldsMeta == null) return null;
+      for (final fm in fieldsMeta) {
+        if (fm is Map && fm['name'] == protoName) {
+          return fm.cast<String, Object?>();
+        }
+      }
+      return null;
+    }
+
     return cb.Class((b) {
       b.name = _dartType(type.name);
 
+      final ctorFields = <google.FieldDescriptorProto>[];
+
       for (final field in type.field) {
+        final fm = fieldMeta(field.name);
+        final initializer = fm?['initializer'] as String?;
+
         b.fields.add(
           cb.Field((fb) {
             fb.name = _dartFieldName(field.name);
-            fb.type = cb.refer(_protoFieldToDartType(field));
-            fb.modifier = cb.FieldModifier.final$;
+            if (initializer != null) {
+              final metaType = fm?['type'] as String?;
+              if (metaType != null) fb.type = cb.refer(metaType);
+              fb.assignment = cb.Code(initializer);
+              if (fm?['is_const'] == true) {
+                fb.modifier = cb.FieldModifier.constant;
+              } else if (fm?['is_final'] == true) {
+                fb.modifier = cb.FieldModifier.final$;
+              }
+              // else: mutable (`var`) field — no modifier.
+            } else {
+              fb.type = cb.refer(_protoFieldToDartType(field));
+              fb.modifier = cb.FieldModifier.final$;
+            }
           }),
         );
+
+        if (initializer == null) ctorFields.add(field);
       }
 
-      if (type.field.isNotEmpty) {
+      if (ctorFields.isNotEmpty) {
         b.constructors.add(
           cb.Constructor((c) {
-            for (final field in type.field) {
+            for (final field in ctorFields) {
               c.optionalParameters.add(
                 cb.Parameter((p) {
                   p.name = _dartFieldName(field.name);

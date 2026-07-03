@@ -118,6 +118,73 @@ void main() {
       expect(out, contains('required this.y'));
       expect(out, contains("'Point(x: \$x, y: \$y)'"));
     });
+
+    test('plain class with a field initializer bakes the default in and drops '
+        'the ctor param (#183)', () {
+      final out = _flat(
+        _program(
+          typeDefs: [
+            _typeDef(
+              'Base',
+              fields: [
+                (name: 'widgets', type: 'TYPE_STRING'),
+                (name: 'count', type: 'TYPE_INT32'),
+              ],
+              metadata: {
+                'fields': [
+                  {'name': 'widgets', 'initializer': '[10, 20, 30]'},
+                  {
+                    'name': 'count',
+                    'type': 'int',
+                    'is_final': true,
+                    'initializer': '7',
+                  },
+                ],
+              },
+            ),
+          ],
+        ),
+      );
+      expect(out, contains('class Base'));
+      // Both fields keep their inline initializer …
+      expect(out, contains('widgets = [10, 20, 30]'));
+      expect(out, contains('final int count = 7'));
+      // … and neither is required (or present at all) as a constructor
+      // parameter, since a synthesized ctor param would shadow the
+      // initializer and drop the default (issue #183).
+      expect(out, isNot(contains('required this.widgets')));
+      expect(out, isNot(contains('required this.count')));
+    });
+
+    test('plain class mixes initialized and uninitialized fields: only the '
+        'uninitialized field gets a required ctor param', () {
+      final out = _flat(
+        _program(
+          typeDefs: [
+            _typeDef(
+              'Mixed',
+              fields: [
+                (name: 'label', type: 'TYPE_STRING'),
+                (name: 'id', type: 'TYPE_INT32'),
+              ],
+              metadata: {
+                'fields': [
+                  {
+                    'name': 'label',
+                    'type': 'String',
+                    'is_final': true,
+                    'initializer': "'base'",
+                  },
+                ],
+              },
+            ),
+          ],
+        ),
+      );
+      expect(out, contains("label = 'base'"));
+      expect(out, isNot(contains('required this.label')));
+      expect(out, contains('required this.id'));
+    });
   });
 
   group('constructor cosmetics', () {

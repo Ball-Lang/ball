@@ -21,12 +21,6 @@
 /// covered by the direct-path encoder round-trip (#61) and the slow legs:
 ///   - 229_closure_loop_var_…     → #69 (C-style `for(var i)` closure capture
 ///                                   shares the loop var; also the Dart compiler)
-///   - 355_inherited_field_…      → #183 (implicit-constructor classes with field
-///                                   initializers compile to a required-param
-///                                   ctor that drops the initializers; the
-///                                   engine-side bug #166 that this fixture was
-///                                   authored for IS fixed and stays covered by
-///                                   the engine + self-host parity legs)
 /// Delete an entry from [_knownGaps] (and confirm green) when its issue lands.
 @TestOn('vm')
 library;
@@ -47,8 +41,6 @@ String _norm(String s) =>
 /// and the slow legs. Remove an entry when its issue is fixed.
 const _knownGaps = <String, String>{
   '229_closure_loop_var_semantics': '#69 — closure loop-var capture',
-  '355_inherited_field_initializer':
-      '#183 — implicit-ctor field initializers dropped by the compiler',
 };
 
 Directory _findConformanceDir() {

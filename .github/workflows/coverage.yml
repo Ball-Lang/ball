@@ -65,18 +65,20 @@ jobs:
       # count as 0%, never dropped) and fails if overall line coverage drops
       # below the floor. RAISE the floor toward 100% as tests are added (see
       # docs/TESTING_STRATEGY.md); never lower it without justification.
-      # Honest PRODUCT coverage measured ~93.1% (all 9 packages' lib/; bin/
+      # Honest PRODUCT coverage measured ~93.7% (all 9 packages' lib/; bin/
       # entry-point tooling excluded — see coverage_dart.dart). Per-package:
-      # compiler 99.8%, protobuf_gen 98.5%, ball_protobuf 98%, resolver 96%,
-      # shared 95%, encoder 93%, ball_rpc 93%, cli 93%, engine 84% (#61). The
-      # remaining engine gap is cross-engine-only code (BallInt/String/Bool
-      # wrappers, map-shaped proto3 Value handling) that executes only when the
-      # engine runs as a COMPILED C++/TS self-host — exercised by the
-      # conformance matrix, not the Dart engine's own suite. Dedicated suites
-      # drove the workspace from ~64% → ~93%. Floor set below it to absorb
-      # local↔CI variance (CI counts ≥ local); RAISE toward 100% as tests land.
+      # compiler 100%, resolver 100%, shared 100%, ball_rpc 100%,
+      # protobuf_gen 98.5%, ball_protobuf 98%, encoder 95%, cli 93%,
+      # engine 83% (#61). The remaining engine gap is cross-engine-only code
+      # (BallInt/String/Bool wrappers, map-shaped proto3 Value handling) that
+      # executes only when the engine runs as a COMPILED C++/TS self-host —
+      # exercised by the conformance matrix, not the Dart engine's own suite
+      # (out of scope for the Dart-only coverage lane; #61 tracks it
+      # separately). Dedicated suites drove the workspace from ~64% → ~93.7%.
+      # Floor set below it to absorb local↔CI variance (CI counts ≥ local);
+      # RAISE toward 100% as tests land.
       - name: Dart line coverage ratchet (all packages)
-        run: dart run tools/coverage_dart.dart --floor 91
+        run: dart run tools/coverage_dart.dart --floor 93
 
       - name: Upload Dart coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0

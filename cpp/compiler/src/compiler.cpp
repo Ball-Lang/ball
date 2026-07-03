@@ -579,16 +579,25 @@ static std::string cpp_list_literal_default(const std::string& raw) {
         return s.size() >= 2 && (s.front() == '\'' || s.front() == '"') &&
                (s.back() == '\'' || s.back() == '"');
     };
+    auto is_bool_lit = [](const std::string& s) {
+        return s == "true" || s == "false";
+    };
 
-    bool all_int = true, all_num = true, all_str = true;
+    bool all_int = true, all_num = true, all_str = true, all_bool = true;
     for (const auto& el : elems) {
         bool ii = is_int_lit(el), dd = is_double_lit(el), ss = is_str_lit(el);
         if (!ii) all_int = false;
         if (!(ii || dd)) all_num = false;
         if (!ss) all_str = false;
+        if (!is_bool_lit(el)) all_bool = false;
     }
     if (all_int) {
         std::string out = "BallDyn(std::vector<int64_t>{";
+        for (size_t i = 0; i < elems.size(); ++i) { if (i) out += ", "; out += elems[i]; }
+        return out + "})";
+    }
+    if (all_bool) {
+        std::string out = "BallDyn(std::vector<bool>{";
         for (size_t i = 0; i < elems.size(); ++i) { if (i) out += ", "; out += elems[i]; }
         return out + "})";
     }
@@ -8427,38 +8436,17 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         if ((fm.count("kind") ? fm["kind"] : "") == "static_field")
             current_class_static_fields_.insert(sanitize_name(basename));
     }
-    // Record the class's own + inherited descriptor field names (raw, as the
-    // reference/field-access shapes carry them). A bare reference whose name
-    // matches one of these is an instance field, so compile_reference must not
-    // hijack a field named List/Map/Set as the builtin collection sentinel
-    // (issue #193). Walk the superclass chain via class_typedefs_.
-    {
-        std::string walk = td.name();
-        std::unordered_set<std::string> seen;
-        while (!walk.empty() && seen.insert(walk).second) {
-            auto tdit = class_typedefs_.find(walk);
-            if (tdit == class_typedefs_.end() || tdit->second == nullptr) break;
-            const auto* wtd = tdit->second;
-            if (wtd->has_descriptor_()) {
-                for (const auto& f : wtd->descriptor_().field())
-                    current_class_fields_.insert(f.name());
-            }
-            // Resolve the (possibly bare) superclass name to a full class key.
-            auto sit = class_superclass_.find(walk);
-            if (sit == class_superclass_.end() || sit->second.empty()) break;
-            const std::string& super = sit->second;
-            std::string next;
-            if (class_typedefs_.count(super)) {
-                next = super;
-            } else {
-                for (const auto& [c, _] : class_typedefs_) {
-                    auto cc = c.rfind(':');
-                    std::string bare = cc != std::string::npos ? c.substr(cc + 1) : c;
-                    if (bare == super) { next = c; break; }
-                }
-            }
-            walk = next;
-        }
+    // Record this class's OWN descriptor field names (raw, as the reference /
+    // field-access shapes carry them). A bare reference whose name matches one
+    // is an instance field, so compile_reference must not hijack a field named
+    // List/Map/Set as the builtin collection sentinel (issue #193). Only the
+    // class's OWN fields shadow the builtin — an inherited-only field does NOT,
+    // matching Dart (the encoder's own-scope check walks only the class's own
+    // FieldDeclarations, never the extends chain; see fixture 345, which reads
+    // an inherited-only List field as the builtin type, not the field).
+    if (td.has_descriptor_()) {
+        for (const auto& f : td.descriptor_().field())
+            current_class_fields_.insert(f.name());
     }
 
     // Helper: extract is_this flags from constructor metadata params.

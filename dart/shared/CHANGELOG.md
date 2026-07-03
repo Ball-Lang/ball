@@ -1,3 +1,7 @@
+## 0.3.0+2
+
+ - **FIX**(engine-chain): negative-zero toStringAsFixed ([#101](https://github.com/ball-lang/ball/issues/101)), portable set value ([#68](https://github.com/ball-lang/ball/issues/68)), num double methods ([#100](https://github.com/ball-lang/ball/issues/100)) ([#170](https://github.com/ball-lang/ball/issues/170)). ([e15b769b](https://github.com/ball-lang/ball/commit/e15b769b09e924e2ae3e5cddcc22df3d44afc6e8))
+
 ## 0.3.0+1
 
  - **FIX**(ci,website): repair [#137](https://github.com/ball-lang/ball/issues/137) regressions + restore the broken website deploy ([#144](https://github.com/ball-lang/ball/issues/144)). ([6dbec37d](https://github.com/ball-lang/ball/commit/6dbec37d0f3bdb4c8be216d5b7baeccbf8d4c95e))

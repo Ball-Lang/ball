@@ -1119,6 +1119,395 @@ TEST(compile_std_memory_unimplemented_fails_loud_at_compile_time) {
 }
 
 // ================================================================
+// Tests — std_io dispatch (compile_io_call), coverage wave 3 (issue #63)
+// ================================================================
+
+TEST(compile_std_io_print_error) {
+    auto prog = build_program(
+        call("std_io", "print_error", make_msg("PrintInput", {{"message", lit_string("oops")}})));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::cerr");
+    ASSERT_NOT_CONTAINS(out, "/* std_io.print_error */");
+}
+
+TEST(compile_std_io_read_line) {
+    auto prog = build_program(print_call(call("std_io", "read_line", make_msg("", {}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::getline(std::cin");
+}
+
+TEST(compile_std_io_exit) {
+    auto prog = build_program(
+        call("std_io", "exit", make_msg("", {{"code", lit_int(2)}})));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::exit(");
+}
+
+TEST(compile_std_io_panic) {
+    auto prog = build_program(
+        call("std_io", "panic", make_msg("", {{"message", lit_string("fatal")}})));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::exit(1)");
+    ASSERT_CONTAINS(out, "std::cerr");
+}
+
+TEST(compile_std_io_sleep_ms) {
+    auto prog = build_program(
+        call("std_io", "sleep_ms", make_msg("", {{"milliseconds", lit_int(10)}})));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "sleep_for");
+}
+
+TEST(compile_std_io_timestamp_ms) {
+    auto prog = build_program(print_call(call("std_io", "timestamp_ms", make_msg("", {}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "system_clock::now()");
+}
+
+TEST(compile_std_io_random_int) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_io", "random_int", make_msg("", {{"min", lit_int(0)}, {"max", lit_int(10)}})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "uniform_int_distribution<int64_t>");
+}
+
+TEST(compile_std_io_random_double) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_io", "random_double", make_msg("", {})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "uniform_real_distribution<double>");
+}
+
+TEST(compile_std_io_env_get) {
+    auto prog = build_program(print_call(
+        call("std_io", "env_get", make_msg("", {{"name", lit_string("PATH")}}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::getenv(");
+}
+
+TEST(compile_std_io_args_get) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_io", "args_get", make_msg("", {})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::vector<std::any>{}");
+}
+
+// ================================================================
+// Tests — std_fs dispatch (compile_fs_call)
+// ================================================================
+
+TEST(compile_std_fs_file_read) {
+    auto prog = build_program(print_call(
+        call("std_fs", "file_read", make_msg("", {{"path", lit_string("a.txt")}}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::ifstream");
+    ASSERT_NOT_CONTAINS(out, "/* std_fs.file_read */");
+}
+
+TEST(compile_std_fs_file_write) {
+    auto prog = build_program(call("std_fs", "file_write", make_msg("", {
+        {"path", lit_string("a.txt")}, {"content", lit_string("hi")}
+    })));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::ofstream");
+}
+
+TEST(compile_std_fs_file_exists) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_fs", "file_exists", make_msg("", {{"path", lit_string("a.txt")}})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::filesystem::exists");
+}
+
+TEST(compile_std_fs_file_delete) {
+    auto prog = build_program(
+        call("std_fs", "file_delete", make_msg("", {{"path", lit_string("a.txt")}})));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::filesystem::remove");
+}
+
+TEST(compile_std_fs_dir_list) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_fs", "dir_list", make_msg("", {{"path", lit_string(".")}})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "directory_iterator");
+}
+
+TEST(compile_std_fs_dir_create) {
+    auto prog = build_program(
+        call("std_fs", "dir_create", make_msg("", {{"path", lit_string("d")}})));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "create_directories");
+}
+
+TEST(compile_std_fs_dir_exists) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_fs", "dir_exists", make_msg("", {{"path", lit_string("d")}})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "is_directory");
+}
+
+// ================================================================
+// Tests — std_time dispatch (compile_time_call)
+// ================================================================
+
+TEST(compile_std_time_now) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_time", "now", make_msg("", {})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "system_clock::now()");
+    ASSERT_NOT_CONTAINS(out, "/* std_time.now */");
+}
+
+TEST(compile_std_time_now_micros) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_time", "now_micros", make_msg("", {})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "microseconds");
+}
+
+TEST(compile_std_time_duration_add) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_time", "duration_add", make_msg("", {{"left", lit_int(1)}, {"right", lit_int(2)}})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "+");
+}
+
+TEST(compile_std_time_duration_subtract) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_time", "duration_subtract", make_msg("", {{"left", lit_int(5)}, {"right", lit_int(2)}})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "-");
+}
+
+TEST(compile_std_time_format_timestamp) {
+    auto prog = build_program(print_call(
+        call("std_time", "format_timestamp", make_msg("", {{"timestamp_ms", lit_int(0)}}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_format_timestamp(");
+}
+
+TEST(compile_std_time_parse_timestamp) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_time", "parse_timestamp", make_msg("", {{"value", lit_string("2024-01-01T00:00:00Z")}})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_parse_timestamp(");
+}
+
+// ================================================================
+// Tests — cpp_std dispatch (compile_cpp_std_call): pointer ops, casts,
+// smart pointers, preprocessor, RAII helpers.
+// ================================================================
+
+TEST(compile_cpp_std_deref_and_address_of) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "deref", make_msg("", {{"pointer", ref("p")}})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "(*p)");
+
+    auto prog2 = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "address_of", make_msg("", {{"value", ref("x")}})))));
+    auto out2 = compile_program(prog2);
+    ASSERT_CONTAINS(out2, "(&x)");
+}
+
+TEST(compile_cpp_std_arrow) {
+    auto prog = build_program(print_call(std_unary("to_string", call("cpp_std", "arrow", make_msg("", {
+        {"pointer", ref("p")}, {"member", lit_string("field")}
+    })))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "p->field");
+}
+
+TEST(compile_cpp_std_ptr_cast_all_kinds) {
+    auto make_cast = [](const std::string& kind) {
+        return call("cpp_std", "ptr_cast", make_msg("", {
+            {"value", ref("v")},
+            {"target_type", lit_string("Foo*")},
+            {"cast_kind", lit_string(kind)}
+        }));
+    };
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string", make_cast("static"))))), "static_cast<Foo*>(v)");
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string", make_cast("dynamic"))))), "dynamic_cast<Foo*>(v)");
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string", make_cast("reinterpret"))))), "reinterpret_cast<Foo*>(v)");
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string", make_cast("const"))))), "const_cast<Foo*>(v)");
+    // Unknown/default cast_kind falls back to a C-style cast.
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string", make_cast("weird"))))), "(Foo*)(v)");
+}
+
+TEST(compile_cpp_std_new_delete_sizeof_alignof) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "cpp_new", make_msg("", {{"type", lit_string("int")}})))));
+    ASSERT_CONTAINS(compile_program(prog), "new int()");
+
+    auto prog2 = build_program(
+        call("cpp_std", "cpp_delete", make_msg("", {{"pointer", ref("p")}})));
+    ASSERT_CONTAINS(compile_program(prog2), "delete p");
+
+    auto prog3 = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "cpp_sizeof", make_msg("", {{"type_or_expr", lit_string("int")}})))));
+    ASSERT_CONTAINS(compile_program(prog3), "sizeof(int)");
+
+    auto prog4 = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "cpp_alignof", make_msg("", {{"type", lit_string("int")}})))));
+    ASSERT_CONTAINS(compile_program(prog4), "alignof(int)");
+}
+
+TEST(compile_cpp_std_move_forward) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "cpp_move", make_msg("", {{"pointer", ref("x")}})))));
+    ASSERT_CONTAINS(compile_program(prog), "std::move(x)");
+
+    auto prog2 = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "cpp_forward", make_msg("", {{"pointer", ref("x")}})))));
+    ASSERT_CONTAINS(compile_program(prog2), "std::forward<decltype(x)>(x)");
+}
+
+TEST(compile_cpp_std_smart_pointers) {
+    auto uniq = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "cpp_make_unique", make_msg("", {{"type", lit_string("Foo")}})))));
+    ASSERT_CONTAINS(compile_program(uniq), "std::make_unique<Foo>()");
+
+    auto shared = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "cpp_make_shared", make_msg("", {{"type", lit_string("Foo")}})))));
+    ASSERT_CONTAINS(compile_program(shared), "std::make_shared<Foo>()");
+
+    auto get1 = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "cpp_unique_ptr_get", make_msg("", {{"pointer", ref("p")}})))));
+    ASSERT_CONTAINS(compile_program(get1), "p.get()");
+
+    auto get2 = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "cpp_shared_ptr_get", make_msg("", {{"pointer", ref("p")}})))));
+    ASSERT_CONTAINS(compile_program(get2), "p.get()");
+
+    auto uc = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "cpp_shared_ptr_use_count", make_msg("", {{"pointer", ref("p")}})))));
+    ASSERT_CONTAINS(compile_program(uc), "p.use_count()");
+}
+
+TEST(compile_cpp_std_decltype_auto_init_list) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "cpp_decltype", make_msg("", {{"pointer", ref("x")}})))));
+    ASSERT_CONTAINS(compile_program(prog), "decltype(x)");
+
+    auto prog2 = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "cpp_auto", make_msg("", {})))));
+    ASSERT_NOT_CONTAINS(compile_program(prog2), "/* cpp_std.cpp_auto */");
+
+    auto prog3 = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "init_list", make_msg("", {{"a", lit_int(1)}, {"b", lit_int(2)}})))));
+    auto out3 = compile_program(prog3);
+    ASSERT_CONTAINS(out3, "{");
+    ASSERT_CONTAINS(out3, "}");
+}
+
+TEST(compile_cpp_std_static_assert_namespace_nullptr) {
+    auto prog = build_program(
+        call("cpp_std", "static_assert", make_msg("", {
+            {"condition", lit_bool(true)}, {"message", lit_string("must hold")}
+        })));
+    ASSERT_CONTAINS(compile_program(prog), "static_assert(");
+
+    auto prog2 = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "nullptr", make_msg("", {})))));
+    ASSERT_CONTAINS(compile_program(prog2), "nullptr");
+}
+
+TEST(compile_cpp_std_ifdef_defined) {
+    auto prog = build_program(call("cpp_std", "cpp_ifdef", make_msg("", {
+        {"symbol", lit_string("DEBUG")},
+        {"then_body", print_call(lit_string("on"))},
+        {"else_body", print_call(lit_string("off"))}
+    })));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "#ifdef DEBUG");
+    ASSERT_CONTAINS(out, "#else");
+
+    auto prog2 = build_program(print_call(std_unary("to_string",
+        call("cpp_std", "cpp_defined", make_msg("", {{"pointer", ref("SYM")}})))));
+    ASSERT_CONTAINS(compile_program(prog2), "defined(");
+}
+
+TEST(compile_cpp_std_scope_exit_and_destructor) {
+    auto prog = build_program(call("cpp_std", "cpp_scope_exit", make_msg("", {
+        {"cleanup", print_call(lit_string("bye"))}
+    })));
+    ASSERT_CONTAINS(compile_program(prog), "_ScopeExit");
+
+    auto prog2 = build_program(call("cpp_std", "cpp_destructor", make_msg("", {
+        {"class_name", lit_string("Foo")},
+        {"body", print_call(lit_string("dtor"))}
+    })));
+    ASSERT_CONTAINS(compile_program(prog2), "~Foo()");
+}
+
+// ================================================================
+// Tests — remaining std_concurrency dispatch (compile_concurrency_call)
+// beyond the pre-existing mutex_lock coverage.
+// ================================================================
+
+TEST(compile_std_concurrency_thread_spawn_join_detach) {
+    auto spawn = build_program(call("std_concurrency", "thread_spawn", make_msg("", {
+        {"body", print_call(lit_string("running"))}
+    })));
+    ASSERT_CONTAINS(compile_program(spawn), "std::thread ");
+
+    auto join = build_program(
+        call("std_concurrency", "thread_join", make_msg("", {{"handle", ref("t")}})));
+    ASSERT_CONTAINS(compile_program(join), ".join()");
+
+    auto detach = build_program(
+        call("std_concurrency", "thread_detach", make_msg("", {{"handle", ref("t")}})));
+    ASSERT_CONTAINS(compile_program(detach), ".detach()");
+}
+
+TEST(compile_std_concurrency_mutex_create_and_unlock) {
+    auto create = build_program(call("std_concurrency", "mutex_create", make_msg("", {
+        {"name", lit_string("mtx")}
+    })));
+    ASSERT_CONTAINS(compile_program(create), "std::mutex ");
+
+    auto unlock = build_program(
+        call("std_concurrency", "mutex_unlock", make_msg("", {{"mutex", ref("mtx")}})));
+    ASSERT_CONTAINS(compile_program(unlock), ".unlock()");
+}
+
+TEST(compile_std_concurrency_scoped_and_unique_lock) {
+    auto scoped = build_program(call("std_concurrency", "scoped_lock", make_msg("", {
+        {"mutex", ref("mtx")}, {"body", print_call(lit_string("critical"))}
+    })));
+    ASSERT_CONTAINS(compile_program(scoped), "lock_guard<std::mutex>");
+
+    auto unique = build_program(call("std_concurrency", "unique_lock", make_msg("", {
+        {"mutex", ref("mtx")}, {"name", lit_string("lk")}
+    })));
+    ASSERT_CONTAINS(compile_program(unique), "unique_lock<std::mutex>");
+}
+
+TEST(compile_std_concurrency_atomics) {
+    auto load = build_program(print_call(std_unary("to_string",
+        call("std_concurrency", "atomic_load", make_msg("", {{"value", ref("x")}})))));
+    ASSERT_CONTAINS(compile_program(load), ".load()");
+
+    auto store = build_program(call("std_concurrency", "atomic_store", make_msg("", {
+        {"value", ref("x")}, {"new_value", lit_int(5)}
+    })));
+    ASSERT_CONTAINS(compile_program(store), ".store(");
+
+    auto cmpxchg = build_program(print_call(std_unary("to_string",
+        call("std_concurrency", "atomic_compare_exchange", make_msg("", {
+            {"value", ref("x")}, {"expected", ref("e")}, {"desired", ref("d")}
+        })))));
+    ASSERT_CONTAINS(compile_program(cmpxchg), ".compare_exchange_strong(");
+
+    auto fetch_add = build_program(print_call(std_unary("to_string",
+        call("std_concurrency", "atomic_fetch_add", make_msg("", {
+            {"value", ref("x")}, {"delta", lit_int(1)}
+        })))));
+    ASSERT_CONTAINS(compile_program(fetch_add), ".fetch_add(");
+}
+
+// ================================================================
 // Main
 // ================================================================
 

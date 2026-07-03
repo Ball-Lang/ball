@@ -1,3 +1,10 @@
+## [1.5.2](https://github.com/Ball-Lang/ball/compare/v1.5.1...v1.5.2) (2026-07-03)
+
+
+### Bug Fixes
+
+* **cpp-compiler:** goto/label, inherited field inits, collection-type field names ([#191](https://github.com/Ball-Lang/ball/issues/191), [#192](https://github.com/Ball-Lang/ball/issues/192), [#193](https://github.com/Ball-Lang/ball/issues/193)) ([#195](https://github.com/Ball-Lang/ball/issues/195)) ([95598e8](https://github.com/Ball-Lang/ball/commit/95598e872230ec76d59221998632888f88e5c7de)), closes [183/#167](https://github.com/Ball-Lang/ball/issues/167) [#167](https://github.com/Ball-Lang/ball/issues/167)
+
 ## [1.5.1](https://github.com/Ball-Lang/ball/compare/v1.5.0...v1.5.1) (2026-07-03)
 
 

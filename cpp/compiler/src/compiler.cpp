@@ -505,6 +505,119 @@ static std::string cpp_param_default(const std::string& cpp_type,
     return "{}";
 }
 
+// Split a bracketed literal's interior on TOP-LEVEL commas, honoring nested
+// []/{}/() and single/double-quoted strings (so `[[1,2], [3,4]]` yields two
+// elements, not four). Fragments are returned trimmed; empty fragments (from a
+// trailing comma) are dropped.
+static std::vector<std::string> split_top_level_commas(const std::string& inner) {
+    std::vector<std::string> parts;
+    int depth = 0;
+    char quote = 0;
+    std::string cur;
+    auto flush = [&]() {
+        size_t b = cur.find_first_not_of(" \t\r\n");
+        size_t e = cur.find_last_not_of(" \t\r\n");
+        if (b != std::string::npos) parts.push_back(cur.substr(b, e - b + 1));
+        cur.clear();
+    };
+    for (size_t i = 0; i < inner.size(); ++i) {
+        char c = inner[i];
+        if (quote) {
+            cur += c;
+            if (c == quote && (i == 0 || inner[i - 1] != '\\')) quote = 0;
+            continue;
+        }
+        if (c == '\'' || c == '"') { quote = c; cur += c; continue; }
+        if (c == '[' || c == '{' || c == '(') { ++depth; cur += c; continue; }
+        if (c == ']' || c == '}' || c == ')') { --depth; cur += c; continue; }
+        if (c == ',' && depth == 0) { flush(); continue; }
+        cur += c;
+    }
+    flush();
+    return parts;
+}
+
+// Translate a Dart list-literal SOURCE fragment (e.g. "[10, 20, 30]") used as a
+// class-field / parameter default into a C++ BallDyn expression. Mirrors the
+// homogeneous-vs-heterogeneous emission of a list-literal EXPRESSION (see the
+// kListValue case in compile_literal) so the BallDyn runtime recognizes the
+// container: an all-int/all-num/all-string list becomes a strongly typed
+// std::vector, anything else a BallList of std::any (nested lists recurse). An
+// empty list yields BallDyn(BallList{}); a non-list fragment falls back to a
+// scalar BallDyn. Previously EVERY `[...]` initializer collapsed to an empty
+// BallList{}, dropping the actual elements (issue #192 — C++ analog of #167).
+static std::string cpp_list_literal_default(const std::string& raw) {
+    std::string d = raw;
+    size_t b = d.find_first_not_of(" \t\r\n");
+    size_t e = d.find_last_not_of(" \t\r\n");
+    d = (b == std::string::npos) ? std::string() : d.substr(b, e - b + 1);
+    if (!(d.size() >= 2 && d.front() == '[' && d.back() == ']')) {
+        return cpp_param_default("BallDyn", d);
+    }
+    auto elems = split_top_level_commas(d.substr(1, d.size() - 2));
+    if (elems.empty()) return "BallDyn(BallList{})";
+
+    auto is_int_lit = [](const std::string& s) {
+        if (s.empty()) return false;
+        size_t i = (s[0] == '-' || s[0] == '+') ? 1 : 0;
+        if (i >= s.size()) return false;
+        for (; i < s.size(); ++i)
+            if (!std::isdigit(static_cast<unsigned char>(s[i]))) return false;
+        return true;
+    };
+    auto is_double_lit = [](const std::string& s) {
+        bool dot = false, digit = false;
+        size_t i = (!s.empty() && (s[0] == '-' || s[0] == '+')) ? 1 : 0;
+        for (; i < s.size(); ++i) {
+            if (s[i] == '.') { if (dot) return false; dot = true; }
+            else if (std::isdigit(static_cast<unsigned char>(s[i]))) digit = true;
+            else return false;
+        }
+        return dot && digit;
+    };
+    auto is_str_lit = [](const std::string& s) {
+        return s.size() >= 2 && (s.front() == '\'' || s.front() == '"') &&
+               (s.back() == '\'' || s.back() == '"');
+    };
+
+    bool all_int = true, all_num = true, all_str = true;
+    for (const auto& el : elems) {
+        bool ii = is_int_lit(el), dd = is_double_lit(el), ss = is_str_lit(el);
+        if (!ii) all_int = false;
+        if (!(ii || dd)) all_num = false;
+        if (!ss) all_str = false;
+    }
+    if (all_int) {
+        std::string out = "BallDyn(std::vector<int64_t>{";
+        for (size_t i = 0; i < elems.size(); ++i) { if (i) out += ", "; out += elems[i]; }
+        return out + "})";
+    }
+    if (all_num) {
+        std::string out = "BallDyn(std::vector<double>{";
+        for (size_t i = 0; i < elems.size(); ++i) {
+            if (i) out += ", ";
+            out += is_int_lit(elems[i]) ? elems[i] + ".0" : elems[i];
+        }
+        return out + "})";
+    }
+    if (all_str) {
+        std::string out = "BallDyn(std::vector<std::string>{";
+        for (size_t i = 0; i < elems.size(); ++i) {
+            if (i) out += ", ";
+            out += cpp_param_default("std::string", elems[i]);
+        }
+        return out + "})";
+    }
+    // Mixed / complex elements: a BallList of std::any-boxed BallDyns (recursing
+    // so a nested list element is itself a recognizable BallDyn container).
+    std::string out = "BallDyn(BallList{";
+    for (size_t i = 0; i < elems.size(); ++i) {
+        if (i) out += ", ";
+        out += "std::any(" + cpp_list_literal_default(elems[i]) + ")";
+    }
+    return out + "})";
+}
+
 std::map<std::string, std::string> CppCompiler::read_meta(const ball::v1::FunctionDefinition& func) {
     std::map<std::string, std::string> result;
     if (!func.has_metadata()) return result;
@@ -1230,8 +1343,12 @@ std::string CppCompiler::compile_reference(const ball::v1::Reference& ref) {
     // → emit as string constants representing the type name. A local variable
     // or parameter with the same name shadows the type object — common for
     // `num`, less so for the others — so skip this when the name is a declared
-    // local in the current function (otherwise `num` would emit `"num"s`).
-    if (declared_locals_.count(ref.name()) == 0) {
+    // local in the current function (otherwise `num` would emit `"num"s`). An
+    // instance field of the current class named exactly List/Map/Set (etc.) also
+    // shadows the builtin — own-scope wins, matching real Dart (issue #193 /
+    // #167) — so a bare reference must resolve to the member, not the sentinel.
+    if (declared_locals_.count(ref.name()) == 0 &&
+        current_class_fields_.count(ref.name()) == 0) {
         // Enum type references are used for static member access (Color.red)
         // and for iteration (Color.values). Emit the bare type name so
         // compile_field_access can resolve `Color::red`, `Color::values`, etc.
@@ -4274,11 +4391,11 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         return "continue";
     }
     if (fn == "goto") {
-        auto label = get_string_field(call, "label");
+        auto label = sanitize_name(get_string_field(call, "label"));
         return "goto " + label;
     }
     if (fn == "label") {
-        auto name = get_string_field(call, "name");
+        auto name = sanitize_name(get_string_field(call, "name"));
         auto body = get_message_field(call, "body");
         return name + ": " + body;
     }
@@ -6326,6 +6443,47 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                 }
                 return;
             }
+            // A user-level `label { body }` / `goto <label>` pair (distinct
+            // from the `__ball_break_`/`__ball_continue_` targets that a
+            // `labeled` loop plants). Emit them as real C++ labels/gotos at
+            // function scope. The expression-context form compiles the body
+            // block to an IIFE, which traps a nested `goto` inside a lambda
+            // (it cannot jump out to the outer label) and mis-emits it as
+            // `return BallDyn(goto <label>)` — so intercept them here.
+            //
+            // Require an EXPLICIT std/dart_std module (not the broad `std_like`,
+            // which also matches an empty module): `goto`/`label` are not in the
+            // `std_builtins` implicit-std set, so real std control flow always
+            // carries `module: "std"`, while an empty-module `label`/`goto` call
+            // is a USER function/method of that name (e.g. conformance 254's
+            // `label(...)`) and must NOT be hijacked here.
+            const bool explicit_std =
+                call_mod == "std" || call_mod == "dart_std";
+            if (explicit_std && call.function() == "label") {
+                auto label_name = sanitize_name(get_string_field(call, "name"));
+                auto* body_expr = get_message_field_expr(call, "body");
+                emit_line(label_name + ":;");
+                if (body_expr) {
+                    if (body_expr->expr_case() == ball::v1::Expression::kBlock) {
+                        for (const auto& s : body_expr->block().statements()) {
+                            compile_statement(s);
+                        }
+                        if (body_expr->block().has_result()) {
+                            emit_line(compile_expr(body_expr->block().result()) + ";");
+                        }
+                    } else {
+                        ball::v1::Statement inner;
+                        *inner.mutable_expression() = *body_expr;
+                        compile_statement(inner);
+                    }
+                }
+                return;
+            }
+            if (explicit_std && call.function() == "goto") {
+                emit_line("goto " +
+                          sanitize_name(get_string_field(call, "label")) + ";");
+                return;
+            }
             if (std_like &&
                 call.function() == "return") {
                 if (in_generator_) {
@@ -8228,7 +8386,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
                     (fb == std::string::npos) ? std::string() : raw.substr(fb, fe - fb + 1);
                 if (trimmed.size() >= 2 && trimmed.front() == '[' && trimmed.back() == ']') {
                     type = "BallDyn";
-                    init = " = BallDyn(BallList{})";
+                    init = " = " + cpp_list_literal_default(trimmed);
                 } else if (trimmed.size() >= 2 && trimmed.front() == '{' && trimmed.back() == '}') {
                     type = "BallDyn";
                     init = " = BallDyn(BallOrderedMap{})";
@@ -8256,6 +8414,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
     // directly as std::any values).
     current_class_methods_.clear();
     current_class_static_fields_.clear();
+    current_class_fields_.clear();
     current_class_name_ = name;
     for (const auto* func : methods) {
         auto dot = func->name().rfind('.');
@@ -8267,6 +8426,39 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
         auto fm = read_meta(*func);
         if ((fm.count("kind") ? fm["kind"] : "") == "static_field")
             current_class_static_fields_.insert(sanitize_name(basename));
+    }
+    // Record the class's own + inherited descriptor field names (raw, as the
+    // reference/field-access shapes carry them). A bare reference whose name
+    // matches one of these is an instance field, so compile_reference must not
+    // hijack a field named List/Map/Set as the builtin collection sentinel
+    // (issue #193). Walk the superclass chain via class_typedefs_.
+    {
+        std::string walk = td.name();
+        std::unordered_set<std::string> seen;
+        while (!walk.empty() && seen.insert(walk).second) {
+            auto tdit = class_typedefs_.find(walk);
+            if (tdit == class_typedefs_.end() || tdit->second == nullptr) break;
+            const auto* wtd = tdit->second;
+            if (wtd->has_descriptor_()) {
+                for (const auto& f : wtd->descriptor_().field())
+                    current_class_fields_.insert(f.name());
+            }
+            // Resolve the (possibly bare) superclass name to a full class key.
+            auto sit = class_superclass_.find(walk);
+            if (sit == class_superclass_.end() || sit->second.empty()) break;
+            const std::string& super = sit->second;
+            std::string next;
+            if (class_typedefs_.count(super)) {
+                next = super;
+            } else {
+                for (const auto& [c, _] : class_typedefs_) {
+                    auto cc = c.rfind(':');
+                    std::string bare = cc != std::string::npos ? c.substr(cc + 1) : c;
+                    if (bare == super) { next = c; break; }
+                }
+            }
+            walk = next;
+        }
     }
 
     // Helper: extract is_this flags from constructor metadata params.
@@ -8984,6 +9176,7 @@ void CppCompiler::emit_struct(const ball::v1::TypeDefinition& td,
     }
 
     current_class_methods_.clear();
+    current_class_fields_.clear();
     current_class_name_.clear();
 
     indent_--;
@@ -9071,6 +9264,7 @@ void CppCompiler::emit_dynamic_class(
         auto saved_self = dynamic_self_expr_;
         auto saved_self_fields = dynamic_self_fields_;
         auto saved_class_methods = current_class_methods_;
+        auto saved_class_fields = current_class_fields_;
         auto saved_class_name = current_class_name_;
         std::string saved_return = current_return_type_;
         active_type_params_ = class_tparams;
@@ -9078,6 +9272,7 @@ void CppCompiler::emit_dynamic_class(
         dynamic_self_expr_ = "BallDyn(__self)";
         dynamic_self_fields_ = field_set;
         current_class_methods_.clear();   // dispatch handled via ball_call_method
+        current_class_fields_.clear();    // dynamic classes resolve via dynamic_self_fields_
         current_class_name_.clear();
         current_return_type_ = "BallDyn";
 
@@ -9110,6 +9305,7 @@ void CppCompiler::emit_dynamic_class(
         dynamic_self_expr_ = saved_self;
         dynamic_self_fields_ = saved_self_fields;
         current_class_methods_ = saved_class_methods;
+        current_class_fields_ = saved_class_fields;
         current_class_name_ = saved_class_name;
         current_return_type_ = saved_return;
 

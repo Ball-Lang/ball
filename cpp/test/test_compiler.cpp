@@ -1119,6 +1119,112 @@ TEST(compile_std_memory_unimplemented_fails_loud_at_compile_time) {
 }
 
 // ================================================================
+// Tests — Set-literal emission (issue #174): the direct-compile path must
+// dedup on construction and render Dart-style `{a, b, c}`, not compile a Set
+// literal like a bare list (`[a, b, c]` with duplicates surviving).
+// ================================================================
+
+// Build a Set-literal Expression: std.set_create({elements: [...]}) — mirrors
+// the encoder's IR shape for `{1, 2, 3}` (same `elements` field the list
+// literal `[...]` splice path reads via lit_list() above).
+static ball::v1::Expression set_lit(std::vector<ball::v1::Expression> elems) {
+    ball::v1::Expression elements_expr;
+    auto* lv = elements_expr.mutable_literal()->mutable_list_value();
+    for (auto& e : elems) *lv->add_elements() = std::move(e);
+    return std_call("set_create", make_msg("", {{"elements", std::move(elements_expr)}}));
+}
+
+// `{1, 2, 2, 3}` — the literal elements splice into a BallList, and the
+// finished list must be wrapped via ball_make_set (dedups + tags for
+// Dart-style rendering at runtime). Before the fix the IIFE just returned
+// `BallDyn(__r)` — a bare, untagged list; duplicates survived and printing
+// rendered `[...]` instead of `{...}`.
+TEST(compile_set_literal_wraps_in_ball_make_set) {
+    auto prog = build_program(print_call(
+        set_lit({lit_int(1), lit_int(2), lit_int(2), lit_int(3)})));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "return ball_make_set(__r); }()");
+    ASSERT_NOT_CONTAINS(out, "return BallDyn(__r); }()");
+}
+
+// `{}` — a set_create call with no `elements` field at all (the encoder's
+// shape for an empty Set literal not disambiguated as an empty Map by
+// let-metadata). Must still route through ball_make_set, not a bare
+// `BallDyn(BallList{})` / `std::vector<std::any>{}`.
+TEST(compile_empty_set_literal_wraps_in_ball_make_set) {
+    auto prog = build_program(print_call(std_call("set_create", make_msg("", {}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "ball_make_set(BallList{})");
+}
+
+// std_collections.set_create (the constructor form, as opposed to the std
+// module's literal-splicing set_create above) must also route through
+// ball_make_set so `Set()` prints/dedups exactly like `{}`.
+TEST(compile_set_create_std_collections_wraps_in_ball_make_set) {
+    auto prog = build_program(print_call(
+        call("std_collections", "set_create", make_msg("", {}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "ball_make_set(BallList{})");
+}
+
+// set_add must dedup-insert via BallDyn::push_back (which itself performs the
+// scan-and-skip-duplicates, issue #174) rather than the compiler re-emitting
+// its own manual duplicate scan inline.
+TEST(compile_set_add_routes_through_dedup_push_back) {
+    auto prog = build_program(print_call(
+        call("std_collections", "set_add", make_msg("", {
+            {"set", ref("s")}, {"value", lit_int(4)}
+        }))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "v.push_back(e); return v;");
+}
+
+// set_remove must fall back to the portable set's backing list
+// (_setBackingList()) when the receiver isn't a plain list.
+TEST(compile_set_remove_falls_back_to_set_backing_list) {
+    auto prog = build_program(print_call(
+        call("std_collections", "set_remove", make_msg("", {
+            {"set", ref("s")}, {"value", lit_int(4)}
+        }))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_setBackingList()");
+}
+
+// set_to_list must copy out the wrapped list (ball_list_copy handles both
+// plain lists and the portable set shape) rather than returning the tagged
+// set value itself (which used to alias the Set — mutating the "list" result
+// mutated the Set backing it).
+TEST(compile_set_to_list_copies_backing_list) {
+    auto prog = build_program(print_call(
+        call("std_collections", "set_to_list", make_msg("", {{"set", ref("s")}}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "ball_list_copy(BallDyn(");
+}
+
+// set_union / set_intersection / set_difference must route through the
+// portable-set-aware ball_dyn.h helpers (which themselves wrap their result
+// via ball_make_set), not a hand-rolled scan returning a bare list.
+TEST(compile_set_algebra_ops_route_through_tagged_helpers) {
+    auto union_out = compile_program(build_program(print_call(
+        call("std_collections", "set_union", make_msg("", {
+            {"left", ref("a")}, {"right", ref("b")}
+        })))));
+    ASSERT_CONTAINS(union_out, "union_(BallDyn(a), BallDyn(b))");
+
+    auto intersection_out = compile_program(build_program(print_call(
+        call("std_collections", "set_intersection", make_msg("", {
+            {"left", ref("a")}, {"right", ref("b")}
+        })))));
+    ASSERT_CONTAINS(intersection_out, "intersection(BallDyn(a), BallDyn(b))");
+
+    auto difference_out = compile_program(build_program(print_call(
+        call("std_collections", "set_difference", make_msg("", {
+            {"left", ref("a")}, {"right", ref("b")}
+        })))));
+    ASSERT_CONTAINS(difference_out, "difference(BallDyn(a), BallDyn(b))");
+}
+
+// ================================================================
 // Main
 // ================================================================
 

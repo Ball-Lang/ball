@@ -4375,10 +4375,16 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 if (!val_type.empty()) {
                     ck = "ball_is_typed_map(" + val + ", \"" + val_type + "\"s)";
                 } else {
-                    ck = "ball_is_map_dyn(BallDyn(" + val + "))";
+                    // Portable ordered-set value (issue #174): a raw
+                    // BallOrderedMap check alone can't tell a Set from a Map —
+                    // exclude the `__ball_set__` tag, mirroring the other
+                    // `is Map` call sites (ball_dyn.h ternary/switch dispatch,
+                    // compiler.cpp:2503/3547-3549) which already do this.
+                    // Without it `{1,2,3} is Map` evaluated true.
+                    ck = "(ball_is_map_dyn(BallDyn(" + val + ")) && !ball_is_ball_set(BallDyn(" + val + ")))";
                 }
             } else {
-                ck = "ball_is_map_dyn(BallDyn(" + val + "))";
+                ck = "(ball_is_map_dyn(BallDyn(" + val + ")) && !ball_is_ball_set(BallDyn(" + val + ")))";
             }
         }
         else if (tn == "List" || tn == "Iterable") {
@@ -4909,15 +4915,19 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 // Build a set/list, splicing spread / collection_for /
                 // collection_if elements via compile_collection_element
                 // (issue #55: previously spread NESTED, comprehensions dropped).
+                // The finished element list is wrapped via ball_make_set (issue
+                // #174): a Set literal must dedup on construction and render
+                // Dart-style `{a, b, c}` — not `[a, b, c]` with duplicates
+                // surviving, which is what a bare `BallDyn(__r)` produced.
                 std::string result = "[&]() -> BallDyn { BallList __r; ";
                 for (const auto& el : elems) {
                     result += compile_collection_element(el, "__r") + " ";
                 }
-                result += "return BallDyn(__r); }()";
+                result += "return ball_make_set(__r); }()";
                 return result;
             }
         }
-        return "std::vector<std::any>{}";
+        return "ball_make_set(BallList{})";
     }
     if (fn == "map_create") {
         // map_create can carry `entries` in input.
@@ -7582,7 +7592,12 @@ inline int64_t ball_index_of(const BallDyn& container, const BallDyn& element) {
     auto pos = s.find(needle);
     return pos != std::string::npos ? static_cast<int64_t>(pos) : -1LL;
   }
-  if (const BallList* lp = container._listPtr()) {
+  // A portable ordered-set value (issue #174) has no _listPtr(); fall back to
+  // its backing list so `.contains()`/`.indexOf()` (list_contains/
+  // list_index_of) work on a Set the same as on a List.
+  const BallList* lp = container._listPtr();
+  if (!lp) lp = container._setBackingList();
+  if (lp) {
     const auto& list = *lp;
     for (size_t i = 0; i < list.size(); i++) {
       if (ball_to_string(BallDyn(list[i])) == ball_to_string(element)) return static_cast<int64_t>(i);
@@ -7594,6 +7609,10 @@ inline int64_t ball_index_of(const BallDyn& container, const BallDyn& element) {
 
 inline BallDyn ball_list_copy(const BallDyn& v) {
   if (const BallList* lp = v._listPtr()) return BallDyn(BallList(*lp));
+  // Set.toList() / Set.of(...) copy: a portable ordered-set value has no
+  // _listPtr(); return a genuine (untagged) list snapshot of its elements —
+  // issue #174.
+  if (const BallList* svp = v._setBackingList()) return BallDyn(BallList(*svp));
   return v;
 }
 inline BallDyn ball_map_copy(const BallDyn& v) {
@@ -10904,21 +10923,27 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
                + map + "," + callback + ")";
     }
 
-    // Set operations — use BallDyn for element equality (handles all types).
-    // Sets are represented as BallDyn lists with uniqueness enforced at add time.
-    if (fn == "set_create") return "BallDyn(BallList{})";
+    // Set operations. Sets are the portable ordered-set value (issue #174:
+    // `{'__ball_set__': [...]}`, matching the Dart/self-hosted engine
+    // representation from issue #68) — BallDyn's size()/empty()/push_back()/
+    // operator[] already dispatch on that shape, so the element-equality
+    // scans below (using BallDyn's `==`, which handles every value type)
+    // work unmodified; only construction and the result of an operation need
+    // to route through ball_make_set to stay properly tagged.
+    if (fn == "set_create") return "ball_make_set(BallList{})";
     if (fn == "set_add") {
         auto set = get_message_field(call, "set");
         auto val = get_message_field(call, "value");
-        return "[](BallDyn v, BallDyn e) -> BallDyn {"
-               "for(int64_t i=0;i<v.size();i++){if(BallDyn(v[i])==e)return v;}"
-               "v.push_back(e._val);return v;}(" + set + "," + val + ")";
+        // push_back() already dedups when the receiver is a portable set.
+        return "[](BallDyn v, BallDyn e) -> BallDyn { v.push_back(e); return v; }(" +
+               set + "," + val + ")";
     }
     if (fn == "set_remove") {
         auto set = get_message_field(call, "set");
         auto val = get_message_field(call, "value");
         return "[](BallDyn v, const BallDyn& e) -> BallDyn {"
-               "if(BallList* l=v._listPtr()){l->erase(std::remove_if(l->begin(),l->end(),"
+               "BallList* l=v._listPtr(); if(!l) l=v._setBackingList();"
+               "if(l){l->erase(std::remove_if(l->begin(),l->end(),"
                "[&](const std::any& x){return BallDyn(x)==e;}),l->end());}return v;}(" + set + "," + val + ")";
     }
     if (fn == "set_contains") {
@@ -10935,34 +10960,22 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         return "BallDyn(" + get_message_field(call, "set") + ").empty()";
     }
     if (fn == "set_to_list") {
-        return get_message_field(call, "set");
+        return "ball_list_copy(BallDyn(" + get_message_field(call, "set") + "))";
     }
     if (fn == "set_union") {
         auto left = get_message_field(call, "left");
         auto right = get_message_field(call, "right");
-        return "[](BallDyn a, const BallDyn& b) -> BallDyn {"
-               "for(int64_t i=0;i<b.size();i++){BallDyn e(b[i]);bool found=false;"
-               "for(int64_t j=0;j<a.size();j++){if(BallDyn(a[j])==e){found=true;break;}}"
-               "if(!found)a.push_back(e._val);}return a;}("
-               + left + "," + right + ")";
+        return "union_(BallDyn(" + left + "), BallDyn(" + right + "))";
     }
     if (fn == "set_intersection") {
         auto left = get_message_field(call, "left");
         auto right = get_message_field(call, "right");
-        return "[](const BallDyn& a, const BallDyn& b) -> BallDyn {BallList r;"
-               "for(int64_t i=0;i<a.size();i++){BallDyn e(a[i]);"
-               "for(int64_t j=0;j<b.size();j++){if(BallDyn(b[j])==e){r.push_back(e._val);break;}}}"
-               "return BallDyn(r);}("
-               + left + "," + right + ")";
+        return "intersection(BallDyn(" + left + "), BallDyn(" + right + "))";
     }
     if (fn == "set_difference") {
         auto left = get_message_field(call, "left");
         auto right = get_message_field(call, "right");
-        return "[](const BallDyn& a, const BallDyn& b) -> BallDyn {BallList r;"
-               "for(int64_t i=0;i<a.size();i++){BallDyn e(a[i]);bool found=false;"
-               "for(int64_t j=0;j<b.size();j++){if(BallDyn(b[j])==e){found=true;break;}}"
-               "if(!found)r.push_back(e._val);}return BallDyn(r);}("
-               + left + "," + right + ")";
+        return "difference(BallDyn(" + left + "), BallDyn(" + right + "))";
     }
 
     if (fn == "list_join") {

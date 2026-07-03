@@ -314,6 +314,16 @@ struct _BallRefDeref {
     static const std::map<std::string, std::any>* obj_map(const std::any& v) {
         return _obj_map_fn ? _obj_map_fn(v) : nullptr;
     }
+    // Portable ordered-set backing list (issue #174): a Ball `Set` value is
+    // the one-key `{'__ball_set__': [...]}` map (see ball_is_ball_set in
+    // ball_dyn.h). This extracts the WRAPPED list from that shape, or
+    // nullptr if `v` isn't it. Registered by ball_dyn.h; null (no-op) in
+    // contexts that don't compile it.
+    using SetListFn = const std::vector<std::any>* (*)(const std::any&);
+    static inline SetListFn _set_list_fn = nullptr;
+    static const std::vector<std::any>* set_list(const std::any& v) {
+        return _set_list_fn ? _set_list_fn(v) : nullptr;
+    }
 };
 
 // std::any — attempt known types, fallback to type name.
@@ -962,6 +972,9 @@ inline std::vector<std::any> ball_to_list(const std::any& raw) {
         return std::any_cast<std::vector<std::any>>(v);
     if (const std::vector<std::any>* lp = _BallRefDeref::list(v))
         return *lp;
+    // Portable ordered-set value (issue #174): unwrap to its backing list.
+    if (const std::vector<std::any>* sp = _BallRefDeref::set_list(v))
+        return *sp;
     if (v.type() == typeid(std::vector<std::string>)) {
         auto& sv = std::any_cast<const std::vector<std::string>&>(v);
         std::vector<std::any> r;
@@ -2561,6 +2574,14 @@ using BallUserRef = std::shared_ptr<std::any>;
 // compare equal to null/empty BallDyn() returned by void builtin methods.
 struct BallDispatchNotFound {};
 
+// Forward declaration: Dart-style stringify for an ordered map, recognizing
+// the portable ordered-set tag (see ball_is_ball_set) and rendering it as a
+// Set literal (`{a, b, c}`) instead of the generic `{key: value}` map shape.
+// Defined below (after BallListRef / ball_to_string(any) are visible) —
+// shared by BallDyn::operator std::string() and the _ball_to_string_ext hook
+// used for bare std::any elements nested inside lists/maps (issue #174).
+inline std::string _ball_ordered_map_to_string(const BallOrderedMap& omp);
+
 class BallDyn {
 public:
     std::any _val;
@@ -2726,6 +2747,35 @@ public:
             return std::any_cast<const BallOrderedMapRef&>(_val).get();
         if (_val.type() == typeid(BallOrderedMap))
             return &std::any_cast<const BallOrderedMap&>(_val);
+        return nullptr;
+    }
+
+    // ── Portable ordered-set backing-list accessor (issue #174) ──
+    // A Ball `Set` value compiled by the direct-compile C++ path is the
+    // portable one-key `{'__ball_set__': [...]}` map (mirrors the Dart/self-
+    // hosted engine representation from issue #68 — see ball_is_ball_set
+    // below). Every list-shaped BallDyn operation (size/empty/push_back/
+    // iteration/indexing) must also recognize this shape and operate on the
+    // WRAPPED list, or a Set silently behaves like a 1-entry map. Returns
+    // nullptr for anything that isn't exactly that shape.
+    BallList* _setBackingList() {
+        if (BallOrderedMap* omp = _orderedMapPtr()) {
+            if (omp->size() == 1) {
+                auto it = omp->find("__ball_set__");
+                if (it != omp->end() && it->second.type() == typeid(BallListRef))
+                    return std::any_cast<BallListRef&>(it->second).get();
+            }
+        }
+        return nullptr;
+    }
+    const BallList* _setBackingList() const {
+        if (const BallOrderedMap* omp = _orderedMapPtr()) {
+            if (omp->size() == 1) {
+                auto it = omp->find("__ball_set__");
+                if (it != omp->end() && it->second.type() == typeid(BallListRef))
+                    return std::any_cast<const BallListRef&>(it->second).get();
+            }
+        }
         return nullptr;
     }
 
@@ -2897,16 +2947,7 @@ public:
             return out;
         }
         if (const BallOrderedMap* omp = _orderedMapPtr()) {
-            std::string out = "{";
-            bool first = true;
-            for (const auto& [k, v] : omp->entries_) {
-                if (k.find("__") == 0 || k == "type_args") continue;
-                if (!first) out += ", ";
-                out += k + ": " + ball_to_string(v);
-                first = false;
-            }
-            out += "}";
-            return out;
+            return _ball_ordered_map_to_string(*omp);
         }
         if (_val.type() == typeid(BallStringBuffer))
             return *std::any_cast<const BallStringBuffer&>(_val).buf;
@@ -2987,6 +3028,19 @@ public:
             // `RangeError (index): ...` shape closely enough for stringified
             // catches. Throwing only on a confirmed list receiver keeps the
             // blast radius tight (internal correct reads never go out of range).
+            throw BallException(
+                "RangeError",
+                "RangeError (index): Index out of range: index should be less than " +
+                    std::to_string(v.size()) + ": " + std::to_string(idx));
+        }
+        // Portable ordered-set value: positional access into the wrapped list.
+        // Dart's Set has no `operator[]`, but several runtime set-op helpers
+        // (set_add/set_contains's own manual scans) index by position and rely
+        // on this — issue #174.
+        if (const BallList* svp = _setBackingList()) {
+            const auto& v = *svp;
+            if (idx >= 0 && static_cast<size_t>(idx) < v.size())
+                return BallDyn(v[idx]);
             throw BallException(
                 "RangeError",
                 "RangeError (index): Index out of range: index should be less than " +
@@ -3178,6 +3232,9 @@ public:
         if (const BallList* vp = _listPtr()) return vp->empty();
         if (_val.type() == typeid(BallScope)) return std::any_cast<const BallScope&>(_val)->empty();
         if (_val.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(_val).empty();
+        // Portable ordered-set value: report the WRAPPED list's emptiness, not
+        // the map's own key count (always 1) — issue #174.
+        if (const BallList* svp = _setBackingList()) return svp->empty();
         if (const BallOrderedMap* omp = _orderedMapPtr()) return omp->empty();
         if (_val.type() == typeid(BallUMap)) return std::any_cast<const BallUMap&>(_val).empty();
         return false;
@@ -3188,13 +3245,25 @@ public:
         if (const BallList* vp = _listPtr()) return vp->size();
         if (_val.type() == typeid(BallScope)) return std::any_cast<const BallScope&>(_val)->size();
         if (_val.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(_val).size();
+        // Portable ordered-set value: report the WRAPPED list's element count,
+        // not the map's own key count (always 1) — issue #174.
+        if (const BallList* svp = _setBackingList()) return svp->size();
         if (const BallOrderedMap* omp = _orderedMapPtr()) return omp->size();
         if (_val.type() == typeid(BallUMap)) return std::any_cast<const BallUMap&>(_val).size();
         return 0;
     }
 
     void push_back(const BallDyn& v) {
-        if (BallList* vp = _listPtr()) vp->push_back(v._val);
+        if (BallList* vp = _listPtr()) { vp->push_back(v._val); return; }
+        // Set.add semantics: dedup-insert into the wrapped list, preserving
+        // insertion order (issue #174). A duplicate is a silent no-op, exactly
+        // like list_push's caller-visible mutation for a genuine List.
+        if (BallList* svp = _setBackingList()) {
+            for (const auto& x : *svp) {
+                if (BallDyn(x) == v) return;
+            }
+            svp->push_back(v._val);
+        }
     }
 
     BallDyn front() const {
@@ -3224,7 +3293,9 @@ public:
             std::any_cast<BallUMap&>(_val).erase(key);
     }
     void push_back(const std::any& val) {
-        if (BallList* vp = _listPtr()) vp->push_back(val);
+        // Delegate to the BallDyn overload so Set.add dedup (issue #174)
+        // applies uniformly regardless of which overload the caller used.
+        push_back(BallDyn(val));
     }
     void pop_back() {
         if (BallList* vp = _listPtr()) {
@@ -3624,6 +3695,15 @@ public:
             }
             return -1;
         }
+        // Portable ordered-set value: search the wrapped list (issue #174).
+        if (const BallList* svp = _setBackingList()) {
+            const auto& v = *svp;
+            for (size_t i = 0; i < v.size(); i++) {
+                BallDyn el(v[i]);
+                if (el == needle) return static_cast<int64_t>(i);
+            }
+            return -1;
+        }
         if (_val.type() == typeid(std::string) && needle._val.type() == typeid(std::string)) {
             auto& s = std::any_cast<const std::string&>(_val);
             auto& n = std::any_cast<const std::string&>(needle._val);
@@ -3643,11 +3723,15 @@ public:
     };
     Iterator begin() const {
         if (const BallList* vp = _listPtr()) return {vp, 0};
+        // Portable ordered-set value: `for (final x in someSet)` iterates the
+        // wrapped list in insertion order (issue #174).
+        if (const BallList* svp = _setBackingList()) return {svp, 0};
         static BallList empty;
         return {&empty, 0};
     }
     Iterator end() const {
         if (const BallList* vp = _listPtr()) return {vp, vp->size()};
+        if (const BallList* svp = _setBackingList()) return {svp, svp->size()};
         static BallList empty;
         return {&empty, 0};
     }
@@ -4557,47 +4641,110 @@ inline std::vector<std::any> decode(const Base64Codec& c, const BallDyn& s) {
     return c.decode(static_cast<std::string>(s));
 }
 
-// ── ball_to_set(BallDyn) ──
-inline BallDyn ball_to_set(const BallDyn& d) {
-    if (const BallList* lp = d._listPtr()) {
-        return BallDyn(ball_to_set(*lp));
+// Definition of the forward-declared Dart-style ordered-map stringify
+// (declared just before `class BallDyn`). Recognizes the portable ordered-
+// set tag and renders `{a, b, c}` (Dart Set literal) instead of the generic
+// `{key: value}` map shape — issue #174.
+inline std::string _ball_ordered_map_to_string(const BallOrderedMap& omp) {
+    if (omp.size() == 1) {
+        auto it = omp.find("__ball_set__");
+        if (it != omp.end()) {
+            const std::any& raw = it->second;
+            const BallList* items = nullptr;
+            if (raw.type() == typeid(BallListRef)) items = std::any_cast<const BallListRef&>(raw).get();
+            else if (raw.type() == typeid(BallList)) items = &std::any_cast<const BallList&>(raw);
+            std::string out = "{";
+            bool first = true;
+            if (items) {
+                for (const auto& v : *items) {
+                    if (!first) out += ", ";
+                    out += ball_to_string(v);
+                    first = false;
+                }
+            }
+            out += "}";
+            return out;
+        }
     }
-    return d;
+    std::string out = "{";
+    bool first = true;
+    for (const auto& [k, v] : omp.entries_) {
+        if (k.find("__") == 0 || k == "type_args") continue;
+        if (!first) out += ", ";
+        out += k + ": " + ball_to_string(v);
+        first = false;
+    }
+    out += "}";
+    return out;
 }
 
-// ── Set operations on BallDyn ──
+// Build the portable ordered-set value from [items], deduping by BallDyn
+// equality while preserving first-seen (insertion) order — the Set-literal
+// construction semantics (`{1, 2, 3}`, `{3, 1, 2, 1, 3}` -> `{3, 1, 2}`) for
+// the direct-compile C++ path (issue #174). Mirrors `_ballSetOf` in the Dart
+// reference engine (dart/engine/lib/engine_std.dart) and its self-hosted
+// compiled equivalent.
+inline BallDyn ball_make_set(const BallList& items) {
+    BallList deduped;
+    for (const auto& item : items) {
+        BallDyn e(item);
+        bool found = false;
+        for (const auto& x : deduped) {
+            if (BallDyn(x) == e) { found = true; break; }
+        }
+        if (!found) deduped.push_back(item);
+    }
+    BallOrderedMap m;
+    m["__ball_set__"] = std::any(BallListRef(std::make_shared<BallList>(std::move(deduped))));
+    return BallDyn(std::move(m));
+}
+
+// Extract the elements of a BallDyn list OR the portable ordered-set value
+// as a plain BallList snapshot — the common receiver-normalization step for
+// Set.of/from and the algebraic set ops below (issue #174).
+inline BallList _ball_set_or_list_elements(const BallDyn& v) {
+    if (const BallList* lp = v._listPtr()) return *lp;
+    if (const BallList* lp = v._setBackingList()) return *lp;
+    return BallList{};
+}
+
+// ── ball_to_set(BallDyn) ──
+inline BallDyn ball_to_set(const BallDyn& d) {
+    return ball_make_set(_ball_set_or_list_elements(d));
+}
+
+// ── Set operations on BallDyn. Both operands may be a List or the portable
+// ordered-set value; the RESULT is always a proper tagged Set (Dart-style
+// `{...}` print, not a raw `[...]` list) — issue #174. ──
 inline BallDyn union_(const BallDyn& a, const BallDyn& b) {
-    BallList sa, sb;
-    if (const BallList* lp = a._listPtr()) sa = *lp;
-    if (const BallList* lp = b._listPtr()) sb = *lp;
+    BallList sa = _ball_set_or_list_elements(a);
+    BallList sb = _ball_set_or_list_elements(b);
     for (auto& e : sb) {
         bool found = false;
         for (auto& x : sa) { if (ball_to_string(x) == ball_to_string(e)) { found = true; break; } }
         if (!found) sa.push_back(e);
     }
-    return BallDyn(sa);
+    return ball_make_set(sa);
 }
 inline BallDyn intersection(const BallDyn& a, const BallDyn& b) {
-    BallList sa, sb;
-    if (const BallList* lp = a._listPtr()) sa = *lp;
-    if (const BallList* lp = b._listPtr()) sb = *lp;
+    BallList sa = _ball_set_or_list_elements(a);
+    BallList sb = _ball_set_or_list_elements(b);
     BallList result;
     for (auto& e : sa) {
         for (auto& x : sb) { if (ball_to_string(x) == ball_to_string(e)) { result.push_back(e); break; } }
     }
-    return BallDyn(result);
+    return ball_make_set(result);
 }
 inline BallDyn difference(const BallDyn& a, const BallDyn& b) {
-    BallList sa, sb;
-    if (const BallList* lp = a._listPtr()) sa = *lp;
-    if (const BallList* lp = b._listPtr()) sb = *lp;
+    BallList sa = _ball_set_or_list_elements(a);
+    BallList sb = _ball_set_or_list_elements(b);
     BallList result;
     for (auto& e : sa) {
         bool found = false;
         for (auto& x : sb) { if (ball_to_string(x) == ball_to_string(e)) { found = true; break; } }
         if (!found) result.push_back(e);
     }
-    return BallDyn(result);
+    return ball_make_set(result);
 }
 
 // ── fromCharCode / toIso8601String BallDyn overloads ──
@@ -4710,16 +4857,10 @@ inline const bool _ball_ordered_map_extensions_registered = []() {
     _ball_to_string_ext = [](const std::any& v) -> std::string {
         const BallOrderedMap* omp = _ballAnyOrderedMapPtr(v);
         if (!omp) return "";
-        std::string out = "{";
-        bool first = true;
-        for (const auto& [k, val] : omp->entries_) {
-            if (k.rfind("__", 0) == 0 || k == "type_args") continue;
-            if (!first) out += ", ";
-            out += k + ": " + ball_to_string(val);
-            first = false;
-        }
-        out += "}";
-        return out;
+        // Shared with BallDyn::operator std::string() so a Set nested inside a
+        // List/Map (a bare std::any element, not a BallDyn) ALSO renders
+        // Dart-style (`{a, b, c}`), not as the generic map shape — issue #174.
+        return _ball_ordered_map_to_string(*omp);
     };
     _ball_json_encode_ext_fn = [](const std::any& u) -> std::string {
         const BallOrderedMap* omp = _ballAnyOrderedMapPtr(u);
@@ -4770,6 +4911,16 @@ inline const bool _ball_ordered_map_extensions_registered = []() {
         if (val_type == "bool") return first_val.type() == typeid(bool);
         return ball_object_type_matches(first_val, val_type);
     };
+    // Portable ordered-set backing-list extraction (issue #174), for
+    // ball_emit_runtime.h helpers (e.g. ball_to_list) that operate on a bare
+    // std::any before BallDyn is visible. Mirrors BallDyn::_setBackingList().
+    _BallRefDeref::_set_list_fn = [](const std::any& v) -> const std::vector<std::any>* {
+        const BallOrderedMap* omp = _ballAnyOrderedMapPtr(v);
+        if (!omp || omp->size() != 1) return nullptr;
+        auto it = omp->find("__ball_set__");
+        if (it == omp->end() || it->second.type() != typeid(BallListRef)) return nullptr;
+        return std::any_cast<const BallListRef&>(it->second).get();
+    };
     return true;
 }();
 
@@ -4790,9 +4941,17 @@ inline bool ball_is_map_dyn(const BallDyn& v) {
 // previously had no `Set` branch and fell through to `ball_object_type_matches`
 // (a `__type__`-field check a portable set map never has), so `x is Set` on a
 // directly-compiled C++ Ball program always evaluated false (issue #68).
+//
+// Delegates to `_setBackingList()` rather than re-deriving the one-key-map
+// shape via `ball_length(v) == 1`/`containsKey` (issue #174): once
+// `BallDyn::size()` started reporting the WRAPPED list's element count for a
+// portable set (so `.length` on a Set works), `ball_length(v)` no longer
+// reflects the OUTER map's key count, and this check silently broke for
+// every set with != 1 elements (`{1,2,3,4,5} is Set` -> false, `is Map` ->
+// true — exactly backwards). `_setBackingList()` inspects the raw
+// `BallOrderedMap` directly and is immune to that dispatch.
 inline bool ball_is_ball_set(const BallDyn& v) {
-    return ball_is_map_dyn(v) && ball_length(v) == 1 &&
-           v.containsKey(std::string("__ball_set__"));
+    return v._setBackingList() != nullptr;
 }
 
 // Map iteration helpers — moved from compiler preamble (MSVC 64KB limit).
@@ -5280,7 +5439,12 @@ inline int64_t ball_index_of(const BallDyn& container, const BallDyn& element) {
     auto pos = s.find(needle);
     return pos != std::string::npos ? static_cast<int64_t>(pos) : -1LL;
   }
-  if (const BallList* lp = container._listPtr()) {
+  // A portable ordered-set value (issue #174) has no _listPtr(); fall back to
+  // its backing list so `.contains()`/`.indexOf()` (list_contains/
+  // list_index_of) work on a Set the same as on a List.
+  const BallList* lp = container._listPtr();
+  if (!lp) lp = container._setBackingList();
+  if (lp) {
     const auto& list = *lp;
     for (size_t i = 0; i < list.size(); i++) {
       if (ball_to_string(BallDyn(list[i])) == ball_to_string(element)) return static_cast<int64_t>(i);
@@ -5292,6 +5456,10 @@ inline int64_t ball_index_of(const BallDyn& container, const BallDyn& element) {
 
 inline BallDyn ball_list_copy(const BallDyn& v) {
   if (const BallList* lp = v._listPtr()) return BallDyn(BallList(*lp));
+  // Set.toList() / Set.of(...) copy: a portable ordered-set value has no
+  // _listPtr(); return a genuine (untagged) list snapshot of its elements —
+  // issue #174.
+  if (const BallList* svp = v._setBackingList()) return BallDyn(BallList(*svp));
   return v;
 }
 inline BallDyn ball_map_copy(const BallDyn& v) {

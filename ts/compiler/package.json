@@ -19,6 +19,7 @@
   "scripts": {
     "build": "tsc",
     "test": "node --experimental-strip-types --test test/*.test.ts",
+    "coverage": "c8 --reporter=text --reporter=lcov --include \"src/**\" --check-coverage --lines 83 --branches 63 --functions 84 --statements 83 npm test",
     "prepublishOnly": "npm run build",
     "prepack": "npm run build"
   },
@@ -60,6 +61,7 @@
     "ts-morph": "^28.0.0"
   },
   "devDependencies": {
+    "c8": "^11.0.0",
     "typescript": "^6.0.2"
   }
 }

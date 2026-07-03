@@ -3387,6 +3387,13 @@ class DartCompiler {
       'to_double' => _methodCallExpr(f, 'toDouble()'),
       'to_int' => _methodCallExpr(f, 'toInt()'),
       'to_string_as_fixed' => _methodCall2(f, 'toStringAsFixed'),
+      // num.{round,floor,ceil,truncate}ToDouble() + exponential/precision (#100)
+      'round_to_double' => _methodCallExpr(f, 'roundToDouble()'),
+      'floor_to_double' => _methodCallExpr(f, 'floorToDouble()'),
+      'ceil_to_double' => _methodCallExpr(f, 'ceilToDouble()'),
+      'truncate_to_double' => _methodCallExpr(f, 'truncateToDouble()'),
+      'to_string_as_exponential' => _compileToStringAsExponential(f),
+      'to_string_as_precision' => _methodCall2(f, 'toStringAsPrecision'),
       'string_code_unit_at' => _methodCall2(f, 'codeUnitAt'),
       // ── Dart-specific ───────────────────────────────────────
       'dart_list_generate' || 'list_generate' =>
@@ -4102,13 +4109,35 @@ class DartCompiler {
         f['separator'] ??
         f['from'] ??
         f['digits'] ??
+        f['precision'] ??
         f['arg'] ??
         f['other'] ??
         f['arg0'];
     if (l == null || r == null) return '/* invalid $method() */';
+    // Parenthesize a prefix/infix receiver so `-1000.0.toStringAsFixed(2)` is
+    // `(-1000.0).toStringAsFixed(2)`, not `-(1000.0.toStringAsFixed(2))`.
+    // Without the parens a re-encode reads the `-` as negating the STRING
+    // result, dropping trailing zeros on whole values (`-1000.00` → `-1000.0`).
+    final inner = _e(l);
+    if (_needsParensAsReceiver(l, inner)) {
+      return '($inner).$method(${_e(r)})';
+    }
     return _emit(
       _compileExpression(l).property(method).call([_compileExpression(r)]),
     );
+  }
+
+  /// `num.toStringAsExponential([fractionDigits])` — the argument is optional
+  /// (issue #100). Emits the no-arg form when the encoder produced no digits.
+  String _compileToStringAsExponential(Map<String, Expression> f) {
+    final v = f['value'] ?? f['left'] ?? f['target'];
+    if (v == null) return '/* invalid toStringAsExponential() */';
+    final d = f['digits'] ?? f['fractionDigits'] ?? f['arg0'];
+    final inner = _e(v);
+    final recv = _needsParensAsReceiver(v, inner) ? '($inner)' : inner;
+    return d == null
+        ? '$recv.toStringAsExponential()'
+        : '$recv.toStringAsExponential(${_e(d)})';
   }
 
   String _typeOp(Map<String, Expression> f, String op) {

@@ -5004,6 +5004,28 @@ function __isUnknownFnError(e: any): boolean {
             const d = this.expr(fg("digits", "arg1", "right")!);
             return `(+(${v})).toFixed(${d})`;
           }
+          // num.{round,floor,ceil,truncate}ToDouble() → double (issue #100).
+          // Wrap in BallDouble so a whole result renders `4.0`, not `4`.
+          case "round_to_double":
+            return `new BallDouble(Math.round(+(${this.expr(fg("value", "arg0")!)})))`;
+          case "floor_to_double":
+            return `new BallDouble(Math.floor(+(${this.expr(fg("value", "arg0")!)})))`;
+          case "ceil_to_double":
+            return `new BallDouble(Math.ceil(+(${this.expr(fg("value", "arg0")!)})))`;
+          case "truncate_to_double":
+            return `new BallDouble(Math.trunc(+(${this.expr(fg("value", "arg0")!)})))`;
+          case "to_string_as_exponential": {
+            const v = this.expr(fg("value", "arg0")!);
+            const dExpr = f.get("digits") ?? f.get("fractionDigits") ?? f.get("arg1");
+            return dExpr
+              ? `(+(${v})).toExponential(${this.expr(dExpr)})`
+              : `(+(${v})).toExponential()`;
+          }
+          case "to_string_as_precision": {
+            const v = this.expr(fg("value", "arg0")!);
+            const p = this.expr(fg("precision", "digits", "arg1", "right")!);
+            return `(+(${v})).toPrecision(${p})`;
+          }
           case "math_clamp": {
             // When encoded from a static method call like MathUtils.clamp(5, 0, 10),
             // the encoder maps it as math_clamp(value: MathUtils, min: 5, max: 0, arg2: 10).

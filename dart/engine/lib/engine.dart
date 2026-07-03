@@ -554,8 +554,19 @@ class BallEngine {
             ? await _evalExpression(func.body, _globalScope)
             : null;
         if (func.outputType.startsWith('Map')) {
-          if (value is Set && value.isEmpty) value = _ballUserMap();
-          if (value is List && value.isEmpty) value = _ballUserMap();
+          // An ambiguous empty `{}` initializer for a Map-typed static/top-level
+          // field arrives as an empty ordered set; coerce it to a real map.
+          // Test the portable set form via `_isBallSet`/`_ballSetItems` (not the
+          // bare `value is Set`, which compiles to `ball_is_ball_set` on the C++
+          // self-host and is true for the *non-empty* one-key set map, whose
+          // `.isEmpty` is then false — silently skipping the coercion). Mirrors
+          // the `let`/field-type hook in engine_eval.dart. Issue #68.
+          if (_isBallSet(value) && _ballSetItems(value).isEmpty) {
+            value = _ballUserMap();
+          }
+          if (value is List && value.isEmpty) {
+            value = _ballUserMap();
+          }
         }
         _globalScope.bind(func.name, value);
       }

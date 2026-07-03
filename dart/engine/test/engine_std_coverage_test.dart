@@ -340,6 +340,86 @@ void main() {
         '3.14',
       );
     });
+
+    // num.{round,floor,ceil,truncate}ToDouble() — return a double (issue #100).
+    test('round_to_double', () async {
+      expect(await evalPrintStr(stdCall('round_to_double', unMsg(3.7))), '4.0');
+      expect(
+        await evalPrintStr(stdCall('round_to_double', unMsg(-3.2))),
+        '-3.0',
+      );
+    });
+    test('floor_to_double', () async {
+      expect(await evalPrintStr(stdCall('floor_to_double', unMsg(3.7))), '3.0');
+      expect(
+        await evalPrintStr(stdCall('floor_to_double', unMsg(-3.2))),
+        '-4.0',
+      );
+    });
+    test('ceil_to_double', () async {
+      expect(await evalPrintStr(stdCall('ceil_to_double', unMsg(3.2))), '4.0');
+      expect(
+        await evalPrintStr(stdCall('ceil_to_double', unMsg(-3.7))),
+        '-3.0',
+      );
+    });
+    test('truncate_to_double', () async {
+      expect(
+        await evalPrintStr(stdCall('truncate_to_double', unMsg(3.7))),
+        '3.0',
+      );
+      expect(
+        await evalPrintStr(stdCall('truncate_to_double', unMsg(-3.7))),
+        '-3.0',
+      );
+    });
+
+    // num.toStringAsExponential([fractionDigits]) / toStringAsPrecision(p).
+    // Carved out of the conformance corpus (C++ formatting differs); these
+    // unit tests pin the Dart reference-engine behavior. (issue #100)
+    test('to_string_as_exponential (with digits)', () async {
+      expect(
+        await evalPrintStr(
+          stdCall(
+            'to_string_as_exponential',
+            msg([
+              field('value', literal(123.456)),
+              field('digits', literal(2)),
+            ]),
+          ),
+        ),
+        '1.23e+2',
+      );
+    });
+    test('to_string_as_exponential (no digits)', () async {
+      expect(
+        await evalPrintStr(stdCall('to_string_as_exponential', unMsg(123.456))),
+        '1.23456e+2',
+      );
+    });
+    test('to_string_as_precision', () async {
+      expect(
+        await evalPrintStr(
+          stdCall(
+            'to_string_as_precision',
+            msg([
+              field('value', literal(123.456)),
+              field('precision', literal(4)),
+            ]),
+          ),
+        ),
+        '123.5',
+      );
+      expect(
+        await evalPrintStr(
+          stdCall(
+            'to_string_as_precision',
+            msg([field('value', literal(1.0)), field('precision', literal(3))]),
+          ),
+        ),
+        '1.00',
+      );
+    });
   });
 
   group('comparison & logic', () {

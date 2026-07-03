@@ -2498,7 +2498,9 @@ static std::string _typeCheckCondition(const std::string& typeName, const std::s
         return "(ball_is_list(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallList\"s))";
     }
     if (typeName == "Map") {
-        return "(ball_is_map_dyn(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallMap\"s))";
+        // Exclude the portable ordered set (one-key `{'__ball_set__': [...]}`
+        // map) from a `Map` type pattern — a set is not a Map (issue #68).
+        return "((ball_is_map_dyn(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallMap\"s)) && !ball_is_ball_set(BallDyn(" + subject + ")))";
     }
     return "ball_object_type_matches(" + subject + ", \"" + typeName + "\"s)";
 }
@@ -3537,9 +3539,15 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
 
         if (fn == "_ballIsMap") {
             const std::string val = argAt(0, "map");
-            return "(ball_is_map_dyn(BallDyn(" + val +
+            // A portable ordered set is stored as a one-key
+            // `{'__ball_set__': [...]}` map, so it must be EXCLUDED from
+            // `is Map` — matching the Dart source `_ballIsMap`, which ends
+            // `&& !_ballValueIsSet(v)`. Without the exclusion `set is Map`
+            // wrongly returns true (issue #68).
+            return "((ball_is_map_dyn(BallDyn(" + val +
                    ")) || ball_object_type_matches(BallDyn(" + val +
-                   "), \"BallMap\"s))";
+                   "), \"BallMap\"s)) && !ball_is_ball_set(BallDyn(" + val +
+                   ")))";
         }
         if (fn == "_ballMapValues" || fn == "_ballMapValuesDyn") {
             return "ball_list_copy(ball_map_values(BallDyn(" + argAt(0, "map") +
@@ -4006,6 +4014,19 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         auto v = get_message_field(call, "value");
         return "static_cast<double>(" + v + ")";
     }
+    // num.{round,floor,ceil,truncate}ToDouble() — return a double (issue #100).
+    if (fn == "round_to_double") {
+        return "std::round(static_cast<double>(" + get_message_field(call, "value") + "))";
+    }
+    if (fn == "floor_to_double") {
+        return "std::floor(static_cast<double>(" + get_message_field(call, "value") + "))";
+    }
+    if (fn == "ceil_to_double") {
+        return "std::ceil(static_cast<double>(" + get_message_field(call, "value") + "))";
+    }
+    if (fn == "truncate_to_double") {
+        return "std::trunc(static_cast<double>(" + get_message_field(call, "value") + "))";
+    }
     if (fn == "string_to_int") {
         // Wrap in an IIFE that converts std::invalid_argument /
         // std::out_of_range into a `BallException("FormatException", …)`
@@ -4376,6 +4397,11 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         else if (tn == "bool") ck = "ball_is_bool(" + val + ")";
         else if (tn == "Function") ck = "ball_is_function(" + val + ")";
         else if (tn == "_FlowSignal" || tn == "FlowSignal") ck = "ball_is_flow_signal(" + val + ")";
+        // Portable ordered-set value (issue #68): a one-key
+        // `{'__ball_set__': [...]}` map, never a `__type__`-tagged object, so
+        // this must NOT fall through to the `ball_object_type_matches` default
+        // below (that always returned false for `x is Set`).
+        else if (tn == "Set") ck = "ball_is_ball_set(BallDyn(" + val + "))";
         else ck = "ball_object_type_matches(" + val + ", \"" + tn + "\"s)";
         // For reified generics on user types (e.g. `x is Box<int>`), also check
         // that the object's __type_args__ field matches the expected type args.
@@ -5197,9 +5223,50 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                get_message_field(call, "value") + "), static_cast<int64_t>(" + get_message_field(call, "index") + "))";
     }
     if (fn == "to_string_as_fixed") {
-        return "[](double x, int64_t d){ std::ostringstream o; o << std::fixed << std::setprecision((int)d) << x; return o.str(); }("
+        // Dart's num.toStringAsFixed rounds ties AWAY from zero (2.5 -> "3",
+        // -2.5 -> "-3"), but `std::fixed << std::setprecision` on glibc/MSVC
+        // performs the IEEE-754-default "round half to even" for an exact tie
+        // (2.5 -> "2") — issue #101's extended negative fixture (316) caught
+        // this via `(-2.5).toStringAsFixed(0)`. Round manually (fabs + llround,
+        // which IS round-half-away-from-zero) and re-attach the sign via
+        // std::signbit — this also portably preserves the sign of -0.0
+        // (glibc/libstdc++ already do, but this makes it explicit/guaranteed
+        // rather than relying on ostringstream's implementation-defined
+        // negative-zero formatting). Non-finite/very-large-magnitude values
+        // fall back to the original ostringstream formatting (llround is
+        // undefined for inf/nan, and huge scale factors lose precision).
+        return "[](double x, int64_t d){ "
+               "if (!std::isfinite(x)) { std::ostringstream o; o << std::fixed << std::setprecision((int)d) << x; return o.str(); } "
+               "bool neg = std::signbit(x); double ax = std::fabs(x); "
+               "double scale = std::pow(10.0, static_cast<double>(d)); double scaled = ax * scale; "
+               "if (scaled > 1e15) { std::ostringstream o; o << std::fixed << std::setprecision((int)d) << x; return o.str(); } "
+               "long long r = std::llround(scaled); std::string digits = std::to_string(r); "
+               "while (static_cast<int64_t>(digits.size()) <= d) digits = \"0\" + digits; "
+               "std::string s = (d == 0) ? digits : digits.substr(0, digits.size() - static_cast<size_t>(d)) + \".\" + digits.substr(digits.size() - static_cast<size_t>(d)); "
+               "return neg ? (\"-\" + s) : s; }("
                "static_cast<double>(" + get_message_field(call, "value") + "), static_cast<int64_t>(" +
                get_message_field(call, "digits") + "))";
+    }
+    // num.toStringAsExponential([fractionDigits]) / toStringAsPrecision(precision)
+    // (issue #100). Best-effort: `std::scientific`/`std::setprecision` differ from
+    // Dart's minimal-exponent / trailing-zero output, so these are covered by
+    // Dart engine unit tests + TS round-trip and carved out of the C++
+    // conformance corpus (ENCODER_COMPLETENESS_CARVEOUTS.md); the branches exist
+    // so the self-host still compiles. The exponent is normalized (C++ emits
+    // e+NN with >=2 digits; Dart uses the minimal count) for the common case.
+    if (fn == "to_string_as_exponential") {
+        auto v = get_message_field(call, "value");
+        if (get_message_field_expr(call, "digits") != nullptr) {
+            return "[](double x, int64_t d){ std::ostringstream o; o << std::scientific << std::setprecision((int)d) << x; std::string s = o.str(); auto ep = s.find('e'); if (ep != std::string::npos) { std::string head = s.substr(0, ep + 2); std::string ex = s.substr(ep + 2); std::size_t nz = ex.find_first_not_of('0'); ex = (nz == std::string::npos) ? std::string(\"0\") : ex.substr(nz); s = head + ex; } return s; }("
+                   "static_cast<double>(" + v + "), static_cast<int64_t>(" + get_message_field(call, "digits") + "))";
+        }
+        return "[](double x){ std::ostringstream o; o << std::scientific << x; std::string s = o.str(); auto ep = s.find('e'); if (ep != std::string::npos) { std::string head = s.substr(0, ep + 2); std::string ex = s.substr(ep + 2); std::size_t nz = ex.find_first_not_of('0'); ex = (nz == std::string::npos) ? std::string(\"0\") : ex.substr(nz); s = head + ex; } return s; }("
+               "static_cast<double>(" + v + "))";
+    }
+    if (fn == "to_string_as_precision") {
+        return "[](double x, int64_t p){ std::ostringstream o; o << std::setprecision((int)p) << x; return o.str(); }("
+               "static_cast<double>(" + get_message_field(call, "value") + "), static_cast<int64_t>(" +
+               get_message_field(call, "precision") + "))";
     }
     // ── Comparison / math ──
     if (fn == "compare_to") {
@@ -9253,7 +9320,10 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         emit_indent();
         out_ << return_type << " " << name << "(BallDyn v) {\n";
         indent_++;
-        emit_line("return BallDyn(ball_is_map_dyn(v) || ball_object_type_matches(v, \"BallMap\"s));");
+        // Exclude the portable ordered set (a one-key `{'__ball_set__': [...]}`
+        // map) — matches the Dart source `_ballIsMap`'s `&& !_ballValueIsSet(v)`
+        // (issue #68). Keep in lockstep with the inlined `_ballIsMap` fast-path.
+        emit_line("return BallDyn((ball_is_map_dyn(v) || ball_object_type_matches(v, \"BallMap\"s)) && !ball_is_ball_set(v));");
         indent_--;
         emit_line("}\n");
         return;

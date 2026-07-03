@@ -1743,7 +1743,7 @@ export class BallEngine {
         this._currentModule = module.name;
         let value = (hasBody(func) ? await this._evalExpression(func.body, this._globalScope) : null);
         if (func.outputType.startsWith('Map')) {
-          if (((value instanceof Set) && (value.length === 0))) {
+          if ((this._isBallSet(value) && (this._ballSetItems(value).length === 0))) {
             value = _ballUserMap();
           }
           if ((Array.isArray(value) && (value.length === 0))) {
@@ -3489,7 +3489,7 @@ export class BallEngine {
       let func = staticField.func;
       let value = await this._callFunction(staticField.module, func, null);
       if (func.outputType.startsWith('Map')) {
-        if (((value instanceof Set) && (value.length === 0))) {
+        if ((this._isBallSet(value) && (this._ballSetItems(value).length === 0))) {
           value = _ballUserMap();
         }
         if ((Array.isArray(value) && (value.length === 0))) {
@@ -3507,6 +3507,39 @@ export class BallEngine {
     let fieldName = access.field_2;
     if (_isBallFuture(object)) {
       object = __ball_index(object, 'value');
+    }
+    if (this._isBallSet(object)) {
+      let items = this._ballSetItems(object);
+      do {
+        const __sw = fieldName;
+        if ((__sw === 'length')) {
+          return items.length;
+        }
+        else if ((__sw === 'isEmpty')) {
+          return (items.length === 0);
+        }
+        else if ((__sw === 'isNotEmpty')) {
+          return !(items.length === 0);
+        }
+        else if ((__sw === 'first')) {
+          if (!(items.length === 0)) {
+            return items.first;
+          }
+          throw new BallRuntimeError('First element of empty set');
+        }
+        else if ((__sw === 'last')) {
+          if (!(items.length === 0)) {
+            return items.last;
+          }
+          throw new BallRuntimeError('Last element of empty set');
+        }
+        else if ((__sw === 'single')) {
+          if (__ball_eq(items.length, 1)) {
+            return items.single;
+          }
+          throw new BallRuntimeError('Set does not have exactly one element');
+        }
+      } while (false);
     }
     let objectMap = this._asMap(object);
     if ((!__ball_eq(objectMap, null) && __ball_eq(__ball_index(objectMap, '__type__'), '__builtin_class__'))) {
@@ -4417,7 +4450,7 @@ export class BallEngine {
             return (__ball_eq(__naa_12, null) ? null : __naa_12.stringValue);
           })();
           if ((!__ball_eq(letType, null) && letType.startsWith('Map'))) {
-            if (((value instanceof Set) && (value.length === 0))) {
+            if ((this._isBallSet(value) && (this._ballSetItems(value).length === 0))) {
               value = _ballUserMap();
             }
             if ((Array.isArray(value) && (value.length === 0))) {
@@ -5274,6 +5307,10 @@ export class BallEngine {
       if ((!__ball_eq(indexTarget, null) && !__ball_eq(indexExpr, null))) {
         let list = await this._evalExpression(indexTarget, scope);
         let idx = await this._evalExpression(indexExpr, scope);
+        if (this._isBallSet(list)) {
+          list = _ballUserMap();
+          this._cfWritebackIndexed(indexTarget, list, scope);
+        }
         if (((!__ball_eq(op, null) && !(op.length === 0)) && !__ball_eq(op, '='))) {
           let computed = __no_init__;
           let didSet = false;
@@ -5881,6 +5918,73 @@ export class BallEngine {
         }
       }
     }
+    if (_ballValueIsSet(unwrappedSelf)) {
+      let items = this._ballSetItems(unwrappedSelf);
+      do {
+        const __sw = method;
+        if ((__sw === 'add')) {
+          if (items.includes(arg0)) {
+            return false;
+          }
+          items = (items.push(arg0), items);
+          return true;
+        }
+        else if ((__sw === 'remove')) {
+          let had = items.includes(arg0);
+          items.remove(arg0);
+          return had;
+        }
+        else if ((__sw === 'addAll')) {
+          for (const e of (this._stdAsList(arg0) ?? [])) {
+            if (!items.includes(e)) {
+              items = (items.push(e), items);
+            }
+          }
+          return null;
+        }
+        else if ((__sw === 'contains')) {
+          return items.includes(arg0);
+        }
+        else if ((__sw === 'union')) {
+          let out = [items];
+          for (const e of (this._stdAsList(arg0) ?? [])) {
+            if (!out.includes(e)) {
+              out = (out.push(e), out);
+            }
+          }
+          return this._ballSetOf(out);
+        }
+        else if ((__sw === 'intersection')) {
+          let other = (this._stdAsList(arg0) ?? []);
+          return this._ballSetOf(items.filter(((e) => {
+            const input = e;
+            return other.includes(e);
+          })));
+        }
+        else if ((__sw === 'difference')) {
+          let other = (this._stdAsList(arg0) ?? []);
+          return this._ballSetOf(items.filter(((e) => {
+            const input = e;
+            return !other.includes(e);
+          })));
+        }
+        else if ((__sw === 'toSet')) {
+          return this._ballSetOf(items);
+        }
+        else if ((__sw === 'length')) {
+          return items.length;
+        }
+        else if ((__sw === 'isEmpty')) {
+          return (items.length === 0);
+        }
+        else if ((__sw === 'isNotEmpty')) {
+          return !(items.length === 0);
+        }
+        else {
+          return this._dispatchBuiltinInstanceMethod(items, method, input);
+        }
+      } while (false);
+    }
     if (Array.isArray(unwrappedSelf)) {
       let self = unwrappedSelf;
       let _wrapList = ((result) => {
@@ -5889,7 +5993,16 @@ export class BallEngine {
       });
       do {
         const __sw = method;
-        if ((__sw === 'add')) {
+        if ((__sw === 'length')) {
+          return self.length;
+        }
+        else if ((__sw === 'isEmpty')) {
+          return (self.length === 0);
+        }
+        else if ((__sw === 'isNotEmpty')) {
+          return !(self.length === 0);
+        }
+        else if ((__sw === 'add')) {
           self = (self.push(arg0), self);
           return null;
         }
@@ -6404,9 +6517,47 @@ export class BallEngine {
     if (false /* BallList is List in TS */) {
       return v.items;
     }
+    if (this._isBallSet(v)) {
+      return this._ballSetItems(v);
+    }
     if (Array.isArray(v)) {
       return v;
     }
+  }
+
+  _isBallSet(v: any): any {
+    const input = v;
+    return ((v instanceof Set) || _ballValueIsSet(v));
+  }
+
+  _ballSetItems(v: any): any {
+    const input = v;
+    if (_ballValueIsSet(v)) {
+      let setMap = v;
+      let raw = __ball_index(setMap, _kBallSetTag);
+      if (false /* BallList is List in TS */) {
+        return raw.items;
+      }
+      if (Array.isArray(raw)) {
+        return raw;
+      }
+      return [];
+    }
+    if ((v instanceof Set)) {
+      return [...v];
+    }
+    return [];
+  }
+
+  _ballSetOf(items: any): any {
+    const input = items;
+    let result = [];
+    for (const item of items) {
+      if (!result.includes(item)) {
+        result = (result.push(item), result);
+      }
+    }
+    return { [_kBallSetTag]: result };
   }
 
   async _tryOperatorOverride(function_: any, input: any): Promise<any> {
@@ -6700,7 +6851,25 @@ export class BallEngine {
         let m = (this._stdAsMap(i) ?? { ['value']: i });
         let v = (__ball_index(m, 'value') ?? __ball_index(m, 'left'));
         let digits = (__ball_index(m, 'digits') ?? __ball_index(m, 'fractionDigits'));
-        return (+(this._toNum(v))).toFixed(this._toInt(digits));
+        let n = this._toNum(v);
+        let s = (+(n)).toFixed(this._toInt(digits));
+        if (((__ball_eq(n, 0) && (new BallDouble(Number(new BallDouble(1)) / Number(n)) < 0)) && !s.startsWith('-'))) {
+          return ('-' + __ball_to_string(s));
+        }
+        return s;
+      }), ['to_string_as_exponential']: ((i) => {
+        const input = i;
+        let m = (this._stdAsMap(i) ?? { ['value']: i });
+        let v = (__ball_index(m, 'value') ?? __ball_index(m, 'left'));
+        let digits = (__ball_index(m, 'digits') ?? __ball_index(m, 'fractionDigits'));
+        let n = this._toNum(v);
+        return (__ball_eq(digits, null) ? (+(n)).toExponential() : (+(n)).toExponential(this._toInt(digits)));
+      }), ['to_string_as_precision']: ((i) => {
+        const input = i;
+        let m = (this._stdAsMap(i) ?? { ['value']: i });
+        let v = (__ball_index(m, 'value') ?? __ball_index(m, 'left'));
+        let precision = (__ball_index(m, 'precision') ?? __ball_index(m, 'digits'));
+        return (+(this._toNum(v))).toPrecision(this._toInt(precision));
       }), ['string_interpolation']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
@@ -6759,7 +6928,16 @@ export class BallEngine {
         const input = i;
         let m = this._stdAsMap(i);
         let raw = __ball_index(m, 'list');
-        let list = (this._stdAsList(raw) ?? (((raw instanceof Set) ? [...raw] : [])));
+        if (this._isBallSet(raw)) {
+          let items = this._ballSetItems(raw);
+          let value = __ball_index(m, 'value');
+          if (!items.includes(value)) {
+            this._trackMemoryAllocation(_ballPointerBytes);
+            return this._ballSetOf([items, value]);
+          }
+          return this._ballSetOf(items);
+        }
+        let list = (this._stdAsList(raw) ?? []);
         this._trackMemoryAllocation(_ballPointerBytes);
         list = (list.push(__ball_index(m, 'value')), list);
         return list;
@@ -7090,6 +7268,9 @@ export class BallEngine {
       }), ['list_concat']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
+        if (this._isBallSet(__ball_index(m, 'list'))) {
+          return this._ballSetOf([this._ballSetItems(__ball_index(m, 'list')), (this._stdAsList(__ball_index(m, 'value')) ?? [])]);
+        }
         let result = (() => { const __r: any[] = []; for (const __e of this._stdAsList(__ball_index(m, 'list'))) { __r.push(__e); } for (const __e of this._stdAsList(__ball_index(m, 'value'))) { __r.push(__e); } return __r; })();
         this._trackMemoryAllocation(__ball_mul(result.length, _ballPointerBytes));
         return result;
@@ -7097,6 +7278,10 @@ export class BallEngine {
         const input = i;
         let m = this._stdAsMap(i);
         let raw = __ball_index(m, 'list');
+        if (this._isBallSet(raw)) {
+          (this._ballSetItems(raw).length = 0, this._ballSetItems(raw));
+          return raw;
+        }
         let list = this._stdAsList(raw);
         if (!__ball_eq(list, null)) {
           list = (list.length = 0, list);
@@ -7198,8 +7383,8 @@ export class BallEngine {
         const input = i;
         let m = this._stdAsMap(i);
         let target = __ball_index(m, 'map');
-        if ((target instanceof Set)) {
-          return target.includes(__ball_index(m, 'key'));
+        if (this._isBallSet(target)) {
+          return this._ballSetItems(target).includes(__ball_index(m, 'key'));
         }
         if (((typeof target === 'object' && target !== null && !Array.isArray(target) && !(target instanceof BallDouble) && !(target instanceof Set)) || false /* BallMap is Map in TS */)) {
           return _ballMapContainsKeyDyn(target, __ball_index(m, 'key'));
@@ -7225,12 +7410,18 @@ export class BallEngine {
       }), ['map_keys']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
+        if (this._isBallSet(__ball_index(m, 'map'))) {
+          return [];
+        }
         let result = _ballMapKeysDyn(__ball_index(m, 'map'));
         this._trackMemoryAllocation(__ball_mul(result.length, _ballPointerBytes));
         return result;
       }), ['map_values']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
+        if (this._isBallSet(__ball_index(m, 'map'))) {
+          return [];
+        }
         let result = _ballMapValuesDyn(__ball_index(m, 'map'));
         this._trackMemoryAllocation(__ball_mul(result.length, _ballPointerBytes));
         return result;
@@ -7331,40 +7522,64 @@ export class BallEngine {
       }), ['set_add']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
-        let s = __ball_index(m, 'set').toSet();
-        s = (s.push(__ball_index(m, 'value')), s);
-        return s;
+        let items = this._ballSetItems(__ball_index(m, 'set'));
+        let value = __ball_index(m, 'value');
+        if (!items.includes(value)) {
+          this._trackMemoryAllocation(_ballPointerBytes);
+          return this._ballSetOf([items, value]);
+        }
+        return this._ballSetOf(items);
       }), ['set_remove']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
-        let s = __ball_index(m, 'set').toSet();
-        s.remove(__ball_index(m, 'value'));
-        return s;
+        let items = this._ballSetItems(__ball_index(m, 'set'));
+        let value = __ball_index(m, 'value');
+        let kept = [];
+        for (const e of items) {
+          if (!__ball_eq(e, value)) {
+            kept = (kept.push(e), kept);
+          }
+        }
+        return this._ballSetOf(kept);
       }), ['set_contains']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
-        return __ball_index(m, 'set').includes(__ball_index(m, 'value'));
+        return this._ballSetItems(__ball_index(m, 'set')).includes(__ball_index(m, 'value'));
       }), ['set_union']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
-        return __ball_index(m, 'left').union(__ball_index(m, 'right'));
+        return this._ballSetOf([this._ballSetItems(__ball_index(m, 'left')), this._ballSetItems(__ball_index(m, 'right'))]);
       }), ['set_intersection']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
-        return __ball_index(m, 'left').intersection(__ball_index(m, 'right'));
+        let right = this._ballSetItems(__ball_index(m, 'right'));
+        let result = [];
+        for (const e of this._ballSetItems(__ball_index(m, 'left'))) {
+          if (right.includes(e)) {
+            result = (result.push(e), result);
+          }
+        }
+        return this._ballSetOf(result);
       }), ['set_difference']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
-        return __ball_index(m, 'left').difference(__ball_index(m, 'right'));
+        let right = this._ballSetItems(__ball_index(m, 'right'));
+        let result = [];
+        for (const e of this._ballSetItems(__ball_index(m, 'left'))) {
+          if (!right.includes(e)) {
+            result = (result.push(e), result);
+          }
+        }
+        return this._ballSetOf(result);
       }), ['set_length']: ((i) => {
         const input = i;
-        return __ball_index(this._stdAsMap(i), 'set').length;
+        return this._ballSetItems(__ball_index(this._stdAsMap(i), 'set')).length;
       }), ['set_is_empty']: ((i) => {
         const input = i;
-        return (__ball_index(this._stdAsMap(i), 'set').length === 0);
+        return (this._ballSetItems(__ball_index(this._stdAsMap(i), 'set')).length === 0);
       }), ['set_to_list']: ((i) => {
         const input = i;
-        return [...__ball_index(this._stdAsMap(i), 'set')];
+        return [this._ballSetItems(__ball_index(this._stdAsMap(i), 'set'))];
       }), ['switch_expr']: this._stdSwitchExpr.bind(this), ['throw']: ((i) => {
         const input = i;
         let val = this._extractUnaryArg(i);
@@ -7591,6 +7806,30 @@ export class BallEngine {
         return this._stdConvert(i, ((v) => {
           const input = v;
           return Math.trunc(this._toNum(v));
+        }));
+      }), ['round_to_double']: ((i) => {
+        const input = i;
+        return this._stdConvert(i, ((v) => {
+          const input = v;
+          return new BallDouble(Math.round(+(this._toNum(v))));
+        }));
+      }), ['floor_to_double']: ((i) => {
+        const input = i;
+        return this._stdConvert(i, ((v) => {
+          const input = v;
+          return new BallDouble(Math.floor(+(this._toNum(v))));
+        }));
+      }), ['ceil_to_double']: ((i) => {
+        const input = i;
+        return this._stdConvert(i, ((v) => {
+          const input = v;
+          return new BallDouble(Math.ceil(+(this._toNum(v))));
+        }));
+      }), ['truncate_to_double']: ((i) => {
+        const input = i;
+        return this._stdConvert(i, ((v) => {
+          const input = v;
+          return new BallDouble(Math.trunc(+(this._toNum(v))));
         }));
       }), ['math_sqrt']: ((i) => {
         const input = i;
@@ -7980,6 +8219,13 @@ export class BallEngine {
     if ((typeof v === 'number' || v instanceof BallDouble)) {
       return __ball_to_string(v);
     }
+    if (this._isBallSet(v)) {
+      let parts = [];
+      for (const item of this._ballSetItems(v)) {
+        parts = (parts.push(await this._ballToStringAsync(item)), parts);
+      }
+      return (('{' + __ball_to_string(parts.join(', '))) + '}');
+    }
     if (false /* BallList is List in TS */) {
       let parts = [];
       for (const item of v.items) {
@@ -8045,6 +8291,15 @@ export class BallEngine {
             map.remove('__tostring_guard__');
           }
         }
+      }
+      if (__ball_eq(typeName, null)) {
+        let parts = [];
+        for (const e of map.entries) {
+          let k = await this._ballToStringAsync(e.key);
+          let val = await this._ballToStringAsync(e.value);
+          parts = (parts.push(((__ball_to_string(k) + ': ') + __ball_to_string(val))), parts);
+        }
+        return (('{' + __ball_to_string(parts.join(', '))) + '}');
       }
     }
     return __ball_to_string(v);
@@ -8242,9 +8497,9 @@ export class BallEngine {
         }
         return true;
       }
-      if ((__ball_eq(baseType, 'Set') && (value instanceof Set))) {
+      if ((__ball_eq(baseType, 'Set') && this._isBallSet(value))) {
         if (__ball_eq(typeArgs.length, 1)) {
-          return value.every(((e) => {
+          return this._ballSetItems(value).every(((e) => {
             const input = e;
             return this._typeMatches(e, __ball_index(typeArgs, 0));
           }));
@@ -8306,7 +8561,7 @@ export class BallEngine {
       return _ballIsMap(value);
     }
     if (__ball_eq(type, 'Set')) {
-      return (value instanceof Set);
+      return this._isBallSet(value);
     }
     if ((__ball_eq(type, 'Null') || __ball_eq(type, 'void'))) {
       return (__ball_eq(value, null) || (value == null));
@@ -8419,15 +8674,15 @@ export class BallEngine {
   _stdSetCreate(input: any): any {
     let m = this._stdAsMap(input);
     if (__ball_eq(m, null)) {
-      return new Set(['Object?']);
+      return this._ballSetOf([]);
     }
     let elements = __ball_index(m, 'elements');
     let elementsList = this._stdAsList(elements);
     if (!__ball_eq(elementsList, null)) {
       this._trackMemoryAllocation(__ball_mul(elementsList.length, _ballPointerBytes));
-      return elementsList.toSet();
+      return this._ballSetOf(elementsList);
     }
-    return new Set(['Object?']);
+    return this._ballSetOf([]);
   }
 
   _collectionMisuse(_: any): any {
@@ -8833,6 +9088,9 @@ export class BallEngine {
     if (_isBallFuture(v)) {
       return this._ballToStringSimple(_unwrapBallFuture(v));
     }
+    if (this._isBallSet(v)) {
+      return (('{' + __ball_to_string(this._ballSetItems(v).map(this._ballToStringSimple.bind(this)).join(', '))) + '}');
+    }
     if (false /* BallList is List in TS */) {
       return (('[' + __ball_to_string(v.items.map(this._ballToStringSimple.bind(this)).join(', '))) + ']');
     }
@@ -8892,7 +9150,7 @@ export class BallEngine {
       return _ballIsMap(value);
     }
     if (__ball_eq(p, 'Set')) {
-      return (value instanceof Set);
+      return this._isBallSet(value);
     }
     return false;
   }
@@ -9142,6 +9400,9 @@ export class BallEngine {
     if (false /* BallList is List in TS */) {
       return v.items;
     }
+    if (this._isBallSet(v)) {
+      return this._ballSetItems(v);
+    }
     if (Array.isArray(v)) {
       return v;
     }
@@ -9324,6 +9585,9 @@ export class BallEngine {
     }
     if ((((typeof v === 'number' || v instanceof BallDouble) || (typeof v === 'boolean')) || (typeof v === 'string'))) {
       return v;
+    }
+    if (this._isBallSet(v)) {
+      return [...this._ballSetItems(v).map(this._toJsonSafe.bind(this))];
     }
     let mapVal = this._stdAsMap(v);
     if (!__ball_eq(mapVal, null)) {
@@ -9650,6 +9914,7 @@ export class StdModuleHandler extends BallModuleHandler {
     return handler(input);
   }
 }
+let _kBallSetTag = (() => { return '__ball_set__'; })();
 let _sentinel = (() => { return { '__type': 'main:Object' }; })();
 let _builtinTypeNames = (() => { return new Set(['int', 'double', 'num', 'String', 'bool', 'List', 'Map', 'Set', 'Null', 'void', 'Object', 'dynamic', 'Function', 'Future', 'Stream', 'Iterable', 'Iterator', 'Type', 'Symbol', 'Never']); })();
 let _ballPointerBytes = (() => { return 8; })();
@@ -9712,6 +9977,11 @@ function _ballToDouble(value: any): any {
   return new BallDouble(0);
 }
 
+function _ballValueIsSet(v: any): any {
+  const input = v;
+  return (((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && __ball_eq(v.length, 1)) && (_kBallSetTag in v));
+}
+
 function _ballIsInt(v: any): any {
   const input = v;
   return ((typeof v === 'number' && Number.isInteger(v)) || (typeof v === 'number' && Number.isInteger(v)));
@@ -9744,7 +10014,7 @@ function _ballIsList(v: any): any {
 
 function _ballIsMap(v: any): any {
   const input = v;
-  return ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) || false /* BallMap is Map in TS */);
+  return (((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) || false /* BallMap is Map in TS */) && !_ballValueIsSet(v));
 }
 
 function _ballGeneratorValues(gen: any): any {

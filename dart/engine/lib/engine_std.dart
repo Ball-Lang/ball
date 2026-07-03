@@ -88,18 +88,32 @@ extension BallEngineStd on BallEngine {
   /// live list (callers may mutate it to mutate the set, mirroring
   /// `Set.add`/`Set.remove`); for a native `Set` (TS self-host) it is a copy.
   List<Object?> _ballSetItems(Object? v) {
-    if (v is Set) return v.toList();
-    // Bind the cast to a plain local before indexing (not `(v as Map)[key]`
-    // inline): field/index access chained directly off a cast expression is a
-    // known Dart→C++ lowering trap for this self-hosted engine source (see
-    // .claude/rules/dart.md), and this helper is the hottest path for the
-    // portable ordered-set value (issue #68) — nearly every set operation
+    // Check the portable map form (`{'__ball_set__': [...]}`) via
+    // `_ballValueIsSet` BEFORE the native-`Set` branch below. This ordering is
+    // load-bearing on the C++ self-host: there `v is Set` compiles to
+    // `ball_is_ball_set`, which is *also* true for the portable map form (issue
+    // #68) — so a leading `if (v is Set) return v.toList()` would call
+    // `.toList()` (→ `ball_list_copy`) on the backing MAP, which returns an
+    // empty list, silently collapsing every non-empty set to `{}`/`[]`.
+    // `_ballValueIsSet` matches *only* the map form, so it disambiguates
+    // correctly on every target: Dart/C++ take this branch; the TS self-host
+    // (native JS `Set`s, where `_ballValueIsSet` is false) falls through to the
+    // `v is Set` branch below. Bind the cast to a plain local before indexing
+    // (not `(v as Map)[key]` inline): field/index access chained directly off a
+    // cast expression is a known Dart→C++ lowering trap for this self-hosted
+    // engine source (see .claude/rules/dart.md), and this helper is the hottest
+    // path for the ordered-set value — nearly every set operation
     // (contains/add/union/intersection/difference/length/printing/toList)
     // routes through it.
-    final setMap = v as Map;
-    final raw = setMap[_kBallSetTag];
-    if (raw is BallList) return raw.items;
-    if (raw is List) return raw as List<Object?>;
+    if (_ballValueIsSet(v)) {
+      final setMap = v as Map;
+      final raw = setMap[_kBallSetTag];
+      if (raw is BallList) return raw.items;
+      if (raw is List) return raw as List<Object?>;
+      return <Object?>[];
+    }
+    // Native `Set` (TS self-host keeps JS `Set`s).
+    if (v is Set) return v.toList();
     return <Object?>[];
   }
 

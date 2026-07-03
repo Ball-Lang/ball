@@ -1743,7 +1743,7 @@ export class BallEngine {
         this._currentModule = module.name;
         let value = (hasBody(func) ? await this._evalExpression(func.body, this._globalScope) : null);
         if (func.outputType.startsWith('Map')) {
-          if (((value instanceof Set) && (value.length === 0))) {
+          if ((this._isBallSet(value) && (this._ballSetItems(value).length === 0))) {
             value = _ballUserMap();
           }
           if ((Array.isArray(value) && (value.length === 0))) {
@@ -6532,16 +6532,19 @@ export class BallEngine {
 
   _ballSetItems(v: any): any {
     const input = v;
+    if (_ballValueIsSet(v)) {
+      let setMap = v;
+      let raw = __ball_index(setMap, _kBallSetTag);
+      if (false /* BallList is List in TS */) {
+        return raw.items;
+      }
+      if (Array.isArray(raw)) {
+        return raw;
+      }
+      return [];
+    }
     if ((v instanceof Set)) {
       return [...v];
-    }
-    let setMap = v;
-    let raw = __ball_index(setMap, _kBallSetTag);
-    if (false /* BallList is List in TS */) {
-      return raw.items;
-    }
-    if (Array.isArray(raw)) {
-      return raw;
     }
     return [];
   }

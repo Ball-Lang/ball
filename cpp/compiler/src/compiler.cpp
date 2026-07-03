@@ -2498,7 +2498,9 @@ static std::string _typeCheckCondition(const std::string& typeName, const std::s
         return "(ball_is_list(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallList\"s))";
     }
     if (typeName == "Map") {
-        return "(ball_is_map_dyn(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallMap\"s))";
+        // Exclude the portable ordered set (one-key `{'__ball_set__': [...]}`
+        // map) from a `Map` type pattern — a set is not a Map (issue #68).
+        return "((ball_is_map_dyn(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallMap\"s)) && !ball_is_ball_set(BallDyn(" + subject + ")))";
     }
     return "ball_object_type_matches(" + subject + ", \"" + typeName + "\"s)";
 }
@@ -3499,9 +3501,15 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
 
         if (fn == "_ballIsMap") {
             const std::string val = argAt(0, "map");
-            return "(ball_is_map_dyn(BallDyn(" + val +
+            // A portable ordered set is stored as a one-key
+            // `{'__ball_set__': [...]}` map, so it must be EXCLUDED from
+            // `is Map` — matching the Dart source `_ballIsMap`, which ends
+            // `&& !_ballValueIsSet(v)`. Without the exclusion `set is Map`
+            // wrongly returns true (issue #68).
+            return "((ball_is_map_dyn(BallDyn(" + val +
                    ")) || ball_object_type_matches(BallDyn(" + val +
-                   "), \"BallMap\"s))";
+                   "), \"BallMap\"s)) && !ball_is_ball_set(BallDyn(" + val +
+                   ")))";
         }
         if (fn == "_ballMapValues" || fn == "_ballMapValuesDyn") {
             return "ball_list_copy(ball_map_values(BallDyn(" + argAt(0, "map") +
@@ -9133,7 +9141,10 @@ void CppCompiler::emit_function(const ball::v1::FunctionDefinition& func) {
         emit_indent();
         out_ << return_type << " " << name << "(BallDyn v) {\n";
         indent_++;
-        emit_line("return BallDyn(ball_is_map_dyn(v) || ball_object_type_matches(v, \"BallMap\"s));");
+        // Exclude the portable ordered set (a one-key `{'__ball_set__': [...]}`
+        // map) — matches the Dart source `_ballIsMap`'s `&& !_ballValueIsSet(v)`
+        // (issue #68). Keep in lockstep with the inlined `_ballIsMap` fast-path.
+        emit_line("return BallDyn((ball_is_map_dyn(v) || ball_object_type_matches(v, \"BallMap\"s)) && !ball_is_ball_set(v));");
         indent_--;
         emit_line("}\n");
         return;

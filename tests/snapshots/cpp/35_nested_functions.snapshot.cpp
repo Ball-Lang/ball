@@ -4049,6 +4049,18 @@ inline std::string ball_to_string(const BallDyn& d) {
     return static_cast<std::string>(d);
 }
 
+// ball_to_string overloads for raw container values. A map/list literal in
+// expression position can compile to an IIFE returning the bare container
+// (not wrapped in BallDyn) — e.g. `print({'evens': [2, 4]})` — which
+// otherwise falls into the generic std::to_string template and fails to
+// compile (conformance 350). Delegate to BallDyn's Dart-style rendering.
+inline std::string ball_to_string(const BallOrderedMap& m) {
+    return ball_to_string(BallDyn(m));
+}
+inline std::string ball_to_string(const BallList& l) {
+    return ball_to_string(BallDyn(l));
+}
+
 // Assignment-as-expression for plain (non-field/index) targets. `std::string =
 // BallDyn` is ambiguous under gcc/clang: BallDyn->std::string and BallDyn->char
 // go through different conversion operators, so std::string::operator=(const

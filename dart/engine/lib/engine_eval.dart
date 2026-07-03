@@ -672,12 +672,6 @@ extension BallEngineEval on BallEngine {
       }
     }
 
-    // Handle built-in type references (List, Map, Set) as class-like objects
-    // for static method dispatch (e.g., List.generate, Map.fromEntries).
-    if (name == 'List' || name == 'Map' || name == 'Set') {
-      return BallMap({'__class_ref__': name, '__type__': '__builtin_class__'});
-    }
-
     if (scope.has(name)) {
       final bound = scope.lookup(name);
       if (bound != null) return bound;
@@ -809,6 +803,16 @@ extension BallEngineEval on BallEngine {
       }
       _globalScope.bind(staticField.fullName, value);
       return value;
+    }
+
+    // Handle built-in type references (List, Map, Set) as class-like objects
+    // for static method dispatch (e.g., List.generate, Map.fromEntries). This
+    // is a LAST resort — a local/parameter/instance-field named List/Map/Set
+    // (checked above via scope + the `self` fallback) shadows the builtin, just
+    // as it does in real Dart (issue #167). Only a bare `List`/`Map`/`Set` with
+    // no such binding in scope reaches here and resolves to the sentinel.
+    if (name == 'List' || name == 'Map' || name == 'Set') {
+      return BallMap({'__class_ref__': name, '__type__': '__builtin_class__'});
     }
 
     return scope.lookup(name);
@@ -1302,16 +1306,27 @@ extension BallEngineEval on BallEngine {
 
         final instanceFields = <String, Object?>{};
         final allFieldNames = _collectAllFieldNames(msg.typeName);
-        for (final fieldName in typeDef.fieldNames) {
-          instanceFields[fieldName] = null;
-        }
 
+        // Explicit messageCreation fields (named/positional args) take
+        // precedence over inline field initializers.
         for (final entry in fields.entries) {
           if (!entry.key.startsWith('arg')) {
             instanceFields[entry.key] = entry.value;
           }
         }
+        // Apply this type's own inline field initializers (`var x = <expr>;`)
+        // for any field the caller did not supply. This MUST run before the
+        // null pre-seed below — previously every declared field was pre-seeded
+        // to null first, which made _initFieldDefaults a no-op (it skips fields
+        // already present) and left every initialized field null.
         _initFieldDefaults(msg.typeName, instanceFields);
+        // Ensure every declared field exists (null when neither supplied nor
+        // initialized) so field access returns null instead of throwing.
+        for (final fieldName in typeDef.fieldNames) {
+          if (!instanceFields.containsKey(fieldName)) {
+            instanceFields[fieldName] = null;
+          }
+        }
 
         final ctorEntry = _lookupConstructor(msg.typeName);
         final resolvedParams = <String, Object?>{};
@@ -1630,7 +1645,11 @@ extension BallEngineEval on BallEngine {
     }
   }
 
-  /// Parse a simple initializer string like "[]", "{}", "0", "''", etc.
+  /// Parse a simple field-initializer source string (stored by the encoder as
+  /// `TypeDefinition.metadata.fields[i].initializer`) into a runtime value:
+  /// "[]", "{}", "0", "''", "true", a quoted string, or a flat list literal of
+  /// such scalars like "[10, 20, 30]". Nested collections and non-literal
+  /// expressions fall back to raw-string best-effort (the historical behavior).
   Object? _parseInitializer(String init) {
     final trimmed = init.trim();
     if (trimmed == '[]') return <Object?>[];
@@ -1639,13 +1658,33 @@ extension BallEngineEval on BallEngine {
     if (trimmed == 'true') return true;
     if (trimmed == 'false') return false;
     if (trimmed == '""' || trimmed == "''") return '';
+    // Flat list literal of scalar elements, e.g. "[10, 20, 30]" or "['a', 'b']".
+    // Uses the same comma-split-then-trim shape as _parseSuperArgs (proven
+    // portable on the self-hosted TS/C++ engines). Nested collection literals
+    // are not comma-safe under a flat split, so recurse per element only when
+    // the inner content has no nested `[`/`{` bracket.
+    if (trimmed.length >= 2 &&
+        trimmed.startsWith('[') &&
+        trimmed.endsWith(']')) {
+      final inner = trimmed.substring(1, trimmed.length - 1).trim();
+      if (inner.isEmpty) return <Object?>[];
+      if (!inner.contains('[') && !inner.contains('{')) {
+        return inner
+            .split(',')
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .map((s) => _parseInitializer(s))
+            .toList();
+      }
+    }
     final intVal = int.tryParse(trimmed);
     if (intVal != null) return intVal;
     final doubleVal = double.tryParse(trimmed);
     if (doubleVal != null) return doubleVal;
     // String literal with quotes
-    if ((trimmed.startsWith("'") && trimmed.endsWith("'")) ||
-        (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+    if (trimmed.length >= 2 &&
+        ((trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+            (trimmed.startsWith('"') && trimmed.endsWith('"')))) {
       return trimmed.substring(1, trimmed.length - 1);
     }
     return trimmed;
@@ -1701,12 +1740,22 @@ extension BallEngineEval on BallEngine {
     // Copy descriptor fields from the parent type into __super__.
     final parentTypeDef = _findTypeDef(superclass);
     if (parentTypeDef != null) {
+      // Propagate any child-resolved values for fields the parent declares.
       for (final fname in parentTypeDef.fieldNames) {
-        // If the child already set this field, propagate it to super too.
         if (childFields.containsKey(fname)) {
           superFields[fname] = childFields[fname];
         }
-        // Otherwise leave it absent (will be null on access).
+      }
+      // Run the parent's own inline field initializers for inherited fields the
+      // child never set. Without this, an implicit (no-arg) default constructor
+      // synthesizes a __super__ that omits initialized-only fields, so reading
+      // an inherited field throws "Field not found" instead of returning its
+      // initialized value (issue #166).
+      _initFieldDefaults(superclass, superFields);
+      // Ensure every parent-declared field exists (null) so an inherited read
+      // returns null rather than throwing when it has no initializer.
+      for (final fname in parentTypeDef.fieldNames) {
+        if (!superFields.containsKey(fname)) superFields[fname] = null;
       }
 
       // Attach methods belonging to the parent type.

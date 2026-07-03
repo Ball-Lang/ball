@@ -1691,7 +1691,17 @@ extension BallEngineStd on BallEngine {
       // `map` is safe and self-hosts like every other `_stdAsMap` use.
       if (typeName == null) {
         final parts = <String>[];
-        for (final e in map.entries) {
+        // Iterate the map with its ORIGINAL keys. `_stdAsMap` hands back a
+        // `.cast<String, Object?>()` VIEW whose `.entries` throws the instant a
+        // non-String key is coerced — a `Map<int, int>` built by index-assign
+        // (`m[1] = …`) is exactly that. Keys are stringified generically below,
+        // so the original key type is irrelevant. On the C++/TS self-host every
+        // map is string-keyed (BallOrderedMap), so `v` and `map` are the same
+        // ordered map there and this renders identically (Dart-only guard).
+        final Map<Object?, Object?> rawMap = (v is Map && v is! BallMap)
+            ? v
+            : map;
+        for (final e in rawMap.entries) {
           // Await into locals BEFORE interpolating: `await` inside a string
           // interpolation does not survive the self-host round-trip (it embeds
           // an unawaited Future), so mirror the List branch's statement form.

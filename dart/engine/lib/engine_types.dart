@@ -110,9 +110,18 @@ double _ballToDouble(Object? value) {
 const String _kBallSetTag = '__ball_set__';
 
 /// True when [v] is the portable ordered-set representation
-/// (`{'__ball_set__': [...]}` — a one-key map with the set marker).
-bool _ballValueIsSet(Object? v) =>
-    v is Map && v.length == 1 && v.containsKey(_kBallSetTag);
+/// (`{'__ball_set__': [...]}` — a map carrying the set marker key).
+///
+/// Keys ONLY on the marker — NOT on `v.length == 1`. On the C++/TS self-hosts a
+/// set's `.length`/`size()` is dispatched to the WRAPPED list's element count
+/// (so `mySet.length` works for user programs), so `v.length` is the element
+/// count there, not the map's key count — a multi-element set has
+/// `v.length != 1` and the old guard misclassified it (`{1,2} is Map` → true,
+/// nested sets mis-rendered on the self-host). The `__ball_set__` marker is only
+/// ever produced by set construction (an empty `{}` now encodes as `map_create`,
+/// non-empty set literals are unambiguous), so the marker alone identifies a set
+/// on every target.
+bool _ballValueIsSet(Object? v) => v is Map && v.containsKey(_kBallSetTag);
 
 /// Strict runtime type tests for pattern matching (avoid `is double` → num widen).
 bool _ballIsInt(Object? v) => v is int || v is BallInt;

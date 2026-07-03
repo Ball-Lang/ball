@@ -4279,6 +4279,40 @@ class DartEncoder {
     return false;
   }
 
+  /// Whether an empty, untyped `{}` collection literal is the initializer of a
+  /// variable whose SYNTACTICALLY VISIBLE declared type is `Set<...>` — the only
+  /// case where a bare empty braces literal encodes as a Set rather than the Map
+  /// default. The encoder is `parseString`-syntactic (no resolution), so this
+  /// inspects only the literal's immediate declaration context:
+  ///   `Set<int> x = {};`   (local / field / top-level variable declaration)
+  ///
+  /// Notably NOT honored (verified against the `dart run` oracle):
+  ///   - `{} as Set<int>` — Dart infers the bare `{}` as `Map` FIRST, then the
+  ///     cast throws `_TypeError` at runtime. Encoding it as a Set would make
+  ///     the Ball program silently produce a set where Dart throws, so it stays
+  ///     a Map (and the engine's `as` cast then fails, matching Dart).
+  ///   - return-position / argument-position context (`Set<int> f() => {}`,
+  ///     `takesSet({})`): genuinely sets in Dart, but no Ball-portable source
+  ///     relies on them (all empty `{}` in the corpus and the self-hosted engine
+  ///     are `Map<..>` declarations or the one `Set<int> seen = {}` var-decl).
+  ///     Argument position also needs callee resolution the encoder lacks.
+  bool _emptyBracesDeclaredAsSet(ast.SetOrMapLiteral expr) {
+    final parent = expr.parent;
+    if (parent is ast.VariableDeclaration &&
+        identical(parent.initializer, expr)) {
+      final list = parent.parent;
+      if (list is ast.VariableDeclarationList) {
+        final type = list.type;
+        if (type != null) {
+          final src = type.toSource();
+          // Anchor on the `Set` name so `SetLike<int>` cannot false-positive.
+          return src == 'Set' || src.startsWith('Set<');
+        }
+      }
+    }
+    return false;
+  }
+
   Expression _encodeSetOrMapLiteral(ast.SetOrMapLiteral expr) {
     // Determine if it is a map or a set.
     // Note: isMap on SetOrMapLiteral requires full type resolution and returns
@@ -4286,17 +4320,38 @@ class DartEncoder {
     //   1. Two type arguments → always a map  e.g. <String, dynamic>{}
     //   2. Non-empty and first element is MapLiteralEntry → map
     //   3. Otherwise → set
-    final hasDoubleTypeArgs = (expr.typeArguments?.arguments.length ?? 0) == 2;
+    final typeArgCount = expr.typeArguments?.arguments.length ?? 0;
+    final hasDoubleTypeArgs = typeArgCount == 2;
+    final hasSingleTypeArg = typeArgCount == 1;
     // A comprehension element (`for`/`if`) whose leaf is a `key: value` entry
     // makes the whole literal a MAP, even though `elements.first` is the
     // For/If element rather than the entry itself. Look THROUGH comprehension
     // elements so `{for (...) k: v}` encodes as a map, not a set (issue #55).
     final hasMapEntry = expr.elements.any(_collectionElementYieldsMapEntry);
-    // A bare empty `{}` is ambiguous without type resolution (Dart defaults it
-    // to a Map, but `Set<T> x = {}` is a set). It stays encoded as an empty
-    // `set_create`; the engine coerces an empty set to a map when the declared
-    // `let`/field type is a Map (see `_ballUserMap` coercion in engine_eval).
-    final isMap = hasDoubleTypeArgs || hasMapEntry;
+    // Decide set-vs-map syntactically (parseString has no static types):
+    //   - `<K, V>{...}` (two type args)      -> Map (unambiguous)
+    //   - any `key: value` entry             -> Map (even inside a for/if)
+    //   - `<T>{...}` (one type arg)          -> Set (unambiguous)
+    //   - non-empty bare braces `{a, b}`     -> Set (`{k: v}` took hasMapEntry)
+    //   - EMPTY bare braces `{}`             -> AMBIGUOUS: default to Map
+    //     (Dart's own default; the `dart run` oracle treats `var x = {}` and
+    //     `Map<..> x = {}` as a Map), UNLESS a syntactically visible declared
+    //     type says Set (`Set<..> x = {}` / `{} as Set<..>`).
+    //
+    // An empty `{}` used to be encoded ALWAYS as `set_create`, relying on the
+    // engine to coerce it back to a Map by the `let`/field type. That worked on
+    // the tree-walkers but mis-tagged the value on the C++ direct-compile path
+    // (no such coercion): once an empty set began carrying the portable set tag
+    // `{'__ball_set__': []}`, `Map<int,int> m = {}` was constructed as a set and
+    // corrupted every subsequent map op (issues #174 / #184 root cause).
+    final bool isMap;
+    if (hasDoubleTypeArgs || hasMapEntry) {
+      isMap = true;
+    } else if (hasSingleTypeArg || expr.elements.isNotEmpty) {
+      isMap = false; // unambiguous Set literal
+    } else {
+      isMap = !_emptyBracesDeclaredAsSet(expr);
+    }
 
     if (isMap) {
       _usedBaseFunctions.add('map_create');

@@ -409,6 +409,16 @@ struct _BallRefDeref {
     static const std::map<std::string, std::any>* obj_map(const std::any& v) {
         return _obj_map_fn ? _obj_map_fn(v) : nullptr;
     }
+    // Portable ordered-set backing list (issue #174): a Ball `Set` value is
+    // the one-key `{'__ball_set__': [...]}` map (see ball_is_ball_set in
+    // ball_dyn.h). This extracts the WRAPPED list from that shape, or
+    // nullptr if `v` isn't it. Registered by ball_dyn.h; null (no-op) in
+    // contexts that don't compile it.
+    using SetListFn = const std::vector<std::any>* (*)(const std::any&);
+    static inline SetListFn _set_list_fn = nullptr;
+    static const std::vector<std::any>* set_list(const std::any& v) {
+        return _set_list_fn ? _set_list_fn(v) : nullptr;
+    }
 };
 
 // std::any — attempt known types, fallback to type name.
@@ -1057,6 +1067,9 @@ inline std::vector<std::any> ball_to_list(const std::any& raw) {
         return std::any_cast<std::vector<std::any>>(v);
     if (const std::vector<std::any>* lp = _BallRefDeref::list(v))
         return *lp;
+    // Portable ordered-set value (issue #174): unwrap to its backing list.
+    if (const std::vector<std::any>* sp = _BallRefDeref::set_list(v))
+        return *sp;
     if (v.type() == typeid(std::vector<std::string>)) {
         auto& sv = std::any_cast<const std::vector<std::string>&>(v);
         std::vector<std::any> r;

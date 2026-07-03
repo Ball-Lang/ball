@@ -36,3 +36,8 @@ engine test harnesses instead — `dart/engine/test/conformance_test.dart` and
   `now()`-derived components are host-controlled (non-deterministic), so it cannot be
   generated from portable Dart source. Hand-authored; revisit if `std_time` encoder
   routing + a mockable clock are added.
+- `390_goto_label` — exercises the `label` / `goto` base functions (a backward goto
+  loop printing `0,1,2`). No source language surfaced by an encoder has a
+  `goto`/label statement, so it cannot be generated from portable source. Hand-authored
+  (issue #184); it is the regression guard for the C++ self-host label loop — the
+  reified thrown `_FlowSignal` fix in `engine_control_flow.dart._gotoSignalLabel`.

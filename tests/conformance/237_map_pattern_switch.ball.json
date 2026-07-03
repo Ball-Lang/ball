@@ -31,15 +31,11 @@
           "isBase": true
         },
         {
-          "name": "set_create",
+          "name": "map_create",
           "isBase": true
         },
         {
           "name": "print",
-          "isBase": true
-        },
-        {
-          "name": "map_create",
           "isBase": true
         }
       ],
@@ -679,20 +675,10 @@
                                   "input": {
                                     "call": {
                                       "module": "std",
-                                      "function": "set_create",
+                                      "function": "map_create",
                                       "input": {
                                         "messageCreation": {
-                                          "typeName": "",
-                                          "fields": [
-                                            {
-                                              "name": "elements",
-                                              "value": {
-                                                "literal": {
-                                                  "listValue": {}
-                                                }
-                                              }
-                                            }
-                                          ]
+                                          "typeName": ""
                                         }
                                       }
                                     }

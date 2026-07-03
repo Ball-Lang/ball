@@ -33,6 +33,8 @@ Each implementation documents its own generated/editable files. See the per-lang
 | Path | What it is | Editable? |
 |------|-----------|-----------|
 | `proto/ball/v1/ball.proto` | Language schema | Yes — run `buf lint` + `buf generate` after |
+| `ball.schema.json` | JSON Schema (Draft 2020-12) mirroring `ball.proto`'s protobuf-JSON wire format, for JSON-only (non-protobuf) language implementers | Yes — keep in sync with `ball.proto`; re-run `scripts/validate_ball_schema.py` after any change |
+| `docs/BALL_JSON_SPEC.md` | Narrative companion to `ball.schema.json` | Yes |
 | `dart/shared/lib/std.dart` | Std library definition | Yes — run `gen_std.dart` after |
 | `dart/shared/std.json` | Compiled std module | NO — generated |
 | `dart/shared/lib/gen/` | Protobuf Dart types | NO — generated |

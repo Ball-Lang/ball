@@ -1,3 +1,10 @@
+## [1.4.3](https://github.com/Ball-Lang/ball/compare/v1.4.2...v1.4.3) (2026-07-03)
+
+
+### Bug Fixes
+
+* **cpp:** ball_to_string overloads for raw BallOrderedMap/BallList ([#173](https://github.com/Ball-Lang/ball/issues/173)) ([f1534ef](https://github.com/Ball-Lang/ball/commit/f1534efacd8af27cc662c8cd472c8f0491ce4e1c))
+
 ## [1.4.2](https://github.com/Ball-Lang/ball/compare/v1.4.1...v1.4.2) (2026-07-03)
 
 

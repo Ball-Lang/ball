@@ -1,3 +1,8 @@
+## 0.3.0+5
+
+ - **FIX**(cpp): finish [#18](https://github.com/ball-lang/ball/issues/18) protobuf-RT smoke canary verification; regenerate real functions. ([5b5917f2](https://github.com/ball-lang/ball/commit/5b5917f29ae1a19c4e36a626caa13dde953616ab))
+ - **FIX**(compiler): keep implicit-ctor field initializers, drop synthesized param. ([9e26d421](https://github.com/ball-lang/ball/commit/9e26d421a2a890ad560194922cda95d70e734a8b))
+
 ## 0.3.0+4
 
  - **FIX**(engine,cpp): inherited field initializers, fields named List/Map/Set, byte-exact toStringAsExponential/Precision ([#166](https://github.com/ball-lang/ball/issues/166), [#167](https://github.com/ball-lang/ball/issues/167), [#100](https://github.com/ball-lang/ball/issues/100)) ([#181](https://github.com/ball-lang/ball/issues/181)). ([f0af3967](https://github.com/ball-lang/ball/commit/f0af3967009c34c36afc4064693a5fdb60b5835e))

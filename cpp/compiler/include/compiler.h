@@ -65,6 +65,17 @@ public:
     // Namespace used for multi-TU emission (single-TU uses anonymous namespace).
     static constexpr const char* kSplitNamespace = "ball_rt";
 
+    // Stable marker emitted immediately after the spliced shared runtime
+    // preamble (BALL_EMIT_RUNTIME_SOURCE + BALL_DYN_SOURCE + the inline
+    // proto-compat/dyn helpers), before any program-specific emission. The
+    // runtime preamble is identical across every compiled program — tests
+    // that pin emitted output (see cpp/test/test_snapshot.cpp) strip
+    // everything up to and including this marker so runtime-header edits
+    // don't churn every snapshot (issue #147). Keep this marker line-unique
+    // and don't emit it anywhere else.
+    static constexpr const char* kRuntimePreambleEndMarker =
+        "// === BALL EMITTED PROGRAM ===";
+
 private:
     ball::v1::Program program_;
 

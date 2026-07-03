@@ -7,7 +7,7 @@
       "name": "std",
       "functions": [
         {
-          "name": "set_create",
+          "name": "map_create",
           "isBase": true
         },
         {
@@ -118,20 +118,10 @@
           "body": {
             "call": {
               "module": "std",
-              "function": "set_create",
+              "function": "map_create",
               "input": {
                 "messageCreation": {
-                  "typeName": "",
-                  "fields": [
-                    {
-                      "name": "elements",
-                      "value": {
-                        "literal": {
-                          "listValue": {}
-                        }
-                      }
-                    }
-                  ]
+                  "typeName": ""
                 }
               }
             }

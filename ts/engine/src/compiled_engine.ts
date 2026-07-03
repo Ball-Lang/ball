@@ -1389,7 +1389,7 @@ export class BallEngine {
     this.moduleHandlers = moduleHandlers;
     this._validateProgramLimits();
     if (enableProfiling) {
-      this._callCounts = new Set();
+      this._callCounts = {};
     }
     for (const handler of this.moduleHandlers) {
       handler.init(this);
@@ -1428,7 +1428,7 @@ export class BallEngine {
   }
 
   profilingReport(): any {
-    return Map.unmodifiable((this._callCounts ?? new Set()));
+    return Map.unmodifiable((this._callCounts ?? {}));
   }
 
   callFunction(module: any, function_: any, input: any): any {
@@ -2212,7 +2212,7 @@ export class BallEngine {
         fields[entry.key] = entry.value;
       }
     }
-    return new BallObject({ typeName: typeName, superObject: __ball_index(instance, '__super__'), fields: fields, methods: (__ball_index(instance, '__methods__') ?? new Set()) });
+    return new BallObject({ typeName: typeName, superObject: __ball_index(instance, '__super__'), fields: fields, methods: (__ball_index(instance, '__methods__') ?? {}) });
   }
 
   async _invokeSuperConstructor(childCtor: any, superclass: any, resolvedParams: any): Promise<any> {
@@ -4553,7 +4553,7 @@ export class BallEngine {
   _lazyFields(call: any): any {
     const input = call;
     if ((!hasInput(call) || !__ball_eq(whichExpr(call.input), Expression_Expr.messageCreation))) {
-      return new Set();
+      return {};
     }
     let result = {};
     for (const f of call.input.messageCreation.fields) {
@@ -5822,6 +5822,20 @@ export class BallEngine {
     throw new _FlowSignal('goto', { label: label });
   }
 
+  _gotoSignalLabel(signal: any): any {
+    const input = signal;
+    if ((signal instanceof _FlowSignal)) {
+      return (__ball_eq(signal.kind, 'goto') ? signal.label : null);
+    }
+    if ((typeof signal === 'string')) {
+      return signal;
+    }
+    if (((typeof signal === 'object' && signal !== null && !Array.isArray(signal) && !(signal instanceof BallDouble) && !(signal instanceof Set)) && __ball_eq(__ball_index(signal, 'kind'), 'goto'))) {
+      let l = __ball_index(signal, 'label');
+      return ((typeof l === 'string') ? l : null);
+    }
+  }
+
   async _evalLabel(call: any, scope: any): Promise<any> {
     let fields = this._lazyFields(call);
     let label = this._stringFieldVal(fields, 'name');
@@ -5838,13 +5852,13 @@ export class BallEngine {
       } catch (__ball_active_error) {
         const e = __ball_active_error;
         let signal = e;
-        if ((((signal instanceof _FlowSignal) && __ball_eq(signal.kind, 'goto')) && __ball_eq(signal.label, label))) {
+        if (__ball_eq(this._gotoSignalLabel(signal), label)) {
           repeat = true;
         } else {
           throw __ball_active_error;
         }
       }
-      if ((((!repeat && (result instanceof _FlowSignal)) && __ball_eq(result.kind, 'goto')) && __ball_eq(result.label, label))) {
+      if ((!repeat && __ball_eq(this._gotoSignalLabel(result), label))) {
         repeat = true;
       }
     }
@@ -8320,7 +8334,8 @@ export class BallEngine {
       }
       if (__ball_eq(typeName, null)) {
         let parts = [];
-        for (const e of map.entries) {
+        let rawMap = (((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && !(false /* BallMap is Map in TS */)) ? v : map);
+        for (const e of rawMap.entries) {
           let k = await this._ballToStringAsync(e.key);
           let val = await this._ballToStringAsync(e.value);
           parts = (parts.push(((__ball_to_string(k) + ': ') + __ball_to_string(val))), parts);
@@ -9044,7 +9059,7 @@ export class BallEngine {
     }
     let list = this._stdAsList(fields);
     if (__ball_eq(list, null)) {
-      return new Set();
+      return {};
     }
     let result = {};
     let positional = 1;
@@ -10005,7 +10020,7 @@ function _ballToDouble(value: any): any {
 
 function _ballValueIsSet(v: any): any {
   const input = v;
-  return (((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && __ball_eq(v.length, 1)) && (_kBallSetTag in v));
+  return ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && (_kBallSetTag in v));
 }
 
 function _ballIsInt(v: any): any {

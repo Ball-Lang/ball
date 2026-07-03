@@ -1398,6 +1398,41 @@ extension BallEngineControlFlow on BallEngine {
     throw _FlowSignal('goto', label: label);
   }
 
+  /// The target label of a caught-or-returned `goto` flow signal, or `null`
+  /// when [signal] is not a goto. Recognizes every representation so the label
+  /// loop below works on all three self-hosts:
+  ///   - the live `_FlowSignal` object — the Dart tree-walker and the TS
+  ///     self-host preserve the thrown/returned object identity (`.kind` /
+  ///     `.label`); and
+  ///   - the C++ self-host's reified exception. Its throw/catch machinery
+  ///     turns `throw _FlowSignal('goto', label: <label>)` into
+  ///     `_ball_make_exception('_FlowSignal', <label>)`, and — because the
+  ///     payload is a bare STRING with no structured fields —
+  ///     `_ball_exception_to_dyn` (engine_rt.cpp) unwraps it to the BARE label
+  ///     string on `catch`, dropping the `_FlowSignal` type entirely. So on
+  ///     C++ a caught goto arrives as just the label string.
+  ///
+  /// The bare-string arm is only reachable for a value that carries no
+  /// flow-signal shape; `_FlowSignal` is thrown ONLY for goto (issue #184), and
+  /// the sole caller gates the result on `== label` (this label's own name), so
+  /// an unrelated `throw '<some string>'` inside a label body still propagates
+  /// (its string just won't equal this label's name). Without the bare-string
+  /// arm the C++ self-host rethrew every backward goto and a labelled loop ran
+  /// exactly once.
+  String? _gotoSignalLabel(Object? signal) {
+    if (signal is _FlowSignal) {
+      return signal.kind == 'goto' ? signal.label : null;
+    }
+    // C++ self-host: the reified thrown goto is the bare label string.
+    if (signal is String) return signal;
+    // Defensive: a portable / returned flow-signal map form.
+    if (signal is Map && signal['kind'] == 'goto') {
+      final l = signal['label'];
+      return l is String ? l : null;
+    }
+    return null;
+  }
+
   Future<Object?> _evalLabel(FunctionCall call, _Scope scope) async {
     final fields = _lazyFields(call);
     final label = _stringFieldVal(fields, 'name');
@@ -1420,20 +1455,17 @@ extension BallEngineControlFlow on BallEngine {
         // Read the signal through a plain local, NOT the catch variable:
         // the Dart compiler lowers `e.field` on a catch-bound variable to
         // map-subscript form (`e['field']`, since Ball-thrown exceptions are
-        // maps), and after the `is _FlowSignal` promotion in the same `&&`
-        // chain that subscript is a static error in the round-tripped engine
-        // ("operator '[]' isn't defined for _FlowSignal"). Aliasing to a
-        // local first matches how the rest of the engine reads flow signals
-        // (`result is _FlowSignal && result.kind == ...`), which round-trips
-        // cleanly on all three targets. The alias also keeps this catch body
-        // a multi-statement Block, which the C++ compiler needs to emit a
-        // statement-form if/else — a bare single-`if` catch body falls back
-        // to expression compilation, rendering `rethrow` (a void C++ throw)
-        // as a ternary branch ("invalid use of void expression").
+        // maps), and the round-tripped engine trips over that. Aliasing to a
+        // local first matches how the rest of the engine reads flow signals.
+        // The alias also keeps this catch body a multi-statement Block, which
+        // the C++ compiler needs to emit a statement-form if/else — a bare
+        // single-`if` catch body falls back to expression compilation,
+        // rendering `rethrow` (a void C++ throw) as a ternary branch
+        // ("invalid use of void expression"). Recognize the goto via
+        // `_gotoSignalLabel` so the C++ self-host's reified thrown signal
+        // (which loses `kind`/`label`) is still matched (issue #184).
         final Object signal = e;
-        if (signal is _FlowSignal &&
-            signal.kind == 'goto' &&
-            signal.label == label) {
+        if (_gotoSignalLabel(signal) == label) {
           repeat = true; // backward goto: re-execute the label body
         } else {
           rethrow;
@@ -1441,10 +1473,7 @@ extension BallEngineControlFlow on BallEngine {
       }
       // Defensive: also honor a goto signal that is returned (not thrown)
       // by the body, mirroring how break/continue signals propagate.
-      if (!repeat &&
-          result is _FlowSignal &&
-          result.kind == 'goto' &&
-          result.label == label) {
+      if (!repeat && _gotoSignalLabel(result) == label) {
         repeat = true;
       }
     }
